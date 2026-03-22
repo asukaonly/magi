@@ -349,6 +349,46 @@ class ChatStore:
             )
             await db.commit()
 
+    async def get_latest_message_for_turn(
+        self,
+        turn_id: str,
+        *,
+        message_kind: str | None = None,
+    ) -> ChatMessageRecord | None:
+        """Return the latest transcript message for one turn."""
+        sql = """
+            SELECT message_id, session_id, turn_id, user_id, role, message_kind,
+                   content_text, payload_json, is_final, is_visible, created_at_ms,
+                   sequence_no, replaces_message_id, replaced_by_message_id
+            FROM chat_messages
+            WHERE turn_id = ?
+        """
+        params: tuple[object, ...]
+        if message_kind:
+            sql += " AND message_kind = ?"
+            params = (turn_id, message_kind)
+        else:
+            params = (turn_id,)
+        sql += " ORDER BY created_at_ms DESC, sequence_no DESC LIMIT 1"
+        row = await self._fetchone(sql, params)
+        if row is None:
+            return None
+        return self._row_to_message(row)
+
+    async def next_sequence_no(self, *, session_id: str) -> int:
+        """Return the next display sequence number for one session."""
+        row = await self._fetchone(
+            """
+            SELECT COALESCE(MAX(sequence_no), 0) AS max_sequence_no
+            FROM chat_messages
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+        if row is None:
+            return 1
+        return int(row["max_sequence_no"] or 0) + 1
+
     async def get_turn(self, turn_id: str) -> ChatTurnRecord | None:
         """Return one chat turn by ID."""
         row = await self._fetchone(

@@ -5,6 +5,7 @@ from typing import Optional
 
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
+from ...chat import ChatStore
 from ...config import get_config
 from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
@@ -60,6 +61,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         scenario_prompts_store=None,
         skill_runner=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
+        chat_store: ChatStore | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -140,6 +142,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             max_fact_memory=self._max_fact_memory,
             trace_read_service=trace_read_service,
             runtime_trace_store=runtime_trace_store,
+            chat_store=chat_store,
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,

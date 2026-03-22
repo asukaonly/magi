@@ -4,6 +4,7 @@ import json
 import pytest
 
 from magi.awareness.contracts import ActionEmissionRecord
+from magi.chat import ChatStore
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
@@ -155,6 +156,16 @@ class _FakeUnifiedMemory:
 @pytest.fixture
 async def runtime_trace_store(tmp_path):
     store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    await store.initialize()
+    try:
+        yield store
+    finally:
+        await store.shutdown()
+
+
+@pytest.fixture
+async def chat_store(tmp_path):
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
     await store.initialize()
     try:
         yield store
@@ -339,6 +350,106 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     assert len(notifications) == 1
     assert notifications[0].channel == "turn_ux_plan"
     assert json.loads(notifications[0].payload_json)["ux_plan"]["assistant_surface_mode"] == "final_only"
+
+
+@pytest.mark.asyncio
+async def test_record_intent_resolution_commits_interim_turn_state_before_notification(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "hello",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-interim",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="hello",
+            turn_id="turn-interim",
+        ),
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-interim",
+        message_text="hello",
+        created_at_ms=1710000000000,
+    )
+    decision = _FakeIntentDecision()
+    decision.execution_mode = ExecutionMode.ORCHESTRATION_LAUNCH
+    decision.ux_plan = type(
+        "_UxPlan",
+        (),
+        {
+            "to_dict": staticmethod(
+                lambda: {
+                    "assistant_surface_mode": "interim_then_final",
+                    "thinking_indicator": "hidden",
+                    "trace_display_mode": "collapsible",
+                    "allow_trace_collapse": True,
+                    "interim_text": "稍等我查一下",
+                }
+            )
+        },
+    )()
+
+    seen_kinds_at_notify: list[str] = []
+    original_emit = service._emit_turn_ux_plan_notification
+
+    async def _wrapped_emit_turn_ux_plan_notification(**kwargs):  # type: ignore[no-untyped-def]
+        messages = await chat_store.list_messages(session_id="session-1")
+        seen_kinds_at_notify.extend(message.message_kind for message in messages)
+        await original_emit(**kwargs)
+
+    service._emit_turn_ux_plan_notification = _wrapped_emit_turn_ux_plan_notification  # type: ignore[method-assign]
+
+    await service.record_intent_resolution(context, decision)
+
+    turn = await chat_store.get_turn("turn-interim")
+    messages = await chat_store.list_messages(session_id="session-1")
+
+    assert turn is not None
+    assert json.loads(turn.ux_plan_json)["assistant_surface_mode"] == "interim_then_final"
+    assert "assistant_interim" in seen_kinds_at_notify
+    assert [message.message_kind for message in messages] == ["user_text", "assistant_interim"]
+    assert messages[-1].content_text == "稍等我查一下"
 
 
 @pytest.mark.asyncio
@@ -626,6 +737,101 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     assert len(notifications) == 1
     payload = json.loads(notifications[0].payload_json)
     assert payload["ux_plan"]["assistant_surface_mode"] == "final_only"
+
+
+@pytest.mark.asyncio
+async def test_handle_commits_final_chat_message_before_notification(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "hello",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-final",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="hello",
+            turn_id="turn-final",
+        ),
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-final",
+        message_text="hello",
+        created_at_ms=1710000000000,
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="final answer",
+        correlation_id="corr-1",
+        turn_id="turn-final",
+        ux_plan={
+            "assistant_surface_mode": "final_only",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+        },
+    )
+
+    seen_kinds_at_notify: list[str] = []
+    original_emit = service._emit_agent_response_notification
+
+    async def _wrapped_emit_agent_response_notification(**kwargs):  # type: ignore[no-untyped-def]
+        messages = await chat_store.list_messages(session_id="session-1")
+        seen_kinds_at_notify.extend(message.message_kind for message in messages)
+        await original_emit(**kwargs)
+
+    service._emit_agent_response_notification = _wrapped_emit_agent_response_notification  # type: ignore[method-assign]
+
+    await service.handle(context, result)
+
+    turn = await chat_store.get_turn("turn-final")
+    messages = await chat_store.list_messages(session_id="session-1")
+
+    assert turn is not None
+    assert turn.status == "completed"
+    assert "assistant_final" in seen_kinds_at_notify
+    assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
+    assert messages[-1].content_text == "final answer"
 
 
 @pytest.mark.asyncio
