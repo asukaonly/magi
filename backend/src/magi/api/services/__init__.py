@@ -1,6 +1,4 @@
 """API read/write services."""
-
-from .chat_read_service import ChatReadService, get_chat_read_service
 from .chat_trace_read_service import ChatTraceReadService, get_chat_trace_read_service
 from .message_dispatch_service import MessageDispatchOutcome, dispatch_user_message
 from .personality_state_service import (
@@ -18,9 +16,7 @@ from ...core.runtime_bindings import (
 )
 
 __all__ = [
-    "ChatReadService",
     "ChatTraceReadService",
-    "get_chat_read_service",
     "get_chat_trace_read_service",
     "MessageDispatchOutcome",
     "dispatch_user_message",

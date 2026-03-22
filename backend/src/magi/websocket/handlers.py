@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 from fastapi import WebSocket
 
 from ..api.avatar_paths import resolve_avatar_public_url
+from ..chat import get_chat_read_service
 from ..core.logger import get_logger
 
 if TYPE_CHECKING:
@@ -179,8 +180,6 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
 async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
     """Handle conversation history requests."""
     try:
-        from ..api.services import get_chat_read_service
-
         user_id = data.get("user_id", "web_user")
         session_id = data.get("session_id")
         resolved_session = str(session_id or "").strip()

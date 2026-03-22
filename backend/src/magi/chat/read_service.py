@@ -8,11 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from ...agent.orchestration import get_orchestration_store
-from ...core.logger import get_logger
-from ...memory.l1.chat_sessions import create_chat_session_record
-from ...utils.runtime import get_runtime_paths
-from .chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
+from ..agent.orchestration import get_orchestration_store
+from ..core.logger import get_logger
+from ..memory.l1.chat_sessions import create_chat_session_record
+from ..utils.runtime import get_runtime_paths
+from ..api.services.chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
 
 logger = get_logger(__name__)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.api.services.chat_read_service import ChatDisplayMessage
+from magi.chat.read_service import ChatDisplayMessage
 from magi.api.services.message_dispatch_service import MessageDispatchOutcome
 from magi.websocket.handlers import WebSocketContext, handle_get_history, handle_send_message
 
@@ -73,7 +73,7 @@ async def test_handle_get_history_uses_async_read_service(monkeypatch: pytest.Mo
                 )
             ]
 
-    monkeypatch.setattr("magi.api.services.get_chat_read_service", lambda: _AsyncOnlyReadService())
+    monkeypatch.setattr("magi.websocket.handlers.get_chat_read_service", lambda: _AsyncOnlyReadService())
 
     ctx = WebSocketContext(
         sid="sid-1",

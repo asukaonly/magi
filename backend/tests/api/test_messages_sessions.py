@@ -10,7 +10,7 @@ if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
 from magi.api.routers import messages
-from magi.api.services.chat_read_service import (
+from magi.chat.read_service import (
     ChatDisplayMessage,
     ChatReadService,
     ChatSessionRenameResult,
@@ -670,7 +670,7 @@ def test_get_display_history_prefers_chat_store_transcript(tmp_path, monkeypatch
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
-        "magi.api.services.chat_read_service.get_chat_trace_read_service",
+        "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_chat_session_store(service._chat_db_path)
@@ -738,7 +738,7 @@ def test_get_display_history_includes_turn_ux_trace_preferences(tmp_path, monkey
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
-        "magi.api.services.chat_read_service.get_chat_trace_read_service",
+        "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_chat_session_store(service._chat_db_path)
@@ -881,7 +881,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
-        "magi.api.services.chat_read_service.get_chat_trace_read_service",
+        "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_chat_session_store(service._chat_db_path)
@@ -976,7 +976,7 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
-        "magi.api.services.chat_read_service.get_chat_trace_read_service",
+        "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_chat_session_store(service._chat_db_path)

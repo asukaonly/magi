@@ -39,7 +39,7 @@ class ChatHistoryService:
         if history_key in self._conversation_history:
             return self._conversation_history[history_key]
         try:
-            from ....api.services.chat_read_service import get_chat_read_service
+            from ....chat.read_service import get_chat_read_service
 
             read_service = get_chat_read_service()
             history = read_service.get_conversation_history(

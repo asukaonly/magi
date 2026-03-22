@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.api.routers import messages as messages_router
-from magi.api.services.chat_read_service import ChatDisplayMessage
+from magi.chat.read_service import ChatDisplayMessage
 from magi.api.services.message_dispatch_service import MessageDispatchOutcome
 
 
@@ -134,7 +134,7 @@ async def test_get_execution_trace_uses_async_trace_service(monkeypatch: pytest.
             return {"summary": {"headline": "done"}}
 
     monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _FakeReadService())
-    monkeypatch.setattr("magi.api.services.get_chat_trace_read_service", lambda: _AsyncOnlyTraceService())
+    monkeypatch.setattr(messages_router, "get_chat_trace_read_service", lambda: _AsyncOnlyTraceService())
 
     response = await messages_router.get_execution_trace(user_id="u1", session_id="s1", turn_id="turn-1")
 

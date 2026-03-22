@@ -4,7 +4,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 
-from ..services import dispatch_user_message, get_chat_read_service, require_user_message_sensor
+from ..services import dispatch_user_message, get_chat_trace_read_service, require_user_message_sensor
+from ...chat import get_chat_read_service
 from ...utils.agent_logger import get_agent_logger
 from ...core.logger import get_logger
 
@@ -159,8 +160,6 @@ async def get_execution_trace(
     turn_id: str = Query(..., description="Turn ID for the target user message"),
 ):
     """Get structured execution trace for one chat turn."""
-    from ..services import get_chat_trace_read_service
-
     read_service = get_chat_read_service()
     resolved_session_id = _require_session_id(session_id)
     trace_service = get_chat_trace_read_service()

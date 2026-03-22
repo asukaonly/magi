@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
-from ..services import get_chat_read_service
+from ...chat import get_chat_read_service
 from ...config.models import LLMScenario
 from ...core.logger import get_logger
 from ...core.runtime_bindings import (

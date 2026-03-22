@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ..agent.runtime import AgentRuntime
     from ..bootstrap.context import RuntimeBootstrapContext
     from ..bootstrap.lifecycle import ModuleLifecycleOrchestrator
-    from ..chat import ChatProjector, ChatStore
+    from ..chat import ChatProjector, ChatReadService, ChatStore
     from ..events.backend import MessageBusBackend
     from ..events.runtime_queue import SQLiteRuntimeCommandQueue
     from ..llm.scenario_pool import ScenarioLLMPool
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..scheduler.service import SchedulerService
     from ..awareness.sensors import UserMessageSensor
-    from ..api.services import ChatReadService
     from ..plugins import ActionRegistry, PluginManager, SensorRegistry
     from ..personality.other_memory import OtherMemory
     from ..runtime_trace import RuntimeTraceStore
@@ -31,7 +30,7 @@ if TYPE_CHECKING:
 
 def _create_chat_read_service():
     """Factory function for ChatReadService."""
-    from ..api.services.chat_read_service import ChatReadService
+    from ..chat.read_service import ChatReadService
     return ChatReadService()
 
 
