@@ -107,7 +107,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const [actionPending, setActionPending] = useState(false);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
 
-  const refreshSessions = useCallback(async () => {
+  const refreshSessions = useCallback(async (preferredSessionId?: string | null) => {
     const sessionStorageKey = CHAT_SESSION_KEY(USER_ID);
     const readPersistedSessionId = () => {
       try {
@@ -130,22 +130,26 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
     setLoading(true);
     try {
-      const loadSessions = async (allowCreate: boolean): Promise<void> => {
+      const loadSessions = async (
+        allowCreate: boolean,
+        requestedSessionId: string | null = preferredSessionId ?? null,
+      ): Promise<void> => {
         const response = await messagesApi.listSessions(USER_ID, 50);
         const sessions = response.sessions || [];
         if (sessions.length === 0 && allowCreate) {
           const created = await messagesApi.createNewSession(USER_ID);
           if (created.session_id) {
             persistSessionId(created.session_id);
-            setCurrentSessionId(created.session_id);
-            await loadSessions(false);
+            await loadSessions(false, created.session_id);
             return;
           }
         }
         const sessionIds = sessions.map((session) => session.session_id);
+        const latestSessionId = useConversationStore.getState().currentSessionId;
         const persistedSessionId = readPersistedSessionId();
         const preferredSessionId = (
-          (currentSessionId && sessionIds.includes(currentSessionId) ? currentSessionId : null)
+          (requestedSessionId && sessionIds.includes(requestedSessionId) ? requestedSessionId : null)
+          || (latestSessionId && sessionIds.includes(latestSessionId) ? latestSessionId : null)
           || (persistedSessionId && sessionIds.includes(persistedSessionId) ? persistedSessionId : null)
           || sessionIds[0]
           || null
@@ -157,11 +161,11 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
       await loadSessions(true);
     } catch {
-      hydrateSessions([], currentSessionId);
+      hydrateSessions([], useConversationStore.getState().currentSessionId);
     } finally {
       setLoading(false);
     }
-  }, [currentSessionId, hydrateSessions, setCurrentSessionId]);
+  }, [hydrateSessions, setCurrentSessionId]);
 
   useEffect(() => {
     void refreshSessions();
@@ -230,12 +234,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       const result = await messagesApi.createNewSession(USER_ID);
       if (result.session_id) {
         window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), result.session_id);
-        setCurrentSessionId(result.session_id);
-        await refreshSessions();
+        await refreshSessions(result.session_id);
         setActivePanel('conversation');
         setExpandedSection('conversation');
         navigate('/chat');
-        window.dispatchEvent(new Event(SESSION_EVENT));
       }
     } catch {
       // ignore at shell level, chat page will surface failure details
@@ -266,7 +268,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       await messagesApi.renameSession(USER_ID, renameTargetSession.session_id, nextTitle);
       await refreshSessions();
       setRenameTargetSession(null);
-      window.dispatchEvent(new Event(SESSION_EVENT));
     } finally {
       setActionPending(false);
     }
@@ -284,7 +285,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       setExpandedSection('conversation');
       setActivePanel('conversation');
       navigate('/chat');
-      window.dispatchEvent(new Event(SESSION_EVENT));
     } finally {
       setActionPending(false);
     }

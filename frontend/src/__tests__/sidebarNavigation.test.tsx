@@ -163,6 +163,65 @@ describe('sidebar navigation', () => {
     });
   });
 
+  it('creates a new session without triggering redundant sidebar refresh loops', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.listSessions)
+      .mockResolvedValueOnce({
+        sessions: [
+          {
+            session_id: 'session-a',
+            title: '旧会话',
+            last_message_preview: '之前的消息',
+            last_timestamp: 10,
+            message_count: 1,
+          },
+        ],
+        user_id: 'web_user',
+        count: 1,
+      })
+      .mockResolvedValueOnce({
+        sessions: [
+          {
+            session_id: 'session-new',
+            title: '新会话',
+            last_message_preview: '',
+            last_timestamp: 11,
+            message_count: 0,
+          },
+          {
+            session_id: 'session-a',
+            title: '旧会话',
+            last_message_preview: '之前的消息',
+            last_timestamp: 10,
+            message_count: 1,
+          },
+        ],
+        user_id: 'web_user',
+        count: 2,
+      });
+    vi.mocked(messagesApi.createNewSession).mockResolvedValueOnce({
+      success: true,
+      user_id: 'web_user',
+      session_id: 'session-new',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('button', { name: '旧会话' });
+
+    await user.click(screen.getByRole('button', { name: 'shell.newChat' }));
+
+    await waitFor(() => {
+      expect(useConversationStore.getState().currentSessionId).toBe('session-new');
+    });
+    expect(messagesApi.createNewSession).toHaveBeenCalledTimes(1);
+    expect(messagesApi.listSessions).toHaveBeenCalledTimes(2);
+  });
+
   it('opens the session actions menu from the overflow button and right click', async () => {
     const user = userEvent.setup();
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
