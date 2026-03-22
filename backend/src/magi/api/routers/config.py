@@ -109,6 +109,7 @@ class MemoryConfigModel(BaseModel):
     enable_l3: bool = Field(default=True)
     enable_l4: bool = Field(default=True)
     l0_checkpoint_interval_seconds: int = Field(default=30, ge=1)
+    l2_batch_flush_interval_seconds: int = Field(default=60, ge=30)
     runtime_replay_include_l0_only: bool = Field(default=False)
     enable_t1_importance: bool = Field(default=True)
     enable_l2_llm_extraction: bool = Field(default=True)
@@ -400,6 +401,7 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
         enable_l3=memory_cfg.enable_l3,
         enable_l4=memory_cfg.enable_l4,
         l0_checkpoint_interval_seconds=memory_cfg.l0_checkpoint_interval_seconds,
+        l2_batch_flush_interval_seconds=memory_cfg.l2_batch_flush_interval_seconds,
         runtime_replay_include_l0_only=memory_cfg.runtime_replay_include_l0_only,
         enable_t1_importance=memory_cfg.enable_t1_importance,
         enable_l2_llm_extraction=memory_cfg.enable_l2_llm_extraction,
@@ -755,6 +757,7 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.enable_l3": config.memory.enable_l3,
         "agent.memory.enable_l4": config.memory.enable_l4,
         "agent.memory.l0_checkpoint_interval_seconds": config.memory.l0_checkpoint_interval_seconds,
+        "agent.memory.l2_batch_flush_interval_seconds": config.memory.l2_batch_flush_interval_seconds,
         "agent.memory.runtime_replay_include_l0_only": config.memory.runtime_replay_include_l0_only,
         "agent.memory.enable_t1_importance": config.memory.enable_t1_importance,
         "agent.memory.enable_l2_llm_extraction": config.memory.enable_l2_llm_extraction,
