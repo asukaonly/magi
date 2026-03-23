@@ -30,6 +30,7 @@ EMBEDDING_STATUS_FAILED = "failed"
 EMBEDDING_STATUS_SKIPPED = "skipped"
 EMBEDDING_STATUS_DISABLED = "disabled"
 EMBEDDING_STATUS_STALE = "stale"
+EMBEDDING_QUEUE_MAXSIZE = 1
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ class L1EventStore:
             else None
         )
         self._embedding_queue: asyncio.Queue[MemoryEvent | None] | None = (
-            asyncio.Queue() if embedding_service is not None else None
+            asyncio.Queue(maxsize=EMBEDDING_QUEUE_MAXSIZE) if embedding_service is not None else None
         )
         self._embedding_worker: asyncio.Task[None] | None = None
         self._embedding_batch_size = 5

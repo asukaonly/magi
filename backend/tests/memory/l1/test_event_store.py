@@ -89,6 +89,19 @@ class _ShortBatchEmbeddingService(_BatchTrackingEmbeddingService):
         return [self._make_result(text) for text in texts[: self.returned_count]]
 
 
+class _BlockingBatchEmbeddingService(_BatchTrackingEmbeddingService):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def embed_texts(self, texts: list[str]):
+        self.batch_calls.append(list(texts))
+        self.started.set()
+        await self.release.wait()
+        return [self._make_result(text) for text in texts]
+
+
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
@@ -639,6 +652,98 @@ async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
         "stress note 0",
         "stress note 1",
     ]]
+
+
+@pytest.mark.asyncio
+async def test_l1_embedding_queue_waits_when_full(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _BlockingBatchEmbeddingService()
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=True,
+    )
+    store._embedding_batch_size = 1
+    store._embedding_batch_wait_seconds = 5.0
+    await store.initialize()
+
+    try:
+        assert store._embedding_queue is not None
+        assert store._embedding_queue.maxsize > 0
+
+        await store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "career note 1",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-queue-1",
+                ),
+                event_id="evt-queue-1",
+            )
+        )
+
+        await asyncio.wait_for(embedding_service.started.wait(), timeout=1.0)
+
+        second_task = asyncio.create_task(
+            store.store(
+                normalize_runtime_event(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        data={
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "content": "career note 2",
+                            "author_type": "user",
+                            "content_type": "text",
+                        },
+                        source="chat",
+                        level=EventLevel.INFO,
+                        correlation_id="corr-queue-2",
+                    ),
+                    event_id="evt-queue-2",
+                )
+            )
+        )
+        await asyncio.wait_for(second_task, timeout=1.0)
+
+        third_task = asyncio.create_task(
+            store.store(
+                normalize_runtime_event(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        data={
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "content": "career note 3",
+                            "author_type": "user",
+                            "content_type": "text",
+                        },
+                        source="chat",
+                        level=EventLevel.INFO,
+                        correlation_id="corr-queue-3",
+                    ),
+                    event_id="evt-queue-3",
+                )
+            )
+        )
+        await asyncio.sleep(0)
+
+        assert not third_task.done()
+
+        embedding_service.release.set()
+        await asyncio.wait_for(third_task, timeout=1.0)
+    finally:
+        embedding_service.release.set()
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
