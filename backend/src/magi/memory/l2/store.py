@@ -19,6 +19,7 @@ from .ontology import coerce_unknown_entity_type
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
 _MOMENTARY_TRAITS = {"annoyance", "irritation", "frustration"}
+_SNAPSHOT_HISTORY_LIMIT = 5
 logger = get_logger(__name__)
 
 
@@ -155,6 +156,7 @@ class L2CognitionStore:
                 """
             )
             await self._ensure_tom_assertion_schema(db)
+            await self._ensure_tom_snapshot_schema(db)
             await self._seed_default_graph_conflict_rules(db)
             await self._reload_graph_conflict_rules(db)
             await db.commit()
@@ -282,6 +284,24 @@ class L2CognitionStore:
             """
         )
         await db.execute("DROP TABLE tom_trait_assertions_legacy")
+
+    async def _ensure_tom_snapshot_schema(self, db: aiosqlite.Connection) -> None:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("PRAGMA table_info(tom_snapshots)") as cursor:
+            rows = await cursor.fetchall()
+        existing_columns = {str(row["name"]) for row in rows}
+        required_columns = {
+            "core_traits_history": "TEXT",
+            "preferences_history": "TEXT",
+            "relationship_history": "TEXT",
+            "last_evolution_at": "REAL",
+            "active_record_ids": "TEXT",
+            "superseded_record_ids": "TEXT",
+        }
+        for column_name, column_type in required_columns.items():
+            if column_name in existing_columns:
+                continue
+            await db.execute(f"ALTER TABLE tom_snapshots ADD COLUMN {column_name} {column_type}")
 
     async def list_graph_conflict_rules(self) -> List[Dict[str, Any]]:
         """List graph conflict rules from the persisted matrix."""
@@ -814,13 +834,23 @@ class L2CognitionStore:
         assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
         outgoing = await self.get_relationships(subject_id=entity_id, limit=200)
         incoming = await self.get_relationships(object_id=entity_id, limit=200)
+        superseded_outgoing = await self.get_relationships(
+            subject_id=entity_id,
+            status_filters=["deprecated", "conflicted"],
+            limit=200,
+        )
+        superseded_incoming = await self.get_relationships(
+            object_id=entity_id,
+            status_filters=["deprecated", "conflicted"],
+            limit=200,
+        )
         expired_assertions = [item for item in assertions if self._is_assertion_expired(item)]
         active_assertions = [
             item
             for item in assertions
             if item["validation_state"] in {"stable", "corroborated"} and not self._is_assertion_expired(item)
         ]
-        if not assertions and not outgoing and not incoming:
+        if not assertions and not outgoing and not incoming and not superseded_outgoing and not superseded_incoming:
             return None
 
         normalized_entity_type = entity_type or (assertions[0]["entity_type"] if assertions else entity_id.split(":", 1)[0])
@@ -833,6 +863,8 @@ class L2CognitionStore:
             stable_assertions=stable_assertions,
             outgoing_relations=outgoing,
             incoming_relations=incoming,
+            superseded_outgoing_relations=superseded_outgoing,
+            superseded_incoming_relations=superseded_incoming,
         )
         if snapshot is not None:
             logger.info(
@@ -1161,6 +1193,8 @@ class L2CognitionStore:
         stable_assertions: List[Dict[str, Any]],
         outgoing_relations: List[Dict[str, Any]],
         incoming_relations: List[Dict[str, Any]],
+        superseded_outgoing_relations: List[Dict[str, Any]],
+        superseded_incoming_relations: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         now = time.time()
         stable_by_trait = {item["trait_name"]: item for item in stable_assertions}
@@ -1243,6 +1277,20 @@ class L2CognitionStore:
                 (entity_id, entity_type),
             ) as cursor:
                 existing = await cursor.fetchone()
+            existing_snapshot = self._snapshot_row_to_dict(existing) if existing else None
+
+            evolution_payload = self._build_snapshot_evolution_payload(
+                existing_snapshot=existing_snapshot,
+                core_traits=core_traits,
+                preferences=preferences,
+                relationship_topology=relationship_topology,
+                assertions=assertions,
+                outgoing_relations=outgoing_relations,
+                incoming_relations=incoming_relations,
+                superseded_outgoing_relations=superseded_outgoing_relations,
+                superseded_incoming_relations=superseded_incoming_relations,
+                fallback_updated_at=now,
+            )
 
             payload = (
                 json.dumps(core_traits, ensure_ascii=False),
@@ -1258,6 +1306,12 @@ class L2CognitionStore:
                 last_interaction_at,
                 now,
                 json.dumps(update_source_assertion_ids, ensure_ascii=False),
+                json.dumps(evolution_payload["core_traits_history"], ensure_ascii=False),
+                json.dumps(evolution_payload["preferences_history"], ensure_ascii=False),
+                json.dumps(evolution_payload["relationship_history"], ensure_ascii=False),
+                evolution_payload["last_evolution_at"],
+                json.dumps(evolution_payload["active_record_ids"], ensure_ascii=False),
+                json.dumps(evolution_payload["superseded_record_ids"], ensure_ascii=False),
             )
 
             if existing:
@@ -1269,6 +1323,8 @@ class L2CognitionStore:
                         current_stress_level = ?, current_mood = ?, current_engagement = ?,
                         current_context = ?, interaction_count = ?, last_interaction_at = ?,
                         last_updated_at = ?, update_source_assertion_ids = ?,
+                        core_traits_history = ?, preferences_history = ?, relationship_history = ?,
+                        last_evolution_at = ?, active_record_ids = ?, superseded_record_ids = ?,
                         snapshot_version = snapshot_version + 1
                     WHERE snapshot_id = ?
                     """,
@@ -1282,8 +1338,10 @@ class L2CognitionStore:
                         preferences, public_sentiment_profile, relationship_topology,
                         current_stress_level, current_mood, current_engagement, current_context,
                         interaction_count, last_interaction_at, last_updated_at,
-                        update_source_assertion_ids, snapshot_version, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        update_source_assertion_ids, core_traits_history, preferences_history,
+                        relationship_history, last_evolution_at, active_record_ids,
+                        superseded_record_ids, snapshot_version, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         f"snapshot_{uuid.uuid4().hex}",
@@ -1298,6 +1356,238 @@ class L2CognitionStore:
         snapshot = await self.get_tom_snapshot(entity_id=entity_id, entity_type=entity_type)
         assert snapshot is not None
         return snapshot
+
+    def _build_snapshot_evolution_payload(
+        self,
+        *,
+        existing_snapshot: Dict[str, Any] | None,
+        core_traits: Dict[str, Any],
+        preferences: Dict[str, Any],
+        relationship_topology: Dict[str, Any],
+        assertions: List[Dict[str, Any]],
+        outgoing_relations: List[Dict[str, Any]],
+        incoming_relations: List[Dict[str, Any]],
+        superseded_outgoing_relations: List[Dict[str, Any]],
+        superseded_incoming_relations: List[Dict[str, Any]],
+        fallback_updated_at: float,
+    ) -> Dict[str, Any]:
+        previous_core_traits = dict(existing_snapshot.get("core_traits", {})) if existing_snapshot else {}
+        previous_preferences = dict(existing_snapshot.get("preferences", {})) if existing_snapshot else {}
+        previous_relationship = (
+            dict(existing_snapshot.get("relationship_topology", {})) if existing_snapshot else {}
+        )
+
+        active_assertion_ids = [str(item["assertion_id"]) for item in assertions]
+        active_relation_ids = [
+            str(item["triple_id"]) for item in [*outgoing_relations, *incoming_relations]
+        ]
+        active_record_ids = self._dedupe_preserve_order([*active_assertion_ids, *active_relation_ids])
+
+        previous_assertion_ids = (
+            [str(item) for item in existing_snapshot.get("update_source_assertion_ids", [])]
+            if existing_snapshot
+            else []
+        )
+
+        preference_support_ids = {
+            str(item["object_id"]): [str(item["triple_id"])]
+            for item in outgoing_relations
+            if item["predicate"] in {"LIKES", "DISLIKES"}
+        }
+        preference_superseded_ids = self._group_relation_ids_by_object(superseded_outgoing_relations)
+        core_support_ids = {
+            str(item["trait_name"]): [str(item["assertion_id"])]
+            for item in assertions
+        }
+
+        next_preference_entries = self._build_mapping_transition_entries(
+            previous_values=previous_preferences,
+            current_values=preferences,
+            support_ids_by_field=preference_support_ids,
+            superseded_ids_by_field=preference_superseded_ids,
+            evolved_at_by_field=self._relation_evolved_at_by_object(
+                outgoing_relations=outgoing_relations,
+                superseded_outgoing_relations=superseded_outgoing_relations,
+                fallback_updated_at=fallback_updated_at,
+            ),
+        )
+        next_core_entries = self._build_mapping_transition_entries(
+            previous_values=previous_core_traits,
+            current_values=core_traits,
+            support_ids_by_field=core_support_ids,
+            superseded_ids_by_field={
+                field_name: previous_assertion_ids
+                for field_name in set(previous_core_traits).intersection(core_traits)
+            },
+            evolved_at_by_field={
+                str(item["trait_name"]): float(item["last_validated_at"])
+                for item in assertions
+            },
+        )
+
+        relationship_support_ids = [str(item["triple_id"]) for item in [*outgoing_relations, *incoming_relations]]
+        relationship_superseded_ids = [
+            str(item["triple_id"]) for item in [*superseded_outgoing_relations, *superseded_incoming_relations]
+        ]
+        next_relationship_entries = self._build_relationship_transition_entries(
+            previous_relationship=previous_relationship,
+            current_relationship=relationship_topology,
+            support_ids=relationship_support_ids,
+            superseded_ids=relationship_superseded_ids,
+            fallback_updated_at=fallback_updated_at,
+        )
+
+        core_traits_history = self._merge_snapshot_history(
+            existing_history=existing_snapshot.get("core_traits_history", []) if existing_snapshot else [],
+            new_entries=next_core_entries,
+        )
+        preferences_history = self._merge_snapshot_history(
+            existing_history=existing_snapshot.get("preferences_history", []) if existing_snapshot else [],
+            new_entries=next_preference_entries,
+        )
+        relationship_history = self._merge_snapshot_history(
+            existing_history=existing_snapshot.get("relationship_history", []) if existing_snapshot else [],
+            new_entries=next_relationship_entries,
+        )
+
+        history_entries = [*core_traits_history, *preferences_history, *relationship_history]
+        evolution_timestamps = [
+            float(entry["evolved_at"])
+            for entry in history_entries
+            if entry.get("evolved_at") is not None
+        ]
+        last_evolution_at = max(evolution_timestamps) if evolution_timestamps else (
+            existing_snapshot.get("last_evolution_at") if existing_snapshot else None
+        )
+        superseded_record_ids = self._dedupe_preserve_order(
+            [
+                str(record_id)
+                for entry in history_entries
+                for record_id in entry.get("superseded_record_ids", [])
+                if str(record_id).strip()
+            ]
+        )
+
+        return {
+            "core_traits_history": core_traits_history,
+            "preferences_history": preferences_history,
+            "relationship_history": relationship_history,
+            "last_evolution_at": last_evolution_at,
+            "active_record_ids": active_record_ids,
+            "superseded_record_ids": superseded_record_ids,
+        }
+
+    def _build_mapping_transition_entries(
+        self,
+        *,
+        previous_values: Dict[str, Any],
+        current_values: Dict[str, Any],
+        support_ids_by_field: Dict[str, List[str]],
+        superseded_ids_by_field: Dict[str, List[str]],
+        evolved_at_by_field: Dict[str, float],
+    ) -> List[Dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for field_name in sorted(set(previous_values).intersection(current_values)):
+            previous_value = previous_values.get(field_name)
+            current_value = current_values.get(field_name)
+            if previous_value == current_value:
+                continue
+            entries.append(
+                {
+                    "field": field_name,
+                    "from": previous_value,
+                    "to": current_value,
+                    "evolved_at": evolved_at_by_field.get(field_name),
+                    "supporting_record_ids": self._dedupe_preserve_order(support_ids_by_field.get(field_name, [])),
+                    "superseded_record_ids": self._dedupe_preserve_order(
+                        superseded_ids_by_field.get(field_name, [])
+                    ),
+                }
+            )
+        return entries
+
+    def _build_relationship_transition_entries(
+        self,
+        *,
+        previous_relationship: Dict[str, Any],
+        current_relationship: Dict[str, Any],
+        support_ids: List[str],
+        superseded_ids: List[str],
+        fallback_updated_at: float,
+    ) -> List[Dict[str, Any]]:
+        if not previous_relationship or previous_relationship == current_relationship:
+            return []
+        return [
+            {
+                "field": "relationship_topology",
+                "from": previous_relationship,
+                "to": current_relationship,
+                "evolved_at": fallback_updated_at,
+                "supporting_record_ids": self._dedupe_preserve_order(support_ids),
+                "superseded_record_ids": self._dedupe_preserve_order(superseded_ids),
+            }
+        ]
+
+    def _merge_snapshot_history(
+        self,
+        *,
+        existing_history: List[Dict[str, Any]],
+        new_entries: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        merged = [dict(entry) for entry in new_entries]
+        for entry in existing_history:
+            if any(self._same_history_entry(entry, candidate) for candidate in merged):
+                continue
+            merged.append(dict(entry))
+        return merged[:_SNAPSHOT_HISTORY_LIMIT]
+
+    def _same_history_entry(self, left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+        return (
+            left.get("field") == right.get("field")
+            and left.get("from") == right.get("from")
+            and left.get("to") == right.get("to")
+        )
+
+    def _group_relation_ids_by_object(self, relations: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+        grouped: dict[str, list[str]] = {}
+        for relation in relations:
+            if relation["predicate"] not in {"LIKES", "DISLIKES"}:
+                continue
+            object_id = str(relation["object_id"])
+            grouped.setdefault(object_id, []).append(str(relation["triple_id"]))
+        return {key: self._dedupe_preserve_order(value) for key, value in grouped.items()}
+
+    def _relation_evolved_at_by_object(
+        self,
+        *,
+        outgoing_relations: List[Dict[str, Any]],
+        superseded_outgoing_relations: List[Dict[str, Any]],
+        fallback_updated_at: float,
+    ) -> Dict[str, float]:
+        timestamps: dict[str, float] = {}
+        for relation in [*outgoing_relations, *superseded_outgoing_relations]:
+            if relation["predicate"] not in {"LIKES", "DISLIKES"}:
+                continue
+            object_id = str(relation["object_id"])
+            candidate_timestamp = max(
+                float(relation.get("last_observed_at") or 0.0),
+                float(relation.get("deprecated_at") or 0.0),
+                float(relation.get("updated_at") or 0.0),
+                fallback_updated_at,
+            )
+            timestamps[object_id] = max(timestamps.get(object_id, 0.0), candidate_timestamp)
+        return timestamps
+
+    def _dedupe_preserve_order(self, values: List[str]) -> List[str]:
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = str(value).strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered.append(normalized)
+        return ordered
 
     def _derive_trait_family(self, trait_name: str) -> str:
         normalized = trait_name.strip().lower()
@@ -1586,6 +1876,7 @@ class L2CognitionStore:
         }
 
     def _snapshot_row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
+        columns = set(row.keys())
         return {
             "snapshot_id": str(row["snapshot_id"]),
             "entity_id": str(row["entity_id"]),
@@ -1603,6 +1894,18 @@ class L2CognitionStore:
             "last_interaction_at": float(row["last_interaction_at"]) if row["last_interaction_at"] else None,
             "last_updated_at": float(row["last_updated_at"]),
             "update_source_assertion_ids": json.loads(row["update_source_assertion_ids"] or "[]"),
+            "core_traits_history": json.loads(row["core_traits_history"] or "[]") if "core_traits_history" in columns else [],
+            "preferences_history": json.loads(row["preferences_history"] or "[]") if "preferences_history" in columns else [],
+            "relationship_history": json.loads(row["relationship_history"] or "[]") if "relationship_history" in columns else [],
+            "last_evolution_at": (
+                float(row["last_evolution_at"])
+                if "last_evolution_at" in columns and row["last_evolution_at"] is not None
+                else None
+            ),
+            "active_record_ids": json.loads(row["active_record_ids"] or "[]") if "active_record_ids" in columns else [],
+            "superseded_record_ids": (
+                json.loads(row["superseded_record_ids"] or "[]") if "superseded_record_ids" in columns else []
+            ),
             "snapshot_version": int(row["snapshot_version"] or 1),
             "created_at": float(row["created_at"]),
         }
