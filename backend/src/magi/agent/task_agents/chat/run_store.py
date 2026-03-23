@@ -17,11 +17,18 @@ class SessionRunStore:
         self._runs: dict[str, ActiveRun] = {}
         self._lock = RLock()
 
-    def create_active_run(self, session_id: str, run_id: str | None = None) -> ActiveRun:
+    def create_active_run(
+        self,
+        session_id: str,
+        *,
+        root_user_message: str = "",
+        run_id: str | None = None,
+    ) -> ActiveRun:
         """Create or replace the active run for a session."""
         active_run = ActiveRun(
             session_id=session_id,
             run_id=run_id or uuid4().hex,
+            root_user_message=root_user_message,
         )
         self._set_run(active_run)
         return deepcopy(active_run)
@@ -45,11 +52,30 @@ class SessionRunStore:
             active_run.updated_at = time()
             return deepcopy(pending_turn)
 
-    def bump_revision(self, session_id: str) -> ActiveRun:
+    def consume_pending_turns(self, session_id: str) -> list[PendingTurn]:
+        """Return and clear pending turns for the active run."""
+        with self._lock:
+            active_run = self._require_run(session_id)
+            pending_turns = deepcopy(active_run.pending_turns)
+            active_run.pending_turns.clear()
+            active_run.updated_at = time()
+            return pending_turns
+
+    def bump_revision(
+        self,
+        session_id: str,
+        *,
+        root_user_message: str | None = None,
+        clear_pending_turns: bool = False,
+    ) -> ActiveRun:
         """Advance the active revision for a session run."""
         with self._lock:
             active_run = self._require_run(session_id)
             active_run.revision += 1
+            if root_user_message is not None:
+                active_run.root_user_message = root_user_message
+            if clear_pending_turns:
+                active_run.pending_turns.clear()
             active_run.updated_at = time()
             return deepcopy(active_run)
 

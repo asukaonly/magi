@@ -22,8 +22,10 @@ from .planning_service import ChatPlanningService
 from .postprocess_service import ChatPostProcessService
 from .prompt_service import ChatPromptService
 from .history_service import ChatHistoryService
+from .session_run_coordinator import CheckpointDecision, SessionFactDecision, SessionRunCoordinator
 
 __all__ = [
+    "CheckpointDecision",
     "ChatExecutionCoordinator",
     "ChatFactClassifier",
     "ChatParseOutcome",
@@ -40,6 +42,8 @@ __all__ = [
     "IncomingFactKind",
     "IntentDecision",
     "OrchestrationPlan",
+    "SessionFactDecision",
+    "SessionRunCoordinator",
     "ToolSelection",
     "UserMessagePayload",
 ]
