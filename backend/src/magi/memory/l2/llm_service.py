@@ -12,12 +12,14 @@ from ...llm import LLMProviderBridge, LLMScenario, ProviderResponse, ScenarioLLM
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
 from .prompts import (
+    CONFLICT_ARBITRATION_SYSTEM_PROMPT,
     CONTRADICTION_HINT_SYSTEM_PROMPT,
     ENTITY_RECONCILE_SYSTEM_PROMPT,
     ENTITY_MENTION_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
     TOM_EXTRACTION_SYSTEM_PROMPT,
     UNIFIED_EXTRACTION_SYSTEM_PROMPT,
+    render_conflict_arbitration_prompt,
     render_contradiction_hint_prompt,
     render_entity_mention_prompt,
     render_entity_reconcile_prompt,
@@ -246,6 +248,48 @@ class L2LLMService:
         hints = payload.get("contradiction_hints")
         return hints if isinstance(hints, list) else []
 
+    async def arbitrate_conflict(
+        self,
+        *,
+        new_event_window: dict[str, Any],
+        new_candidates: dict[str, Any],
+        contradiction_hints: list[dict[str, Any]],
+        existing_records: list[dict[str, Any]],
+        source_events: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        event_ids = new_event_window.get("event_ids")
+        payload = await self._generate_json(
+            system_prompt=CONFLICT_ARBITRATION_SYSTEM_PROMPT,
+            prompt=render_conflict_arbitration_prompt(
+                new_event_window=new_event_window,
+                new_candidates=new_candidates,
+                contradiction_hints=contradiction_hints,
+                existing_records=existing_records,
+                source_events=source_events,
+            ),
+            request_kind="memory:l2_conflict_arbitration",
+            turn_id=str(event_ids[0]) if isinstance(event_ids, list) and event_ids else None,
+            session_id=str(new_event_window.get("summary", {}).get("session_id") or "") or None,
+            log_context={
+                "event_ids": event_ids if isinstance(event_ids, list) else [],
+                "contradiction_hint_count": len(contradiction_hints),
+                "existing_record_count": len(existing_records),
+            },
+            scenario=LLMScenario.CORE,
+            disable_thinking=False,
+        )
+        decision = str(payload.get("decision") or "").strip()
+        if decision not in {"keep_new", "keep_existing", "mark_evolution"}:
+            return {}
+        return {
+            "decision": decision,
+            "winning_record_ids": [str(item) for item in payload.get("winning_record_ids", []) if str(item).strip()],
+            "superseded_record_ids": [
+                str(item) for item in payload.get("superseded_record_ids", []) if str(item).strip()
+            ],
+            "reason": str(payload.get("reason") or "").strip(),
+        }
+
     async def reconcile_entity_state(
         self,
         *,
@@ -277,8 +321,10 @@ class L2LLMService:
         turn_id: str | None = None,
         session_id: str | None = None,
         log_context: dict[str, Any] | None = None,
+        scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER,
+        disable_thinking: bool = True,
     ) -> dict[str, Any]:
-        llm_target = self._get_llm_target()
+        llm_target = self._get_llm_target(scenario=scenario)
         if llm_target is None:
             return {}
         adapter, provider_bridge = llm_target
@@ -290,7 +336,7 @@ class L2LLMService:
                 "request_kind": request_kind,
                 "provider": provider,
                 "model": model,
-                "disable_thinking": True,
+                "disable_thinking": disable_thinking,
                 "json_mode": True,
                 "prompt_char_count": len(prompt),
                 "system_prompt_char_count": len(system_prompt),
@@ -307,7 +353,7 @@ class L2LLMService:
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.0,
                     json_mode=True,
-                    disable_thinking=True,
+                    disable_thinking=disable_thinking,
                     event_context={
                         "request_kind": request_kind,
                         "turn_id": turn_id,
@@ -368,17 +414,17 @@ class L2LLMService:
             )
         )
 
-    def _get_adapter(self) -> Optional[Any]:
+    def _get_adapter(self, scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER) -> Optional[Any]:
         if self._scenario_llm_pool is None:
             return None
         try:
-            return self._scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
+            return self._scenario_llm_pool.get(scenario)
         except Exception as exc:
-            logger.debug("L2 LLM adapter unavailable", error=str(exc))
+            logger.debug("L2 LLM adapter unavailable", error=str(exc), scenario=scenario.value)
             return None
 
-    def _get_llm_target(self) -> Optional[tuple[Any, LLMProviderBridge]]:
-        adapter = self._get_adapter()
+    def _get_llm_target(self, *, scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER) -> Optional[tuple[Any, LLMProviderBridge]]:
+        adapter = self._get_adapter(scenario=scenario)
         if adapter is None:
             return None
         return adapter, LLMProviderBridge(adapter)

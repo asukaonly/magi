@@ -54,6 +54,13 @@ DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS = 2.0
 DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT = 3
 DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3
 DEFAULT_L2_HISTORY_SEARCH_LIMIT = 4
+SEVERE_CONTRADICTION_HINT_CONFIDENCE = 0.85
+SEVERE_CONTRADICTION_KINDS = {
+    "direct_negation",
+    "state_reversal",
+    "exclusive_role_conflict",
+    "preference_reversal",
+}
 
 
 @dataclass(slots=True)
@@ -710,6 +717,26 @@ class L2Pipeline:
                 contradiction_hint_count=len(contradiction_hints),
             )
 
+        conflict_arbitration: dict[str, Any] | None = None
+        if contradiction_hints and (graph_candidates or assertion_candidates):
+            conflict_arbitration = await self._arbitrate_conflicting_candidates(
+                anchor_event=stored_event,
+                batch_events=[item[0] for item in eligible_events],
+                graph_candidates=graph_candidates,
+                assertion_candidates=assertion_candidates,
+                contradiction_hints=contradiction_hints,
+            )
+            if conflict_arbitration and conflict_arbitration.get("decision") == "keep_existing":
+                logger.info(
+                    "L2 conflict arbitration kept existing records",
+                    event_id=stored_event.event_id,
+                    decision="keep_existing",
+                    severe_hint_count=len(self._severe_contradiction_hints(contradiction_hints)),
+                )
+                graph_candidates = []
+                assertion_candidates = []
+                contradiction_hints = []
+
         relation_count = 0
         assertion_count = 0
         for candidate in graph_candidates:
@@ -730,6 +757,9 @@ class L2Pipeline:
             relation_count=relation_count,
             assertion_count=assertion_count,
             contradiction_hint_count=len(contradiction_hints),
+            conflict_arbitration_decision=(
+                conflict_arbitration.get("decision") if isinstance(conflict_arbitration, dict) else None
+            ),
         )
 
         return {
@@ -746,6 +776,9 @@ class L2Pipeline:
             "rejected_graph_candidate_count": rejected_graph_candidate_count,
             "rejected_assertion_candidate_count": rejected_assertion_candidate_count,
             "contradiction_hint_count": len(contradiction_hints),
+            "conflict_arbitration_decision": (
+                conflict_arbitration.get("decision") if isinstance(conflict_arbitration, dict) else None
+            ),
         }
 
     async def _load_stored_event(self, event: MemoryEvent) -> MemoryEvent:
@@ -1514,6 +1547,74 @@ class L2Pipeline:
             existing_records=existing_records,
         )
 
+    def _severe_contradiction_hints(self, hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        severe: list[dict[str, Any]] = []
+        for hint in hints:
+            if not isinstance(hint, dict):
+                continue
+            contradiction_kind = str(hint.get("contradiction_kind") or "").strip()
+            confidence = float(hint.get("confidence", 0.0) or 0.0)
+            if contradiction_kind not in SEVERE_CONTRADICTION_KINDS:
+                continue
+            if confidence < SEVERE_CONTRADICTION_HINT_CONFIDENCE:
+                continue
+            severe.append(dict(hint))
+        return severe
+
+    async def _arbitrate_conflicting_candidates(
+        self,
+        *,
+        anchor_event: MemoryEvent,
+        batch_events: list[MemoryEvent],
+        graph_candidates: list[dict[str, Any]],
+        assertion_candidates: list[dict[str, Any]],
+        contradiction_hints: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        if self._llm_service is None or self._cognition_store is None:
+            return None
+
+        severe_hints = self._severe_contradiction_hints(contradiction_hints)
+        if not severe_hints:
+            return None
+
+        existing_records = await self._load_target_records_for_hints(severe_hints)
+        if not existing_records:
+            return None
+
+        source_events = await self._load_source_events_for_records(
+            batch_events=batch_events,
+            existing_records=existing_records,
+        )
+        result = await self._llm_service.arbitrate_conflict(
+            new_event_window={
+                "event_ids": [event.event_id for event in batch_events],
+                "events": [self._serialize_event_for_batch(event) for event in batch_events],
+                "summary": {
+                    "event_count": len(batch_events),
+                    "session_id": anchor_event.session_id,
+                    "user_id": anchor_event.user_id,
+                },
+            },
+            new_candidates={
+                "graph_candidates": graph_candidates,
+                "assertion_candidates": assertion_candidates,
+            },
+            contradiction_hints=severe_hints,
+            existing_records=existing_records,
+            source_events=source_events,
+        )
+        if not result:
+            return None
+        logger.info(
+            "L2 conflict arbitration completed",
+            event_id=anchor_event.event_id,
+            decision=result.get("decision"),
+            severe_hint_count=len(severe_hints),
+            existing_record_count=len(existing_records),
+            source_event_count=len(source_events),
+        )
+        return result
+
     async def _load_existing_records(self, focal_entities: list[dict[str, str]]) -> list[dict[str, Any]]:
         if self._cognition_store is None:
             return []
@@ -1565,6 +1666,95 @@ class L2Pipeline:
                     }
                 )
         return records
+
+    async def _load_target_records_for_hints(self, hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self._cognition_store is None:
+            return []
+        records: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for hint in hints:
+            target_record_id = self._non_empty_text(hint.get("target_record_id"))
+            target_record_type = self._non_empty_text(hint.get("target_record_type"))
+            if not target_record_id or not target_record_type or target_record_id in seen:
+                continue
+            seen.add(target_record_id)
+            if target_record_type == "tom_trait_assertion":
+                assertion = await self._cognition_store.get_tom_assertion(assertion_id=target_record_id)
+                if assertion is None:
+                    continue
+                records.append(
+                    {
+                        "record_id": target_record_id,
+                        "record_type": target_record_type,
+                        "entity_id": assertion["entity_id"],
+                        "entity_type": assertion["entity_type"],
+                        "trait_name": assertion["trait_name"],
+                        "trait_value": assertion["trait_value"],
+                        "validation_state": assertion["validation_state"],
+                        "confidence": assertion["confidence_score"],
+                        "evidence_event_ids": list(assertion.get("evidence_events", [])),
+                    }
+                )
+                continue
+            if target_record_type == "knowledge_graph":
+                relation = await self._cognition_store.get_relationship(triple_id=target_record_id)
+                if relation is None:
+                    continue
+                records.append(
+                    {
+                        "record_id": target_record_id,
+                        "record_type": target_record_type,
+                        "subject_id": relation["subject_id"],
+                        "predicate": relation["predicate"],
+                        "object_id": relation["object_id"],
+                        "status": relation["status"],
+                        "confidence": relation["confidence"],
+                        "evidence_event_ids": list(relation.get("evidence_event_ids", [])),
+                    }
+                )
+        return records
+
+    async def _load_source_events_for_records(
+        self,
+        *,
+        batch_events: list[MemoryEvent],
+        existing_records: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        source_events: list[dict[str, Any]] = []
+        seen_event_ids: set[str] = set()
+        for event in batch_events:
+            if event.event_id in seen_event_ids:
+                continue
+            seen_event_ids.add(event.event_id)
+            source_events.append(self._serialize_event_for_batch(event))
+        if self._l1_store is None:
+            return source_events
+        evidence_event_ids = {
+            str(event_id)
+            for record in existing_records
+            for event_id in record.get("evidence_event_ids", [])
+            if str(event_id).strip()
+        }
+        for event_id in sorted(evidence_event_ids):
+            if event_id in seen_event_ids:
+                continue
+            row = await self._l1_store.get_event(event_id)
+            if row is None:
+                continue
+            seen_event_ids.add(event_id)
+            source_events.append(
+                {
+                    "event_id": str(row.get("event_id") or event_id),
+                    "timestamp": float(row.get("timestamp", 0.0) or 0.0),
+                    "session_id": self._non_empty_text(row.get("session_id")),
+                    "user_id": self._non_empty_text(row.get("user_id")),
+                    "source": str(row.get("source") or "unknown"),
+                    "event_type": str(row.get("event_type") or ""),
+                    "content": str(row.get("content") or ""),
+                    "author_type": str(row.get("author_type") or "user"),
+                }
+            )
+        return source_events
 
     async def _load_evidence_timestamps(self, entity_id: str) -> dict[str, float]:
         if self._l1_store is None or self._cognition_store is None:

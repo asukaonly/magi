@@ -90,6 +90,14 @@ class _FakeScenarioPool:
         return self.adapter
 
 
+class _ScenarioAwarePool:
+    def __init__(self, adapters: dict[object, _FakeAdapter]) -> None:
+        self.adapters = adapters
+
+    def get(self, scenario):  # type: ignore[no-untyped-def]
+        return self.adapters[scenario]
+
+
 def test_unified_prompt_only_includes_profile_allowed_entity_types():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
@@ -187,6 +195,46 @@ def test_unified_prompt_includes_batch_window_rules_and_summary():
     assert any(
         "Use batch-level context across the supplied event window" in rule for rule in payload["rules"]
     )
+
+
+def test_conflict_arbitration_uses_core_scenario_adapter():
+    from magi.config.models import LLMScenario
+    from magi.memory.l2.llm_service import L2LLMService
+
+    fast_adapter = _FakeAdapter("{}")
+    deep_adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "decision": "keep_existing",
+                "winning_record_ids": ["triple-1"],
+                "superseded_record_ids": [],
+                "reason": "Older evidence is stronger.",
+            }
+        ),
+        model_name="gpt-deep",
+    )
+    service = L2LLMService(
+        _ScenarioAwarePool(
+            {
+                LLMScenario.CONTEXT_DECIDER: fast_adapter,
+                LLMScenario.CORE: deep_adapter,
+            }
+        )
+    )
+
+    result = asyncio.run(
+        service.arbitrate_conflict(
+            new_event_window={"event_ids": ["evt-1"], "events": [], "summary": {"session_id": "s1"}},
+            new_candidates={"graph_candidates": [], "assertion_candidates": []},
+            contradiction_hints=[{"target_record_id": "triple-1", "confidence": 0.9}],
+            existing_records=[{"record_id": "triple-1"}],
+            source_events=[],
+        )
+    )
+
+    assert result["decision"] == "keep_existing"
+    assert fast_adapter._client.completions.kwargs == {}
+    assert deep_adapter._client.completions.kwargs["messages"][0]["content"]
 
 
 def test_unified_extraction_parses_mentions_graph_and_assertions():

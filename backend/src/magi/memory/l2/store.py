@@ -518,6 +518,18 @@ class L2CognitionStore:
                 row = await cursor.fetchone()
         return self._snapshot_row_to_dict(row) if row else None
 
+    async def get_tom_assertion(self, *, assertion_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch one ToM assertion by id."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+                (assertion_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._assertion_row_to_dict(row) if row else None
+
     async def list_tom_snapshots(
         self,
         *,
@@ -585,6 +597,18 @@ class L2CognitionStore:
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [self._relation_row_to_dict(row) for row in rows]
+
+    async def get_relationship(self, *, triple_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch one graph edge by id."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM knowledge_graph WHERE triple_id = ?",
+                (triple_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._relation_row_to_dict(row) if row else None
 
     async def find_edges_by_event_id(self, event_id: str) -> List[Dict[str, Any]]:
         """Return graph edges that cite a specific event as evidence."""
