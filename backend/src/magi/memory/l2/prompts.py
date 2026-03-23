@@ -11,6 +11,9 @@ from .models import (
     L2CandidateSet,
     L2EntityCandidate,
     L2EntityResolutionMention,
+    L2ReconcileAssertion,
+    L2ReconcileEntity,
+    L2ReconcileGraphFact,
     L2EventWindow,
     L2ExistingRecord,
     L2SourceEvent,
@@ -211,17 +214,17 @@ def render_conflict_arbitration_prompt(
 
 def render_entity_reconcile_prompt(
     *,
-    entity: dict[str, Any],
-    graph_facts: list[dict[str, Any]],
-    assertions: list[dict[str, Any]],
-    recent_events: list[dict[str, Any]],
+    entity: L2ReconcileEntity,
+    graph_facts: list[L2ReconcileGraphFact],
+    assertions: list[L2ReconcileAssertion],
+    recent_events: list[L2SourceEvent],
 ) -> str:
     return (
         "Reconcile the following evidence for one entity.\n\n"
-        f"Entity:\n{json.dumps(entity, ensure_ascii=False, indent=2)}\n\n"
-        f"Related graph facts:\n{json.dumps(graph_facts, ensure_ascii=False, indent=2)}\n\n"
-        f"Related assertion candidates:\n{json.dumps(assertions, ensure_ascii=False, indent=2)}\n\n"
-        f"Recent events:\n{json.dumps(recent_events, ensure_ascii=False, indent=2)}\n\n"
+        f"Entity:\n{json.dumps(entity.to_dict(), ensure_ascii=False, indent=2)}\n\n"
+        f"Related graph facts:\n{json.dumps([item.to_dict() for item in graph_facts], ensure_ascii=False, indent=2)}\n\n"
+        f"Related assertion candidates:\n{json.dumps([item.to_dict() for item in assertions], ensure_ascii=False, indent=2)}\n\n"
+        f"Recent events:\n{json.dumps([item.to_dict() for item in recent_events], ensure_ascii=False, indent=2)}\n\n"
         "Return JSON with this schema:\n"
         '{\n  "reconciled_traits": [\n    {\n      "trait_name": "string",\n      "winning_value": "string or JSON string",\n'
         '      "status": "stable|corroborated|tentative|contradicted|expired",\n      "confidence": 0.0,\n      "evidence_event_ids": ["string"],\n'

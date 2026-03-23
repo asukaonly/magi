@@ -418,7 +418,10 @@ def test_contradiction_hint_detection_returns_typed_hints():
 
 def test_entity_reconcile_returns_typed_outcomes():
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import ReconciledTraitOutcome
+    from magi.memory.l2.models import (
+        L2ReconcileEntity,
+        ReconciledTraitOutcome,
+    )
 
     response = json.dumps(
         {
@@ -442,7 +445,7 @@ def test_entity_reconcile_returns_typed_outcomes():
 
     outcomes = asyncio.run(
         service.reconcile_entity_state(
-            entity={"entity_id": "user:u1", "entity_type": "user"},
+            entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
             graph_facts=[],
             assertions=[],
             recent_events=[],

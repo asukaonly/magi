@@ -20,6 +20,9 @@ from .models import (
     L2EntityResolution,
     L2EntityResolutionMention,
     L2ExistingRecord,
+    L2ReconcileAssertion,
+    L2ReconcileEntity,
+    L2ReconcileGraphFact,
     L2SourceEvent,
     L2EventWindow,
     L2GraphCandidate,
@@ -279,10 +282,10 @@ class L2LLMService:
     async def reconcile_entity_state(
         self,
         *,
-        entity: dict[str, Any],
-        graph_facts: list[dict[str, Any]],
-        assertions: list[dict[str, Any]],
-        recent_events: list[dict[str, Any]],
+        entity: L2ReconcileEntity,
+        graph_facts: list[L2ReconcileGraphFact],
+        assertions: list[L2ReconcileAssertion],
+        recent_events: list[L2SourceEvent],
     ) -> list[ReconciledTraitOutcome]:
         payload = await self._generate_json(
             system_prompt=ENTITY_RECONCILE_SYSTEM_PROMPT,
@@ -293,7 +296,7 @@ class L2LLMService:
                 recent_events=recent_events,
             ),
             request_kind="memory:l2_entity_reconcile",
-            turn_id=str(entity.get("entity_id") or "") or None,
+            turn_id=entity.entity_id,
         )
         outcomes = payload.get("reconciled_traits")
         if not isinstance(outcomes, list):
