@@ -368,6 +368,7 @@ describe('config forms', () => {
         provider_options: {},
       },
     },
+    model_runtime_overrides: {},
   };
 
   it('keeps the provider list compact and pushes details to the workbench pane', async () => {
@@ -596,6 +597,45 @@ describe('config forms', () => {
     expect(latest.selections.embedding.embedding_dimension).toBe(512);
   });
 
+  it('stores max concurrency as a shared runtime override for the selected model', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const controlledValue = {
+      ...llmValue,
+      model_runtime_overrides: {},
+    } as unknown as LLMConfig;
+
+    render(
+      <LLMForm
+        quickMode={false}
+        surface="settings"
+        view="models"
+        showSectionIntro={false}
+        value={controlledValue}
+        onChange={onChange}
+      />
+    );
+
+    const coreCard = await screen.findByTestId('llm-scenario-core');
+
+    await user.click(within(coreCard).getByRole('button', { name: 'llm.showAdvanced' }));
+
+    const maxConcurrencyField = within(coreCard).getByLabelText('llm.fields.maxConcurrency');
+    await user.clear(maxConcurrencyField);
+    await user.type(maxConcurrencyField, '9');
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+    });
+
+    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+    expect(latest.model_runtime_overrides).toEqual({
+      'openai::api.openai.com::gpt-5.2::chat': {
+        max_concurrency: 9,
+      },
+    });
+  });
+
   it('does not auto-select a provider or model when onboarding starts with all providers disabled', async () => {
     const onChange = vi.fn();
     const blankValue = {
@@ -653,6 +693,7 @@ describe('config forms', () => {
           provider_options: {},
         },
       },
+      model_runtime_overrides: {},
     };
 
     render(<LLMForm quickMode={false} value={blankValue} onChange={onChange} />);

@@ -60,7 +60,10 @@
       "empty": "Enable at least one provider first, then come back to assign models.",
       "selectEmbeddingModel": "Select embedding model",
       "selectEmbeddingDimension": "Select embedding dimension",
-      "noEmbeddingModels": "No embedding models available from enabled providers. Enable a provider with embedding support (e.g., OpenAI)."
+      "noEmbeddingModels": "No embedding models available from enabled providers. Enable a provider with embedding support (e.g., OpenAI).",
+      "maxConcurrencyPlaceholder": "Use model default",
+      "maxConcurrencyHelp": "This concurrency cap is shared by all scenarios that use the same runtime model.",
+      "sharedConcurrencyHint": "Also shared with: {{scenarios}}."
     },
     "embeddingDimensionConfirm": {
       "title": "Confirm Embedding Dimension Change",
@@ -107,6 +110,7 @@
     "fields": {
       "provider": "Provider",
       "model": "Model",
+      "maxConcurrency": "Max Concurrency",
       "embeddingDimension": "Embedding Dimension",
       "defaultModel": "Default Model",
       "modelManualEntry": "Add Model",

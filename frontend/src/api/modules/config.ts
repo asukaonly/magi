@@ -50,6 +50,7 @@ export interface LLMSelectionConfig {
 export interface LLMConfig {
   providers: Record<string, LLMProviderConfig>;
   selections: Record<LLMScenario, LLMSelectionConfig>;
+  model_runtime_overrides: Record<string, LLMConcurrencyOverrideConfig>;
 }
 
 export interface LLMCapabilities {
@@ -63,6 +64,14 @@ export interface LLMCapabilities {
 export interface LLMLimits {
   context_window?: number | null;
   max_output_tokens?: number | null;
+}
+
+export interface LLMRuntimeLimits extends LLMLimits {
+  max_concurrency?: number | null;
+}
+
+export interface LLMConcurrencyOverrideConfig {
+  max_concurrency?: number | null;
 }
 
 export interface LLMProviderFieldConfig {
@@ -94,7 +103,7 @@ export interface LLMCustomProviderMeta {
   icon?: string;
   fields?: Record<string, LLMProviderFieldConfig>;
   capabilities?: LLMCapabilities;
-  limits?: LLMLimits;
+  limits?: LLMRuntimeLimits;
   provider_options_example?: Record<string, any>;
 }
 
@@ -109,7 +118,7 @@ export interface LLMChatModelMeta {
   id: string;
   label?: string;
   capabilities: LLMChatCapabilities;
-  limits: LLMLimits;
+  limits: LLMRuntimeLimits;
   provider_options_example?: Record<string, any>;
 }
 
@@ -117,6 +126,7 @@ export interface LLMEmbeddingModelMeta {
   id: string;
   label?: string;
   dimensions: number[];
+  limits?: LLMRuntimeLimits;
   provider_options_example?: Record<string, any>;
 }
 
@@ -350,6 +360,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         provider_options: {},
       },
     },
+    model_runtime_overrides: {},
   },
   memory: {
     db_path: '~/.magi/data/memories',

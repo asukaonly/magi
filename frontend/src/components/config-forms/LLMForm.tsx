@@ -8,6 +8,7 @@ import {
   DEFAULT_LLM_LIMITS,
   type DiscoverLLMProviderModelsResponse,
   type LLMCapabilities,
+  type LLMConcurrencyOverrideConfig,
   type LLMConfig,
   type LLMLimits,
   type LLMProviderConfig,
@@ -42,6 +43,14 @@ interface PendingEmbeddingDimensionChange {
   nextDimension: number | null;
 }
 
+interface ScenarioConcurrencyState {
+  runtimeKey: string | null;
+  effectiveMaxConcurrency: number | null;
+  overrideMaxConcurrency: number | null;
+  defaultMaxConcurrency: number | null;
+  sharedScenarios: LLMScenario[];
+}
+
 const cloneCapabilities = (value?: Partial<LLMCapabilities>): LLMCapabilities => ({
   ...DEFAULT_LLM_CAPABILITIES,
   ...(value || {}),
@@ -50,6 +59,12 @@ const cloneCapabilities = (value?: Partial<LLMCapabilities>): LLMCapabilities =>
 const cloneLimits = (value?: Partial<LLMLimits>): LLMLimits => ({
   ...DEFAULT_LLM_LIMITS,
   ...(value || {}),
+});
+
+const cloneRuntimeOverride = (
+  value?: Partial<LLMConcurrencyOverrideConfig>
+): LLMConcurrencyOverrideConfig => ({
+  max_concurrency: value?.max_concurrency ?? null,
 });
 
 const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderConfig => ({
@@ -82,6 +97,12 @@ const cloneLLMConfig = (value?: LLMConfig): LLMConfig => ({
     core: cloneSelection(value?.selections?.core),
     embedding: cloneSelection(value?.selections?.embedding),
   },
+  model_runtime_overrides: Object.fromEntries(
+    Object.entries(value?.model_runtime_overrides || {}).map(([runtimeKey, limits]) => [
+      runtimeKey,
+      cloneRuntimeOverride(limits),
+    ])
+  ),
 });
 
 const llmSignature = (value: LLMConfig): string => JSON.stringify(value);
@@ -107,6 +128,120 @@ const resolveProviderActionBaseUrl = (
     return configured;
   }
   return getProviderMeta(registry, providerId)?.default_base_url || '';
+};
+
+const normalizeBaseUrlHost = (value?: string): string | null => {
+  const rawValue = (value || '').trim();
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(rawValue.includes('://') ? rawValue : `https://${rawValue}`);
+    return parsed.host.trim().toLowerCase() || null;
+  } catch {
+    return null;
+  }
+};
+
+const detectOpenAICompatibleRuntimeProvider = (
+  provider: LLMProviderConfig | undefined,
+  selectedModel?: string | null
+): string => {
+  const hintValues = [
+    provider?.display_name,
+    provider?.base_url,
+    provider?.custom_default_model,
+    selectedModel,
+  ];
+  const normalizedHints = hintValues
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+
+  const runtimeProviderHints: Array<[string, string[]]> = [
+    ['glm', ['bigmodel.cn', 'z.ai', 'glm-', ' glm']],
+    ['deepseek', ['deepseek']],
+    ['kimi', ['moonshot', 'kimi']],
+    ['minimax', ['minimax']],
+    ['gemini', ['gemini', 'generativelanguage.googleapis.com']],
+  ];
+  for (const [runtimeProvider, markers] of runtimeProviderHints) {
+    if (markers.some((marker) => normalizedHints.includes(marker))) {
+      return runtimeProvider;
+    }
+  }
+  return 'openai';
+};
+
+const resolveRuntimeProviderType = (
+  provider: LLMProviderConfig | undefined,
+  selectedModel?: string | null
+): string => {
+  const providerType = String(provider?.provider_type || '').trim().toLowerCase();
+  if (providerType && providerType !== 'custom') {
+    return providerType;
+  }
+
+  const apiFormat = String(provider?.api_format || 'openai').trim().toLowerCase();
+  if (apiFormat === 'anthropic') {
+    return 'anthropic';
+  }
+  return detectOpenAICompatibleRuntimeProvider(provider, selectedModel);
+};
+
+const buildRuntimeOverrideKey = ({
+  registry,
+  providerId,
+  provider,
+  model,
+  scenario,
+}: {
+  registry: LLMProviderRegistry;
+  providerId: string;
+  provider: LLMProviderConfig | undefined;
+  model: string;
+  scenario: LLMScenario;
+}): string | null => {
+  const normalizedModel = String(model || '').trim().toLowerCase();
+  if (!providerId || !provider || !normalizedModel) {
+    return null;
+  }
+  const runtimeProvider = resolveRuntimeProviderType(provider, normalizedModel);
+  const baseUrl = resolveProviderActionBaseUrl(registry, providerId, provider);
+  const host = normalizeBaseUrlHost(baseUrl) || runtimeProvider;
+  const requestFamily = scenario === 'embedding' ? 'embedding' : 'chat';
+  return `${runtimeProvider}::${host}::${normalizedModel}::${requestFamily}`;
+};
+
+const resolveSelectionDefaultMaxConcurrency = ({
+  registry,
+  provider,
+  model,
+  scenario,
+}: {
+  registry: LLMProviderRegistry;
+  provider: LLMProviderConfig | undefined;
+  model: string;
+  scenario: LLMScenario;
+}): number | null => {
+  const providerType = provider?.provider_type;
+  if (!providerType || providerType === 'custom') {
+    return null;
+  }
+
+  const providerMeta = getProviderMeta(registry, providerType);
+  if (!providerMeta) {
+    return null;
+  }
+
+  if (scenario === 'embedding') {
+    const embeddingModel = (providerMeta.embedding_models || []).find((item) => item.id === model);
+    return embeddingModel?.limits?.max_concurrency ?? null;
+  }
+
+  const chatModel = (providerMeta.chat_models || []).find((item) => item.id === model);
+  return chatModel?.limits?.max_concurrency ?? null;
 };
 
 const resolveProviderDefaultModel = (
@@ -313,6 +448,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   view = 'all',
   value,
   onChange,
+  showAdvancedByDefault = false,
   surface = 'onboarding',
   showSectionIntro = true,
 }) => {
@@ -402,6 +538,80 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }, {});
   }, [currentValue.selections]);
 
+  const scenarioConcurrency = useMemo<Record<LLMScenario, ScenarioConcurrencyState>>(() => {
+    if (!registry) {
+      return {
+        context_decider: {
+          runtimeKey: null,
+          effectiveMaxConcurrency: null,
+          overrideMaxConcurrency: null,
+          defaultMaxConcurrency: null,
+          sharedScenarios: [],
+        },
+        core: {
+          runtimeKey: null,
+          effectiveMaxConcurrency: null,
+          overrideMaxConcurrency: null,
+          defaultMaxConcurrency: null,
+          sharedScenarios: [],
+        },
+        embedding: {
+          runtimeKey: null,
+          effectiveMaxConcurrency: null,
+          overrideMaxConcurrency: null,
+          defaultMaxConcurrency: null,
+          sharedScenarios: [],
+        },
+      };
+    }
+
+    const entries = BUILTIN_SCENARIOS.map((scenario) => {
+      const selection = currentValue.selections[scenario];
+      const provider = currentValue.providers[selection.provider_id];
+      const runtimeKey = buildRuntimeOverrideKey({
+        registry,
+        providerId: selection.provider_id,
+        provider,
+        model: selection.model,
+        scenario,
+      });
+      const overrideMaxConcurrency =
+        runtimeKey ? currentValue.model_runtime_overrides?.[runtimeKey]?.max_concurrency ?? null : null;
+      const defaultMaxConcurrency = resolveSelectionDefaultMaxConcurrency({
+        registry,
+        provider,
+        model: selection.model,
+        scenario,
+      });
+      return {
+        scenario,
+        runtimeKey,
+        overrideMaxConcurrency,
+        defaultMaxConcurrency,
+      };
+    });
+
+    return Object.fromEntries(
+      entries.map((entry) => [
+        entry.scenario,
+        {
+          runtimeKey: entry.runtimeKey,
+          overrideMaxConcurrency: entry.overrideMaxConcurrency,
+          defaultMaxConcurrency: entry.defaultMaxConcurrency,
+          effectiveMaxConcurrency: entry.overrideMaxConcurrency ?? entry.defaultMaxConcurrency,
+          sharedScenarios: entries
+            .filter((candidate) => candidate.scenario !== entry.scenario && candidate.runtimeKey === entry.runtimeKey)
+            .map((candidate) => candidate.scenario),
+        },
+      ])
+    ) as Record<LLMScenario, ScenarioConcurrencyState>;
+  }, [
+    currentValue.model_runtime_overrides,
+    currentValue.providers,
+    currentValue.selections,
+    registry,
+  ]);
+
   const handleScenarioProviderChange = (scenario: LLMScenario, providerId: string) => {
     if (!registry) {
       return;
@@ -425,6 +635,36 @@ const LLMForm: React.FC<LLMFormProps> = ({
       selection.model = model;
       applySelectionDefaults(selection, registry, draft.providers[selection.provider_id], scenario);
       draft.selections[scenario] = selection;
+    });
+  };
+
+  const handleScenarioMaxConcurrencyChange = (scenario: LLMScenario, value: number | null) => {
+    if (!registry) {
+      return;
+    }
+
+    updateValue((draft) => {
+      const selection = cloneSelection(draft.selections[scenario]);
+      const provider = draft.providers[selection.provider_id];
+      const runtimeKey = buildRuntimeOverrideKey({
+        registry,
+        providerId: selection.provider_id,
+        provider,
+        model: selection.model,
+        scenario,
+      });
+      if (!runtimeKey) {
+        return;
+      }
+
+      if (value === null || Number.isNaN(value)) {
+        delete draft.model_runtime_overrides[runtimeKey];
+        return;
+      }
+
+      draft.model_runtime_overrides[runtimeKey] = {
+        max_concurrency: Math.max(1, Math.floor(value)),
+      };
     });
   };
 
@@ -723,9 +963,12 @@ const LLMForm: React.FC<LLMFormProps> = ({
           quickMode={quickMode}
           surface={surface}
           showSectionIntro={showSectionIntro}
+          showAdvancedByDefault={showAdvancedByDefault}
+          scenarioConcurrency={scenarioConcurrency}
           onScenarioProviderChange={handleScenarioProviderChange}
           onScenarioModelChange={handleScenarioModelChange}
           onScenarioEmbeddingDimensionChange={handleScenarioEmbeddingDimensionChange}
+          onScenarioMaxConcurrencyChange={handleScenarioMaxConcurrencyChange}
         />
       ) : null}
 

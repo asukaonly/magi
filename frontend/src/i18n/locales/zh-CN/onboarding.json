@@ -61,7 +61,10 @@
       "empty": "请先启用至少一个供应商，再回来选择模型。",
       "selectEmbeddingModel": "选择向量模型",
       "selectEmbeddingDimension": "选择向量维度",
-      "noEmbeddingModels": "当前已启用的供应商没有向量模型，请启用支持向量的供应商（如 OpenAI）。"
+      "noEmbeddingModels": "当前已启用的供应商没有向量模型，请启用支持向量的供应商（如 OpenAI）。",
+      "maxConcurrencyPlaceholder": "使用模型默认值",
+      "maxConcurrencyHelp": "这个并发上限会被所有使用同一运行时模型的场景共享。",
+      "sharedConcurrencyHint": "同时会影响：{{scenarios}}。"
     },
     "embeddingDimensionConfirm": {
       "title": "确认切换向量维度",
@@ -108,6 +111,7 @@
     "fields": {
       "provider": "供应商",
       "model": "模型",
+      "maxConcurrency": "最大并发数",
       "embeddingDimension": "向量维度",
       "defaultModel": "默认模型",
       "modelManualEntry": "添加模型",

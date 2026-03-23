@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,6 +12,17 @@ interface LLMModelSelectionSectionProps {
   quickMode?: boolean;
   surface?: 'onboarding' | 'settings';
   showSectionIntro?: boolean;
+  showAdvancedByDefault?: boolean;
+  scenarioConcurrency: Record<
+    LLMScenario,
+    {
+      runtimeKey: string | null;
+      effectiveMaxConcurrency: number | null;
+      overrideMaxConcurrency: number | null;
+      defaultMaxConcurrency: number | null;
+      sharedScenarios: LLMScenario[];
+    }
+  >;
   onScenarioProviderChange: (scenario: LLMScenario, providerId: string) => void;
   onScenarioModelChange: (scenario: LLMScenario, model: string) => void;
   onScenarioEmbeddingDimensionChange: (
@@ -19,6 +30,7 @@ interface LLMModelSelectionSectionProps {
     dimension: number | null,
     source?: 'model-sync' | 'manual'
   ) => void;
+  onScenarioMaxConcurrencyChange: (scenario: LLMScenario, value: number | null) => void;
 }
 
 const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
@@ -29,9 +41,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   quickMode = false,
   surface = 'onboarding',
   showSectionIntro = true,
+  showAdvancedByDefault = false,
+  scenarioConcurrency,
   onScenarioProviderChange,
   onScenarioModelChange,
   onScenarioEmbeddingDimensionChange,
+  onScenarioMaxConcurrencyChange,
 }) => {
   const { t } = useTranslation('onboarding');
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
@@ -43,6 +58,9 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const providerBadgeClassName = cn(
     'rounded-full border border-border/60 bg-transparent px-2 py-0.5 text-xs text-muted-foreground',
     isSettingsSurface && 'border-0 bg-[hsl(var(--settings-shell-elevated)/0.58)] px-2.5 py-1 text-[11px] text-[hsl(var(--settings-nav-foreground))]'
+  );
+  const [expandedAdvanced, setExpandedAdvanced] = useState<Record<LLMScenario, boolean>>(() =>
+    Object.fromEntries(SCENARIOS.map((scenario) => [scenario, showAdvancedByDefault])) as Record<LLMScenario, boolean>
   );
 
   // Collect all embedding models from all enabled providers
@@ -98,6 +116,68 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       </section>
     );
   }
+
+  const renderAdvancedSettings = (scenario: LLMScenario) => {
+    const concurrencyState = scenarioConcurrency[scenario];
+    const sharedScenarioTitles = concurrencyState.sharedScenarios.map((sharedScenario) =>
+      t(`llm.scenarios.${sharedScenario}.title`)
+    );
+
+    return (
+      <div className="mt-3 space-y-3 border-t border-border/60 pt-3">
+        <button
+          type="button"
+          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+          onClick={() =>
+            setExpandedAdvanced((current) => ({
+              ...current,
+              [scenario]: !current[scenario],
+            }))
+          }
+        >
+          {expandedAdvanced[scenario] ? t('llm.hideAdvanced') : t('llm.showAdvanced')}
+        </button>
+
+        {expandedAdvanced[scenario] ? (
+          <div className="space-y-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium">{t('llm.fields.maxConcurrency')}</span>
+              <input
+                aria-label={t('llm.fields.maxConcurrency')}
+                className={inputClassName}
+                type="number"
+                min={1}
+                step={1}
+                value={
+                  concurrencyState.effectiveMaxConcurrency !== null
+                    ? String(concurrencyState.effectiveMaxConcurrency)
+                    : ''
+                }
+                placeholder={t('llm.modelSelection.maxConcurrencyPlaceholder')}
+                onChange={(event) => {
+                  const nextValue = event.target.value.trim();
+                  onScenarioMaxConcurrencyChange(
+                    scenario,
+                    nextValue ? Number(nextValue) : null
+                  );
+                }}
+              />
+            </label>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t('llm.modelSelection.maxConcurrencyHelp')}
+            </p>
+            {sharedScenarioTitles.length > 0 ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                {t('llm.modelSelection.sharedConcurrencyHint', {
+                  scenarios: sharedScenarioTitles.join(', '),
+                })}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <section
@@ -221,6 +301,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                     />
                   </label>
                 ) : null}
+
+                {renderAdvancedSettings(scenario)}
               </article>
             );
           }
@@ -297,6 +379,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   )}
                 </label>
               </div>
+
+              {renderAdvancedSettings(scenario)}
 
               {scenario === 'core' && !selection.capabilities.vision ? (
                 <div
