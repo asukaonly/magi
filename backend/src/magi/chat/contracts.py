@@ -45,6 +45,9 @@ class ChatTurnRecord:
     run_id: str | None = None
     run_revision: int = 0
     run_disposition: str | None = None
+    response_anchor_turn_id: str | None = None
+    superseded_by_turn_id: str | None = None
+    supersession_reason: str | None = None
 
 
 @dataclass(slots=True)

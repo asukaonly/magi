@@ -5,6 +5,7 @@ from typing import Optional
 
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
+from ...agent.trace import now_wall_ms
 from ...chat import ChatProjector, ChatStore
 from ...config import get_config
 from ...core.logger import get_logger
@@ -208,6 +209,12 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             batch_facts=batch_facts,
         )
         run_decision = self._session_run_coordinator.route(classified)
+        if run_decision.superseded_turns:
+            updated_at_ms = int(latest_fact.timestamp * 1000) if isinstance(latest_fact, FactRecord) else now_wall_ms()
+            await self._postprocess_service.persist_turn_supersessions(
+                superseded_turns=run_decision.superseded_turns,
+                updated_at_ms=updated_at_ms,
+            )
         session_id = self._history_service.require_session_id(classified.user_id, classified.session_id)
         history = await self._history_service.get_or_load_history(classified.user_id, session_id)
         recent_tool_errors = self._history_service.get_recent_tool_errors(

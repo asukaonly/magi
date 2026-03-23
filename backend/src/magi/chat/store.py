@@ -62,7 +62,10 @@ class ChatStore:
                     error_text TEXT,
                     run_id TEXT,
                     run_revision INTEGER NOT NULL DEFAULT 0,
-                    run_disposition TEXT
+                    run_disposition TEXT,
+                    response_anchor_turn_id TEXT,
+                    superseded_by_turn_id TEXT,
+                    supersession_reason TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_chat_turns_session_created
                     ON chat_turns(session_id, created_at_ms ASC);
@@ -189,9 +192,12 @@ class ChatStore:
                     error_text,
                     run_id,
                     run_revision,
-                    run_disposition
+                    run_disposition,
+                    response_anchor_turn_id,
+                    superseded_by_turn_id,
+                    supersession_reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(turn_id) DO NOTHING
                 """,
                 (
@@ -211,6 +217,9 @@ class ChatStore:
                     run_id,
                     run_revision,
                     run_disposition,
+                    turn_id,
+                    None,
+                    None,
                 ),
             )
             await db.execute(
@@ -275,9 +284,12 @@ class ChatStore:
                     error_text,
                     run_id,
                     run_revision,
-                    run_disposition
+                    run_disposition,
+                    response_anchor_turn_id,
+                    superseded_by_turn_id,
+                    supersession_reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(turn_id) DO UPDATE SET
                     session_id = excluded.session_id,
                     user_id = excluded.user_id,
@@ -292,7 +304,10 @@ class ChatStore:
                     error_text = excluded.error_text,
                     run_id = excluded.run_id,
                     run_revision = excluded.run_revision,
-                    run_disposition = excluded.run_disposition
+                    run_disposition = excluded.run_disposition,
+                    response_anchor_turn_id = excluded.response_anchor_turn_id,
+                    superseded_by_turn_id = excluded.superseded_by_turn_id,
+                    supersession_reason = excluded.supersession_reason
                 """,
                 (
                     record.turn_id,
@@ -311,6 +326,9 @@ class ChatStore:
                     record.run_id,
                     record.run_revision,
                     record.run_disposition,
+                    record.response_anchor_turn_id,
+                    record.superseded_by_turn_id,
+                    record.supersession_reason,
                 ),
             )
             await db.commit()
@@ -419,7 +437,8 @@ class ChatStore:
             SELECT turn_id, session_id, user_id, trace_id, orchestration_id, status,
                    response_mode, execution_mode, ux_plan_json, created_at_ms,
                    updated_at_ms, completed_at_ms, error_text, run_id,
-                   run_revision, run_disposition
+                   run_revision, run_disposition, response_anchor_turn_id,
+                   superseded_by_turn_id, supersession_reason
             FROM chat_turns
             WHERE turn_id = ?
             """,
@@ -444,6 +463,9 @@ class ChatStore:
             run_id=row["run_id"],
             run_revision=int(row["run_revision"] or 0),
             run_disposition=row["run_disposition"],
+            response_anchor_turn_id=row["response_anchor_turn_id"],
+            superseded_by_turn_id=row["superseded_by_turn_id"],
+            supersession_reason=row["supersession_reason"],
         )
 
     async def _ensure_chat_turn_columns(self, db: aiosqlite.Connection) -> None:
@@ -456,6 +478,12 @@ class ChatStore:
             await db.execute("ALTER TABLE chat_turns ADD COLUMN run_revision INTEGER NOT NULL DEFAULT 0")
         if "run_disposition" not in column_names:
             await db.execute("ALTER TABLE chat_turns ADD COLUMN run_disposition TEXT")
+        if "response_anchor_turn_id" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN response_anchor_turn_id TEXT")
+        if "superseded_by_turn_id" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN superseded_by_turn_id TEXT")
+        if "supersession_reason" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN supersession_reason TEXT")
 
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""

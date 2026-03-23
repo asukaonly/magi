@@ -32,6 +32,7 @@ from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
 from .history_service import ChatHistoryService
 from .postprocess_components import ChatOutcomeWriter, ChatRuntimeNotifier
+from .session_run_coordinator import TurnSupersession
 
 if TYPE_CHECKING:
     from ....api.services.chat_trace_read_service import ChatTraceReadService
@@ -79,6 +80,21 @@ class ChatPostProcessService:
         )
         self._runtime_notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
         self._started_turn_traces: set[str] = set()
+
+    async def persist_turn_supersessions(
+        self,
+        *,
+        superseded_turns: list[TurnSupersession],
+        updated_at_ms: int,
+    ) -> None:
+        """Persist merged/interrupted turn states before new execution continues."""
+        for superseded_turn in superseded_turns:
+            await self._chat_outcome_writer.persist_turn_supersession(
+                turn_id=superseded_turn.turn_id,
+                anchor_turn_id=superseded_turn.anchor_turn_id,
+                reason=superseded_turn.reason,
+                updated_at_ms=updated_at_ms,
+            )
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
         action_emitter = self._get_action_emitter()
