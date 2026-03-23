@@ -1314,7 +1314,8 @@ class FunctionCallingOrchestrator:
             tool_info = self.tool_registry.get_tool_info(tool_name)
             if tool_info and tool_info.get("dangerous", False):
                 permissions.append("dangerous_tools")
-            target_task_agent_id = session_id or user_id
+            normalized_session_id = str(session_id or "").strip()
+            target_task_agent_id = normalized_session_id or user_id
 
             context = ToolExecutionContext(
                 agent_id=execution_agent_id,

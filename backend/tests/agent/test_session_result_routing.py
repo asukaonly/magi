@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.chat.handlers import ChatHandlerDependencies, _start_explore_task_agent
 from magi.agent.task_agents.chat.planning_service import ChatPlanningService
@@ -23,6 +24,7 @@ from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.workers.worker_manager import WORKER_AGENT_COMPLETED, WorkerAgentManager, WorkerRunState
 from magi.tools.registry import ToolRegistry
+from magi.tools.schema import ToolResult
 
 
 async def _fake_plan_subtasks(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -56,6 +58,25 @@ class _RecordingTaskAgentManager:
     async def add_fact_to_agent(self, agent_type, agent_id, fact):  # type: ignore[no-untyped-def]
         self.calls.append((agent_type, agent_id, fact))
         return True
+
+
+class _DummyLLMAdapter:
+    model_name = "test-model"
+    provider_name = "openai"
+
+
+class _RecordingExecuteToolRegistry:
+    def __init__(self, result: ToolResult) -> None:
+        self.result = result
+        self.calls: list[tuple[str, dict, object]] = []
+
+    async def execute(self, name: str, payload: dict, context):  # type: ignore[no-untyped-def]
+        self.calls.append((name, payload, context))
+        return self.result
+
+    def get_tool_info(self, tool_name: str) -> dict[str, object]:
+        _ = tool_name
+        return {}
 
 
 def test_task_orchestrator_chat_context_targets_session_chat_agent() -> None:
@@ -93,6 +114,135 @@ def test_chat_planning_service_context_targets_session_chat_agent() -> None:
     assert context.env_vars["target_task_agent_id"] == "session-1"
     assert context.env_vars["parent_task_agent_type"] == "chat"
     assert context.env_vars["parent_task_agent_id"] == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_task_orchestrator_launch_workers_targets_session_chat_agent_in_payload() -> None:
+    registry = _RecordingExecuteToolRegistry(ToolResult(success=True, data={"worker_ids": ["worker-1"]}))
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=registry,  # type: ignore[arg-type]
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+    )
+
+    class _FakeStore:
+        async def save_orchestration(self, state) -> None:  # type: ignore[no-untyped-def]
+            _ = state
+
+    orchestrator._orchestration_store = _FakeStore()
+    from magi.agent.orchestration import SubtaskDefinition, TaskOrchestrationState
+
+    state = TaskOrchestrationState(
+        orchestration_id="orch-1",
+        user_id="user-1",
+        session_id="session-1",
+        root_user_message="analyze repo",
+        planner="task_agent",
+        turn_id="turn-1",
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask-1",
+                description="Inspect backend",
+                subagent_type="Explore",
+                prompt="Inspect backend",
+            )
+        ],
+    )
+
+    error = await orchestrator._launch_workers(state)
+
+    assert error is None
+    assert len(registry.calls) == 1
+    name, payload, context = registry.calls[0]
+    assert name == "agent"
+    assert payload["target_task_agent_type"] == "chat"
+    assert payload["target_task_agent_id"] == "session-1"
+    assert payload["workers"][0]["parent_task_agent_id"] == "session-1"
+    assert payload["workers"][0]["target_task_agent_id"] == "session-1"
+    assert context.env_vars["target_task_agent_id"] == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_chat_planning_service_plan_worker_targets_session_chat_agent_in_payload() -> None:
+    registry = _RecordingExecuteToolRegistry(
+        ToolResult(
+            success=True,
+            data={
+                "result": {
+                    "summary": "plan",
+                    "subtasks": [
+                        {
+                            "description": "Inspect backend",
+                            "subagent_type": "Explore",
+                            "prompt": "Inspect backend",
+                            "parallel_group": "group-a",
+                        }
+                    ],
+                }
+            },
+        )
+    )
+    service = ChatPlanningService(
+        agent_id="user-1",
+        runtime_key="chat:user-1",
+        context_service=SimpleNamespace(),
+        prompt_service=SimpleNamespace(),
+        history_service=SimpleNamespace(),
+        tool_registry=registry,  # type: ignore[arg-type]
+        parent_task_agent_type="chat",
+    )
+
+    plan = await service._plan_with_plan_worker(
+        user_message="analyze repo",
+        user_id="user-1",
+        session_id="session-1",
+    )
+
+    assert plan is not None
+    assert len(registry.calls) == 1
+    name, payload, context = registry.calls[0]
+    assert name == "agent"
+    assert payload["target_task_agent_type"] == "chat"
+    assert payload["target_task_agent_id"] == "session-1"
+    assert payload["parent_task_agent_id"] == "session-1"
+    assert context.env_vars["target_task_agent_id"] == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_function_calling_agent_tool_treats_blank_session_id_as_missing() -> None:
+    registry = _RecordingExecuteToolRegistry(ToolResult(success=True, data={"worker_id": "worker-1"}))
+    orchestrator = FunctionCallingOrchestrator(
+        tool_registry=registry,  # type: ignore[arg-type]
+        llm_adapter=_DummyLLMAdapter(),
+    )
+
+    result = await orchestrator._execute_tool_call(
+        tool_call=ToolCall(
+            id="call-1",
+            name="agent",
+            arguments={
+                "action": "launch",
+                "description": "Inspect backend",
+                "prompt": "Inspect backend",
+            },
+        ),
+        user_id="user-1",
+        session_id="   ",
+        turn_id="turn-1",
+        intent="planning",
+        execution_agent_id="chat:user-1",
+        execution_workspace="/tmp",
+        orchestration_strategy=None,
+    )
+
+    assert result.success is True
+    assert len(registry.calls) == 1
+    _, _, context = registry.calls[0]
+    assert context.env_vars["target_task_agent_id"] == "user-1"
+    assert context.env_vars["session_id"] == "   "
 
 
 @pytest.mark.asyncio
