@@ -91,6 +91,7 @@ describe('toolchain drawer', () => {
     expect(dialog.className).toContain('overflow-hidden');
     expect(dialog.className).not.toContain('w-full');
     expect(dialog.className).toContain('max-w-[1180px]');
+    expect(dialog.className).toContain('trace-theme-surface');
 
     const panesGrid = Array.from(document.body.querySelectorAll('div')).find((element) =>
       element.className.includes('xl:grid-cols-[minmax(320px,0.74fr)_minmax(0,1.26fr)]')

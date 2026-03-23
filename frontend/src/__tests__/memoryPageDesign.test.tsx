@@ -167,6 +167,7 @@ describe('memory page design', () => {
       </MemoryRouter>
     );
 
+    expect(screen.getByTestId('memory-theme-root').className).toContain('memory-theme-surface');
     expect(screen.queryByTestId('memory-page-hero')).not.toBeInTheDocument();
     expect(screen.getByTestId('memory-page-header')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-layer-grid')).toBeInTheDocument();

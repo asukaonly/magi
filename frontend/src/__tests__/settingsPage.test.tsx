@@ -516,14 +516,12 @@ describe('settings page draft saving', () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByRole('button', { name: 'settings.tabs.memory' });
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.memory' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memory' });
 
-    // L0 is enabled by default and expanded by default, so the checkpoint Input should be visible
     const checkpointInput = await screen.findByLabelText('settings.memory.fields.l0_checkpoint_interval_seconds.label');
     fireEvent.change(checkpointInput, { target: { value: '45' } });
 
-    // L1 is enabled by default and expanded by default, toggle runtime_replay_include_l0_only
     await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.runtime_replay_include_l0_only.label' }));
 
     await user.click(screen.getByText('settings.memory.fields.enable_l2.label'));
@@ -541,11 +539,15 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           memory: expect.objectContaining({
-            l0_checkpoint_interval_seconds: 45,
-            l2_batch_flush_interval_seconds: 90,
-            enable_l2_conflict_arbitration: false,
-            l2_conflict_arbitration_min_confidence: 0.9,
-            runtime_replay_include_l0_only: true,
+            l0: expect.objectContaining({
+              checkpoint_interval_seconds: 45,
+              runtime_replay_include_l0_only: true,
+            }),
+            l2: expect.objectContaining({
+              batch_flush_interval_seconds: 90,
+              conflict_arbitration_enabled: false,
+              conflict_arbitration_min_confidence: 0.9,
+            }),
           }),
         })
       )

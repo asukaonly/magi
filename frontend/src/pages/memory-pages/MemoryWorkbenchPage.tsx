@@ -6,6 +6,9 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L0Tab } from '@/components/memory';
 import { formatTimestamp, useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
+  MEMORY_ACTION_BUTTON_CLASS,
+  MEMORY_EMPTY_PANEL_CLASS,
+  MEMORY_INFO_PANEL_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
   MemoryTag,
@@ -39,7 +42,7 @@ export const MemoryWorkbenchPage = () => {
       actions={
         <Button
           variant="outline"
-          className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
+          className={MEMORY_ACTION_BUTTON_CLASS}
           onClick={() => void refresh('l0')}
           disabled={loading}
         >
@@ -88,9 +91,9 @@ export const MemoryWorkbenchPage = () => {
             >
               {selectedSession ? (
                 <div className="space-y-3">
-                  <div className="rounded-[1.35rem] border border-[#ead9cc] bg-white/88 p-4">
-                    <div className="text-sm font-semibold text-[#38281e]">{selectedSession.session_id}</div>
-                    <div className="mt-2 text-sm text-[#755d4c]">
+                  <div className={MEMORY_INFO_PANEL_CLASS}>
+                    <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{selectedSession.session_id}</div>
+                    <div className="mt-2 text-sm text-[hsl(var(--memory-body))]">
                       {t('memory.pages.workbench.lastActiveLabel', {
                         time: formatTimestamp(selectedSession.last_active_at),
                       })}
@@ -103,7 +106,7 @@ export const MemoryWorkbenchPage = () => {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-[1.35rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.82)] p-4 text-sm leading-6 text-[#785f4e]">
+                <div className={MEMORY_EMPTY_PANEL_CLASS}>
                   {t('memory.pages.workbench.focusEmpty')}
                 </div>
               )}

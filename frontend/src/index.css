@@ -61,6 +61,51 @@
     --settings-shell: 34 18% 95%;
     --settings-shell-elevated: 35 24% 97%;
     --settings-subnav-border: 30 14% 82%;
+    --memory-background: 34 24% 96%;
+    --memory-foreground: 24 16% 22%;
+    --memory-panel: 35 24% 97%;
+    --memory-panel-elevated: 34 28% 98%;
+    --memory-panel-muted: 33 18% 92%;
+    --memory-panel-subtle: 33 20% 94%;
+    --memory-border: 30 14% 84%;
+    --memory-divider: 31 16% 88%;
+    --memory-title: 24 18% 20%;
+    --memory-body: 25 16% 38%;
+    --memory-muted: 25 12% 50%;
+    --memory-accent: 27 30% 47%;
+    --memory-accent-soft: 31 22% 84%;
+    --memory-accent-foreground: 32 30% 97%;
+    --memory-tag-bg: 35 30% 98%;
+    --memory-tag-border: 31 16% 84%;
+    --memory-input-bg: 0 0% 100%;
+    --memory-input-border: 30 14% 84%;
+    --memory-input-placeholder: 28 14% 56%;
+    --memory-empty-bg: 33 26% 92%;
+    --memory-empty-border: 31 22% 76%;
+    --memory-shadow: 28 24% 28%;
+    --trace-surface: 35 22% 97%;
+    --trace-surface-muted: 33 18% 93%;
+    --trace-card: 0 0% 100%;
+    --trace-border: 30 14% 84%;
+    --trace-selected: 32 24% 90%;
+    --trace-selected-border: 29 24% 74%;
+    --trace-icon-bg: 34 26% 98%;
+    --trace-icon-border: 30 14% 84%;
+    --trace-status-completed-fg: 142 34% 34%;
+    --trace-status-completed-bg: 144 26% 92%;
+    --trace-status-completed-border: 145 18% 77%;
+    --trace-status-running-fg: 34 48% 36%;
+    --trace-status-running-bg: 37 46% 91%;
+    --trace-status-running-border: 35 28% 78%;
+    --trace-status-pending-fg: 28 8% 48%;
+    --trace-status-pending-bg: 28 14% 92%;
+    --trace-status-pending-border: 28 10% 80%;
+    --trace-status-failed-fg: 6 50% 40%;
+    --trace-status-failed-bg: 10 52% 93%;
+    --trace-status-failed-border: 8 36% 80%;
+    --trace-error-bg: 10 56% 94%;
+    --trace-error-border: 10 36% 80%;
+    --trace-error-foreground: 6 46% 39%;
     --radius: 0.9rem;
   }
 
@@ -121,6 +166,51 @@
     --settings-shell: 223 16% 13%;
     --settings-shell-elevated: 223 16% 16%;
     --settings-subnav-border: 222 11% 26%;
+    --memory-background: 223 18% 12%;
+    --memory-foreground: 30 18% 92%;
+    --memory-panel: 223 16% 14%;
+    --memory-panel-elevated: 223 15% 16%;
+    --memory-panel-muted: 222 14% 18%;
+    --memory-panel-subtle: 222 14% 17%;
+    --memory-border: 222 12% 24%;
+    --memory-divider: 222 12% 26%;
+    --memory-title: 30 18% 92%;
+    --memory-body: 28 12% 76%;
+    --memory-muted: 28 10% 66%;
+    --memory-accent: 26 46% 60%;
+    --memory-accent-soft: 24 20% 24%;
+    --memory-accent-foreground: 30 22% 96%;
+    --memory-tag-bg: 223 16% 16%;
+    --memory-tag-border: 222 12% 25%;
+    --memory-input-bg: 223 16% 15%;
+    --memory-input-border: 222 12% 24%;
+    --memory-input-placeholder: 28 10% 58%;
+    --memory-empty-bg: 223 15% 17%;
+    --memory-empty-border: 223 12% 27%;
+    --memory-shadow: 0 0% 0%;
+    --trace-surface: 223 18% 12%;
+    --trace-surface-muted: 222 14% 18%;
+    --trace-card: 223 16% 15%;
+    --trace-border: 222 12% 24%;
+    --trace-selected: 24 18% 22%;
+    --trace-selected-border: 25 22% 35%;
+    --trace-icon-bg: 223 16% 16%;
+    --trace-icon-border: 222 12% 24%;
+    --trace-status-completed-fg: 144 30% 72%;
+    --trace-status-completed-bg: 144 18% 22%;
+    --trace-status-completed-border: 145 16% 30%;
+    --trace-status-running-fg: 37 58% 72%;
+    --trace-status-running-bg: 35 20% 22%;
+    --trace-status-running-border: 34 20% 32%;
+    --trace-status-pending-fg: 28 10% 72%;
+    --trace-status-pending-bg: 223 12% 21%;
+    --trace-status-pending-border: 223 10% 29%;
+    --trace-status-failed-fg: 7 54% 74%;
+    --trace-status-failed-bg: 6 24% 22%;
+    --trace-status-failed-border: 7 18% 32%;
+    --trace-error-bg: 7 24% 22%;
+    --trace-error-border: 7 18% 32%;
+    --trace-error-foreground: 7 54% 74%;
     --radius: 0.9rem;
   }
 
@@ -197,6 +287,35 @@
     --ring: var(--settings-ring);
     background: hsl(var(--background));
     color: hsl(var(--foreground));
+  }
+
+  .memory-theme-surface {
+    --background: var(--memory-background);
+    --foreground: var(--memory-foreground);
+    --card: var(--memory-panel);
+    --card-foreground: var(--memory-foreground);
+    --muted: var(--memory-panel-muted);
+    --muted-foreground: var(--memory-muted);
+    --accent: var(--memory-accent);
+    --accent-foreground: var(--memory-accent-foreground);
+    --border: var(--memory-border);
+    --input: var(--memory-input-border);
+    --ring: var(--memory-accent);
+    background: hsl(var(--memory-background));
+    color: hsl(var(--memory-foreground));
+  }
+
+  .trace-theme-surface {
+    --background: var(--trace-surface);
+    --foreground: var(--memory-foreground);
+    --card: var(--trace-card);
+    --card-foreground: var(--memory-foreground);
+    --muted: var(--trace-surface-muted);
+    --muted-foreground: var(--memory-muted);
+    --border: var(--trace-border);
+    --ring: var(--memory-accent);
+    background: hsl(var(--trace-surface));
+    color: hsl(var(--memory-foreground));
   }
 }
 

@@ -30,7 +30,7 @@ export const L4Tab: React.FC<L4TabProps> = ({ stats, skills }) => {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-2xl font-bold text-orange-500">
+            <div className="text-2xl font-bold text-[hsl(var(--memory-accent))]">
               {stats.open_circuit_breakers}
             </div>
             <div className="text-sm text-muted-foreground">{t('memory.l4.openBreakers')}</div>
@@ -38,7 +38,7 @@ export const L4Tab: React.FC<L4TabProps> = ({ stats, skills }) => {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-2xl font-bold text-green-500">{highSuccessCount}</div>
+            <div className="text-2xl font-bold text-[hsl(var(--trace-status-completed-fg))]">{highSuccessCount}</div>
             <div className="text-sm text-muted-foreground">{t('memory.l4.highSuccess')}</div>
           </CardContent>
         </Card>

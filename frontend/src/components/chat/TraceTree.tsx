@@ -13,10 +13,10 @@ interface TraceTreeProps {
 }
 
 const statusTone: Record<string, string> = {
-  completed: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20',
-  running: 'text-amber-700 bg-amber-500/10 border-amber-500/20',
-  pending: 'text-slate-500 bg-slate-500/10 border-slate-500/20',
-  failed: 'text-rose-600 bg-rose-500/10 border-rose-500/20',
+  completed: 'text-[hsl(var(--trace-status-completed-fg))] bg-[hsl(var(--trace-status-completed-bg))] border-[hsl(var(--trace-status-completed-border))]',
+  running: 'text-[hsl(var(--trace-status-running-fg))] bg-[hsl(var(--trace-status-running-bg))] border-[hsl(var(--trace-status-running-border))]',
+  pending: 'text-[hsl(var(--trace-status-pending-fg))] bg-[hsl(var(--trace-status-pending-bg))] border-[hsl(var(--trace-status-pending-border))]',
+  failed: 'text-[hsl(var(--trace-status-failed-fg))] bg-[hsl(var(--trace-status-failed-bg))] border-[hsl(var(--trace-status-failed-border))]',
 };
 
 const statusIcon = (status: string) => {
@@ -60,15 +60,15 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
           'w-full text-left transition-colors',
           compact ? 'rounded-xl px-2.5 py-1.5' : 'rounded-xl px-3 py-2',
           selected
-            ? 'bg-primary/10 ring-1 ring-primary/30'
-            : 'hover:bg-muted/50',
+            ? 'bg-[hsl(var(--trace-selected))] ring-1 ring-[hsl(var(--trace-selected-border))]'
+            : 'hover:bg-[hsl(var(--trace-surface-muted)/0.72)]',
           compact
             ? selected
               ? 'shadow-none'
               : 'border-transparent bg-transparent'
             : selected
               ? 'shadow-md'
-              : 'bg-card'
+              : 'bg-[hsl(var(--trace-card))]'
         )}
         style={{ marginLeft: `${depth * 4}px` }}
       >
@@ -79,7 +79,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
             )}
             {!hasChildren && <span className={cn('inline-block rounded-full bg-primary/30', compact ? 'h-1.5 w-1.5' : 'mt-1 h-2 w-2')} />}
             <span className={cn(
-              'flex items-center justify-center rounded-xl border border-border/40 bg-card text-muted-foreground',
+              'flex items-center justify-center rounded-xl border border-[hsl(var(--trace-icon-border))] bg-[hsl(var(--trace-icon-bg))] text-muted-foreground',
               compact ? 'h-7 w-7' : 'h-8 w-8'
             )}>
               {kindIcon(node.kind)}
@@ -110,7 +110,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
               </div>
             )}
             {node.error && (
-              <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-rose-600">{node.error}</div>
+              <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[hsl(var(--trace-error-foreground))]">{node.error}</div>
             )}
           </div>
         </div>
@@ -119,6 +119,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
         <div
           className={cn(
             'space-y-0.5 border-l border-border/60 pl-3',
+            'border-l-[hsl(var(--trace-border))]',
             compact && 'space-y-0.5 pl-3'
           )}
           style={{ marginLeft: `${depth * 4 + 18}px` }}

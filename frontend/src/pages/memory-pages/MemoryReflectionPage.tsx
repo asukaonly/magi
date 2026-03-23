@@ -6,6 +6,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L3Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
+  MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
   MemoryTag,
   MemoryWorkspacePanel,
@@ -63,7 +64,7 @@ export const MemoryReflectionPage = () => {
       actions={
         <Button
           variant="outline"
-          className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
+          className={MEMORY_ACTION_BUTTON_CLASS}
           onClick={() => void refresh('l3')}
           disabled={loading}
         >

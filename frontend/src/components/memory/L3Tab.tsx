@@ -95,12 +95,12 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
           ) : (
             <Tabs value={activeType} onValueChange={(value) => setActiveType(value as SummaryType)} className="space-y-4">
               <div className="overflow-x-auto pb-1">
-                <TabsList className="inline-flex h-auto min-w-full justify-start gap-2 rounded-[1.25rem] border border-[#e7ddd3] bg-[rgba(255,252,248,0.96)] p-2 shadow-[0_10px_24px_-24px_rgba(99,71,48,0.28)]">
+                <TabsList className="inline-flex h-auto min-w-full justify-start gap-2 rounded-[1.25rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.96)] p-2 shadow-[0_10px_24px_-24px_hsl(var(--memory-shadow)/0.28)]">
                   {SUMMARY_TYPES.map((summaryType) => (
                     <TabsTrigger
                       key={summaryType}
                       value={summaryType}
-                      className="rounded-[0.95rem] border border-transparent px-4 py-2.5 text-sm text-[#735f51] data-[state=active]:border-[#e0d4c8] data-[state=active]:bg-white data-[state=active]:text-[#2f231b] data-[state=active]:shadow-[0_8px_16px_-18px_rgba(94,68,46,0.35)]"
+                      className="rounded-[0.95rem] border border-transparent px-4 py-2.5 text-sm text-[hsl(var(--memory-body))] data-[state=active]:border-[hsl(var(--memory-border))] data-[state=active]:bg-[hsl(var(--memory-panel))] data-[state=active]:text-[hsl(var(--memory-title))] data-[state=active]:shadow-[0_8px_16px_-18px_hsl(var(--memory-shadow)/0.35)]"
                     >
                       {t(`memory.pages.reflection.types.${summaryType}`)}
                     </TabsTrigger>
@@ -131,10 +131,10 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
               <TabsContent value="insight" className="space-y-4">
                 <Tabs value={activeInsightCategory} onValueChange={setActiveInsightCategory} className="space-y-4">
                   <div className="overflow-x-auto pb-1">
-                    <TabsList className="inline-flex h-auto min-w-full justify-start gap-2 rounded-[1.15rem] border border-[#e9e0d7] bg-[rgba(252,248,243,0.94)] p-2">
+                    <TabsList className="inline-flex h-auto min-w-full justify-start gap-2 rounded-[1.15rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-subtle)/0.94)] p-2">
                       <TabsTrigger
                         value="all"
-                        className="rounded-full border border-transparent px-4 py-2 text-sm text-[#735f51] data-[state=active]:border-[#e0d4c8] data-[state=active]:bg-white data-[state=active]:text-[#2f231b]"
+                        className="rounded-full border border-transparent px-4 py-2 text-sm text-[hsl(var(--memory-body))] data-[state=active]:border-[hsl(var(--memory-border))] data-[state=active]:bg-[hsl(var(--memory-panel))] data-[state=active]:text-[hsl(var(--memory-title))]"
                       >
                         {t('memory.filters.all')}
                       </TabsTrigger>
@@ -142,7 +142,7 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
                         <TabsTrigger
                           key={category}
                           value={category}
-                          className="rounded-full border border-transparent px-4 py-2 text-sm text-[#735f51] data-[state=active]:border-[#e0d4c8] data-[state=active]:bg-white data-[state=active]:text-[#2f231b]"
+                          className="rounded-full border border-transparent px-4 py-2 text-sm text-[hsl(var(--memory-body))] data-[state=active]:border-[hsl(var(--memory-border))] data-[state=active]:bg-[hsl(var(--memory-panel))] data-[state=active]:text-[hsl(var(--memory-title))]"
                         >
                           {formatCategoryLabel(category, t)}
                         </TabsTrigger>
@@ -172,10 +172,10 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
 };
 
 const cardClass =
-  'rounded-[1.35rem] border border-[#eadfd5] bg-[rgba(255,253,250,0.96)] p-4 shadow-[0_12px_24px_-24px_rgba(99,71,48,0.28)]';
+  'rounded-[1.35rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.96)] p-4 shadow-[0_12px_24px_-24px_hsl(var(--memory-shadow)/0.28)]';
 
 const EmptyTypeState: React.FC<{ label: string }> = ({ label }) => (
-  <div className="rounded-[1.25rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.82)] p-5 text-sm leading-6 text-[#785f4e]">
+  <div className="rounded-[1.25rem] border border-dashed border-[hsl(var(--memory-empty-border))] bg-[hsl(var(--memory-empty-bg)/0.82)] p-5 text-sm leading-6 text-[hsl(var(--memory-body))]">
     {label}
   </div>
 );
@@ -185,7 +185,7 @@ const TemporalSummaryCard: React.FC<{ summary: L3Summary }> = ({ summary }) => {
   return (
     <div className={cardClass}>
       <SummaryHeader icon={<Activity className="h-4 w-4" />} summary={summary} />
-      <p className="mt-3 text-sm leading-6 text-[#4f3d31]">{summary.content}</p>
+      <p className="mt-3 text-sm leading-6 text-[hsl(var(--memory-title))]">{summary.content}</p>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <MetaRow
           label={t('memory.pages.reflection.cards.window')}
@@ -206,7 +206,7 @@ const ThematicSummaryCard: React.FC<{ summary: L3Summary }> = ({ summary }) => {
   return (
     <div className={cardClass}>
       <SummaryHeader icon={<GitBranch className="h-4 w-4" />} summary={summary} />
-      <p className="mt-3 text-sm leading-6 text-[#4f3d31]">{summary.content}</p>
+      <p className="mt-3 text-sm leading-6 text-[hsl(var(--memory-title))]">{summary.content}</p>
       <div className="mt-4 flex flex-wrap gap-2">
         {summary.key_topics.map((topic) => (
           <Badge key={topic} variant="secondary" className="text-xs">
@@ -236,7 +236,7 @@ const InsightSummaryCard: React.FC<{ summary: L3Summary }> = ({ summary }) => {
   return (
     <div className={cardClass}>
       <SummaryHeader icon={<Lightbulb className="h-4 w-4" />} summary={summary} />
-      <p className="mt-3 text-sm leading-6 text-[#4f3d31]">{summary.content}</p>
+      <p className="mt-3 text-sm leading-6 text-[hsl(var(--memory-title))]">{summary.content}</p>
       <div className="mt-4 flex flex-wrap gap-2">
         {summary.key_topics.map((topic) => (
           <Badge key={topic} variant="secondary" className="text-xs">
@@ -256,7 +256,7 @@ const InsightSummaryCard: React.FC<{ summary: L3Summary }> = ({ summary }) => {
       </div>
       <PatternStrip summary={summary} />
       {summary.generated_by_model ? (
-        <div className="mt-4 flex items-center gap-2 text-xs text-[#876f5d]">
+        <div className="mt-4 flex items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
           <Sparkles className="h-3.5 w-3.5" />
           <span>
             {t('memory.pages.reflection.cards.generatedBy')}: {summary.generated_by_model}
@@ -276,7 +276,7 @@ const SummaryHeaderInner: React.FC<{ icon: React.ReactNode; summary: L3Summary }
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="space-y-2">
-        <div className="flex items-center gap-2 text-[#5f4a3c]">
+        <div className="flex items-center gap-2 text-[hsl(var(--memory-body))]">
           {icon}
           <Badge>{t(`memory.pages.reflection.types.${summary.summary_type}`)}</Badge>
           <Badge variant="outline">
@@ -290,9 +290,9 @@ const SummaryHeaderInner: React.FC<{ icon: React.ReactNode; summary: L3Summary }
 };
 
 const MetaRow: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="rounded-[1rem] border border-[#efe3d9] bg-white/85 px-3 py-2">
-    <div className="text-[11px] uppercase tracking-[0.14em] text-[#9a7f6c]">{label}</div>
-    <div className="mt-1 text-sm font-medium text-[#3c2c21]">{value}</div>
+  <div className="rounded-[1rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel)/0.85)] px-3 py-2">
+    <div className="text-[11px] uppercase tracking-[0.14em] text-[hsl(var(--memory-muted))]">{label}</div>
+    <div className="mt-1 text-sm font-medium text-[hsl(var(--memory-title))]">{value}</div>
   </div>
 );
 
@@ -306,11 +306,11 @@ const PatternStrip: React.FC<{ summary: L3Summary }> = ({ summary }) => {
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2">
       {changes.length > 0 ? (
-        <div className="rounded-[1rem] border border-[#efe3d9] bg-white/85 px-3 py-3">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-[#9a7f6c]">
+        <div className="rounded-[1rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel)/0.85)] px-3 py-3">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[hsl(var(--memory-muted))]">
             {t('memory.pages.reflection.cards.changes')}
           </div>
-          <ul className="mt-2 space-y-1 text-sm text-[#4f3d31]">
+          <ul className="mt-2 space-y-1 text-sm text-[hsl(var(--memory-title))]">
             {changes.slice(0, 3).map((item) => (
               <li key={item}>{item}</li>
             ))}
@@ -318,11 +318,11 @@ const PatternStrip: React.FC<{ summary: L3Summary }> = ({ summary }) => {
         </div>
       ) : null}
       {patterns.length > 0 ? (
-        <div className="rounded-[1rem] border border-[#efe3d9] bg-white/85 px-3 py-3">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-[#9a7f6c]">
+        <div className="rounded-[1rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel)/0.85)] px-3 py-3">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[hsl(var(--memory-muted))]">
             {t('memory.pages.reflection.cards.patterns')}
           </div>
-          <ul className="mt-2 space-y-1 text-sm text-[#4f3d31]">
+          <ul className="mt-2 space-y-1 text-sm text-[hsl(var(--memory-title))]">
             {patterns.slice(0, 3).map((item) => (
               <li key={item}>{item}</li>
             ))}

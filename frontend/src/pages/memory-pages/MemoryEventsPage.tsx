@@ -7,6 +7,8 @@ import { L1Tab } from '@/components/memory';
 import { formatTimestamp } from '@/hooks/useMemory';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
+  MEMORY_ACTION_BUTTON_CLASS,
+  MEMORY_INFO_PANEL_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
   MemoryTag,
@@ -55,7 +57,7 @@ export const MemoryEventsPage = () => {
       actions={
         <Button
           variant="outline"
-          className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
+          className={MEMORY_ACTION_BUTTON_CLASS}
           onClick={() => void refresh('l1')}
           disabled={loading}
         >
@@ -128,7 +130,7 @@ export const MemoryEventsPage = () => {
                   {domainCounts.length === 0 ? <MemoryTag>{t('memory.filters.all')}</MemoryTag> : null}
                 </div>
                 {latestEvent ? (
-                  <div className="rounded-[1.25rem] border border-[#ead9cc] bg-white/85 px-4 py-3 text-sm text-[#725c4b]">
+                  <div className={MEMORY_INFO_PANEL_CLASS}>
                     {t('memory.pages.events.latestEventLabel', { time: formatTimestamp(latestEvent.timestamp) })}
                   </div>
                 ) : null}

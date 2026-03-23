@@ -8,7 +8,12 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ClearMemoryDialog } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
+  MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
+  MEMORY_EMPTY_PANEL_CLASS,
+  MEMORY_INFO_PANEL_CLASS,
+  MEMORY_INTERACTIVE_CARD_CLASS,
+  MEMORY_SECTION_CARD_CLASS,
   MemoryHeroStat,
   MemoryTag,
   MemoryWorkspacePanel,
@@ -92,7 +97,7 @@ export const MemoryOverviewPage = () => {
           <>
             <Button
               variant="outline"
-              className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
+              className={MEMORY_ACTION_BUTTON_CLASS}
               onClick={() => void refreshAll()}
               disabled={loading}
             >
@@ -160,18 +165,18 @@ export const MemoryOverviewPage = () => {
                   .map((section) => (
                     <div
                       key={section.key}
-                      className="rounded-[1.35rem] border border-[#eadccf] bg-white/86 p-4"
+                      className={MEMORY_SECTION_CARD_CLASS}
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-2">
-                          <div className="text-sm font-semibold text-[#35261c]">{section.label}</div>
-                          <div className="text-sm leading-6 text-[#735c4c]">
+                          <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{section.label}</div>
+                          <div className="text-sm leading-6 text-[hsl(var(--memory-body))]">
                             {describeSearchItem(section.items[0])}
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-2xl font-semibold text-[#7e604b]">{section.count}</div>
-                          <div className="text-[11px] uppercase tracking-[0.16em] text-[#9a7f6c]">
+                          <div className="text-2xl font-semibold text-[hsl(var(--memory-accent))]">{section.count}</div>
+                          <div className="text-[11px] uppercase tracking-[0.16em] text-[hsl(var(--memory-muted))]">
                             {t('memory.overview.matchesLabel')}
                           </div>
                         </div>
@@ -180,7 +185,7 @@ export const MemoryOverviewPage = () => {
                   ))}
               </div>
             ) : (
-              <div className="rounded-[1.45rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.82)] p-5 text-sm leading-6 text-[#785f4e]">
+              <div className={MEMORY_EMPTY_PANEL_CLASS}>
                 {searchQuery.trim().length > 0
                   ? t('memory.overview.noSearchResults')
                   : t('memory.overview.searchIdleHint')}
@@ -199,21 +204,21 @@ export const MemoryOverviewPage = () => {
                   <Link
                     key={section.key}
                     to={section.path}
-                    className="group flex items-center justify-between rounded-[1.35rem] border border-[#e9d8cb] bg-white/88 px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#d8bea9]"
+                    className={MEMORY_INTERACTIVE_CARD_CLASS}
                   >
                     <div className="space-y-1">
-                      <div className="text-sm font-semibold text-[#38281e]">{section.label}</div>
-                      <div className="text-xs text-[#8b7260]">
+                      <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{section.label}</div>
+                      <div className="text-xs text-[hsl(var(--memory-muted))]">
                         {t('memory.overview.recommendedReasonHits', { count: section.count })}
                       </div>
                     </div>
-                    <ArrowRight className="h-4 w-4 text-[#aa8166] transition-transform duration-200 group-hover:translate-x-0.5" />
+                    <ArrowRight className="h-4 w-4 text-[hsl(var(--memory-accent))] transition-transform duration-200 group-hover:translate-x-0.5" />
                   </Link>
                 ))}
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="rounded-[1.35rem] border border-[#eadccf] bg-white/86 p-4 text-sm leading-6 text-[#735c4c]">
+                <div className={MEMORY_INFO_PANEL_CLASS}>
                   {t('memory.overview.recommendedEmpty')}
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -227,11 +232,11 @@ export const MemoryOverviewPage = () => {
         </div>
 
         <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-          <Card className="rounded-[1.9rem] border-[#e6d7cb] bg-[rgba(255,252,248,0.94)] shadow-[0_16px_40px_-34px_rgba(112,80,52,0.4)]">
+          <Card className="rounded-[1.9rem] border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.94)] shadow-[0_16px_40px_-34px_hsl(var(--memory-shadow)/0.4)]">
             <CardHeader>
-              <CardTitle className="text-[#3f2d21]">{t('memory.overview.workspaceTitle')}</CardTitle>
+              <CardTitle className="text-[hsl(var(--memory-title))]">{t('memory.overview.workspaceTitle')}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-5 text-sm leading-6 text-[#6f5a4a]">
+            <CardContent className="space-y-5 text-sm leading-6 text-[hsl(var(--memory-body))]">
               <p>{t('memory.overview.workspaceBody')}</p>
               <div
                 data-testid="memory-overview-layer-grid"
@@ -241,24 +246,24 @@ export const MemoryOverviewPage = () => {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className="group rounded-[1.4rem] border border-[#eadccf] bg-white/88 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#d7bba3] hover:shadow-[0_14px_28px_-24px_rgba(104,76,50,0.45)]"
+                    className="group rounded-[1.4rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.88)] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[hsl(var(--memory-accent)/0.45)] hover:shadow-[0_14px_28px_-24px_hsl(var(--memory-shadow)/0.45)]"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-sm font-semibold text-[#34251c]">{item.label}</div>
-                        <div className="mt-1 text-xs text-[#8b7260]">
+                        <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{item.label}</div>
+                        <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
                           {t('memory.overview.layerCardHint')}
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xl font-semibold text-[#34251c]">{item.stat}</div>
-                        <ArrowRight className="ml-auto mt-2 h-4 w-4 text-[#aa8166] transition-transform duration-200 group-hover:translate-x-0.5" />
+                        <div className="text-xl font-semibold text-[hsl(var(--memory-title))]">{item.stat}</div>
+                        <ArrowRight className="ml-auto mt-2 h-4 w-4 text-[hsl(var(--memory-accent))] transition-transform duration-200 group-hover:translate-x-0.5" />
                       </div>
                     </div>
                   </Link>
                 ))}
               </div>
-              <div className="rounded-[1.4rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.8)] p-4 text-[#785f4e]">
+              <div className="rounded-[1.4rem] border border-dashed border-[hsl(var(--memory-empty-border))] bg-[hsl(var(--memory-empty-bg)/0.8)] p-4 text-[hsl(var(--memory-body))]">
                 {t('memory.overview.workspaceHint')}
               </div>
             </CardContent>
@@ -266,31 +271,31 @@ export const MemoryOverviewPage = () => {
 
           <Card
             data-testid="memory-overview-recent-changes"
-            className="rounded-[1.9rem] border-[#e6d7cb] bg-[rgba(255,252,248,0.94)] shadow-[0_16px_40px_-34px_rgba(112,80,52,0.4)]"
+            className="rounded-[1.9rem] border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.94)] shadow-[0_16px_40px_-34px_hsl(var(--memory-shadow)/0.4)]"
           >
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-[#3f2d21]">
+              <CardTitle className="flex items-center gap-2 text-[hsl(var(--memory-title))]">
                 <Sparkles className="h-4 w-4 text-primary" />
                 {t('memory.overview.recentChangesTitle')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 text-sm text-[#6f5a4a]">
+            <CardContent className="space-y-4 text-sm text-[hsl(var(--memory-body))]">
               <p>{t('memory.overview.statsBody')}</p>
               <div className="space-y-3">
                 {recentChanges.map((item) => (
                   <div
                     key={item.title}
-                    className="rounded-[1.3rem] border border-[#ecdcd0] bg-[rgba(250,245,239,0.92)] px-4 py-3"
+                    className="rounded-[1.3rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-subtle)/0.92)] px-4 py-3"
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium text-[#3b2b20]">{item.title}</div>
-                      <div className="text-lg font-semibold text-[#7d5f49]">{item.value}</div>
+                      <div className="font-medium text-[hsl(var(--memory-title))]">{item.title}</div>
+                      <div className="text-lg font-semibold text-[hsl(var(--memory-accent))]">{item.value}</div>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="rounded-[1.4rem] border border-[#eadccf] bg-white/85 p-4">
-                <div className="text-xs uppercase tracking-[0.16em] text-[#8f7460]">
+              <div className="rounded-[1.4rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.85)] p-4">
+                <div className="text-xs uppercase tracking-[0.16em] text-[hsl(var(--memory-muted))]">
                   {t('memory.overview.statsTitle')}
                 </div>
                 <div className="mt-2 text-sm leading-6">{t('memory.overview.asideBody')}</div>

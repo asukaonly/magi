@@ -5,7 +5,10 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L2Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame from './MemoryPageFrame';
+import MemoryPageFrame, {
+  MEMORY_ACTION_BUTTON_CLASS,
+  MEMORY_FILTER_SELECT_CLASS,
+} from './MemoryPageFrame';
 
 const KNOWLEDGE_SECTIONS = [
   'overview',
@@ -102,7 +105,7 @@ export const MemoryKnowledgePage = () => {
       actions={
         <Button
           variant="outline"
-          className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
+          className={MEMORY_ACTION_BUTTON_CLASS}
           onClick={() => void refresh('l2')}
           disabled={loading || l2ActionLoading}
         >
@@ -117,14 +120,14 @@ export const MemoryKnowledgePage = () => {
         <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as KnowledgeSection)} className="space-y-4">
           <div className="overflow-x-auto pb-1">
             <TabsList
-              className="inline-flex h-auto min-w-full justify-start gap-2 rounded-[1.25rem] border border-[#e7ddd3] bg-[rgba(255,252,248,0.96)] p-2 shadow-[0_10px_24px_-24px_rgba(99,71,48,0.28)]"
+              className="inline-flex h-auto min-w-full justify-start gap-2 rounded-[1.25rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.96)] p-2 shadow-[0_10px_24px_-24px_hsl(var(--memory-shadow)/0.28)]"
               data-testid="memory-knowledge-tablist"
             >
               {tabItems.map((tab) => (
                 <TabsTrigger
                   key={tab.value}
                   value={tab.value}
-                  className="rounded-[0.95rem] border border-transparent px-4 py-2.5 text-sm text-[#735f51] data-[state=active]:border-[#e0d4c8] data-[state=active]:bg-white data-[state=active]:text-[#2f231b] data-[state=active]:shadow-[0_8px_16px_-18px_rgba(94,68,46,0.35)]"
+                  className="rounded-[0.95rem] border border-transparent px-4 py-2.5 text-sm text-[hsl(var(--memory-body))] data-[state=active]:border-[hsl(var(--memory-border))] data-[state=active]:bg-[hsl(var(--memory-panel))] data-[state=active]:text-[hsl(var(--memory-title))] data-[state=active]:shadow-[0_8px_16px_-18px_hsl(var(--memory-shadow)/0.35)]"
                 >
                   {tab.label}
                 </TabsTrigger>
@@ -135,15 +138,15 @@ export const MemoryKnowledgePage = () => {
           {activeSection === 'knowledgeGraph' ? (
             <section
               data-testid="memory-knowledge-graph-filters"
-              className="grid gap-3 rounded-[1.25rem] border border-[#e7ddd3] bg-[rgba(255,252,248,0.96)] px-5 py-4 md:grid-cols-3"
+              className="grid gap-3 rounded-[1.25rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.96)] px-5 py-4 md:grid-cols-3"
             >
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-[#4d392c]" htmlFor="memory-graph-status-filter">
+                <label className="text-sm font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-graph-status-filter">
                   {t('memory.pages.knowledge.graphFilters.status')}
                 </label>
                 <select
                   id="memory-graph-status-filter"
-                  className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] shadow-sm outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+                  className={MEMORY_FILTER_SELECT_CLASS}
                   value={graphStatusFilter}
                   onChange={(event) => setGraphStatusFilter(event.target.value)}
                 >
@@ -155,12 +158,12 @@ export const MemoryKnowledgePage = () => {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-[#4d392c]" htmlFor="memory-graph-entity-filter">
+                <label className="text-sm font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-graph-entity-filter">
                   {t('memory.pages.knowledge.graphFilters.entity')}
                 </label>
                 <select
                   id="memory-graph-entity-filter"
-                  className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] shadow-sm outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+                  className={MEMORY_FILTER_SELECT_CLASS}
                   value={graphEntityFilter}
                   onChange={(event) => setGraphEntityFilter(event.target.value)}
                 >
@@ -174,12 +177,12 @@ export const MemoryKnowledgePage = () => {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-[#4d392c]" htmlFor="memory-graph-predicate-filter">
+                <label className="text-sm font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-graph-predicate-filter">
                   {t('memory.pages.knowledge.graphFilters.predicate')}
                 </label>
                 <select
                   id="memory-graph-predicate-filter"
-                  className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] shadow-sm outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+                  className={MEMORY_FILTER_SELECT_CLASS}
                   value={graphPredicateFilter}
                   onChange={(event) => setGraphPredicateFilter(event.target.value)}
                 >

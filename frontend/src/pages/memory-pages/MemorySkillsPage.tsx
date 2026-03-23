@@ -6,6 +6,9 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L4Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
+  MEMORY_ACTION_BUTTON_CLASS,
+  MEMORY_EMPTY_PANEL_CLASS,
+  MEMORY_INFO_PANEL_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
   MemoryTag,
@@ -44,7 +47,7 @@ export const MemorySkillsPage = () => {
       actions={
         <Button
           variant="outline"
-          className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
+          className={MEMORY_ACTION_BUTTON_CLASS}
           onClick={() => void refresh('l4')}
           disabled={loading}
         >
@@ -111,11 +114,11 @@ export const MemorySkillsPage = () => {
                   <MemoryTag>{t('memory.l4.openBreakers')}: {stats.l4.open_circuit_breakers}</MemoryTag>
                 </div>
                 {recentlyUsedSkill ? (
-                  <div className="rounded-[1.25rem] border border-[#ead9cc] bg-white/85 px-4 py-3 text-sm text-[#725c4b]">
+                  <div className={MEMORY_INFO_PANEL_CLASS}>
                     {t('memory.pages.skills.recentSkillLabel', { name: recentlyUsedSkill.skill_name })}
                   </div>
                 ) : (
-                  <div className="rounded-[1.25rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.82)] px-4 py-3 text-sm text-[#785f4e]">
+                  <div className={MEMORY_EMPTY_PANEL_CLASS}>
                     {t('memory.pages.skills.noRecentSkill')}
                   </div>
                 )}

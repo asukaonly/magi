@@ -171,7 +171,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex h-full w-[min(1180px,calc(100vw-72px))] max-w-[1180px] flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0 shadow-2xl"
+        className="trace-theme-surface flex h-full w-[min(1180px,calc(100vw-72px))] max-w-[1180px] flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0 shadow-2xl"
       >
         <SheetHeader className="border-b border-border/50 bg-muted/30 px-8 py-6">
           <SheetTitle className="text-[28px] font-semibold tracking-[-0.04em] text-foreground">{title}</SheetTitle>
@@ -345,9 +345,9 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                       )}
 
                       {selectedNode.error && (
-                        <div className="rounded-3xl border border-rose-200 bg-rose-50/90 px-5 py-5 shadow-sm">
-                          <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-rose-600/80">{t('chat.trace.error')}</div>
-                          <div className="rounded-2xl border border-rose-200 bg-card px-4 py-4 text-sm leading-7 text-rose-700">
+                        <div className="rounded-3xl border border-[hsl(var(--trace-error-border))] bg-[hsl(var(--trace-error-bg)/0.92)] px-5 py-5 shadow-sm">
+                          <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-[hsl(var(--trace-error-foreground)/0.82)]">{t('chat.trace.error')}</div>
+                          <div className="rounded-2xl border border-[hsl(var(--trace-error-border))] bg-card px-4 py-4 text-sm leading-7 text-[hsl(var(--trace-error-foreground))]">
                             {selectedNode.error}
                           </div>
                         </div>

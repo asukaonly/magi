@@ -72,10 +72,10 @@ const defaultRuleState: L2GraphConflictRulePayload = {
 };
 
 const PANEL_CARD_CLASS =
-  'rounded-[1.35rem] border-[#e8ddd4] bg-[rgba(255,253,250,0.95)] shadow-[0_12px_24px_-24px_rgba(99,71,48,0.28)]';
+  'rounded-[1.35rem] border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.95)] shadow-[0_12px_24px_-24px_hsl(var(--memory-shadow)/0.28)]';
 
 const SOFT_PANEL_CLASS =
-  'rounded-[1.15rem] border border-[#eadfd5] bg-[#fffdfa] px-4 py-3 text-sm text-[#6c594b]';
+  'rounded-[1.15rem] border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel)/0.96)] px-4 py-3 text-sm text-[hsl(var(--memory-body))]';
 
 export const L2Tab: React.FC<L2TabProps> = ({
   section = 'lab',
@@ -197,7 +197,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <Card className={PANEL_CARD_CLASS}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-[#443227]">
+            <CardTitle className="text-base text-[hsl(var(--memory-title))]">
               {t('memory.pages.knowledge.sections.structureOverview')}
             </CardTitle>
           </CardHeader>
@@ -227,7 +227,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
 
         <Card className={PANEL_CARD_CLASS}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-[#443227]">
+            <CardTitle className="text-base text-[hsl(var(--memory-title))]">
               {t('memory.pages.knowledge.sections.entityTypes')}
             </CardTitle>
           </CardHeader>
@@ -238,7 +238,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
               entityTypeBreakdown.map(([entityType, count]) => (
                 <div key={entityType} className={`${SOFT_PANEL_CLASS} flex items-center justify-between`}>
                   <span>{entityType}</span>
-                  <span className="font-medium text-[#34271f]">{count}</span>
+                  <span className="font-medium text-[hsl(var(--memory-title))]">{count}</span>
                 </div>
               ))
             )}
@@ -254,9 +254,9 @@ export const L2Tab: React.FC<L2TabProps> = ({
         >
           {identityLinks.map((link) => (
             <div key={`${link.namespace}:${link.runtime_user_id}`} className={SOFT_PANEL_CLASS}>
-              <div className="font-medium text-[#2f231b]">{link.namespace}</div>
-              <div className="mt-1 text-[#725c4b]">{link.runtime_user_id}</div>
-              <div className="mt-1 font-mono text-xs text-[#8a7260]">{link.memory_owner_id}</div>
+              <div className="font-medium text-[hsl(var(--memory-title))]">{link.namespace}</div>
+              <div className="mt-1 text-[hsl(var(--memory-body))]">{link.runtime_user_id}</div>
+              <div className="mt-1 font-mono text-xs text-[hsl(var(--memory-muted))]">{link.memory_owner_id}</div>
             </div>
           ))}
         </InfoCard>
@@ -284,10 +284,10 @@ export const L2Tab: React.FC<L2TabProps> = ({
         {relations.slice(0, 60).map((relation) => (
           <div key={relation.triple_id} className={SOFT_PANEL_CLASS}>
             <div className="flex items-center justify-between gap-3">
-              <div className="font-medium text-[#2f231b]">{relation.subject_id}</div>
+              <div className="font-medium text-[hsl(var(--memory-title))]">{relation.subject_id}</div>
               <Badge variant={relation.status === 'active' ? 'secondary' : 'outline'}>{relation.status}</Badge>
             </div>
-            <div className="mt-2 text-[#6e5a4a]">
+            <div className="mt-2 text-[hsl(var(--memory-body))]">
               {relation.predicate} → {relation.object_id}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -305,7 +305,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
       <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
         <Card className={PANEL_CARD_CLASS}>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base text-[#443227]">
+            <CardTitle className="flex items-center gap-2 text-base text-[hsl(var(--memory-title))]">
               <Brain className="h-5 w-5" />
               {t('memory.pages.knowledge.sections.traitFocus')}
             </CardTitle>
@@ -333,10 +333,10 @@ export const L2Tab: React.FC<L2TabProps> = ({
           {assertions.slice(0, 60).map((assertion) => (
             <div key={assertion.assertion_id} className={SOFT_PANEL_CLASS}>
               <div className="flex items-center justify-between gap-3">
-                <span className="font-medium text-[#2f231b]">{assertion.entity_id}</span>
+                <span className="font-medium text-[hsl(var(--memory-title))]">{assertion.entity_id}</span>
                 <Badge variant="outline">{assertion.validation_state}</Badge>
               </div>
-              <div className="mt-2 text-[#6e5a4a]">
+              <div className="mt-2 text-[hsl(var(--memory-body))]">
                 {assertion.trait_name}: {assertion.trait_value}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -372,7 +372,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
         {snapshots.slice(0, 60).map((snapshot) => (
           <div key={snapshot.snapshot_id} className={SOFT_PANEL_CLASS}>
             <div className="flex items-center justify-between gap-3">
-              <span className="font-medium text-[#2f231b]">{snapshot.entity_id}</span>
+              <span className="font-medium text-[hsl(var(--memory-title))]">{snapshot.entity_id}</span>
               {snapshot.current_mood ? <Badge variant="secondary">{snapshot.current_mood}</Badge> : null}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -382,7 +382,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
                 </SummaryPill>
               ))}
               {Object.keys(snapshot.core_traits || {}).length === 0 ? (
-                <span className="text-sm text-[#8a7260]">{t('memory.l2.lab.noCoreTraits')}</span>
+                <span className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.l2.lab.noCoreTraits')}</span>
               ) : null}
             </div>
           </div>
@@ -395,13 +395,13 @@ export const L2Tab: React.FC<L2TabProps> = ({
     <div className="grid gap-4 xl:grid-cols-[1.12fr_0.88fr]">
       <Card className={`${PANEL_CARD_CLASS} border-dashed`}>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base text-[#443227]">
+          <CardTitle className="flex items-center gap-2 text-base text-[hsl(var(--memory-title))]">
             <DatabaseZap className="h-5 w-5" />
             {t('memory.l2.lab.title')}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <label className="text-sm font-medium text-[#4d392c]">{t('memory.l2.lab.manualEventLabel')}</label>
+          <label className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.l2.lab.manualEventLabel')}</label>
           <Textarea
             value={manualEvent.text}
             onChange={(event) => setManualEvent((current) => ({ ...current, text: event.target.value }))}
@@ -434,11 +434,11 @@ export const L2Tab: React.FC<L2TabProps> = ({
       <div className="space-y-4">
         <Card className={PANEL_CARD_CLASS}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-[#443227]">{t('memory.l2.lab.eventReplayLabel')}</CardTitle>
+            <CardTitle className="text-base text-[hsl(var(--memory-title))]">{t('memory.l2.lab.eventReplayLabel')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <select
-              className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+              className="flex h-10 w-full rounded-xl border border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.5)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.7)]"
               value={selectedEventId}
               onChange={(event) => setSelectedEventId(event.target.value)}
             >
@@ -451,7 +451,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
             </select>
             <Button
               variant="outline"
-              className="w-full rounded-xl border-[#ddd2c6] bg-white hover:bg-[#f8f3ed]"
+              className="w-full rounded-xl border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle))]"
               onClick={() => onReplayExtraction(selectedEventId)}
               disabled={actionLoading || !selectedEventId}
             >
@@ -463,11 +463,11 @@ export const L2Tab: React.FC<L2TabProps> = ({
 
         <Card className={PANEL_CARD_CLASS}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-[#443227]">{t('memory.l2.lab.entityActionLabel')}</CardTitle>
+            <CardTitle className="text-base text-[hsl(var(--memory-title))]">{t('memory.l2.lab.entityActionLabel')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <select
-              className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+              className="flex h-10 w-full rounded-xl border border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.5)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.7)]"
               value={selectedEntityId}
               onChange={(event) => setSelectedEntityId(event.target.value)}
             >
@@ -481,7 +481,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
             <div className="grid gap-2 md:grid-cols-2">
               <Button
                 variant="outline"
-                className="rounded-xl border-[#ddd2c6] bg-white hover:bg-[#f8f3ed]"
+                className="rounded-xl border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle))]"
                 onClick={() => onRunReconcile(selectedEntityId ? [selectedEntityId] : [])}
                 disabled={actionLoading || !selectedEntityId}
               >
@@ -490,7 +490,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
               </Button>
               <Button
                 variant="outline"
-                className="rounded-xl border-[#ddd2c6] bg-white hover:bg-[#f8f3ed]"
+                className="rounded-xl border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle))]"
                 onClick={() => onRunSnapshotRefresh(selectedEntityId ? [selectedEntityId] : [])}
                 disabled={actionLoading || !selectedEntityId}
               >
@@ -500,15 +500,15 @@ export const L2Tab: React.FC<L2TabProps> = ({
             </div>
             {selectedEntity ? (
               <div className={SOFT_PANEL_CLASS}>
-                <div className="font-medium text-[#2f231b]">{selectedEntity.canonical_name}</div>
-                <div className="mt-1 text-[#725c4b]">{selectedEntity.entity_id}</div>
+                <div className="font-medium text-[hsl(var(--memory-title))]">{selectedEntity.canonical_name}</div>
+                <div className="mt-1 text-[hsl(var(--memory-body))]">{selectedEntity.entity_id}</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {selectedEntity.aliases.length > 0 ? (
                     selectedEntity.aliases.map((alias) => (
                       <SummaryPill key={`${selectedEntity.entity_id}-${alias}`}>{alias}</SummaryPill>
                     ))
                   ) : (
-                    <span className="text-sm text-[#8a7260]">{t('memory.l2.lab.noAliases')}</span>
+                    <span className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.l2.lab.noAliases')}</span>
                   )}
                 </div>
               </div>
@@ -524,7 +524,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
       <div className="grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
         <Card className={PANEL_CARD_CLASS}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-[#443227]">{t('memory.l2.lab.entities')}</CardTitle>
+            <CardTitle className="text-base text-[hsl(var(--memory-title))]">{t('memory.l2.lab.entities')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <StatLine label={t('memory.l2.lab.entityCount')} value={String(entities.length)} />
@@ -545,15 +545,15 @@ export const L2Tab: React.FC<L2TabProps> = ({
         >
           {entities.slice(0, 60).map((entity) => (
             <div key={entity.entity_id} className={SOFT_PANEL_CLASS}>
-              <div className="font-medium text-[#2f231b]">{entity.canonical_name}</div>
-              <div className="mt-1 text-[#725c4b]">{entity.entity_id}</div>
+              <div className="font-medium text-[hsl(var(--memory-title))]">{entity.canonical_name}</div>
+              <div className="mt-1 text-[hsl(var(--memory-body))]">{entity.entity_id}</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {entity.aliases.length > 0 ? (
                   entity.aliases.map((alias) => (
                     <SummaryPill key={`${entity.entity_id}-${alias}`}>{alias}</SummaryPill>
                   ))
                 ) : (
-                  <span className="text-sm text-[#8a7260]">{t('memory.l2.lab.noAliases')}</span>
+                  <span className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.l2.lab.noAliases')}</span>
                 )}
               </div>
             </div>
@@ -574,14 +574,14 @@ export const L2Tab: React.FC<L2TabProps> = ({
           {mentions.slice(0, 60).map((mention) => (
             <div key={String(mention.mention_id)} className={SOFT_PANEL_CLASS}>
               <div className="flex items-center justify-between gap-3">
-                <span className="font-medium text-[#2f231b]">{mention.mention_text}</span>
+                <span className="font-medium text-[hsl(var(--memory-title))]">{mention.mention_text}</span>
                 {mention.resolved_entity_id ? (
                   <Badge variant="secondary">{mention.resolved_entity_id}</Badge>
                 ) : (
                   <Badge variant="outline">{t('memory.l2.lab.unresolved')}</Badge>
                 )}
               </div>
-              <div className="mt-2 text-[#6e5a4a]">{mention.evidence_text || '-'}</div>
+              <div className="mt-2 text-[hsl(var(--memory-body))]">{mention.evidence_text || '-'}</div>
             </div>
           ))}
         </InfoCard>
@@ -594,10 +594,10 @@ export const L2Tab: React.FC<L2TabProps> = ({
           {events.slice(0, 20).map((event) => (
             <div key={event.event_id} className={SOFT_PANEL_CLASS}>
               <div className="flex items-center justify-between gap-3">
-                <span className="font-medium text-[#2f231b]">{event.event_type}</span>
+                <span className="font-medium text-[hsl(var(--memory-title))]">{event.event_type}</span>
                 <Badge variant="outline">{event.source}</Badge>
               </div>
-              <div className="mt-2 line-clamp-3 text-[#6e5a4a]">{event.content}</div>
+              <div className="mt-2 line-clamp-3 text-[hsl(var(--memory-body))]">{event.content}</div>
             </div>
           ))}
         </InfoCard>
@@ -615,10 +615,10 @@ export const L2Tab: React.FC<L2TabProps> = ({
         {conflictRules.map((rule) => (
           <div key={rule.predicate} className={SOFT_PANEL_CLASS}>
             <div className="flex items-center justify-between gap-3">
-              <span className="font-medium text-[#2f231b]">{rule.predicate}</span>
+              <span className="font-medium text-[hsl(var(--memory-title))]">{rule.predicate}</span>
               <Badge variant="outline">{rule.exclusive_group || t('memory.l2.lab.noExclusiveGroup')}</Badge>
             </div>
-            <div className="mt-2 text-[#6e5a4a]">
+            <div className="mt-2 text-[hsl(var(--memory-body))]">
               {rule.opposite_predicates.length > 0
                 ? rule.opposite_predicates.join(', ')
                 : t('memory.l2.lab.noOpposites')}
@@ -629,7 +629,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
 
       <Card className={PANEL_CARD_CLASS}>
         <CardHeader>
-          <CardTitle className="text-base text-[#443227]">{t('memory.l2.lab.ruleEditorTitle')}</CardTitle>
+          <CardTitle className="text-base text-[hsl(var(--memory-title))]">{t('memory.l2.lab.ruleEditorTitle')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <Input
@@ -649,12 +649,12 @@ export const L2Tab: React.FC<L2TabProps> = ({
           />
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
-              <label htmlFor="l2-rule-opposite-resolution" className="text-sm font-medium text-[#4d392c]">
+              <label htmlFor="l2-rule-opposite-resolution" className="text-sm font-medium text-[hsl(var(--memory-title))]">
                 {t('memory.l2.lab.ruleOppositeResolution')}
               </label>
               <select
                 id="l2-rule-opposite-resolution"
-                className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+                className="flex h-10 w-full rounded-xl border border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.5)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.7)]"
                 value={ruleForm.opposite_resolution}
                 onChange={(event) =>
                   setRuleForm((current) => ({ ...current, opposite_resolution: event.target.value }))
@@ -665,12 +665,12 @@ export const L2Tab: React.FC<L2TabProps> = ({
               </select>
             </div>
             <div className="space-y-2">
-              <label htmlFor="l2-rule-exclusive-resolution" className="text-sm font-medium text-[#4d392c]">
+              <label htmlFor="l2-rule-exclusive-resolution" className="text-sm font-medium text-[hsl(var(--memory-title))]">
                 {t('memory.l2.lab.ruleExclusiveResolution')}
               </label>
               <select
                 id="l2-rule-exclusive-resolution"
-                className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+                className="flex h-10 w-full rounded-xl border border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.5)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.7)]"
                 value={ruleForm.exclusive_resolution}
                 onChange={(event) =>
                   setRuleForm((current) => ({ ...current, exclusive_resolution: event.target.value }))
@@ -715,8 +715,8 @@ export const L2Tab: React.FC<L2TabProps> = ({
 const MetricCard: React.FC<{ label: string; value: number }> = ({ label, value }) => (
   <Card className={PANEL_CARD_CLASS}>
     <CardContent className="pt-5">
-      <div className="text-[1.85rem] font-semibold tracking-[-0.03em] text-[#32261e]">{value}</div>
-      <div className="mt-1 text-sm text-[#7c6657]">{label}</div>
+      <div className="text-[1.85rem] font-semibold tracking-[-0.03em] text-[hsl(var(--memory-title))]">{value}</div>
+      <div className="mt-1 text-sm text-[hsl(var(--memory-muted))]">{label}</div>
     </CardContent>
   </Card>
 );
@@ -732,7 +732,7 @@ const InfoCard: React.FC<{
   return (
     <Card className={PANEL_CARD_CLASS}>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base text-[#443227]">
+        <CardTitle className="flex items-center gap-2 text-base text-[hsl(var(--memory-title))]">
           {icon}
           {title}
         </CardTitle>
@@ -755,7 +755,7 @@ const BreakdownCard: React.FC<{
 }> = ({ title, emptyText, entries }) => (
   <Card className={PANEL_CARD_CLASS}>
     <CardHeader>
-      <CardTitle className="text-base text-[#443227]">{title}</CardTitle>
+      <CardTitle className="text-base text-[hsl(var(--memory-title))]">{title}</CardTitle>
     </CardHeader>
     <CardContent>
       {entries.length === 0 ? (
@@ -764,7 +764,7 @@ const BreakdownCard: React.FC<{
         <div className="space-y-3">
           {entries.map(([label, value]) => (
             <div key={label} className={`${SOFT_PANEL_CLASS} flex items-center justify-between`}>
-              <span className="font-medium text-[#3f3024]">{label}</span>
+              <span className="font-medium text-[hsl(var(--memory-title))]">{label}</span>
               <Badge variant="secondary">{value}</Badge>
             </div>
           ))}
@@ -775,7 +775,7 @@ const BreakdownCard: React.FC<{
 );
 
 const SummaryPill: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="inline-flex items-center rounded-full border border-[#e7dbd0] bg-white/95 px-3 py-1 text-xs text-[#6a5547]">
+  <span className="inline-flex items-center rounded-full border border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.95)] px-3 py-1 text-xs text-[hsl(var(--memory-body))]">
     {children}
   </span>
 );
@@ -783,12 +783,12 @@ const SummaryPill: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 const StatLine: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className={`${SOFT_PANEL_CLASS} flex items-center justify-between`}>
     <span>{label}</span>
-    <span className="text-base font-semibold text-[#30241c]">{value}</span>
+    <span className="text-base font-semibold text-[hsl(var(--memory-title))]">{value}</span>
   </div>
 );
 
 const EmptyState: React.FC<{ copy: string }> = ({ copy }) => (
-  <div className="rounded-[1.15rem] border border-dashed border-[#e6d8cc] bg-[#fcf8f3] px-4 py-6 text-sm text-[#8a7260]">
+  <div className="rounded-[1.15rem] border border-dashed border-[hsl(var(--memory-empty-border))] bg-[hsl(var(--memory-empty-bg)/0.88)] px-4 py-6 text-sm text-[hsl(var(--memory-muted))]">
     {copy}
   </div>
 );
