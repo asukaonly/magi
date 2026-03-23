@@ -290,10 +290,6 @@ export interface SystemConfig {
   };
   llm: LLMConfig;
   memory: MemoryConfig;
-  log: {
-    level: 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
-    path?: string;
-  };
   preferences: UserPreferences;
   personality: PersonalityConfig;
   tools: ToolsConfig;
@@ -394,7 +390,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       skill_extraction_enabled: true,
     },
   },
-  log: { level: 'INFO' },
   preferences: { onboarding_completed: false, user_mode: null, language: 'zh' },
   personality: DEFAULT_PERSONALITY_CONFIG,
   tools: {

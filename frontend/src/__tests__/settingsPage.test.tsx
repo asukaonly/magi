@@ -492,11 +492,9 @@ describe('settings page draft saving', () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByRole('button', { name: 'settings.tabs.system' });
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.system' }));
-
-    await user.click(screen.getByRole('button', { name: 'settings.fields.logLevel' }));
-    await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
+    await user.click(await screen.findByRole('button', { name: 'language.en' }));
 
     expect(configApi.update).not.toHaveBeenCalled();
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
@@ -506,7 +504,7 @@ describe('settings page draft saving', () => {
     await waitFor(() =>
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          log: expect.objectContaining({ level: 'DEBUG' }),
+          preferences: expect.objectContaining({ language: 'en' }),
         })
       )
     );
@@ -672,10 +670,9 @@ describe('settings page draft saving', () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
-
-    await user.click(screen.getByRole('button', { name: 'settings.fields.logLevel' }));
-    await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
+    await user.click(await screen.findByRole('button', { name: 'language.en' }));
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.discard' }));
@@ -706,9 +703,9 @@ describe('settings page draft saving', () => {
 
     render(<SettingsCenterDialog open onOpenChange={onOpenChange} />);
 
-    await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
-    await user.click(screen.getByRole('button', { name: 'settings.fields.logLevel' }));
-    await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
+    await user.click(await screen.findByRole('button', { name: 'language.en' }));
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.close' }));
 
@@ -725,9 +722,9 @@ describe('settings page draft saving', () => {
 
     render(<SettingsCenterDialog open onOpenChange={vi.fn()} />);
 
-    await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
-    await user.click(screen.getByRole('button', { name: 'settings.fields.logLevel' }));
-    await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
+    await user.click(await screen.findByRole('button', { name: 'language.en' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled());
   });
@@ -752,5 +749,13 @@ describe('settings page draft saving', () => {
 
     expect(settingsRoot.className).toContain('settings-theme-surface');
     expect(activeNav.className).toContain('var(--settings-nav-active)');
+  });
+
+  it('does not expose the system settings entry in user-facing navigation', async () => {
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+
+    expect(screen.queryByRole('button', { name: 'settings.tabs.system' })).not.toBeInTheDocument();
   });
 });

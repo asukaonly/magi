@@ -30,7 +30,6 @@ import ActionsSection from '@/components/settings/ActionsSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import PersonalityModern from '@/pages/PersonalityModern';
-import { SystemConfig } from '@/api/modules/config';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -464,29 +463,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onReloadPlugin={handleReloadActionPlugin}
             reloading={reloadingActionPlugins}
           />
-        );
-
-      case 'system':
-        return (
-          <SettingsSectionShell>
-            <SettingsGroup title={t('settings.fields.logLevel')}>
-              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <LabeledSelectField
-                  label={t('settings.fields.logLevel')}
-                  value={draftConfig.log.level}
-                  options={[
-                    { label: 'DEBUG', value: 'DEBUG' },
-                    { label: 'INFO', value: 'INFO' },
-                    { label: 'WARNING', value: 'WARNING' },
-                    { label: 'ERROR', value: 'ERROR' },
-                  ]}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.log.level = value as SystemConfig['log']['level'];
-                  })}
-                />
-              </div>
-            </SettingsGroup>
-          </SettingsSectionShell>
         );
 
       default:

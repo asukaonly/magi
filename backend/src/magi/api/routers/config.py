@@ -148,11 +148,6 @@ class MemoryConfigModel(BaseModel):
     l4: MemoryL4ConfigModel = Field(default_factory=MemoryL4ConfigModel)
 
 
-class LogConfigModel(BaseModel):
-    level: str = Field(default="INFO")
-    path: Optional[str] = Field(default=None)
-
-
 class UserPreferencesModel(BaseModel):
     onboarding_completed: bool = Field(default=False)
     user_mode: Optional[str] = Field(default=None)
@@ -249,7 +244,6 @@ class SystemConfigModel(BaseModel):
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
     memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)
-    log: LogConfigModel = Field(default_factory=LogConfigModel)
     preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
     tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
@@ -629,10 +623,6 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             mask_api_key=mask_api_key,
         ),
         memory=_build_memory_config(raw, runtime_config),
-        log=LogConfigModel(
-            level=runtime_config.log_level,
-            path=raw.get("log", {}).get("path"),
-        ),
         preferences=UserPreferencesModel(**preferences_data),
         personality=_load_full_personality(),
         tools=_build_tools(raw, runtime_config),
@@ -824,8 +814,6 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l4.enabled": config.memory.l4.enabled,
         "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
         "agent.memory.l4.skill_extraction_enabled": config.memory.l4.skill_extraction_enabled,
-        "log_level": config.log.level,
-        "log.path": config.log.path,
         "preferences": config.preferences.model_dump(),
         "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",
         "agent.personality.path": "~/.magi/personalities",

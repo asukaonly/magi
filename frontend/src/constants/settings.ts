@@ -8,7 +8,6 @@ import {
   User,
   Database,
   Wrench,
-  Cpu,
   BarChart3,
   ScrollText,
   PlugZap,
@@ -49,5 +48,4 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'extensions', icon: PlugZap },
   { id: 'tools', icon: Wrench },
   { id: 'actions', icon: Send },
-  { id: 'system', icon: Cpu },
 ];
