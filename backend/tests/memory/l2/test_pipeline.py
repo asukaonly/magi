@@ -842,6 +842,38 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
 
 
 @pytest.mark.asyncio
+async def test_resolve_mentions_returns_typed_mentions():
+    from magi.memory.l2.models import ResolvedEntityMention
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
+        try:
+            event = _make_memory_event(event_id="evt-resolve-mention", content="我好喜欢魔都")
+            resolved_mentions = await pipeline._resolve_mentions(
+                event,
+                [
+                    {
+                        "mention_text": "魔都",
+                        "normalized_surface": "魔都",
+                        "entity_type": "place",
+                        "canonical_name_hint": "上海",
+                        "alias_signals": ["魔都"],
+                        "evidence_text": "我好喜欢魔都",
+                        "confidence": 0.96,
+                    }
+                ],
+                evidence_event_ids=[event.event_id],
+            )
+
+            assert len(resolved_mentions) == 1
+            assert isinstance(resolved_mentions[0], ResolvedEntityMention)
+            assert resolved_mentions[0].mention_text == "魔都"
+            assert resolved_mentions[0].normalized_surface == "魔都"
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
     from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
 

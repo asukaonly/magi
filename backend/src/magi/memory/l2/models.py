@@ -173,6 +173,30 @@ class L2ConflictArbitrationResult:
 
 
 @dataclass(slots=True)
+class ResolvedEntityMention:
+    """Typed resolved entity mention used inside the L2 pipeline."""
+
+    mention_text: str
+    normalized_surface: str
+    entity_type: str | None
+    resolved_entity_id: str | None
+    confidence: float | None
+
+    def __post_init__(self) -> None:
+        self.mention_text = _non_empty_text(self.mention_text, field_name="mention_text")
+        self.normalized_surface = _non_empty_text(
+            self.normalized_surface or self.mention_text,
+            field_name="normalized_surface",
+        )
+        self.entity_type = _optional_text(self.entity_type)
+        self.resolved_entity_id = _optional_text(self.resolved_entity_id)
+        self.confidence = None if self.confidence is None else float(self.confidence)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -424,6 +448,7 @@ __all__ = [
     "L2UnifiedExtractionResult",
     "ManualL2EventRequest",
     "ReconciledTraitOutcome",
+    "ResolvedEntityMention",
     "StructuredEntityHint",
     "StructuredGraphHint",
 ]

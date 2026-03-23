@@ -23,6 +23,7 @@ from .models import (
     L2EventWindow,
     L2EventWindowSummary,
     L2PendingBatchBucket,
+    ResolvedEntityMention,
     build_l2_batch_bucket_key,
 )
 from .store import L2CognitionStore
@@ -654,7 +655,7 @@ class L2Pipeline:
         )
 
         raw_mentions = list(unified_result.mentions)
-        resolved_mentions: list[dict[str, Any]] = []
+        resolved_mentions: list[ResolvedEntityMention] = []
         if policy.allow_entity_extraction:
             resolved_mentions = await self._resolve_mentions(
                 stored_event,
@@ -959,11 +960,11 @@ class L2Pipeline:
         mentions: list[dict[str, Any]],
         *,
         evidence_event_ids: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ResolvedEntityMention]:
         if self._entity_catalog is None:
             return []
 
-        resolved_mentions: list[dict[str, Any]] = []
+        resolved_mentions: list[ResolvedEntityMention] = []
         for mention in mentions:
             if not isinstance(mention, dict):
                 continue
@@ -994,13 +995,13 @@ class L2Pipeline:
                 confidence=resolved_confidence,
             )
             resolved_mentions.append(
-                {
-                    "mention_text": mention_text,
-                    "normalized_surface": normalized_surface,
-                    "entity_type": entity_type,
-                    "resolved_entity_id": resolved_entity_id,
-                    "confidence": resolved_confidence,
-                }
+                ResolvedEntityMention(
+                    mention_text=mention_text,
+                    normalized_surface=normalized_surface,
+                    entity_type=entity_type,
+                    resolved_entity_id=resolved_entity_id,
+                    confidence=resolved_confidence,
+                )
             )
         return resolved_mentions
 
@@ -1069,7 +1070,7 @@ class L2Pipeline:
     def _build_graph_candidates(
         self,
         event: MemoryEvent,
-        resolved_mentions: list[dict[str, Any]],
+        resolved_mentions: list[ResolvedEntityMention],
     ) -> list[dict[str, Any]]:
         subject_id = self._resolve_self_entity_id(event)
         if subject_id is None:
@@ -1085,12 +1086,12 @@ class L2Pipeline:
             return []
 
         for mention in resolved_mentions:
-            entity_type = self._normalize_entity_type(mention.get("entity_type"))
+            entity_type = self._normalize_entity_type(mention.entity_type)
             if entity_type not in _GRAPH_ELIGIBLE_ENTITY_TYPES:
                 continue
-            object_id = mention.get("resolved_entity_id") or self._build_concept_node(
+            object_id = mention.resolved_entity_id or self._build_concept_node(
                 entity_type=entity_type,
-                normalized_surface=str(mention.get("normalized_surface") or mention.get("mention_text") or ""),
+                normalized_surface=mention.normalized_surface or mention.mention_text,
             )
             if not object_id:
                 continue
@@ -1102,7 +1103,7 @@ class L2Pipeline:
                     "object_id": object_id,
                     "object_type": entity_type,
                     "evidence_event_ids": [event.event_id],
-                    "confidence": 0.78 if mention.get("resolved_entity_id") else 0.66,
+                    "confidence": 0.78 if mention.resolved_entity_id else 0.66,
                     "observed_at": event.timestamp,
                     "source_type": event.source,
                     "extraction_method": "pipeline_preference_rule",
@@ -1113,7 +1114,7 @@ class L2Pipeline:
     def _build_focal_entities(
         self,
         event: MemoryEvent,
-        resolved_mentions: list[dict[str, Any]],
+        resolved_mentions: list[ResolvedEntityMention],
     ) -> list[dict[str, str]]:
         focal_entities: list[dict[str, str]] = []
         self_entity_id = self._resolve_self_entity_id(event)
@@ -1121,8 +1122,8 @@ class L2Pipeline:
             focal_entities.append({"entity_id": self_entity_id, "entity_type": "user"})
         seen = {item["entity_id"] for item in focal_entities}
         for mention in resolved_mentions:
-            entity_id = mention.get("resolved_entity_id")
-            entity_type = self._normalize_entity_type(mention.get("entity_type"))
+            entity_id = mention.resolved_entity_id
+            entity_type = self._normalize_entity_type(mention.entity_type)
             if not entity_id or not entity_type or entity_id in seen:
                 continue
             focal_entities.append({"entity_id": str(entity_id), "entity_type": entity_type})
@@ -1135,7 +1136,7 @@ class L2Pipeline:
         event: MemoryEvent,
         profile: ExtractionProfile,
         policy: Any,
-        resolved_mentions: list[dict[str, Any]],
+        resolved_mentions: list[ResolvedEntityMention],
         resolved_context_refs: list[ResolvedContextRef],
         evidence_event_ids: list[str],
         raw_candidates: list[dict[str, Any]],
@@ -1260,7 +1261,7 @@ class L2Pipeline:
         *,
         raw_object_ref: Any,
         object_type: str,
-        resolved_mentions: list[dict[str, Any]],
+        resolved_mentions: list[ResolvedEntityMention],
         resolved_context_refs: list[ResolvedContextRef],
     ) -> str | None:
         object_ref = self._non_empty_text(raw_object_ref)
@@ -1274,10 +1275,10 @@ class L2Pipeline:
                 return context_ref.resolved_ref
         for mention in resolved_mentions:
             surfaces = {
-                str(mention.get("mention_text", "")).strip().casefold(),
-                str(mention.get("normalized_surface", "")).strip().casefold(),
+                mention.mention_text.strip().casefold(),
+                mention.normalized_surface.strip().casefold(),
             }
-            resolved_entity_id = self._non_empty_text(mention.get("resolved_entity_id"))
+            resolved_entity_id = self._non_empty_text(mention.resolved_entity_id)
             if object_ref_casefold in surfaces and resolved_entity_id:
                 return resolved_entity_id
         return self._build_concept_node(entity_type=object_type, normalized_surface=object_ref)
