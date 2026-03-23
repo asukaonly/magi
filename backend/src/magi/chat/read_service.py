@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from ..agent.orchestration import get_orchestration_store
 from ..core.logger import get_logger
+from ..core.sqlite import connect_sqlite
 from ..memory.l1.chat_sessions import create_chat_session_record
 from ..utils.runtime import get_runtime_paths
 from ..api.services.chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
@@ -161,8 +162,7 @@ class ChatReadService:
         """Return a reusable SQLite connection, creating one lazily."""
         if self._conn is None:
             self._chat_db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self._chat_db_path))
-            self._conn.row_factory = sqlite3.Row
+            self._conn = connect_sqlite(self._chat_db_path, profile="mixed")
             self._ensure_chat_store_schema(self._conn)
         return self._conn
 
@@ -337,7 +337,7 @@ class ChatReadService:
 
         if self._l1_db_path.exists():
             try:
-                conn = sqlite3.connect(str(self._l1_db_path))
+                conn = connect_sqlite(self._l1_db_path, profile="hot_write")
                 cur = conn.cursor()
                 cur.execute(
                     f"""
@@ -575,7 +575,7 @@ class ChatReadService:
         if not self._runtime_trace_db_path.exists():
             return
         try:
-            conn = sqlite3.connect(str(self._runtime_trace_db_path))
+            conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
             cur = conn.cursor()
             cur.execute(
                 "DELETE FROM trace_turns WHERE user_id = ? AND session_id = ?",

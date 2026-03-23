@@ -18,6 +18,14 @@ def _list_tables(db_path: Path) -> set[str]:
         conn.close()
 
 
+def _read_journal_mode(db_path: Path) -> str:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    finally:
+        conn.close()
+
+
 def test_runtime_paths_exposes_chat_db_path(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(base_dir=tmp_path)
 
@@ -38,6 +46,8 @@ async def test_chat_store_creates_chat_tables(tmp_path: Path) -> None:
         assert "chat_sessions" in tables
         assert "chat_turns" in tables
         assert "chat_messages" in tables
+        journal_mode = _read_journal_mode(db_path)
+        assert journal_mode == "wal"
     finally:
         await store.shutdown()
 

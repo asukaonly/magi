@@ -8,6 +8,8 @@ import aiosqlite
 from pathlib import Path
 from typing import List, Callable, Awaitable
 
+from .sqlite import sqlite_connection_async
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,9 +90,8 @@ class DatabaseInitializer:
     async def _init_message_queue_db(self) -> None:
         """Initialize message bus database."""
         db_path = self.data_dir / "message_queue.db"
-        async with aiosqlite.connect(str(db_path)) as db:
+        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             # message_queue table is managed by SQLiteMessageBackend.
-            await db.execute("PRAGMA journal_mode=WAL")
             await db.commit()
         logger.debug(f"Initialized message_queue.db at {db_path}")
 
@@ -136,7 +137,7 @@ class DatabaseInitializer:
     async def _init_behavior_evolution_db(self) -> None:
         """Initialize behavior evolution database."""
         db_path = self.memories_dir / "behavior_evolution.db"
-        async with aiosqlite.connect(str(db_path)) as db:
+        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             # task_interactions table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS task_interactions (
@@ -191,7 +192,7 @@ class DatabaseInitializer:
     async def _init_emotional_state_db(self) -> None:
         """Initialize emotional state database."""
         db_path = self.memories_dir / "emotional_state.db"
-        async with aiosqlite.connect(str(db_path)) as db:
+        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             # emotional_state table (key-value)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS emotional_state (
@@ -228,7 +229,7 @@ class DatabaseInitializer:
     async def _init_growth_memory_db(self) -> None:
         """Initialize growth memory database."""
         db_path = self.memories_dir / "growth_memory.db"
-        async with aiosqlite.connect(str(db_path)) as db:
+        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             # milestones table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS milestones (
@@ -295,7 +296,7 @@ class DatabaseInitializer:
     async def _init_scenario_prompts_db(self) -> None:
         """Initialize scenario prompts database."""
         db_path = self.data_dir / "scenario_prompts.db"
-        async with aiosqlite.connect(str(db_path)) as db:
+        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS scenario_prompts (
                     persona TEXT NOT NULL,
@@ -312,7 +313,7 @@ class DatabaseInitializer:
     async def _init_llm_usage_db(self) -> None:
         """Initialize LLM usage statistics database."""
         db_path = self.data_dir / "llm_usage.db"
-        async with aiosqlite.connect(str(db_path)) as db:
+        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS llm_usage (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -355,7 +356,7 @@ class DatabaseInitializer:
         from ..context.scenario_prompts import DEFAULT_SCENARIO_PROMPTS
 
         db_path = self.data_dir / "scenario_prompts.db"
-        async with aiosqlite.connect(str(db_path)) as db:
+        async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             import time
 
             inserted_count = 0

@@ -8,6 +8,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.logger import get_logger
+from ..core.sqlite import sqlite_connection_async
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventTypes
 from ..utils.runtime import get_runtime_paths
@@ -29,7 +30,7 @@ class LLMUsageStore:
     async def initialize(self) -> None:
         """Ensure the usage table exists."""
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(str(self._db_path)) as db:
+        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS llm_usage (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +98,7 @@ class LLMUsageStore:
     async def record_call(self, payload: dict[str, Any]) -> None:
         """Persist a single normalized LLM usage event payload."""
         await self.initialize()
-        async with aiosqlite.connect(str(self._db_path)) as db:
+        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
             await db.execute(
                 """
                 INSERT INTO llm_usage (
@@ -144,7 +145,7 @@ class LLMUsageStore:
         """Return aggregate LLM usage metrics for the requested window."""
         cutoff = time.time() - (days * 86400)
         await self.initialize()
-        async with aiosqlite.connect(str(self._db_path)) as db:
+        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
             db.row_factory = aiosqlite.Row
 
             totals_cursor = await db.execute(
@@ -240,7 +241,7 @@ class LLMUsageStore:
         """Return daily token usage trend for the requested window."""
         cutoff = time.time() - (days * 86400)
         await self.initialize()
-        async with aiosqlite.connect(str(self._db_path)) as db:
+        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 """

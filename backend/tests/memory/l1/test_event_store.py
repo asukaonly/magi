@@ -215,6 +215,14 @@ async def test_l1_store_initializes_without_runtime_observations_table(tmp_path)
     assert "fact_events" in table_names
     assert "runtime_observations" not in table_names
 
+    conn = sqlite3.connect(str(db_path))
+    try:
+        journal_mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    finally:
+        conn.close()
+
+    assert journal_mode == "wal"
+
 
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_action_events_in_fact_events(tmp_path):

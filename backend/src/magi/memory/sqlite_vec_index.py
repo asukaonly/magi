@@ -13,6 +13,7 @@ from typing import Any, Optional
 import aiosqlite
 import sqlite_vec
 
+from ..core.sqlite import connect_aiosqlite
 from .embedding_service import EmbeddingResult
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,7 @@ class SqliteVecIndex:
     async def initialize(self) -> None:
         if self._initialized:
             return
-        self._db = await aiosqlite.connect(self._db_path)
-        self._db.row_factory = aiosqlite.Row
+        self._db = await connect_aiosqlite(self._db_path, profile="hot_write")
         await self._load_extension(self._db)
         async with self._db_lock:
             db = self._require_db()

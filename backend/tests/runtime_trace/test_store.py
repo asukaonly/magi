@@ -17,6 +17,14 @@ def _list_tables(db_path: Path) -> set[str]:
     return rows
 
 
+def _read_journal_mode(db_path: Path) -> str:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    finally:
+        conn.close()
+
+
 def test_runtime_paths_exposes_runtime_trace_db_path(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(base_dir=tmp_path)
 
@@ -40,6 +48,8 @@ async def test_runtime_trace_store_creates_turn_and_span_tables(tmp_path: Path) 
         assert "trace_tools" in tables
         assert "trace_intent_resolutions" in tables
         assert "runtime_notifications" in tables
+        journal_mode = _read_journal_mode(db_path)
+        assert journal_mode == "wal"
     finally:
         await store.shutdown()
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ....core.logger import get_logger
+from ....core.sqlite import connect_sqlite
 from ....utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
@@ -150,7 +151,7 @@ class ChatHistoryService:
         try:
             if not self._l1_db_path.exists():
                 return
-            conn = sqlite3.connect(str(self._l1_db_path))
+            conn = connect_sqlite(self._l1_db_path, profile="hot_write", use_row_factory=False)
             cur = conn.cursor()
             cur.execute(
                 f"""
@@ -191,7 +192,7 @@ class ChatHistoryService:
         try:
             if not self._runtime_trace_db_path.exists():
                 return
-            conn = sqlite3.connect(str(self._runtime_trace_db_path))
+            conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write", use_row_factory=False)
             cur = conn.cursor()
             cur.execute(
                 """

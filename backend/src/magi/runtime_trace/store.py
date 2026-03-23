@@ -9,6 +9,7 @@ from typing import Any, TypeVar
 
 import aiosqlite
 
+from ..core.sqlite import sqlite_connection_async
 from .contracts import (
     RuntimeHeartbeatRecord,
     RuntimeNotificationRecord,
@@ -34,7 +35,7 @@ class RuntimeTraceStore:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS trace_turns (
@@ -168,7 +169,7 @@ class RuntimeTraceStore:
     async def upsert_turn(self, record: TraceTurnRecord) -> None:
         now_ms = max(0, int(record.updated_at_ms or self._now_ms()))
         created_at_ms = max(0, int(record.created_at_ms or now_ms))
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(
                 """
                 INSERT INTO trace_turns (
@@ -224,7 +225,7 @@ class RuntimeTraceStore:
     async def upsert_span(self, record: TraceSpanRecord) -> None:
         now_ms = max(0, int(record.updated_at_ms or self._now_ms()))
         created_at_ms = max(0, int(record.created_at_ms or now_ms))
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(
                 """
                 INSERT INTO trace_spans (
@@ -451,7 +452,7 @@ class RuntimeTraceStore:
 
     async def append_notification(self, record: RuntimeNotificationRecord) -> int:
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             cursor = await db.execute(
                 """
                 INSERT INTO runtime_notifications (
@@ -477,7 +478,7 @@ class RuntimeTraceStore:
 
     async def list_notifications(self, *, after_id: int, limit: int = 50) -> list[RuntimeNotificationRecord]:
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 """
@@ -515,7 +516,7 @@ class RuntimeTraceStore:
 
     async def upsert_runtime_heartbeat(self, record: RuntimeHeartbeatRecord) -> None:
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(
                 """
                 INSERT INTO runtime_heartbeats (
@@ -565,12 +566,12 @@ class RuntimeTraceStore:
         return self._row_to_record(RuntimeHeartbeatRecord, row)
 
     async def _upsert_detail(self, sql: str, params: tuple[Any, ...]) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(sql, params)
             await db.commit()
 
     async def _fetchone(self, sql: str, params: tuple[Any, ...]) -> aiosqlite.Row | None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(sql, params)
             return await cursor.fetchone()

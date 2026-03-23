@@ -5,7 +5,13 @@ import sqlite3
 import aiosqlite
 import pytest
 
-from magi.core.sqlite import connect_aiosqlite, connect_sqlite, sqlite_transaction, sqlite_transaction_async
+from magi.core.sqlite import (
+    connect_aiosqlite,
+    connect_sqlite,
+    sqlite_connection_async,
+    sqlite_transaction,
+    sqlite_transaction_async,
+)
 
 
 @pytest.mark.asyncio
@@ -68,6 +74,15 @@ async def test_sqlite_transaction_async_rolls_back_on_error(tmp_path) -> None:
         assert int(row[0]) == 0
     finally:
         await check.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_connection_async_closes_connection_after_context(tmp_path) -> None:
+    db_path = tmp_path / "ctx_async.db"
+
+    async with sqlite_connection_async(db_path) as db:
+        row = await (await db.execute("PRAGMA journal_mode")).fetchone()
+        assert str(row[0]).lower() == "wal"
 
 
 def test_sqlite_transaction_rolls_back_on_error(tmp_path) -> None:

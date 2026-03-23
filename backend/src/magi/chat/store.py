@@ -7,6 +7,7 @@ import uuid
 
 import aiosqlite
 
+from ..core.sqlite import sqlite_connection_async
 from .contracts import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
 
 
@@ -23,7 +24,7 @@ class ChatStore:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -97,7 +98,7 @@ class ChatStore:
     async def is_empty(self) -> bool:
         """Return whether the chat store has any durable rows."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             for table in ("chat_sessions", "chat_turns", "chat_messages"):
                 cur = await db.execute(f"SELECT COUNT(*) FROM {table}")
                 row = await cur.fetchone()
@@ -108,7 +109,7 @@ class ChatStore:
     async def upsert_session(self, record: ChatSessionRecord) -> None:
         """Insert or update one session row."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await self._upsert_session_with_connection(db, record)
             await db.commit()
 
@@ -140,7 +141,7 @@ class ChatStore:
             replaces_message_id=None,
             replaced_by_message_id=None,
         )
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             db.row_factory = aiosqlite.Row
             existing_session = await self._fetch_session_row(db, session_id=session_id)
             next_message_count = int(existing_session["message_count"] or 0) + 1 if existing_session is not None else 1
@@ -242,7 +243,7 @@ class ChatStore:
     async def upsert_turn(self, record: ChatTurnRecord) -> None:
         """Insert or update one chat turn row."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await db.execute(
                 """
                 INSERT INTO chat_turns (
@@ -295,7 +296,7 @@ class ChatStore:
     async def append_message(self, record: ChatMessageRecord) -> None:
         """Insert or replace one transcript message row."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO chat_messages (
@@ -338,7 +339,7 @@ class ChatStore:
     async def mark_message_replaced(self, *, message_id: str, replaced_by_message_id: str) -> None:
         """Mark one message as replaced by another message."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await db.execute(
                 """
                 UPDATE chat_messages
@@ -438,7 +439,7 @@ class ChatStore:
     async def list_messages(self, *, session_id: str) -> list[ChatMessageRecord]:
         """List transcript messages for one session in display order."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             db.row_factory = aiosqlite.Row
             cur = await db.execute(
                 """
@@ -456,7 +457,7 @@ class ChatStore:
 
     async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             db.row_factory = aiosqlite.Row
             cur = await db.execute(sql, params)
             return await cur.fetchone()

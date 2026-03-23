@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ...core.logger import get_logger
+from ...core.sqlite import connect_sqlite
 from ...utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
@@ -114,6 +115,7 @@ class ChatTraceReadService:
 
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
+        self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
         self._orchestrations_path: Path = runtime_paths.data_dir / "task_orchestrations.json"
 
@@ -472,8 +474,7 @@ class ChatTraceReadService:
     def _query_trace_rows(self, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
         if not self._runtime_trace_db_path.exists():
             return []
-        conn = sqlite3.connect(str(self._runtime_trace_db_path))
-        conn.row_factory = sqlite3.Row
+        conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
         cur = conn.cursor()
         cur.execute(query, params)
         rows = [dict(row) for row in cur.fetchall()]
@@ -1214,7 +1215,7 @@ class ChatTraceReadService:
             params.append(turn_id)
         query += " ORDER BY timestamp ASC"
         try:
-            conn = sqlite3.connect(str(self._l1_db_path))
+            conn = connect_sqlite(self._l1_db_path, profile="hot_write", use_row_factory=False)
             cur = conn.cursor()
             cur.execute(query, params)
             rows = cur.fetchall()

@@ -107,6 +107,27 @@ def connect_sqlite(
 
 
 @asynccontextmanager
+async def sqlite_connection_async(
+    db_path: str | Path,
+    *,
+    profile: str | SqliteProfile = "default",
+    timeout_seconds: float = 30.0,
+    use_row_factory: bool = True,
+) -> AsyncIterator[aiosqlite.Connection]:
+    """Yield an async SQLite connection and always close it."""
+    db = await connect_aiosqlite(
+        db_path,
+        profile=profile,
+        timeout_seconds=timeout_seconds,
+        use_row_factory=use_row_factory,
+    )
+    try:
+        yield db
+    finally:
+        await db.close()
+
+
+@asynccontextmanager
 async def sqlite_transaction_async(
     db_path: str | Path,
     *,

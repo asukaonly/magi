@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
+from ...core.sqlite import sqlite_connection_async
 from ...events.events import Event, EventLevel, EventTypes
 from ...timeline.contracts import TimelineEvent
 from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
@@ -75,7 +76,7 @@ class L1EventStore:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS fact_events (
@@ -181,7 +182,7 @@ class L1EventStore:
                 event.user_id,
                 event.correlation_id,
             )
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(
                 f"""
                 INSERT OR REPLACE INTO {FACT_EVENTS_TABLE}(
@@ -316,7 +317,7 @@ class L1EventStore:
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single event by id."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE event_id = ?",
@@ -328,7 +329,7 @@ class L1EventStore:
     async def get_memory_event(self, event_id: str) -> Optional[MemoryEvent]:
         """Fetch a single event as the canonical MemoryEvent contract."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE event_id = ?",
@@ -388,7 +389,7 @@ class L1EventStore:
         query += " ORDER BY timestamp DESC LIMIT ?"
         args.append(int(limit))
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -430,7 +431,7 @@ class L1EventStore:
     async def count_events(self) -> int:
         """Count all non-deleted events."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             async with db.execute(
                 f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
             ) as cursor:
@@ -456,7 +457,7 @@ class L1EventStore:
     ) -> List[str]:
         """List non-deleted compressible L1 events older than a cutoff timestamp."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             async with db.execute(
                 f"""
                 SELECT event_id
@@ -479,7 +480,7 @@ class L1EventStore:
     async def clear(self) -> int:
         """Delete all events and return the removed count."""
         count = await self.count_events()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(f"DELETE FROM {FACT_EVENTS_TABLE}")
             await db.execute("DELETE FROM l1_events_fts")
             await db.commit()
@@ -491,7 +492,7 @@ class L1EventStore:
         """Soft-delete an event."""
         await self.initialize()
         deleted_timestamp = float(deleted_at or time.time())
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             cursor = await db.execute(
                 f"UPDATE {FACT_EVENTS_TABLE} SET deleted_at = ? WHERE event_id = ?",
                 (deleted_timestamp, event_id),
@@ -524,7 +525,7 @@ class L1EventStore:
         escaped = escape_fts_query(tokenized)
         if not escaped:
             return []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             try:
                 rows = await self._run_bm25_query(db, escaped, limit=limit)
                 if not rows:
@@ -577,7 +578,7 @@ class L1EventStore:
         """
         await self.initialize()
         indexed = 0
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             async with db.execute(
                 f"""
                 SELECT event_id, content, author_type, content_type FROM {FACT_EVENTS_TABLE}
@@ -773,7 +774,7 @@ class L1EventStore:
             query += " AND memory_domain != ?"
             args.append(int(MemoryDomain.RUNTIME_TELEMETRY))
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -861,7 +862,7 @@ class L1EventStore:
         if not updates:
             return
         profile_ids = {profile_id for _, _, profile_id in updates if profile_id}
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             if profile_ids:
                 await self._sync_embedding_profiles(db, profile_ids, profiles_by_id=profiles_by_id or {})
             await db.executemany(

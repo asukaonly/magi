@@ -10,6 +10,8 @@ from typing import Optional
 
 import aiosqlite
 
+from ..core.sqlite import connect_aiosqlite
+
 from .contracts import (
     ScheduleDefinition,
     ScheduledExecutionResult,
@@ -28,11 +30,8 @@ class ScheduleRepository:
 
     @asynccontextmanager
     async def _connect(self):
-        db = await aiosqlite.connect(self._db_path, timeout=30.0)
+        db = await connect_aiosqlite(self._db_path)
         try:
-            await db.execute("PRAGMA journal_mode=WAL")
-            await db.execute("PRAGMA synchronous=NORMAL")
-            await db.execute("PRAGMA busy_timeout = 30000")
             yield db
         finally:
             await db.close()
