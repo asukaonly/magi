@@ -23,6 +23,7 @@ from .models import (
     L2ConflictArbitrationResult,
     L2EventWindow,
     L2EventWindowSummary,
+    L2FocalEntityRef,
     L2GraphCandidate,
     L2PendingBatchBucket,
     ResolvedEntityMention,
@@ -1117,18 +1118,18 @@ class L2Pipeline:
         self,
         event: MemoryEvent,
         resolved_mentions: list[ResolvedEntityMention],
-    ) -> list[dict[str, str]]:
-        focal_entities: list[dict[str, str]] = []
+    ) -> list[L2FocalEntityRef]:
+        focal_entities: list[L2FocalEntityRef] = []
         self_entity_id = self._resolve_self_entity_id(event)
         if self_entity_id:
-            focal_entities.append({"entity_id": self_entity_id, "entity_type": "user"})
-        seen = {item["entity_id"] for item in focal_entities}
+            focal_entities.append(L2FocalEntityRef(entity_id=self_entity_id, entity_type="user"))
+        seen = {item.entity_id for item in focal_entities}
         for mention in resolved_mentions:
             entity_id = mention.resolved_entity_id
             entity_type = self._normalize_entity_type(mention.entity_type)
             if not entity_id or not entity_type or entity_id in seen:
                 continue
-            focal_entities.append({"entity_id": str(entity_id), "entity_type": entity_type})
+            focal_entities.append(L2FocalEntityRef(entity_id=str(entity_id), entity_type=entity_type))
             seen.add(str(entity_id))
         return focal_entities
 
@@ -1518,7 +1519,7 @@ class L2Pipeline:
         self,
         *,
         event: MemoryEvent,
-        focal_entities: list[dict[str, str]],
+        focal_entities: list[L2FocalEntityRef],
     ) -> list[ContradictionHint]:
         if self._cognition_store is None or self._llm_service is None:
             return []
@@ -1655,15 +1656,15 @@ class L2Pipeline:
             rewritten_hints.append(next_hint)
         return rewritten_hints
 
-    async def _load_existing_records(self, focal_entities: list[dict[str, str]]) -> list[dict[str, Any]]:
+    async def _load_existing_records(self, focal_entities: list[L2FocalEntityRef]) -> list[dict[str, Any]]:
         if self._cognition_store is None:
             return []
 
         records: list[dict[str, Any]] = []
         seen_record_ids: set[str] = set()
         for entity in focal_entities:
-            entity_id = entity["entity_id"]
-            entity_type = entity["entity_type"]
+            entity_id = entity.entity_id
+            entity_type = entity.entity_type
             assertions = await self._cognition_store.list_tom_assertions(
                 entity_id=entity_id,
                 entity_type=entity_type,

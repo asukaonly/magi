@@ -323,6 +323,21 @@ class ResolvedEntityMention:
 
 
 @dataclass(slots=True)
+class L2FocalEntityRef:
+    """Typed entity reference used when loading contradiction context."""
+
+    entity_id: str
+    entity_type: str
+
+    def __post_init__(self) -> None:
+        self.entity_id = _non_empty_text(self.entity_id, field_name="entity_id")
+        self.entity_type = _non_empty_text(self.entity_type, field_name="entity_type")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -570,6 +585,7 @@ __all__ = [
     "L2EntityReconcileJob",
     "L2EventWindow",
     "L2EventWindowSummary",
+    "L2FocalEntityRef",
     "L2GraphCandidate",
     "L2PendingBatchBucket",
     "L2SnapshotRefreshJob",

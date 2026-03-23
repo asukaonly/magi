@@ -874,6 +874,33 @@ async def test_resolve_mentions_returns_typed_mentions():
 
 
 @pytest.mark.asyncio
+async def test_build_focal_entities_returns_typed_refs():
+    from magi.memory.l2.models import L2FocalEntityRef, ResolvedEntityMention
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
+        try:
+            event = _make_memory_event(event_id="evt-focal-entities", content="我喜欢魔都")
+            focal_entities = pipeline._build_focal_entities(
+                event,
+                [
+                    ResolvedEntityMention(
+                        mention_text="魔都",
+                        normalized_surface="魔都",
+                        entity_type="place",
+                        resolved_entity_id="place:shanghai",
+                        confidence=0.96,
+                    )
+                ],
+            )
+
+            assert [item.entity_id for item in focal_entities] == ["user:u1", "place:shanghai"]
+            assert all(isinstance(item, L2FocalEntityRef) for item in focal_entities)
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
     from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
 
