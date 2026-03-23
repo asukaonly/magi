@@ -23,6 +23,10 @@ from ...config.models import LLMScenario
 from ...config.constants import DEFAULT_MAX_TOKENS
 from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
 from .function_calling_postprocessor import FunctionCallingPostprocessor
+from .function_calling_step_executor import (
+    FunctionCallingStepExecutor,
+    FunctionCallingStepState,
+)
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 if TYPE_CHECKING:
@@ -151,6 +155,26 @@ class FunctionCallingOrchestrator:
         self.tool_result_callback = tool_result_callback
         self.loop_event_callback = loop_event_callback
         self.runtime_trace_store = runtime_trace_store
+        self.step_executor = FunctionCallingStepExecutor(self)
+
+    def build_step_state(
+        self,
+        *,
+        user_message: str,
+        system_prompt: str,
+        selected_tools: List[str],
+        conversation_history: List[Dict[str, Any]] | None = None,
+    ) -> FunctionCallingStepState:
+        """Build the initial loop state for step-wise function calling."""
+        messages: list[dict[str, Any]] = []
+        if conversation_history:
+            messages.extend(conversation_history[-10:])
+        messages.append({"role": "user", "content": user_message})
+        return FunctionCallingStepState(
+            messages=messages,
+            effective_system_prompt=self._augment_system_prompt(system_prompt),
+            tools=self._build_tools_parameter(selected_tools),
+        )
 
     def _resolve_llm(self) -> LLMAdapter:
         if self._llm_pool is not None:
@@ -194,309 +218,78 @@ class FunctionCallingOrchestrator:
         Returns:
             Structured execution outcome
         """
-        # Build messages
-        messages = []
-        if conversation_history:
-            messages.extend(conversation_history[-10:])  # Last 10 messages
-        messages.append({"role": "user", "content": user_message})
-        effective_system_prompt = self._augment_system_prompt(system_prompt)
-
-        # Build tools parameter
-        tools = self._build_tools_parameter(selected_tools)
-
-        iteration = 0
-        tool_failures: List[Dict[str, Any]] = []
-        all_tools_failed = False
-        consecutive_failed_tool_iterations = 0
-        while iteration < max_iterations:
-            iteration += 1
-            iteration_started_at_ms = await self._start_iteration_trace(
+        state = self.build_step_state(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            selected_tools=selected_tools,
+            conversation_history=conversation_history,
+        )
+        while state.iteration < max_iterations:
+            step_outcome = await self.step_executor.execute_step(
+                state=state,
+                user_message=user_message,
+                disable_thinking=disable_thinking,
+                user_id=user_id,
+                session_id=session_id,
                 turn_id=turn_id,
-                iteration=iteration,
+                intent=intent,
                 execution_agent_id=execution_agent_id,
+                execution_workspace=execution_workspace,
+                orchestration_strategy=orchestration_strategy,
+                llm_timeout_seconds=llm_timeout_seconds,
             )
-            await self._emit_loop_event(
-                {
-                    "stage": "iteration_started",
-                    "iteration": iteration,
-                    "max_iterations": max_iterations,
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "intent": intent,
-                    "execution_agent_id": execution_agent_id,
-                }
-            )
-
-            # Call LLM with tools
-            try:
-                response = await self._call_llm_with_tools(
-                    system_prompt=effective_system_prompt,
-                    messages=messages,
-                    tools=tools,
-                    disable_thinking=disable_thinking,
-                    timeout_seconds=llm_timeout_seconds,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    intent=intent,
-                    execution_agent_id=execution_agent_id,
-                )
-            except Exception as exc:
-                await self._complete_iteration_trace(
-                    turn_id=turn_id,
-                    iteration=iteration,
-                    execution_agent_id=execution_agent_id,
-                    started_at_ms=iteration_started_at_ms,
-                    status="failed",
-                    error_text=self._classify_exception_failure(exc),
-                )
-                return ExecutionOutcome(
-                    status="failed",
-                    content="",
-                    failure_reason=self._classify_exception_failure(exc),
-                    tool_failures=tool_failures,
-                    iterations=iteration,
-                )
-
-            # Preserve assistant tool_call message for protocol-correct next turn
-            assistant_message = response.get("assistant_message")
-            if assistant_message:
-                self._append_message(messages, assistant_message)
-
-            # Check if LLM wants to call tools
-            if response.get("tool_calls"):
-                tool_calls = response["tool_calls"]
-                logger.info(f"[FunctionCalling] Iteration {iteration}: {len(tool_calls)} tool(s) to execute")
-                await self._emit_loop_event(
-                    {
-                        "stage": "llm_requested_tools",
-                        "iteration": iteration,
-                        "tool_names": [tool_call.name for tool_call in tool_calls],
-                        "tool_count": len(tool_calls),
-                        "llm_trace": response.get("llm_trace"),
-                        "user_id": user_id,
-                        "session_id": session_id,
-                        "turn_id": turn_id,
-                        "intent": intent,
-                        "execution_agent_id": execution_agent_id,
-                    }
-                )
-                await self._persist_llm_trace(
-                    turn_id=turn_id,
-                    iteration=iteration,
-                    stage="llm_requested_tools",
-                    execution_agent_id=execution_agent_id,
-                    llm_trace=response.get("llm_trace"),
-                )
-
-                # Execute all tool calls
-                tool_results = []
-                for tool_call in tool_calls:
-                    result = await self._execute_tool_call(
-                        tool_call=tool_call,
-                        user_id=user_id,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        intent=intent,
-                        execution_agent_id=execution_agent_id,
-                        execution_workspace=execution_workspace,
-                        orchestration_strategy=orchestration_strategy,
-                    )
-                    tool_results.append(result)
-                    if not result.success:
-                        tool_failures.append(
-                            {
-                                "tool_call_id": result.tool_call_id,
-                                "tool_name": result.tool_name,
-                                "error": result.error or "unknown error",
-                                "error_code": result.error_code,
-                                "execution_time": round(result.execution_time, 3),
-                            }
-                        )
-                    await self._emit_loop_event(
-                        {
-                            "stage": "tool_executed",
-                            "iteration": iteration,
-                            "tool_name": tool_call.name,
-                            "tool_call_id": tool_call.id,
-                            "success": result.success,
-                            "error": result.error,
-                            "execution_time": result.execution_time,
-                            "user_id": user_id,
-                            "session_id": session_id,
-                            "turn_id": turn_id,
-                            "intent": intent,
-                            "execution_agent_id": execution_agent_id,
-                        }
-                    )
-                    await self._emit_tool_result(
-                        user_id=user_id,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        user_message=user_message,
-                        intent=intent,
-                        iteration=iteration,
-                        tool_call=tool_call,
-                        result=result,
-                    )
-                    await self._persist_tool_trace(
-                        turn_id=turn_id,
-                        iteration=iteration,
-                        execution_agent_id=execution_agent_id,
-                        tool_call=tool_call,
-                        result=result,
-                    )
-
-                    # Add tool result message
-                    self._append_message(
-                        messages,
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps(
-                                self.postprocessor.build_tool_message_payload(
-                                    tool_name=tool_call.name,
-                                    result=result,
-                                )
-                            ),
-                        },
-                    )
-
-                # Check if all tools failed
-                if all(not r.success for r in tool_results):
-                    consecutive_failed_tool_iterations += 1
-                    replan_allowed = self._should_allow_replan_after_failed_iteration(
-                        tool_results,
-                        consecutive_failed_tool_iterations=consecutive_failed_tool_iterations,
-                    )
-                    failed_details = []
-                    for r in tool_results:
-                        failed_details.append({
-                            "tool_call_id": r.tool_call_id,
-                            "tool_name": r.tool_name,
-                            "error": r.error or "unknown error",
-                            "error_code": r.error_code,
-                            "execution_time": round(r.execution_time, 3),
-                        })
-                    log_message = (
-                        f"[FunctionCalling] All tools failed | iteration={iteration} "
-                        f"| replan_allowed={replan_allowed} | details={failed_details}"
-                    )
-                    logger.warning(log_message)
-                    llm_logger.warning(
-                        "function_calling_all_tools_failed | iteration=%s | replan_allowed=%s | details=%s",
-                        iteration,
-                        replan_allowed,
-                        failed_details,
-                    )
-                    await self._emit_loop_event(
-                        {
-                            "stage": "iteration_all_tools_failed",
-                            "iteration": iteration,
-                            "replan_allowed": replan_allowed,
-                            "consecutive_failed_iterations": consecutive_failed_tool_iterations,
-                            "details": failed_details,
-                            "user_id": user_id,
-                            "session_id": session_id,
-                            "turn_id": turn_id,
-                            "intent": intent,
-                            "execution_agent_id": execution_agent_id,
-                        }
-                    )
-                    if replan_allowed:
-                        await self._complete_iteration_trace(
-                            turn_id=turn_id,
-                            iteration=iteration,
-                            execution_agent_id=execution_agent_id,
-                            started_at_ms=iteration_started_at_ms,
-                            status="completed",
-                            result_preview="All requested tools failed",
-                        )
-                        continue
-                    all_tools_failed = True
-                    await self._complete_iteration_trace(
-                        turn_id=turn_id,
-                        iteration=iteration,
-                        execution_agent_id=execution_agent_id,
-                        started_at_ms=iteration_started_at_ms,
-                        status="failed",
-                        error_text="All requested tools failed",
-                    )
-                    break
-
-                # Continue loop for potential more tool calls
-                consecutive_failed_tool_iterations = 0
-                await self._complete_iteration_trace(
-                    turn_id=turn_id,
-                    iteration=iteration,
-                    execution_agent_id=execution_agent_id,
-                    started_at_ms=iteration_started_at_ms,
-                    status="completed",
-                    result_preview=f"Executed {len(tool_results)} tool call(s)",
-                )
-
-            elif response.get("content"):
-                # LLM provided final response
-                final_content = str(response["content"])
-                if not final_content.strip():
-                    break
-                await self._persist_llm_trace(
-                    turn_id=turn_id,
-                    iteration=iteration,
-                    stage="final_response",
-                    execution_agent_id=execution_agent_id,
-                    llm_trace=response.get("llm_trace"),
-                    response_preview=final_content,
-                )
-                logger.info(f"[FunctionCalling] Final response received after {iteration} iteration(s)")
-                await self._emit_loop_event(
-                    {
-                        "stage": "final_response",
-                        "iteration": iteration,
-                        "response_preview": str(response["content"])[:500],
-                        "llm_trace": response.get("llm_trace"),
-                        "user_id": user_id,
-                        "session_id": session_id,
-                        "turn_id": turn_id,
-                        "intent": intent,
-                        "execution_agent_id": execution_agent_id,
-                    }
-                )
-                await self._complete_iteration_trace(
-                    turn_id=turn_id,
-                    iteration=iteration,
-                    execution_agent_id=execution_agent_id,
-                    started_at_ms=iteration_started_at_ms,
-                    status="completed",
-                    result_preview=final_content[:240],
-                )
+            if step_outcome.status == "continue":
+                continue
+            if step_outcome.status == "completed":
                 return ExecutionOutcome(
                     status="completed",
-                    content=final_content,
-                    tool_failures=tool_failures,
-                    iterations=iteration,
+                    content=step_outcome.content,
+                    tool_failures=list(state.tool_failures),
+                    iterations=step_outcome.iteration,
                 )
+            return ExecutionOutcome(
+                status="failed",
+                content="",
+                failure_reason=step_outcome.failure_reason,
+                tool_failures=list(state.tool_failures),
+                iterations=step_outcome.iteration,
+            )
 
-            else:
-                # Unexpected response format
-                logger.warning(f"[FunctionCalling] Unexpected response: {response}")
-                await self._complete_iteration_trace(
-                    turn_id=turn_id,
-                    iteration=iteration,
-                    execution_agent_id=execution_agent_id,
-                    started_at_ms=iteration_started_at_ms,
-                    status="failed",
-                    error_text="Unexpected function-calling response",
-                )
-                break
+        return await self._execute_fallback_final_response(
+            state=state,
+            disable_thinking=disable_thinking,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            intent=intent,
+            execution_agent_id=execution_agent_id,
+            execution_workspace=execution_workspace,
+            orchestration_strategy=orchestration_strategy,
+            llm_timeout_seconds=llm_timeout_seconds,
+            final_response_json_mode=final_response_json_mode,
+        )
 
-        # Fallback: call LLM without tools for final response
+    async def _execute_fallback_final_response(
+        self,
+        *,
+        state: FunctionCallingStepState,
+        disable_thinking: bool,
+        user_id: str,
+        session_id: Optional[str],
+        turn_id: Optional[str],
+        intent: str,
+        execution_agent_id: str,
+        execution_workspace: Optional[str],
+        orchestration_strategy: Optional[Dict[str, Any]],
+        llm_timeout_seconds: Optional[float],
+        final_response_json_mode: bool,
+    ) -> ExecutionOutcome:
+        """Run the legacy no-tools fallback once the bounded step loop stops."""
         logger.info("[FunctionCalling] Reached max iterations, getting final response")
         await self._emit_loop_event(
             {
                 "stage": "max_iterations_reached",
-                "iteration": iteration,
-                "max_iterations": max_iterations,
+                "iteration": state.iteration,
                 "user_id": user_id,
                 "session_id": session_id,
                 "turn_id": turn_id,
@@ -505,10 +298,10 @@ class FunctionCallingOrchestrator:
             }
         )
         try:
-            final_system_prompt = self._build_final_response_system_prompt(effective_system_prompt)
+            final_system_prompt = self._build_final_response_system_prompt(state.effective_system_prompt)
             final_response = await self._call_llm_without_tools(
                 system_prompt=final_system_prompt,
-                messages=self._build_final_response_messages(messages),
+                messages=self._build_final_response_messages(state.messages),
                 disable_thinking=disable_thinking,
                 json_mode=final_response_json_mode,
                 timeout_seconds=llm_timeout_seconds,
@@ -520,9 +313,9 @@ class FunctionCallingOrchestrator:
         except Exception as exc:
             await self._complete_iteration_trace(
                 turn_id=turn_id,
-                iteration=iteration,
+                iteration=state.iteration,
                 execution_agent_id=execution_agent_id,
-                started_at_ms=iteration_started_at_ms if "iteration_started_at_ms" in locals() else None,
+                started_at_ms=None,
                 status="failed",
                 error_text=self._classify_exception_failure(exc),
             )
@@ -530,8 +323,8 @@ class FunctionCallingOrchestrator:
                 status="failed",
                 content="",
                 failure_reason=self._classify_exception_failure(exc),
-                tool_failures=tool_failures,
-                iterations=iteration,
+                tool_failures=list(state.tool_failures),
+                iterations=state.iteration,
             )
 
         # Some models return legacy <tool_call> blocks in fallback text-only responses.
@@ -544,7 +337,7 @@ class FunctionCallingOrchestrator:
                 len(fallback_tool_calls),
             )
             if fallback_content:
-                self._append_message(messages, {"role": "assistant", "content": fallback_content})
+                self._append_message(state.messages, {"role": "assistant", "content": fallback_content})
             for tool_call in fallback_tool_calls:
                 result = await self._execute_tool_call(
                     tool_call=tool_call,
@@ -557,7 +350,7 @@ class FunctionCallingOrchestrator:
                     orchestration_strategy=orchestration_strategy,
                 )
                 if not result.success:
-                    tool_failures.append(
+                    state.tool_failures.append(
                         {
                             "tool_call_id": result.tool_call_id,
                             "tool_name": result.tool_name,
@@ -567,7 +360,7 @@ class FunctionCallingOrchestrator:
                         }
                     )
                 self._append_message(
-                    messages,
+                    state.messages,
                     {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -581,7 +374,7 @@ class FunctionCallingOrchestrator:
                 )
                 await self._persist_tool_trace(
                     turn_id=turn_id,
-                    iteration=iteration,
+                    iteration=state.iteration,
                     execution_agent_id=execution_agent_id,
                     tool_call=tool_call,
                     result=result,
@@ -589,7 +382,7 @@ class FunctionCallingOrchestrator:
             try:
                 final_response = await self._call_llm_without_tools(
                     system_prompt=final_system_prompt,
-                    messages=self._build_final_response_messages(messages, force_plain_text=True),
+                    messages=self._build_final_response_messages(state.messages, force_plain_text=True),
                     disable_thinking=disable_thinking,
                     json_mode=final_response_json_mode,
                     timeout_seconds=llm_timeout_seconds,
@@ -601,9 +394,9 @@ class FunctionCallingOrchestrator:
             except Exception as exc:
                 await self._complete_iteration_trace(
                     turn_id=turn_id,
-                    iteration=iteration,
+                    iteration=state.iteration,
                     execution_agent_id=execution_agent_id,
-                    started_at_ms=iteration_started_at_ms if "iteration_started_at_ms" in locals() else None,
+                    started_at_ms=None,
                     status="failed",
                     error_text=self._classify_exception_failure(exc),
                 )
@@ -611,8 +404,8 @@ class FunctionCallingOrchestrator:
                     status="failed",
                     content="",
                     failure_reason=self._classify_exception_failure(exc),
-                    tool_failures=tool_failures,
-                    iterations=iteration,
+                    tool_failures=list(state.tool_failures),
+                    iterations=state.iteration,
                 )
 
         if final_response.get("tool_calls") and not str(final_response.get("content", "")).strip():
@@ -632,10 +425,10 @@ class FunctionCallingOrchestrator:
             try:
                 final_response = await self._call_llm_without_tools(
                     system_prompt=self._build_final_response_system_prompt(
-                        effective_system_prompt,
+                        state.effective_system_prompt,
                         strict_plain_text=True,
                     ),
-                    messages=self._build_final_response_messages(messages, force_plain_text=True),
+                    messages=self._build_final_response_messages(state.messages, force_plain_text=True),
                     disable_thinking=True,
                     json_mode=final_response_json_mode,
                     timeout_seconds=llm_timeout_seconds,
@@ -667,7 +460,7 @@ class FunctionCallingOrchestrator:
         )
         await self._persist_llm_trace(
             turn_id=turn_id,
-            iteration=iteration,
+            iteration=state.iteration,
             stage="fallback_final_response",
             execution_agent_id=execution_agent_id,
             llm_trace=final_response.get("llm_trace"),
@@ -677,33 +470,33 @@ class FunctionCallingOrchestrator:
         if final_content.strip():
             await self._complete_iteration_trace(
                 turn_id=turn_id,
-                iteration=iteration,
+                iteration=state.iteration,
                 execution_agent_id=execution_agent_id,
-                started_at_ms=iteration_started_at_ms if "iteration_started_at_ms" in locals() else None,
+                started_at_ms=None,
                 status="completed",
                 result_preview=final_content[:240],
             )
             return ExecutionOutcome(
                 status="completed",
                 content=final_content,
-                tool_failures=tool_failures,
-                iterations=iteration,
+                tool_failures=list(state.tool_failures),
+                iterations=state.iteration,
             )
 
         await self._complete_iteration_trace(
             turn_id=turn_id,
-            iteration=iteration,
+            iteration=state.iteration,
             execution_agent_id=execution_agent_id,
-            started_at_ms=iteration_started_at_ms if "iteration_started_at_ms" in locals() else None,
+            started_at_ms=None,
             status="failed",
-            error_text=self._classify_final_failure(tool_failures, all_tools_failed),
+            error_text=self._classify_final_failure(state.tool_failures, state.all_tools_failed),
         )
         return ExecutionOutcome(
             status="failed",
             content="",
-            failure_reason=self._classify_final_failure(tool_failures, all_tools_failed),
-            tool_failures=tool_failures,
-            iterations=iteration,
+            failure_reason=self._classify_final_failure(state.tool_failures, state.all_tools_failed),
+            tool_failures=list(state.tool_failures),
+            iterations=state.iteration,
         )
 
     async def _emit_tool_result(
