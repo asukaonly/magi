@@ -62,9 +62,6 @@ export interface UseSettingsReturn {
   // Language
   handleLanguagePreviewChange: (value: string) => void;
 
-  // Memory
-  expandedMemoryLayers: Set<string>;
-  setExpandedMemoryLayers: React.Dispatch<React.SetStateAction<Set<string>>>;
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
 
   // Plugins
@@ -134,12 +131,8 @@ export function useSettings(): UseSettingsReturn {
   const [activeSection, setActiveSection] = useState('preferences');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     llm: false,
+    memory: false,
   });
-
-  // Memory state
-  const [expandedMemoryLayers, setExpandedMemoryLayers] = useState<Set<string>>(
-    new Set(['l0', 'l1'])
-  );
 
   // Timeline state
   const [timelineStatuses, setTimelineStatuses] = useState<TimelineSourceStatusItem[]>([]);
@@ -638,8 +631,6 @@ export function useSettings(): UseSettingsReturn {
     handleLanguagePreviewChange,
 
     // Memory
-    expandedMemoryLayers,
-    setExpandedMemoryLayers,
     updateMemoryToggle,
 
     // Plugins

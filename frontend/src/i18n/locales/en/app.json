@@ -297,6 +297,12 @@
       "usage": "Usage",
       "personality": "Personality",
       "memory": "Memory",
+      "memoryGeneral": "General Memory",
+      "memoryWorkbench": "Workbench Memory",
+      "memoryEvents": "Event Memory",
+      "memoryKnowledge": "Knowledge Memory",
+      "memoryReflection": "Reflection Memory",
+      "memorySkills": "Skill Memory",
       "timeline": "Timeline & Sources",
       "extensions": "Extensions",
       "tools": "Tools",
@@ -401,7 +407,40 @@
         "l1DependencyDescription": "When disabled, downstream knowledge, reflection, and strategy memory stay disabled.",
         "restoreL1": "Re-enable"
       },
+      "sections": {
+        "general": {
+          "description": "Manage cross-layer memory behavior, including vector scheduling, embedding backend choices, and the current embedding dependency.",
+          "pipelineTitle": "Shared memory pipeline",
+          "pipelineDescription": "These settings affect every memory layer that relies on vectorization or asynchronous processing.",
+          "embeddingModelTitle": "Current embedding model",
+          "embeddingModelDescription": "Semantic retrieval in L1 and L3 depends on the embedding model configured here.",
+          "embeddingModelEmpty": "No embedding model is configured yet. Select one first under Model Configuration > Model Selection."
+        },
+        "workbench": {
+          "description": "Configure short-lived workbench memory retention and recovery cadence so runtime context can be checkpointed and replayed safely."
+        },
+        "events": {
+          "description": "Configure retention, importance scoring, and semantic retrieval for raw event memory, which feeds every downstream layer."
+        },
+        "knowledge": {
+          "description": "Configure knowledge extraction, batch flushing, and conflict arbitration so facts settle into stable cognition."
+        },
+        "reflection": {
+          "description": "Configure summary and reflection generation so long event streams can be compressed into higher-level abstractions."
+        },
+        "skills": {
+          "description": "Configure skill memory extraction and decide which successful or failed patterns become reusable experience."
+        }
+      },
       "fields": {
+        "async_embeddings": {
+          "label": "Enable async vectorization",
+          "description": "Run embedding work on the async pipeline to reduce blocking on the main runtime path."
+        },
+        "embedding_backend": {
+          "label": "Embedding backend",
+          "description": "Choose where vector indexes are stored. Make sure the current runtime supports the selected backend before switching."
+        },
         "enable_l0": {
           "label": "Enable working context",
           "description": "Keep short-lived runtime state in memory and checkpoint it for crash recovery."

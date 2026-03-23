@@ -297,6 +297,12 @@
       "usage": "统计",
       "personality": "人格",
       "memory": "记忆",
+      "memoryGeneral": "通用记忆设置",
+      "memoryWorkbench": "工作台记忆",
+      "memoryEvents": "事件记忆",
+      "memoryKnowledge": "知识记忆",
+      "memoryReflection": "摘要反思记忆",
+      "memorySkills": "工具技能记忆",
       "timeline": "时间线与来源",
       "extensions": "扩展",
       "tools": "工具",
@@ -401,7 +407,40 @@
         "l1DependencyDescription": "关闭后，下游的知识、反思和策略记忆都会保持停用。",
         "restoreL1": "重新启用"
       },
+      "sections": {
+        "general": {
+          "description": "管理跨层生效的记忆运行方式，包括向量化调度、嵌入后端以及当前向量模型依赖。",
+          "pipelineTitle": "通用记忆管线",
+          "pipelineDescription": "这些设置会影响所有启用了向量化或异步处理的记忆层。",
+          "embeddingModelTitle": "当前向量模型",
+          "embeddingModelDescription": "L1 与 L3 的语义检索能力都会依赖这里配置的向量模型。",
+          "embeddingModelEmpty": "当前还没有选择向量模型。请先到“大模型配置 > 模型选择”里配置 embedding 场景。"
+        },
+        "workbench": {
+          "description": "配置短时工作台记忆的保留和异常恢复节奏，决定对话运行态如何被暂存与回放。"
+        },
+        "events": {
+          "description": "配置原始事件记忆的保留窗口、重要度评分和语义检索能力，作为后续记忆层的事实基础。"
+        },
+        "knowledge": {
+          "description": "配置知识记忆的抽取、批次冲刷和冲突仲裁策略，决定事实如何沉淀成稳定认知。"
+        },
+        "reflection": {
+          "description": "配置摘要反思记忆的生成和检索方式，让长期事件流能被压缩成更高层次的抽象。"
+        },
+        "skills": {
+          "description": "配置工具技能记忆的抽取开关，决定哪些成功或失败模式会沉淀成可复用经验。"
+        }
+      },
       "fields": {
+        "async_embeddings": {
+          "label": "启用异步向量化",
+          "description": "把向量计算放到异步管线里执行，减少主流程阻塞。"
+        },
+        "embedding_backend": {
+          "label": "嵌入存储后端",
+          "description": "控制向量索引写入到哪类后端。切换前请确认当前运行环境已安装对应能力。"
+        },
         "enable_l0": {
           "label": "启用工作上下文",
           "description": "将短时运行态保存在内存中，并通过 checkpoint 提供异常恢复能力。"

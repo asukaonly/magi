@@ -512,19 +512,50 @@ describe('settings page draft saving', () => {
     );
   });
 
-  it('saves memory lifecycle changes from the memory section', async () => {
+  it('shows grouped memory navigation with dedicated sub-sections', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const memoryGroupButton = await screen.findByRole('button', { name: 'settings.tabs.memory' });
+
+    expect(memoryGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryWorkbench' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryEvents' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryKnowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryReflection' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memorySkills' })).not.toBeInTheDocument();
+
+    await user.click(memoryGroupButton);
+
+    expect(memoryGroupButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryWorkbench' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryEvents' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryKnowledge' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryReflection' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.memorySkills' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryKnowledge' }));
+    expect(screen.getByRole('heading', { name: 'settings.tabs.memoryKnowledge' })).toBeInTheDocument();
+
+    await user.click(memoryGroupButton);
+    expect(memoryGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
+  });
+
+  it('saves split memory settings across general and knowledge sections', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
-    await screen.findByRole('heading', { name: 'settings.tabs.memory' });
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
-    const checkpointInput = await screen.findByLabelText('settings.memory.fields.l0_checkpoint_interval_seconds.label');
-    fireEvent.change(checkpointInput, { target: { value: '45' } });
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.async_embeddings.label' }));
 
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.runtime_replay_include_l0_only.label' }));
-
-    await user.click(screen.getByText('settings.memory.fields.enable_l2.label'));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryKnowledge' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryKnowledge' });
     const l2BatchIntervalInput = await screen.findByLabelText('settings.memory.fields.l2_batch_flush_interval_seconds.label');
     fireEvent.change(l2BatchIntervalInput, { target: { value: '90' } });
     await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.enable_l2_conflict_arbitration.label' }));
@@ -539,10 +570,7 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           memory: expect.objectContaining({
-            l0: expect.objectContaining({
-              checkpoint_interval_seconds: 45,
-              runtime_replay_include_l0_only: true,
-            }),
+            async_embeddings: false,
             l2: expect.objectContaining({
               batch_flush_interval_seconds: 90,
               conflict_arbitration_enabled: false,

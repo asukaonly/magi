@@ -5,6 +5,14 @@
 // Shared components
 export { LabeledSelectField, NumberField, type SelectOption } from './form-fields';
 export { ExpandableMemoryLayerCard, type ExpandableMemoryLayerCardProps } from './ExpandableMemoryLayerCard';
+export {
+  MemoryEventsSettingsSection,
+  MemoryGeneralSettingsSection,
+  MemoryKnowledgeSettingsSection,
+  MemoryReflectionSettingsSection,
+  MemorySkillsSettingsSection,
+  MemoryWorkbenchSettingsSection,
+} from './MemorySettingsSections';
 
 // Existing section components
 export { LLMUsageSection } from './LLMUsageSection';

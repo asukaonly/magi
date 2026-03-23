@@ -17,7 +17,12 @@ import type { NavItem, SettingsPageHandle, SettingsPageProps } from '@/types/set
 import {
   LabeledSelectField,
   NumberField,
-  ExpandableMemoryLayerCard,
+  MemoryEventsSettingsSection,
+  MemoryGeneralSettingsSection,
+  MemoryKnowledgeSettingsSection,
+  MemoryReflectionSettingsSection,
+  MemorySkillsSettingsSection,
+  MemoryWorkbenchSettingsSection,
 } from '@/components/settings';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
@@ -55,8 +60,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     draftThemeMode,
     handleThemePreviewChange,
     handleLanguagePreviewChange,
-    expandedMemoryLayers,
-    setExpandedMemoryLayers,
     updateMemoryToggle,
     plugins,
     pluginsLoading,
@@ -139,6 +142,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   }
 
   const renderSectionContent = () => {
+    const embeddingSelection = draftConfig.llm?.selections?.embedding;
+    const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
+
     switch (activeSection) {
       case 'preferences':
         return (
@@ -230,325 +236,61 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       case 'usage':
         return <LLMUsageSection />;
 
-      case 'memory': {
-        // Check if embedding model is configured
-        const embeddingSelection = draftConfig.llm?.selections?.embedding;
-        const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
-
+      case 'memoryGeneral':
         return (
-          <div className="space-y-6">
-            {/* L0 Working Context */}
-            <ExpandableMemoryLayerCard
-              layerKey="l0"
-              label={t('settings.memory.fields.enable_l0.label')}
-              description={t('settings.memory.fields.enable_l0.description')}
-              checked={draftConfig.memory.l0.enabled}
-              expanded={expandedMemoryLayers.has('l0')}
-              onToggle={(checked) => updateMemoryToggle('l0', checked)}
-              onExpand={(expanded) => {
-                setExpandedMemoryLayers((prev) => {
-                  const next = new Set(prev);
-                  if (expanded) {
-                    next.add('l0');
-                  } else {
-                    next.delete('l0');
-                  }
-                  return next;
-                });
-              }}
-            >
-              <div className="space-y-4">
-                <NumberField
-                  label={t('settings.memory.fields.l0_checkpoint_interval_seconds.label')}
-                  value={draftConfig.memory.l0.checkpoint_interval_seconds ?? 60}
-                  min={1}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.memory.l0.checkpoint_interval_seconds = value;
-                  })}
-                />
-                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('settings.memory.fields.runtime_replay_include_l0_only.label')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.runtime_replay_include_l0_only.description')}</div>
-                  </div>
-                  <Switch
-                    checked={draftConfig.memory.l0.runtime_replay_include_l0_only ?? false}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.l0.runtime_replay_include_l0_only = checked;
-                    })}
-                    aria-label={t('settings.memory.fields.runtime_replay_include_l0_only.label')}
-                  />
-                </label>
-              </div>
-            </ExpandableMemoryLayerCard>
-
-            {/* L1 Event Memory */}
-            <ExpandableMemoryLayerCard
-              layerKey="l1"
-              label={t('settings.memory.fields.enable_l1.label')}
-              description={t('settings.memory.fields.enable_l1.description')}
-              checked={draftConfig.memory.l1.enabled}
-              expanded={expandedMemoryLayers.has('l1')}
-              onToggle={(checked) => updateMemoryToggle('l1', checked)}
-              onExpand={(expanded) => {
-                setExpandedMemoryLayers((prev) => {
-                  const next = new Set(prev);
-                  if (expanded) {
-                    next.add('l1');
-                  } else {
-                    next.delete('l1');
-                  }
-                  return next;
-                });
-              }}
-            >
-              <div className="space-y-4">
-                <NumberField
-                  label={t('settings.memory.fields.retention_days.label')}
-                  value={draftConfig.memory.l1.retention_days ?? 30}
-                  min={1}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.memory.l1.retention_days = value;
-                  })}
-                />
-                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_t1_importance.label')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_t1_importance.description')}</div>
-                  </div>
-                  <Switch
-                    checked={draftConfig.memory.l1.t1_importance_enabled ?? false}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.l1.t1_importance_enabled = checked;
-                    })}
-                    aria-label={t('settings.memory.fields.enable_t1_importance.label')}
-                  />
-                </label>
-
-                <label className={cn(
-                  "flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5",
-                  !hasEmbeddingModel && "opacity-50"
-                )}>
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l1_vectorization.label')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">
-                      {hasEmbeddingModel
-                        ? t('settings.memory.fields.enable_l1_vectorization.description')
-                        : t('settings.memory.fields.enable_l1_vectorization.description_disabled')}
-                    </div>
-                  </div>
-                  <Switch
-                    checked={draftConfig.memory.l1.vectors_enabled ?? false}
-                    disabled={!hasEmbeddingModel}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.l1.vectors_enabled = checked;
-                    })}
-                    aria-label={t('settings.memory.fields.enable_l1_vectorization.label')}
-                  />
-                </label>
-              </div>
-            </ExpandableMemoryLayerCard>
-
-            {/* L2 Cognition Graph */}
-            <ExpandableMemoryLayerCard
-              layerKey="l2"
-              label={t('settings.memory.fields.enable_l2.label')}
-              description={t('settings.memory.fields.enable_l2.description')}
-              checked={draftConfig.memory.l1.enabled && draftConfig.memory.l2.enabled}
-              disabled={!draftConfig.memory.l1.enabled}
-              expanded={expandedMemoryLayers.has('l2')}
-              onToggle={(checked) => updateMemoryToggle('l2', checked)}
-              onExpand={(expanded) => {
-                setExpandedMemoryLayers((prev) => {
-                  const next = new Set(prev);
-                  if (expanded) {
-                    next.add('l2');
-                  } else {
-                    next.delete('l2');
-                  }
-                  return next;
-                });
-              }}
-            >
-              <div className="space-y-4">
-                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_llm_extraction.label')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_llm_extraction.description')}</div>
-                  </div>
-                  <Switch
-                    checked={draftConfig.memory.l2.llm_extraction_enabled ?? false}
-                    disabled={!draftConfig.memory.l2.enabled}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.l2.llm_extraction_enabled = checked;
-                    })}
-                    aria-label={t('settings.memory.fields.enable_l2_llm_extraction.label')}
-                  />
-                </label>
-
-                <div className={cn("space-y-1", !draftConfig.memory.l2.enabled && "opacity-50")}>
-                  <NumberField
-                    label={t('settings.memory.fields.l2_batch_flush_interval_seconds.label')}
-                    value={draftConfig.memory.l2.batch_flush_interval_seconds ?? 60}
-                    min={30}
-                    onChange={(value) => patchDraftConfig((draft) => {
-                      draft.memory.l2.batch_flush_interval_seconds = value;
-                    })}
-                  />
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    {t('settings.memory.fields.l2_batch_flush_interval_seconds.description')}
-                  </p>
-                </div>
-
-                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_conflict_arbitration.label')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_conflict_arbitration.description')}</div>
-                  </div>
-                  <Switch
-                    checked={draftConfig.memory.l2.conflict_arbitration_enabled ?? true}
-                    disabled={!draftConfig.memory.l2.enabled}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.l2.conflict_arbitration_enabled = checked;
-                    })}
-                    aria-label={t('settings.memory.fields.enable_l2_conflict_arbitration.label')}
-                  />
-                </label>
-
-                <div className={cn("space-y-1", !draftConfig.memory.l2.enabled && "opacity-50")}>
-                  <NumberField
-                    label={t('settings.memory.fields.l2_conflict_arbitration_min_confidence.label')}
-                    value={draftConfig.memory.l2.conflict_arbitration_min_confidence ?? 0.85}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    onChange={(value) => patchDraftConfig((draft) => {
-                      draft.memory.l2.conflict_arbitration_min_confidence = value;
-                    })}
-                  />
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    {t('settings.memory.fields.l2_conflict_arbitration_min_confidence.description')}
-                  </p>
-                </div>
-              </div>
-            </ExpandableMemoryLayerCard>
-
-            {/* L3 Reflection */}
-            <ExpandableMemoryLayerCard
-              layerKey="l3"
-              label={t('settings.memory.fields.enable_l3.label')}
-              description={t('settings.memory.fields.enable_l3.description')}
-              checked={draftConfig.memory.l1.enabled && draftConfig.memory.l3.enabled}
-              disabled={!draftConfig.memory.l1.enabled}
-              expanded={expandedMemoryLayers.has('l3')}
-              onToggle={(checked) => updateMemoryToggle('l3', checked)}
-              onExpand={(expanded) => {
-                setExpandedMemoryLayers((prev) => {
-                  const next = new Set(prev);
-                  if (expanded) {
-                    next.add('l3');
-                  } else {
-                    next.delete('l3');
-                  }
-                  return next;
-                });
-              }}
-            >
-              <div className="space-y-3">
-                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l3_llm_summary.label')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l3_llm_summary.description')}</div>
-                  </div>
-                  <Switch
-                    checked={draftConfig.memory.l3.llm_summary_enabled ?? false}
-                    disabled={!draftConfig.memory.l3.enabled}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.l3.llm_summary_enabled = checked;
-                    })}
-                    aria-label={t('settings.memory.fields.enable_l3_llm_summary.label')}
-                  />
-                </label>
-
-                <label className={cn(
-                  "flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5",
-                  !hasEmbeddingModel && "opacity-50"
-                )}>
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l3_vectorization.label')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">
-                      {hasEmbeddingModel
-                        ? t('settings.memory.fields.enable_l3_vectorization.description')
-                        : t('settings.memory.fields.enable_l3_vectorization.description_disabled')}
-                    </div>
-                  </div>
-                  <Switch
-                    checked={draftConfig.memory.l3.vectors_enabled ?? false}
-                    disabled={!draftConfig.memory.l3.enabled || !hasEmbeddingModel}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.l3.vectors_enabled = checked;
-                    })}
-                    aria-label={t('settings.memory.fields.enable_l3_vectorization.label')}
-                  />
-                </label>
-              </div>
-            </ExpandableMemoryLayerCard>
-
-            {/* L4 Procedural Memory */}
-            <ExpandableMemoryLayerCard
-              layerKey="l4"
-              label={t('settings.memory.fields.enable_l4.label')}
-              description={t('settings.memory.fields.enable_l4.description')}
-              checked={draftConfig.memory.l1.enabled && draftConfig.memory.l4.enabled}
-              disabled={!draftConfig.memory.l1.enabled}
-              expanded={expandedMemoryLayers.has('l4')}
-              onToggle={(checked) => updateMemoryToggle('l4', checked)}
-              onExpand={(expanded) => {
-                setExpandedMemoryLayers((prev) => {
-                  const next = new Set(prev);
-                  if (expanded) {
-                    next.add('l4');
-                  } else {
-                    next.delete('l4');
-                  }
-                  return next;
-                });
-              }}
-            >
-              <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-medium">{t('settings.memory.fields.enable_l4_skill_extraction.label')}</div>
-                  <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l4_skill_extraction.description')}</div>
-                </div>
-                <Switch
-                  checked={draftConfig.memory.l4.skill_extraction_enabled ?? false}
-                  disabled={!draftConfig.memory.l4.enabled}
-                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                    draft.memory.l4.skill_extraction_enabled = checked;
-                  })}
-                  aria-label={t('settings.memory.fields.enable_l4_skill_extraction.label')}
-                />
-              </label>
-            </ExpandableMemoryLayerCard>
-
-            {!draftConfig.memory.l1.enabled ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                <div className="font-medium">{t('settings.memory.form.l1DependencyTitle')}</div>
-                <div className="mt-1 text-amber-800">{t('settings.memory.form.l1DependencyDescription')}</div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => updateMemoryToggle('l1', true)}
-                >
-                  {t('settings.memory.form.restoreL1')}
-                </Button>
-              </div>
-            ) : null}
-          </div>
+          <MemoryGeneralSettingsSection
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            hasEmbeddingModel={hasEmbeddingModel}
+          />
         );
-      }
+
+      case 'memoryWorkbench':
+        return (
+          <MemoryWorkbenchSettingsSection
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            updateMemoryToggle={updateMemoryToggle}
+          />
+        );
+
+      case 'memoryEvents':
+        return (
+          <MemoryEventsSettingsSection
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            updateMemoryToggle={updateMemoryToggle}
+            hasEmbeddingModel={hasEmbeddingModel}
+          />
+        );
+
+      case 'memoryKnowledge':
+        return (
+          <MemoryKnowledgeSettingsSection
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            updateMemoryToggle={updateMemoryToggle}
+          />
+        );
+
+      case 'memoryReflection':
+        return (
+          <MemoryReflectionSettingsSection
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            updateMemoryToggle={updateMemoryToggle}
+            hasEmbeddingModel={hasEmbeddingModel}
+          />
+        );
+
+      case 'memorySkills':
+        return (
+          <MemorySkillsSettingsSection
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            updateMemoryToggle={updateMemoryToggle}
+          />
+        );
 
       case 'timeline':
         return (
