@@ -166,6 +166,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             history_service=self._history_service,
             agent_id=self.agent_id,
             get_task_agent_manager=lambda: self._task_agent_manager,
+            session_run_coordinator=self._session_run_coordinator,
         )
         self._handler_registry = ExecutionHandlerRegistry()
         common_handler_deps = build_common_handler_dependencies(handler_deps)

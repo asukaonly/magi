@@ -177,7 +177,10 @@ class SessionRunCoordinator:
         if active_run is None:
             return CheckpointDecision(session_id=session_id, run_id="", revision=0)
         pending_turns = self._run_store.consume_pending_turns(session_id)
-        visible_user_message = pending_turns[-1].content if pending_turns else ""
+        visible_user_message = self._merge_visible_user_message(
+            root_user_message=active_run.root_user_message,
+            pending_turns=pending_turns,
+        )
         refreshed_run = self._run_store.get_active_run(session_id)
         return CheckpointDecision(
             session_id=session_id,

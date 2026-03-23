@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from ....core.logger import get_logger
 from ....agent.runtime.contracts import FactRecord
@@ -70,6 +70,7 @@ class ChatHandlerDependencies:
     history_service: ChatHistoryService
     agent_id: str
     get_task_agent_manager: callable
+    session_run_coordinator: Any | None = None
 
 
 def build_common_handler_dependencies(
@@ -160,6 +161,14 @@ class FunctionCallingHandler(BaseExecutionHandler):
         )
 
     async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
+        if (
+            self._deps.session_run_coordinator is not None
+            and request.context.session_run_id
+            and hasattr(self._deps.function_calling_orchestrator, "step_executor")
+            and hasattr(self._deps.function_calling_orchestrator, "build_step_state")
+        ):
+            return await self._execute_with_session_checkpoints(request)
+
         execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
             user_message=request.context.latest_user_message,
             system_prompt=request.system_prompt,
@@ -181,6 +190,120 @@ class FunctionCallingHandler(BaseExecutionHandler):
             mode=request.mode,
             response_text=execution_outcome.content,
             root_user_message=request.context.latest_user_message,
+            execution_outcome=execution_outcome.to_dict(),
+            turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            ux_plan=_serialize_ux_plan(request.intent),
+        )
+
+    async def _execute_with_session_checkpoints(
+        self,
+        request: FunctionCallingRequest,
+    ) -> ExecutionResult:
+        orchestrator = self._deps.function_calling_orchestrator
+        session_run_coordinator = self._deps.session_run_coordinator
+        current_user_message = request.context.latest_user_message
+        current_revision = int(getattr(request.context, "session_run_revision", 0) or 0)
+        step_state = orchestrator.build_step_state(
+            user_message=current_user_message,
+            system_prompt=request.system_prompt,
+            selected_tools=request.selected_tools,
+            conversation_history=request.context.history,
+        )
+        max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
+
+        while step_state.iteration < max_iterations:
+            step_outcome = await orchestrator.step_executor.execute_step(
+                state=step_state,
+                user_message=current_user_message,
+                disable_thinking=request.disable_thinking,
+                user_id=request.context.user_id,
+                session_id=request.context.session_id,
+                turn_id=getattr(request.context.latest_payload, "turn_id", None),
+                intent=request.intent.intent,
+                execution_agent_id=request.context.runtime_key,
+                orchestration_strategy=(
+                    request.intent.orchestration_plan.to_strategy_dict()
+                    if request.intent.orchestration_plan is not None
+                    else None
+                ),
+            )
+            if step_outcome.status == "completed":
+                execution_outcome = {
+                    "status": "completed",
+                    "content": step_outcome.content,
+                    "failure_reason": None,
+                    "tool_failures": list(getattr(step_state, "tool_failures", [])),
+                    "iterations": step_outcome.iteration,
+                }
+                return FunctionCallingExecutionResult(
+                    mode=request.mode,
+                    response_text=step_outcome.content,
+                    root_user_message=current_user_message,
+                    execution_outcome=execution_outcome,
+                    turn_id=getattr(request.context.latest_payload, "turn_id", None),
+                    ux_plan=_serialize_ux_plan(request.intent),
+                )
+            if step_outcome.status == "failed":
+                execution_outcome = {
+                    "status": "failed",
+                    "content": "",
+                    "failure_reason": step_outcome.failure_reason,
+                    "tool_failures": list(getattr(step_state, "tool_failures", [])),
+                    "iterations": step_outcome.iteration,
+                }
+                return FunctionCallingExecutionResult(
+                    mode=request.mode,
+                    response_text="",
+                    root_user_message=current_user_message,
+                    execution_outcome=execution_outcome,
+                    turn_id=getattr(request.context.latest_payload, "turn_id", None),
+                    ux_plan=_serialize_ux_plan(request.intent),
+                )
+
+            active_run = session_run_coordinator.get_active_run(request.context.session_id)
+            if active_run is not None and active_run.revision != current_revision:
+                current_revision = active_run.revision
+                current_user_message = str(active_run.root_user_message or current_user_message)
+                step_state = orchestrator.build_step_state(
+                    user_message=current_user_message,
+                    system_prompt=request.system_prompt,
+                    selected_tools=request.selected_tools,
+                    conversation_history=request.context.history,
+                )
+                continue
+
+            checkpoint = session_run_coordinator.consume_checkpoint(request.context.session_id)
+            if checkpoint.pending_turns:
+                current_user_message = str(checkpoint.visible_user_message or current_user_message)
+                step_state = orchestrator.build_step_state(
+                    user_message=current_user_message,
+                    system_prompt=request.system_prompt,
+                    selected_tools=request.selected_tools,
+                    conversation_history=request.context.history,
+                )
+                continue
+
+        execution_outcome = await orchestrator._execute_fallback_final_response(
+            state=step_state,
+            disable_thinking=request.disable_thinking,
+            user_id=request.context.user_id,
+            session_id=request.context.session_id,
+            turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            intent=request.intent.intent,
+            execution_agent_id=request.context.runtime_key,
+            execution_workspace=None,
+            orchestration_strategy=(
+                request.intent.orchestration_plan.to_strategy_dict()
+                if request.intent.orchestration_plan is not None
+                else None
+            ),
+            llm_timeout_seconds=None,
+            final_response_json_mode=False,
+        )
+        return FunctionCallingExecutionResult(
+            mode=request.mode,
+            response_text=execution_outcome.content,
+            root_user_message=current_user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=getattr(request.context.latest_payload, "turn_id", None),
             ux_plan=_serialize_ux_plan(request.intent),
