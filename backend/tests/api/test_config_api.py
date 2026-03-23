@@ -15,7 +15,13 @@ from magi.api.routers.config import (
     config_router,
 )
 from magi.config.loader import get_config
-from magi.config.models import LLMLimitsSettings, LLMProviderSettings, LLMSelectionSettings, LLMSettings
+from magi.config.models import (
+    LLMConcurrencyOverrideSettings,
+    LLMLimitsSettings,
+    LLMProviderSettings,
+    LLMSelectionSettings,
+    LLMSettings,
+)
 from magi.config.llm_registry import (
     build_runtime_llm_defaults,
     resolve_llm_profile,
@@ -31,6 +37,7 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
     assert "core" in config.llm.selections
     assert hasattr(config.llm, "model_runtime_overrides")
     assert config.llm.model_runtime_overrides == {}
+    assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
 
 
 def test_system_config_defaults_include_memory_lifecycle_settings():
@@ -48,6 +55,14 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l4.skill_extraction_enabled is True
     assert config.memory.l1.vectors_enabled is True
     assert config.memory.l3.vectors_enabled is True
+
+
+def test_system_config_does_not_expose_internal_runtime_tuning_fields():
+    config = SystemConfigModel()
+    payload = config.model_dump(mode="json")
+
+    assert "loop" not in payload
+    assert "message_bus" not in payload
 
 
 def test_memory_config_rejects_l2_batch_flush_interval_below_minimum():
@@ -110,7 +125,7 @@ def test_build_update_paths_contains_new_sections():
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.memory.l2.batch_flush_interval_seconds = 90
-    config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMLimitsSettings(max_concurrency=7)
+    config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMConcurrencyOverrideSettings(max_concurrency=7)
     config.memory.l2.conflict_arbitration_enabled = False
     config.memory.l2.conflict_arbitration_min_confidence = 0.9
     config.memory.l3.temporal_llm_timeout_seconds = 1.5
@@ -122,6 +137,7 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90
     assert updates["llm.model_runtime_overrides"]["openai::gpt-5.2::chat"]["max_concurrency"] == 7
+    assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
     assert updates["agent.memory.l2.conflict_arbitration_enabled"] is False
     assert updates["agent.memory.l2.conflict_arbitration_min_confidence"] == 0.9
     assert updates["agent.memory.l3.temporal_llm_timeout_seconds"] == 1.5

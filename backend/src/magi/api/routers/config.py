@@ -31,7 +31,12 @@ from ...config.llm_registry import (
     resolve_embedding_dimension,
     resolve_llm_profile,
 )
-from ...config.models import LLMCapabilitiesSettings, LLMLimitsSettings
+from ...config.models import (
+    LLMCapabilitiesSettings,
+    LLMConcurrencyOverrideSettings,
+    LLMLimitsSettings,
+    LLMSelectionLimitsSettings,
+)
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
 from ...bootstrap import refresh_runtime_llm_config
@@ -63,7 +68,7 @@ class LLMSelectionConfigModel(BaseModel):
     embedding_dimension: Optional[int] = Field(default=None, ge=1)
     capability_override_enabled: bool = Field(default=False)
     capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
-    limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    limits: LLMSelectionLimitsSettings = Field(default_factory=LLMSelectionLimitsSettings)
     provider_options: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -88,16 +93,7 @@ class LLMConfigModel(BaseModel):
             ),
         }
     )
-    model_runtime_overrides: Dict[str, LLMLimitsSettings] = Field(default_factory=dict)
-
-
-class LoopConfigModel(BaseModel):
-    strategy: str = Field(default="continuous")
-    interval: float = Field(default=1.0)
-
-
-class MessageBusConfigModel(BaseModel):
-    max_size: Optional[int] = Field(default=1000)
+    model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
 
 
 class MemoryEmbeddingConfigModel(BaseModel):
@@ -257,8 +253,6 @@ class TimelineConfigModel(BaseModel):
 class SystemConfigModel(BaseModel):
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
-    loop: LoopConfigModel = Field(default_factory=LoopConfigModel)
-    message_bus: MessageBusConfigModel = Field(default_factory=MessageBusConfigModel)
     memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)
     websocket: WebSocketConfigModel = Field(default_factory=WebSocketConfigModel)
     log: LogConfigModel = Field(default_factory=LogConfigModel)
@@ -420,6 +414,15 @@ def _load_llm_provider_registry() -> LLMProviderRegistryModel:
     return load_llm_provider_registry(
         _llm_provider_registry_path(),
         fallback=_default_llm_provider_registry(),
+    )
+
+
+def _selection_limits_from_registry_limits(limits: LLMLimitsSettings | None) -> LLMSelectionLimitsSettings:
+    if limits is None:
+        return LLMSelectionLimitsSettings()
+    return LLMSelectionLimitsSettings(
+        context_window=limits.context_window,
+        max_output_tokens=limits.max_output_tokens,
     )
 
 
@@ -587,7 +590,7 @@ def _build_llm_config_model(
                 capability_override_enabled=bool(selection.capability_override_enabled),
                 capabilities=capabilities,
                 limits=(
-                    embedding_meta.limits.model_copy(deep=True)
+                    _selection_limits_from_registry_limits(embedding_meta.limits)
                     if embedding_meta is not None and not bool(selection.capability_override_enabled)
                     else selection.limits
                 ),
@@ -602,7 +605,7 @@ def _build_llm_config_model(
             embedding_dimension=getattr(selection, "embedding_dimension", None),
             capability_override_enabled=bool(selection.capability_override_enabled),
             capabilities=resolved.capabilities,
-            limits=resolved.limits,
+            limits=_selection_limits_from_registry_limits(resolved.limits),
             provider_options=resolved.provider_options,
         )
 
@@ -630,13 +633,6 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             raw_llm=raw.get("llm", {}) if isinstance(raw.get("llm"), dict) else {},
             registry=registry,
             mask_api_key=mask_api_key,
-        ),
-        loop=LoopConfigModel(
-            strategy=raw.get("loop", {}).get("strategy", "continuous"),
-            interval=float(raw.get("loop", {}).get("interval", runtime_config.agent.loop_interval)),
-        ),
-        message_bus=MessageBusConfigModel(
-            max_size=runtime_config.agent.message_bus.max_queue_size,
         ),
         memory=_build_memory_config(raw, runtime_config),
         websocket=WebSocketConfigModel(
@@ -705,7 +701,7 @@ def _apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProvide
                         embedding=True,
                     ),
                     limits=(
-                        embedding_model_meta.limits.model_copy(deep=True)
+                        _selection_limits_from_registry_limits(embedding_model_meta.limits)
                         if embedding_model_meta is not None
                         else selection.limits
                     ),
@@ -737,7 +733,7 @@ def _apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProvide
                 embedding_dimension=selection.embedding_dimension,
                 capability_override_enabled=False,
                 capabilities=resolved.capabilities,
-                limits=resolved.limits,
+                limits=_selection_limits_from_registry_limits(resolved.limits),
                 provider_options=resolved.provider_options,
             )
 
@@ -813,10 +809,6 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
             for selection_id, selection in config.llm.selections.items()
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
-        "loop.strategy": config.loop.strategy,
-        "loop.interval": config.loop.interval,
-        "agent.loop_interval": config.loop.interval,
-        "agent.message_bus.max_queue_size": config.message_bus.max_size,
         "agent.memory.db_path": config.memory.db_path,
         "agent.memory.async_embeddings": config.memory.async_embeddings,
         "agent.memory.embedding.backend": config.memory.embedding.backend,

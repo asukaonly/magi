@@ -249,12 +249,12 @@ def resolve_llm_profile(
         provider_options = dict(model_meta.provider_options_example)
     else:
         capabilities = llm.capabilities.model_copy(deep=True)
-        limits = llm.limits.model_copy(deep=True)
+        limits = LLMLimitsSettings.model_validate(llm.limits.model_dump())
         provider_options = dict(llm.provider_options or {})
 
     if llm.capability_override_enabled:
         capabilities = llm.capabilities.model_copy(deep=True)
-        limits = llm.limits.model_copy(deep=True)
+        limits = LLMLimitsSettings.model_validate(llm.limits.model_dump())
         provider_options = dict(llm.provider_options or {})
 
     return ResolvedLLMProfile(

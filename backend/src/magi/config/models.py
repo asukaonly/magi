@@ -41,6 +41,19 @@ class LLMLimitsSettings(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1)
 
 
+class LLMSelectionLimitsSettings(BaseModel):
+    """Per-scenario numeric limits that remain local to scenario selection."""
+
+    context_window: Optional[int] = Field(default=None, ge=1)
+    max_output_tokens: Optional[int] = Field(default=None, ge=1)
+
+
+class LLMConcurrencyOverrideSettings(BaseModel):
+    """Shared concurrency override for a concrete provider-model family."""
+
+    max_concurrency: Optional[int] = Field(default=None, ge=1)
+
+
 class MemoryBackend(str, Enum):
     """Memory storage backend type."""
     MEMORY = "memory"
@@ -116,7 +129,7 @@ class LLMSelectionSettings(BaseModel):
     embedding_dimension: Optional[int] = Field(default=None, ge=1)
     capability_override_enabled: bool = Field(default=False)
     capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
-    limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    limits: LLMSelectionLimitsSettings = Field(default_factory=LLMSelectionLimitsSettings)
     provider_options: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -143,7 +156,7 @@ class LLMSettings(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=MIN_MAX_TOKENS)
     timeout: int = Field(default=60, ge=1)
-    model_runtime_overrides: Dict[str, LLMLimitsSettings] = Field(default_factory=dict)
+    model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_builtin_provider_uniqueness(self) -> "LLMSettings":
