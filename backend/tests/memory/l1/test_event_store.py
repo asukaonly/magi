@@ -63,6 +63,22 @@ class _BatchTrackingEmbeddingService:
         )
 
 
+class _RecordingVectorIndex:
+    def __init__(self) -> None:
+        self.upsert_many_calls: list[list[str]] = []
+        self.upsert_calls: list[str] = []
+
+    async def upsert_many(self, items: list[dict[str, object]]) -> None:
+        self.upsert_many_calls.append([str(item["entity_id"]) for item in items])
+
+    async def upsert(self, *, entity_id: str, embedding, metadata=None) -> None:
+        _ = (embedding, metadata)
+        self.upsert_calls.append(entity_id)
+
+    async def close(self) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
@@ -491,6 +507,47 @@ async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
         "stress note 0",
         "stress note 1",
     ]]
+
+
+@pytest.mark.asyncio
+async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    recording_index = _RecordingVectorIndex()
+    store._vector_index = recording_index  # type: ignore[assignment]
+
+    events = [
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": f"career note {idx}",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id=f"corr-many-{idx}",
+            ),
+            event_id=f"evt-many-{idx}",
+        )
+        for idx in range(3)
+    ]
+
+    await store._maybe_upsert_event_embeddings(events)
+
+    assert recording_index.upsert_many_calls == [["evt-many-0", "evt-many-1", "evt-many-2"]]
+    assert recording_index.upsert_calls == []
+    await store.shutdown()
 
 
 @pytest.mark.asyncio

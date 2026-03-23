@@ -639,24 +639,43 @@ class L1EventStore:
             return
         state_updates: list[tuple[str, str, str | None]] = []
         profiles_by_id: dict[str, EmbeddingProfile] = {}
+        vector_items: list[dict[str, Any]] = []
+        successful_events: list[tuple[MemoryEvent, Any, EmbeddingProfile]] = []
+        failed_events: list[tuple[MemoryEvent, str | None]] = []
         for event, embedding in zip(eligible_events, embeddings):
             if embedding is None:
-                state_updates.append(
-                    (event.event_id, EMBEDDING_STATUS_FAILED, self._initial_embedding_profile_id(event))
-                )
+                failed_events.append((event, self._initial_embedding_profile_id(event)))
                 continue
             profile = self._profile_from_embedding_result(embedding)
             profiles_by_id[profile.profile_id] = profile
+            successful_events.append((event, embedding, profile))
+            vector_items.append(
+                {
+                    "entity_id": event.event_id,
+                    "embedding": embedding,
+                    "metadata": {"event_type": event.event_type, "source": event.source},
+                }
+            )
+        if vector_items:
             try:
-                await self._vector_index.upsert(
-                    entity_id=event.event_id,
-                    embedding=embedding,
-                    metadata={"event_type": event.event_type, "source": event.source},
-                )
-                state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id))
+                await self._vector_index.upsert_many(vector_items)
+                for event, _, profile in successful_events:
+                    state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id))
             except Exception as exc:
-                logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, exc)
-                state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile.profile_id))
+                logger.warning("Failed batch upsert for L1 embeddings, falling back to single-row writes: %s", exc)
+                for event, embedding, profile in successful_events:
+                    try:
+                        await self._vector_index.upsert(
+                            entity_id=event.event_id,
+                            embedding=embedding,
+                            metadata={"event_type": event.event_type, "source": event.source},
+                        )
+                        state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id))
+                    except Exception as item_exc:
+                        logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, item_exc)
+                        state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile.profile_id))
+        for event, profile_id in failed_events:
+            state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile_id))
         if state_updates:
             await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
 

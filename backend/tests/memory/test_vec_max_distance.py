@@ -128,3 +128,32 @@ async def test_upsert_recreates_missing_registry_table_when_index_state_is_stale
         assert [row[0] for row in rows] == ["evt-1"]
     finally:
         await idx.close()
+
+
+@pytest.mark.asyncio
+async def test_upsert_many_persists_multiple_vectors_in_one_call(tmp_path):
+    idx = SqliteVecIndex(
+        db_path=str(tmp_path / "vec.db"),
+        registry_table="test_registry",
+        entity_column="entity_id",
+        vec_table_prefix="test_vec",
+    )
+    await idx.initialize()
+
+    try:
+        await idx.upsert_many(
+            [
+                {"entity_id": "a", "embedding": _make_embedding([1.0, 0.0, 0.0, 0.0]), "metadata": {"kind": "a"}},
+                {"entity_id": "b", "embedding": _make_embedding([0.0, 1.0, 0.0, 0.0]), "metadata": {"kind": "b"}},
+                {"entity_id": "c", "embedding": _make_embedding([0.9, 0.1, 0.0, 0.0]), "metadata": {"kind": "c"}},
+            ]
+        )
+
+        hits = await idx.search(embedding=_make_embedding([1.0, 0.0, 0.0, 0.0]), limit=10)
+        assert {hit.entity_id for hit in hits} == {"a", "b", "c"}
+
+        async with idx._db.execute("SELECT entity_id FROM test_registry ORDER BY entity_id") as cursor:
+            rows = await cursor.fetchall()
+        assert [row[0] for row in rows] == ["a", "b", "c"]
+    finally:
+        await idx.close()
