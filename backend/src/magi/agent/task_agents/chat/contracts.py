@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any
 
 from ..common import BaseIntentDecision, BaseRuntimeContext
+from .run_contracts import ActiveRun
 
 
 class AssistantSurfaceMode(str, Enum):
@@ -66,6 +67,11 @@ class ChatRuntimeContext(BaseRuntimeContext):
     conversation_history: list[dict[str, Any]]
     active_orchestrations: list[dict[str, Any]]
     recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
+    active_run: ActiveRun | None = None
+    session_run_id: str = ""
+    planner_fact: Any | None = None
+    planner_fact_kind: Any | None = None
+    pending_turns: list[Any] = field(default_factory=list)
 
 
 @dataclass(slots=True, kw_only=True)

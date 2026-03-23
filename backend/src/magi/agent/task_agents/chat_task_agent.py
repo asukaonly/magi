@@ -29,6 +29,7 @@ from .chat import (
     ExecutionHandlerRegistry,
     ExecutionRequest,
     ExecutionResult,
+    SessionRunCoordinator,
     ToolSelection,
 )
 from .chat.handlers import (
@@ -106,6 +107,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
         )
+        self._session_run_coordinator = SessionRunCoordinator()
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
             runtime_key=self.runtime_key,
@@ -204,6 +206,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             latest_fact=latest_fact,
             batch_facts=batch_facts,
         )
+        run_decision = self._session_run_coordinator.route(classified)
         session_id = self._history_service.require_session_id(classified.user_id, classified.session_id)
         history = await self._history_service.get_or_load_history(classified.user_id, session_id)
         recent_tool_errors = self._history_service.get_recent_tool_errors(
@@ -221,16 +224,21 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             agent_id=self.agent_id,
             agent_type=str(base_context.agent_type if isinstance(base_context, TaskAgentRuntimeContext) else TaskAgentType.CHAT.value),
             runtime_key=str(base_context.runtime_key if isinstance(base_context, TaskAgentRuntimeContext) else self.runtime_key),
-            user_id=classified.user_id,
+            user_id=run_decision.user_id,
             session_id=session_id,
-            history_key=self._history_service.history_key(classified.user_id, session_id),
+            history_key=self._history_service.history_key(run_decision.user_id, session_id),
             history=history,
             conversation_history=history,
             active_orchestrations=[item.to_dict() for item in active_orchestrations],
             recent_tool_errors=recent_tool_errors,
-            latest_user_message=classified.user_message,
+            latest_user_message=run_decision.planner_user_message,
             incoming_fact_kind=classified.kind,
-            latest_payload=classified.payload,
+            latest_payload=run_decision.latest_payload,
+            active_run=run_decision.active_run,
+            session_run_id=run_decision.active_run.run_id if run_decision.active_run is not None else "",
+            planner_fact=run_decision.planner_fact,
+            planner_fact_kind=run_decision.planner_fact_kind,
+            pending_turns=list(run_decision.active_run.pending_turns if run_decision.active_run is not None else []),
         )
 
     async def match_intent(self, context: ChatRuntimeContext):

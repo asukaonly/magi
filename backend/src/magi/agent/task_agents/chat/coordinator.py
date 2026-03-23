@@ -7,11 +7,11 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable
 
 from ....core.logger import get_logger
-from ....events.events import EventTypes
 from ....tools.context_decider import ContextDecider
 from ..common import (
     ExecutionMode,
     ExecutionRequest,
+    IncomingFactKind,
     OrchestrationPlan,
     ToolSelection,
 )
@@ -60,7 +60,8 @@ class ChatExecutionCoordinator:
         self._intent_trace_callback = intent_trace_callback
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
-        if context.incoming_fact_kind.value == "worker_update":
+        planner_fact_kind = context.planner_fact_kind or context.incoming_fact_kind
+        if planner_fact_kind == IncomingFactKind.WORKER_UPDATE:
             return IntentDecision(
                 intent="worker_orchestration_update",
                 difficulty="normal",
@@ -73,7 +74,7 @@ class ChatExecutionCoordinator:
                     orchestration_plan=None,
                 ),
             )
-        if context.incoming_fact_kind.value == "explore_task_completed":
+        if planner_fact_kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
             return IntentDecision(
                 intent="explore_task_completed",
                 difficulty="normal",
@@ -86,7 +87,7 @@ class ChatExecutionCoordinator:
                     orchestration_plan=None,
                 ),
             )
-        if isinstance(context.latest_fact, object) and getattr(context.latest_fact, "event_type", None) != EventTypes.USER_MESSAGE:
+        if planner_fact_kind == IncomingFactKind.OTHER_FACT:
             return IntentDecision(
                 intent="non_user_fact",
                 difficulty="normal",
