@@ -22,20 +22,12 @@ function MemorySectionShell({
 }
 
 function MemoryGroup({
-  title,
-  description,
   children,
 }: {
-  title: string;
-  description?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-4 pt-4">
-      <div className="space-y-1.5">
-        <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">{title}</h3>
-        {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
-      </div>
+    <section className="space-y-2">
       <div className="space-y-2">{children}</div>
     </section>
   );
@@ -118,10 +110,7 @@ export function MemoryGeneralSettingsSection({
   return (
     <MemorySectionShell>
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
-        <MemoryGroup
-          title={t('settings.memory.sections.general.pipelineTitle')}
-          description={t('settings.memory.sections.general.pipelineDescription')}
-        >
+        <MemoryGroup>
           <MemorySwitchRow
             label={t('settings.memory.fields.async_embeddings.label')}
             description={t('settings.memory.fields.async_embeddings.description')}
@@ -149,10 +138,7 @@ export function MemoryGeneralSettingsSection({
           </div>
         </MemoryGroup>
 
-        <MemoryGroup
-          title={t('settings.memory.sections.general.embeddingModelTitle')}
-          description={t('settings.memory.sections.general.embeddingModelDescription')}
-        >
+        <MemoryGroup>
           {hasEmbeddingModel ? (
             <div>
               <MemoryMetricRow
@@ -188,10 +174,7 @@ export function MemoryWorkbenchSettingsSection({
 
   return (
     <MemorySectionShell>
-      <MemoryGroup
-        title={t('settings.tabs.memoryWorkbench')}
-        description={t('settings.memory.fields.enable_l0.description')}
-      >
+      <MemoryGroup>
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l0.label')}
           description={t('settings.memory.fields.enable_l0.description')}
@@ -232,10 +215,7 @@ export function MemoryEventsSettingsSection({
 
   return (
     <MemorySectionShell>
-      <MemoryGroup
-        title={t('settings.tabs.memoryEvents')}
-        description={t('settings.memory.fields.enable_l1.description')}
-      >
+      <MemoryGroup>
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l1.label')}
           description={t('settings.memory.fields.enable_l1.description')}
@@ -254,10 +234,7 @@ export function MemoryEventsSettingsSection({
         </div>
       </MemoryGroup>
 
-      <MemoryGroup
-        title={t('settings.memory.sections.events.retrievalTitle')}
-        description={t('settings.memory.sections.events.retrievalDescription')}
-      >
+      <MemoryGroup>
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_t1_importance.label')}
           description={t('settings.memory.fields.enable_t1_importance.description')}
@@ -303,10 +280,7 @@ export function MemoryKnowledgeSettingsSection({
         />
       ) : null}
 
-      <MemoryGroup
-        title={t('settings.memory.sections.knowledge.extractionTitle')}
-        description={t('settings.memory.sections.knowledge.extractionDescription')}
-      >
+      <MemoryGroup>
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l2.label')}
           description={t('settings.memory.fields.enable_l2.description')}
@@ -325,10 +299,7 @@ export function MemoryKnowledgeSettingsSection({
         />
       </MemoryGroup>
 
-      <MemoryGroup
-        title={t('settings.memory.sections.knowledge.flushTitle')}
-        description={t('settings.memory.sections.knowledge.flushDescription')}
-      >
+      <MemoryGroup>
         <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
           <NumberField
             label={t('settings.memory.fields.l2_batch_flush_interval_seconds.label')}
@@ -344,10 +315,7 @@ export function MemoryKnowledgeSettingsSection({
         </div>
       </MemoryGroup>
 
-      <MemoryGroup
-        title={t('settings.memory.sections.knowledge.arbitrationTitle')}
-        description={t('settings.memory.sections.knowledge.arbitrationDescription')}
-      >
+      <MemoryGroup>
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l2_conflict_arbitration.label')}
           description={t('settings.memory.fields.enable_l2_conflict_arbitration.description')}
@@ -396,10 +364,7 @@ export function MemoryReflectionSettingsSection({
         />
       ) : null}
 
-      <MemoryGroup
-        title={t('settings.tabs.memoryReflection')}
-        description={t('settings.memory.fields.enable_l3.description')}
-      >
+      <MemoryGroup>
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l3.label')}
           description={t('settings.memory.fields.enable_l3.description')}
@@ -452,10 +417,7 @@ export function MemorySkillsSettingsSection({
         />
       ) : null}
 
-      <MemoryGroup
-        title={t('settings.tabs.memorySkills')}
-        description={t('settings.memory.fields.enable_l4.description')}
-      >
+      <MemoryGroup>
         <MemorySwitchRow
           label={t('settings.memory.fields.enable_l4.label')}
           description={t('settings.memory.fields.enable_l4.description')}
