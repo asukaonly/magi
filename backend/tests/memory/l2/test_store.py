@@ -54,6 +54,19 @@ async def _build_contradiction(text: str, *, correlation_id: str, timestamp: flo
     )
 
 
+async def _apply_rule_candidates(store, event):  # type: ignore[no-untyped-def]
+    await store.initialize()
+    relation_count = 0
+    assertion_count = 0
+    for candidate in store.build_rule_graph_candidates(event):
+        await store.upsert_knowledge_edge(**candidate)
+        relation_count += 1
+    for candidate in store.build_rule_assertion_candidates(event):
+        await store.upsert_assertion_candidate(candidate)
+        assertion_count += 1
+    return {"relation_count": relation_count, "assertion_count": assertion_count}
+
+
 @pytest.mark.asyncio
 async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
@@ -66,7 +79,7 @@ async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
         correlation_id="evt-1",
         timestamp=1710000000.0,
     )
-    result = await store.apply_memory_event(event)
+    result = await _apply_rule_candidates(store, event)
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
 
@@ -102,7 +115,7 @@ async def test_repeated_evidence_promotes_snapshot_to_stable(tmp_path):
     ]
 
     for event in events:
-        await store.apply_memory_event(event)
+        await _apply_rule_candidates(store, event)
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
     snapshot = await store.get_tom_snapshot(entity_id="user:u1", entity_type="user")
@@ -125,11 +138,13 @@ async def test_contradiction_downgrades_existing_assertion(tmp_path):
         ("evt-2", 1710090000.0, "The workload still makes me anxious."),
         ("evt-3", 1710185000.0, "Work pressure is stressing me out."),
     ):
-        await store.apply_memory_event(
+        await _apply_rule_candidates(
+            store,
             await _build_user_message(text, correlation_id=correlation_id, timestamp=timestamp)
         )
 
-    await store.apply_memory_event(
+    await _apply_rule_candidates(
+        store,
         await _build_contradiction(
             "I actually feel calm and relaxed about work now.",
             correlation_id="evt-4",
@@ -150,7 +165,8 @@ async def test_group_content_avoids_deep_psychology(tmp_path):
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
 
-    await store.apply_memory_event(
+    await _apply_rule_candidates(
+        store,
         await _build_group_timeline_message(
             "The group felt tense and Alice openly praised Bob.",
             correlation_id="evt-1",

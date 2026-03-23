@@ -347,28 +347,12 @@ class L2CognitionStore:
             await db.commit()
         return normalized.to_record()
 
-    async def apply_memory_event(self, event: MemoryEvent) -> Dict[str, int]:
-        """Extract graph and ToM candidates from a normalized memory event."""
-        await self.initialize()
-        relation_count = 0
-        assertion_count = 0
-
-        for candidate in self.extract_graph_candidates(event):
-            await self.upsert_knowledge_edge(**candidate)
-            relation_count += 1
-
-        for candidate in self.extract_assertion_candidates(event):
-            await self.upsert_assertion_candidate(candidate)
-            assertion_count += 1
-
-        return {"relation_count": relation_count, "assertion_count": assertion_count}
-
-    def extract_graph_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
-        """Expose the legacy explicit-fact extraction rules."""
+    def build_rule_graph_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
+        """Build deterministic graph candidates from lightweight rules."""
         return self._extract_graph_candidates(event)
 
-    def extract_assertion_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
-        """Expose the legacy defensive ToM extraction rules."""
+    def build_rule_assertion_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
+        """Build deterministic ToM assertion candidates from lightweight rules."""
         return self._extract_assertion_candidates(event)
 
     async def upsert_assertion_candidate(self, candidate: Dict[str, Any]) -> str:

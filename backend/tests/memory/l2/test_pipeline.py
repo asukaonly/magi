@@ -65,6 +65,26 @@ class _FakeScenarioPool:
         return self.adapter
 
 
+async def _build_pipeline(*, temp_dir: str, batch_flush_interval_seconds: int = 60):
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    memory_db = str(Path(temp_dir) / "memory.db")
+    cognition_store = L2CognitionStore(db_path=memory_db)
+    await cognition_store.initialize()
+    entity_catalog = L2EntityCatalog(db_path=memory_db)
+    await entity_catalog.initialize()
+    pipeline = L2Pipeline(
+        cognition_store,
+        entity_catalog=entity_catalog,
+        llm_service=L2LLMService(None),
+        batch_flush_interval_seconds=batch_flush_interval_seconds,
+    )
+    return pipeline
+
+
 def _make_memory_event(
     *,
     event_id: str,
@@ -450,12 +470,9 @@ async def test_shutdown_drains_l2_pipeline_workers_cleanly():
 @pytest.mark.asyncio
 async def test_l2_pipeline_starts_with_five_extract_workers():
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             await pipeline.start()
 
@@ -464,6 +481,23 @@ async def test_l2_pipeline_starts_with_five_extract_workers():
             assert all(worker is not None and not worker.done() for worker in pipeline._extract_workers)
         finally:
             await pipeline.shutdown()
+
+
+def test_l2_pipeline_requires_entity_catalog_and_llm_service():
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+
+        with pytest.raises(ValueError, match="entity_catalog"):
+            L2Pipeline(cognition_store)
+
+        with pytest.raises(ValueError, match="entity_catalog"):
+            L2Pipeline(cognition_store, llm_service=SimpleNamespace())
+
+        with pytest.raises(ValueError, match="llm_service"):
+            L2Pipeline(cognition_store, entity_catalog=SimpleNamespace())
 
 
 def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
@@ -485,12 +519,9 @@ def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
 @pytest.mark.asyncio
 async def test_enqueue_event_stages_session_owned_events_before_extraction():
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             queued = await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-1", session_id="s-session"))
 
@@ -508,13 +539,10 @@ async def test_enqueue_event_stages_session_owned_events_before_extraction():
 @pytest.mark.asyncio
 async def test_enqueue_event_reuses_same_bucket_for_matching_session():
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
         now = time.time()
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-2a", session_id="s-shared", timestamp=now))
             await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-2b", session_id="s-shared", timestamp=now + 1.0))
@@ -529,12 +557,9 @@ async def test_enqueue_event_reuses_same_bucket_for_matching_session():
 @pytest.mark.asyncio
 async def test_enqueue_event_falls_back_to_user_bucket_without_session():
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-3", session_id=None, user_id="u-bucket"))
 
@@ -547,12 +572,9 @@ async def test_enqueue_event_falls_back_to_user_bucket_without_session():
 @pytest.mark.asyncio
 async def test_enqueue_event_without_session_or_user_uses_direct_fallback_job():
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-4", session_id=None, user_id=None))
 
@@ -569,12 +591,9 @@ async def test_enqueue_event_without_session_or_user_uses_direct_fallback_job():
 async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
     from magi.memory.l2.models import L2PendingBatchBucket
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             bucket = L2PendingBatchBucket.for_owner(session_id="s-flush", user_id="u1")
             bucket.add_event(
@@ -599,13 +618,10 @@ async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
 @pytest.mark.asyncio
 async def test_enqueue_event_flushes_when_bucket_hits_event_cap():
     from magi.memory.l2.pipeline import DEFAULT_L2_MAX_EVENTS_PER_BATCH, L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
         now = time.time()
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             for index in range(DEFAULT_L2_MAX_EVENTS_PER_BATCH):
                 await pipeline.enqueue_event(
@@ -629,12 +645,9 @@ async def test_enqueue_event_flushes_when_bucket_hits_event_cap():
 @pytest.mark.asyncio
 async def test_enqueue_event_does_not_flush_immediately_for_historical_business_timestamp():
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             await pipeline.enqueue_event(
                 _make_memory_event(
@@ -655,12 +668,9 @@ async def test_enqueue_event_does_not_flush_immediately_for_historical_business_
 @pytest.mark.asyncio
 async def test_enqueue_event_flushes_when_bucket_hits_token_cap():
     from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
-        await cognition_store.initialize()
-        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
             await pipeline.enqueue_event(
                 _make_memory_event(

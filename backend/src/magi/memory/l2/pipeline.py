@@ -117,6 +117,10 @@ class L2Pipeline:
         enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
         conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
     ) -> None:
+        if cognition_store is not None and entity_catalog is None:
+            raise ValueError("entity_catalog is required when cognition_store is enabled")
+        if cognition_store is not None and llm_service is None:
+            raise ValueError("llm_service is required when cognition_store is enabled")
         self._cognition_store = cognition_store
         self._l1_store = l1_store
         self._entity_catalog = entity_catalog
@@ -583,16 +587,6 @@ class L2Pipeline:
                 "contradiction_hint_count": 0,
             }
 
-        if self._entity_catalog is None or self._llm_service is None:
-            legacy_result = await self._cognition_store.apply_memory_event(stored_event)
-            return {
-                **legacy_result,
-                "touched_entity_ids": self._collect_touched_entities([], []),
-                "skipped": False,
-                "evidence_class": classification.evidence_class,
-                "contradiction_hint_count": 0,
-            }
-
         context_texts = (
             await self._load_context_texts(stored_event, exclude_event_ids=batch_event_ids)
             if policy.allow_entity_extraction or policy.allow_assertion_write or policy.allow_graph_write
@@ -686,7 +680,7 @@ class L2Pipeline:
         if policy.allow_graph_write and policy.graph_scope == "full" and not graph_candidates:
             graph_candidates = self._build_graph_candidates(stored_event, resolved_mentions)
             if not graph_candidates:
-                graph_candidates = self._cognition_store.extract_graph_candidates(stored_event)
+                graph_candidates = self._cognition_store.build_rule_graph_candidates(stored_event)
 
         focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
         assertion_candidates, rejected_assertion_candidate_count = self._prepare_unified_assertion_candidates(
@@ -699,7 +693,7 @@ class L2Pipeline:
             raw_candidates=list(unified_result.assertion_candidates),
         )
         if policy.allow_assertion_write and not assertion_candidates and policy.assertion_scope == "full":
-            assertion_candidates = self._cognition_store.extract_assertion_candidates(stored_event)
+            assertion_candidates = self._cognition_store.build_rule_assertion_candidates(stored_event)
         logger.debug(
             "L2 candidates built",
             event_id=stored_event.event_id,
