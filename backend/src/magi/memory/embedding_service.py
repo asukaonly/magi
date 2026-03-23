@@ -5,12 +5,32 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from functools import lru_cache
 from dataclasses import dataclass
-from typing import Optional
+from typing import Awaitable, Callable, Optional, TypeVar
 
-from ..llm import LLMScenario, ScenarioLLMPool
+from ..config import get_config
+from ..config.loader import get_llm_provider_registry_file
+from ..config.llm_registry import (
+    LLMProviderRegistryModel,
+    find_embedding_model_meta,
+    load_llm_provider_registry,
+)
+from ..llm import LLMScenario, ScenarioLLMPool, get_llm_concurrency_limiter
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
+DEFAULT_EMBEDDING_CONCURRENCY_FALLBACK = 4
+
+
+@lru_cache(maxsize=1)
+def _load_provider_registry() -> LLMProviderRegistryModel:
+    """Load the packaged provider registry once per process."""
+    return load_llm_provider_registry(
+        get_llm_provider_registry_file(),
+        fallback=LLMProviderRegistryModel(),
+    )
 
 
 @dataclass(slots=True)
@@ -100,7 +120,10 @@ class MemoryEmbeddingService:
         if not bool(getattr(adapter, "supports_embeddings", False)):
             return None
 
-        vector = await adapter.get_embedding(normalized_text)
+        vector = await self._run_with_embedding_concurrency_limit(
+            adapter=adapter,
+            operation=lambda: adapter.get_embedding(normalized_text),
+        )
         if not vector:
             return None
 
@@ -121,7 +144,10 @@ class MemoryEmbeddingService:
             return [None] * len(texts)
 
         try:
-            vectors = await adapter.get_embeddings(normalized_texts)
+            vectors = await self._run_with_embedding_concurrency_limit(
+                adapter=adapter,
+                operation=lambda: adapter.get_embeddings(normalized_texts),
+            )
         except Exception as exc:
             logger.debug("Batch embedding call failed: %s", exc)
             return [None] * len(texts)
@@ -154,3 +180,41 @@ class MemoryEmbeddingService:
         except Exception as exc:
             logger.debug("Embedding adapter unavailable: %s", exc)
             return None
+
+    def _build_embedding_concurrency_key(self, adapter: object) -> str:
+        limiter = get_llm_concurrency_limiter()
+        return limiter.build_key(
+            provider_name=str(getattr(adapter, "provider_name", "unknown")),
+            model_name=str(getattr(adapter, "model_name", "embedding")),
+            request_family="embedding",
+            base_url=getattr(adapter, "base_url", None),
+        )
+
+    def _resolve_embedding_concurrency_limit(self, adapter: object) -> int:
+        key = self._build_embedding_concurrency_key(adapter)
+        runtime_config = get_config()
+        runtime_overrides = getattr(getattr(runtime_config, "llm", None), "model_runtime_overrides", {}) or {}
+        override = runtime_overrides.get(key)
+        if override is not None:
+            override_limit = getattr(override, "max_concurrency", None)
+            if override_limit is not None:
+                return int(override_limit)
+
+        provider_name = str(getattr(adapter, "provider_name", "unknown"))
+        model_name = str(getattr(adapter, "model_name", "embedding"))
+        model_meta = find_embedding_model_meta(_load_provider_registry(), provider_name, model_name)
+        if model_meta is not None and model_meta.limits.max_concurrency is not None:
+            return int(model_meta.limits.max_concurrency)
+
+        return DEFAULT_EMBEDDING_CONCURRENCY_FALLBACK
+
+    async def _run_with_embedding_concurrency_limit(
+        self,
+        *,
+        adapter: object,
+        operation: Callable[[], Awaitable[T]],
+    ) -> T:
+        limiter = get_llm_concurrency_limiter()
+        key = self._build_embedding_concurrency_key(adapter)
+        limit = self._resolve_embedding_concurrency_limit(adapter)
+        return await limiter.run_with_limit(key, operation, limit=limit)

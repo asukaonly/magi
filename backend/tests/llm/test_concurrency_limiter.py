@@ -29,6 +29,26 @@ def test_build_limit_key_normalizes_base_url_host_and_request_family() -> None:
     assert first == "openai::api.openai.com::gpt-5.2::chat"
 
 
+def test_build_limit_key_separates_embedding_family() -> None:
+    limiter = LLMConcurrencyLimiter()
+
+    chat_key = limiter.build_key(
+        provider_name="openai",
+        model_name="text-embedding-3-small",
+        request_family="chat",
+        base_url="https://api.openai.com/v1",
+    )
+    embedding_key = limiter.build_key(
+        provider_name="openai",
+        model_name="text-embedding-3-small",
+        request_family="embedding",
+        base_url="https://api.openai.com/v1",
+    )
+
+    assert chat_key != embedding_key
+    assert embedding_key.endswith("::embedding")
+
+
 @pytest.mark.asyncio
 async def test_run_with_limit_serializes_same_key_requests() -> None:
     limiter = LLMConcurrencyLimiter(default_limit=1)
