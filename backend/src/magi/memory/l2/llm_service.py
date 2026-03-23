@@ -346,11 +346,13 @@ class L2LLMService:
         started_at = time.perf_counter()
 
         response = None
+        max_output_tokens = self._resolve_max_output_tokens(scenario=scenario)
         for attempt_index in range(len(_RATE_LIMIT_BACKOFF_SECONDS) + 1):
             try:
                 response = await provider_bridge.chat_response(
                     system_prompt=system_prompt,
                     messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_output_tokens,
                     temperature=0.0,
                     json_mode=True,
                     disable_thinking=disable_thinking,
@@ -428,6 +430,34 @@ class L2LLMService:
         if adapter is None:
             return None
         return adapter, LLMProviderBridge(adapter)
+
+    def _resolve_max_output_tokens(self, *, scenario: LLMScenario) -> int:
+        default_limit = 1024
+        pool = self._scenario_llm_pool
+        if pool is None:
+            return default_limit
+
+        selection = None
+        get_selection = getattr(pool, "get_selection", None)
+        if callable(get_selection):
+            try:
+                selection = get_selection(scenario)
+            except Exception:
+                selection = None
+        if selection is None:
+            config = getattr(pool, "_config", None)
+            llm_config = getattr(config, "llm", None)
+            selections = getattr(llm_config, "selections", None)
+            if isinstance(selections, dict):
+                selection = selections.get(scenario.value)
+
+        limits = getattr(selection, "limits", None)
+        max_output_tokens = getattr(limits, "max_output_tokens", None)
+        try:
+            resolved = int(max_output_tokens)
+        except (TypeError, ValueError):
+            return default_limit
+        return resolved if resolved > 0 else default_limit
 
     def _usage_log_fields(self, response: ProviderResponse) -> dict[str, Any]:
         usage = response.usage

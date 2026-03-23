@@ -98,6 +98,15 @@ class _ScenarioAwarePool:
         return self.adapters[scenario]
 
 
+class _SelectionAwarePool(_ScenarioAwarePool):
+    def __init__(self, adapters: dict[object, _FakeAdapter], selections: dict[object, object]) -> None:
+        super().__init__(adapters)
+        self._selections = selections
+
+    def get_selection(self, scenario):  # type: ignore[no-untyped-def]
+        return self._selections.get(scenario)
+
+
 def test_unified_prompt_only_includes_profile_allowed_entity_types():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
@@ -235,6 +244,41 @@ def test_conflict_arbitration_uses_core_scenario_adapter():
     assert result["decision"] == "keep_existing"
     assert fast_adapter._client.completions.kwargs == {}
     assert deep_adapter._client.completions.kwargs["messages"][0]["content"]
+
+
+def test_unified_extraction_uses_scenario_max_output_tokens_when_configured():
+    from magi.config.models import LLMScenario
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "mentions": [],
+                "resolved_context_refs": [],
+                "graph_candidates": [],
+                "assertion_candidates": [],
+                "diagnostics": {"entity_status": "none"},
+            }
+        )
+    )
+    selection = SimpleNamespace(limits=SimpleNamespace(max_output_tokens=2048))
+    service = L2LLMService(
+        _SelectionAwarePool(
+            {LLMScenario.CONTEXT_DECIDER: adapter},
+            {LLMScenario.CONTEXT_DECIDER: selection},
+        )
+    )
+
+    asyncio.run(
+        service.extract_unified_candidates(
+            event_window={"event_ids": ["evt-1"], "events": [], "texts": ["hello"], "summary": {}},
+            profile=ExtractionProfile(profile_id="chat.user_message"),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+    )
+
+    assert adapter._client.completions.kwargs["max_tokens"] == 2048
 
 
 def test_unified_extraction_parses_mentions_graph_and_assertions():
