@@ -449,6 +449,14 @@
           "label": "L2 batch flush interval (seconds)",
           "description": "How long L2 may wait before flushing a staged microbatch. Minimum 30 seconds."
         },
+        "enable_l2_conflict_arbitration": {
+          "label": "Enable severe conflict arbitration",
+          "description": "Escalate high-confidence, mutually exclusive facts to the deeper arbitration model before rewriting memory."
+        },
+        "l2_conflict_arbitration_min_confidence": {
+          "label": "Arbitration confidence threshold",
+          "description": "Only contradiction hints at or above this confidence trigger L2 arbitration."
+        },
         "enable_l3_llm_summary": {
           "label": "Enable LLM reflection summary",
           "description": "Use the model to build reflective summaries from retained memory streams."

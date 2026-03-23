@@ -205,6 +205,8 @@ export interface MemoryConfig {
   enable_l1_vectorization: boolean;
   enable_l2_llm_extraction: boolean;
   l2_batch_flush_interval_seconds: number;
+  enable_l2_conflict_arbitration: boolean;
+  l2_conflict_arbitration_min_confidence: number;
   enable_l3_vectorization: boolean;
   enable_l3_llm_summary: boolean;
   enable_l4_skill_extraction: boolean;
@@ -352,6 +354,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     enable_l1_vectorization: false,
     enable_l2_llm_extraction: true,
     l2_batch_flush_interval_seconds: 60,
+    enable_l2_conflict_arbitration: true,
+    l2_conflict_arbitration_min_confidence: 0.85,
     enable_l3_vectorization: false,
     enable_l3_llm_summary: true,
     enable_l4_skill_extraction: true,
