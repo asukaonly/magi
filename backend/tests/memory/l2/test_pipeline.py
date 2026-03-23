@@ -724,7 +724,11 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
 @pytest.mark.asyncio
 async def test_low_confidence_resolution_is_returned_as_unresolved():
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EntityResolution
+    from magi.memory.l2.models import (
+        L2EntityCandidate,
+        L2EntityResolution,
+        L2EntityResolutionMention,
+    )
 
     response = json.dumps(
         {
@@ -742,8 +746,18 @@ async def test_low_confidence_resolution_is_returned_as_unresolved():
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
 
     resolution = await service.resolve_entity(
-        mention={"mention_text": "魔都", "entity_type": "place", "context_text": "我好喜欢魔都"},
-        candidate_entities=[{"entity_id": "place:shanghai", "canonical_name": "Shanghai", "entity_type": "place"}],
+        mention=L2EntityResolutionMention(
+            mention_text="魔都",
+            entity_type="place",
+            context_text="我好喜欢魔都",
+        ),
+        candidate_entities=[
+            L2EntityCandidate(
+                entity_id="place:shanghai",
+                canonical_name="Shanghai",
+                entity_type="place",
+            )
+        ],
     )
 
     assert isinstance(resolution, L2EntityResolution)

@@ -7,7 +7,14 @@ from typing import Any
 
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
-from .models import L2CandidateSet, L2EventWindow, L2ExistingRecord, L2SourceEvent
+from .models import (
+    L2CandidateSet,
+    L2EntityCandidate,
+    L2EntityResolutionMention,
+    L2EventWindow,
+    L2ExistingRecord,
+    L2SourceEvent,
+)
 
 
 UNIFIED_EXTRACTION_SYSTEM_PROMPT = """You are a structured extraction engine for a memory system.
@@ -150,11 +157,15 @@ def render_unified_extraction_prompt(
     )
 
 
-def render_entity_resolution_prompt(*, mention: dict[str, Any], candidate_entities: list[dict[str, Any]]) -> str:
+def render_entity_resolution_prompt(
+    *,
+    mention: L2EntityResolutionMention,
+    candidate_entities: list[L2EntityCandidate],
+) -> str:
     return (
         "Resolve the entity mention to one of the candidate canonical entities if possible.\n\n"
-        f"Mention:\n{json.dumps(mention, ensure_ascii=False, indent=2)}\n\n"
-        f"Candidate entities:\n{json.dumps(candidate_entities, ensure_ascii=False, indent=2)}\n\n"
+        f"Mention:\n{json.dumps(mention.to_dict(), ensure_ascii=False, indent=2)}\n\n"
+        f"Candidate entities:\n{json.dumps([item.to_dict() for item in candidate_entities], ensure_ascii=False, indent=2)}\n\n"
         "Return JSON with this schema:\n"
         '{\n  "resolution": {\n    "decision": "match|unresolved|create_new_candidate",\n    "matched_entity_id": "string or null",\n'
         '    "matched_entity_name": "string or null",\n    "confidence": 0.0,\n    "reason_tags": ["string"],\n'

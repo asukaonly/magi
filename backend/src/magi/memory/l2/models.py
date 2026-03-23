@@ -542,6 +542,48 @@ class L2EntityResolution:
 
 
 @dataclass(slots=True)
+class L2EntityResolutionMention:
+    """Typed entity-resolution mention payload."""
+
+    mention_text: str
+    entity_type: str | None = None
+    context_text: str | None = None
+
+    def __post_init__(self) -> None:
+        self.mention_text = _non_empty_text(self.mention_text, field_name="mention_text")
+        self.entity_type = _optional_text(self.entity_type)
+        self.context_text = _optional_text(self.context_text)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class L2EntityCandidate:
+    """Typed candidate entity payload used for L2 resolution prompts."""
+
+    entity_id: str
+    canonical_name: str
+    entity_type: str
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "L2EntityCandidate":
+        return cls(
+            entity_id=payload.get("entity_id", ""),
+            canonical_name=payload.get("canonical_name", ""),
+            entity_type=payload.get("entity_type", ""),
+        )
+
+    def __post_init__(self) -> None:
+        self.entity_id = _non_empty_text(self.entity_id, field_name="entity_id")
+        self.canonical_name = _non_empty_text(self.canonical_name, field_name="canonical_name")
+        self.entity_type = _non_empty_text(self.entity_type, field_name="entity_type")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -786,7 +828,9 @@ __all__ = [
     "L2BatchJob",
     "L2CandidateSet",
     "L2ConflictArbitrationResult",
+    "L2EntityCandidate",
     "L2EntityResolution",
+    "L2EntityResolutionMention",
     "L2EntityReconcileJob",
     "L2ExistingRecord",
     "L2EventWindow",

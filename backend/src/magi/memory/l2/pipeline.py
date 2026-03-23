@@ -21,7 +21,9 @@ from .models import (
     L2BatchJob,
     L2CandidateSet,
     L2ConflictArbitrationResult,
+    L2EntityCandidate,
     L2ExistingRecord,
+    L2EntityResolutionMention,
     L2EventWindow,
     L2EventWindowSummary,
     L2FocalEntityRef,
@@ -1038,12 +1040,12 @@ class L2Pipeline:
             candidate_entities = await self._entity_catalog.list_entities_by_type(entity_type=entity_type, limit=20)
             if candidate_entities:
                 llm_resolution = await self._llm_service.resolve_entity(
-                    mention={
-                        "mention_text": mention_text,
-                        "entity_type": entity_type,
-                        "context_text": event.content,
-                    },
-                    candidate_entities=candidate_entities,
+                    mention=L2EntityResolutionMention(
+                        mention_text=mention_text,
+                        entity_type=entity_type,
+                        context_text=event.content,
+                    ),
+                    candidate_entities=[L2EntityCandidate.from_dict(item) for item in candidate_entities],
                 )
                 if llm_resolution.decision == "match" and llm_resolution.matched_entity_id:
                     return (

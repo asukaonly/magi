@@ -16,7 +16,9 @@ from .models import (
     L2AssertionCandidate,
     L2CandidateSet,
     L2ConflictArbitrationResult,
+    L2EntityCandidate,
     L2EntityResolution,
+    L2EntityResolutionMention,
     L2ExistingRecord,
     L2SourceEvent,
     L2EventWindow,
@@ -161,8 +163,8 @@ class L2LLMService:
     async def resolve_entity(
         self,
         *,
-        mention: dict[str, Any],
-        candidate_entities: list[dict[str, Any]],
+        mention: L2EntityResolutionMention,
+        candidate_entities: list[L2EntityCandidate],
         min_confidence: float = 0.8,
     ) -> L2EntityResolution:
         payload = await self._generate_json(
