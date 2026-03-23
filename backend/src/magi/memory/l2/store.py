@@ -675,12 +675,29 @@ class L2CognitionStore:
             db.row_factory = aiosqlite.Row
             if target_record_type == "tom_trait_assertion":
                 async with db.execute(
-                    "SELECT assertion_id, confidence_score FROM tom_trait_assertions WHERE assertion_id = ?",
+                    "SELECT assertion_id, confidence_score, validation_state FROM tom_trait_assertions WHERE assertion_id = ?",
                     (target_record_id,),
                 ) as cursor:
                     row = await cursor.fetchone()
                 if row is None:
                     return False
+
+                if action == "revalidate_only":
+                    await db.execute(
+                        """
+                        UPDATE tom_trait_assertions
+                        SET last_validated_at = ?, updated_at = ?
+                        WHERE assertion_id = ?
+                        """,
+                        (now, now, target_record_id),
+                    )
+                    await db.commit()
+                    logger.info(
+                        "L2 contradiction revalidated existing assertion",
+                        target_record_type=target_record_type,
+                        target_record_id=target_record_id,
+                    )
+                    return True
 
                 existing_confidence = float(row["confidence_score"])
                 next_confidence = self._contradicted_confidence(
@@ -715,6 +732,23 @@ class L2CognitionStore:
                 return True
 
             if target_record_type == "knowledge_graph":
+                if action == "revalidate_only":
+                    await db.execute(
+                        """
+                        UPDATE knowledge_graph
+                        SET last_confirmed_at = ?, updated_at = ?
+                        WHERE triple_id = ?
+                        """,
+                        (now, now, target_record_id),
+                    )
+                    await db.commit()
+                    logger.info(
+                        "L2 contradiction revalidated existing relation",
+                        target_record_type=target_record_type,
+                        target_record_id=target_record_id,
+                    )
+                    return True
+
                 next_status = "deprecated" if action == "mark_deprecated" else "conflicted"
                 await db.execute(
                     """

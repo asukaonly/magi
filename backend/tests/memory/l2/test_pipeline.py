@@ -1336,6 +1336,7 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
             assert len(active_edges) == 1
             assert active_edges[0]["triple_id"] == existing_triple_id
             assert active_edges[0]["predicate"] == "LIKES"
+            assert active_edges[0]["last_confirmed_at"] > 1710000000.0
             assert deprecated_edges == []
         finally:
             await store.shutdown()

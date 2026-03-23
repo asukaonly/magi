@@ -749,7 +749,10 @@ class L2Pipeline:
                 )
                 graph_candidates = []
                 assertion_candidates = []
-                contradiction_hints = []
+                contradiction_hints = self._rewrite_hints_for_keep_existing(
+                    contradiction_hints=contradiction_hints,
+                    conflict_arbitration=conflict_arbitration,
+                )
             elif arbitration_decision == "mark_evolution":
                 contradiction_hints = self._rewrite_hints_for_evolution(
                     contradiction_hints=contradiction_hints,
@@ -1681,6 +1684,31 @@ class L2Pipeline:
                     next_hint["recommended_action"] = "mark_deprecated"
                 elif target_record_type == "tom_trait_assertion":
                     next_hint["recommended_action"] = "mark_conflicted"
+            rewritten_hints.append(next_hint)
+        return rewritten_hints
+
+    def _rewrite_hints_for_keep_existing(
+        self,
+        *,
+        contradiction_hints: list[dict[str, Any]],
+        conflict_arbitration: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        winning_record_ids = {
+            record_id
+            for record_id in (
+                self._non_empty_text(item)
+                for item in conflict_arbitration.get("winning_record_ids", [])
+            )
+            if record_id
+        }
+        rewritten_hints: list[dict[str, Any]] = []
+        for hint in contradiction_hints:
+            if not isinstance(hint, dict):
+                continue
+            next_hint = dict(hint)
+            target_record_id = self._non_empty_text(next_hint.get("target_record_id"))
+            if not winning_record_ids or target_record_id in winning_record_ids:
+                next_hint["recommended_action"] = "revalidate_only"
             rewritten_hints.append(next_hint)
         return rewritten_hints
 
