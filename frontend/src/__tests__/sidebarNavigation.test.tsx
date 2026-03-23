@@ -128,7 +128,7 @@ describe('sidebar navigation', () => {
     expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument();
   });
 
-  it('uses flat square active states instead of bordered cards', async () => {
+  it('uses gently rounded active states instead of sharp square cards', async () => {
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
       sessions: [
         {
@@ -168,9 +168,9 @@ describe('sidebar navigation', () => {
     const sessionAction = await screen.findByRole('button', { name: '杭州天气' });
     const sessionRow = sessionAction.parentElement;
 
-    expect(conversationAction.className).toContain('rounded-none');
+    expect(conversationAction.className).toContain('rounded-md');
     expect(conversationAction.className).not.toContain(' border ');
-    expect(sessionAction.className).toContain('rounded-none');
+    expect(sessionRow?.className).toContain('rounded-md');
   });
 
   it('binds sidebar surfaces and active states to theme tokens instead of hardcoded palette values', async () => {
@@ -687,6 +687,6 @@ describe('sidebar navigation', () => {
     const activeMemoryRow = screen.getByRole('button', { name: 'memory.nav.knowledge' });
 
     expect(memoryRail).toHaveClass('ml-5');
-    expect(activeMemoryRow).toHaveClass('rounded-none');
+    expect(activeMemoryRow).toHaveClass('rounded-md');
   });
 });

@@ -333,7 +333,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
 
   const primaryButtonClass = (active: boolean) => cn(
-    'flex w-full items-center gap-3 rounded-none px-4 py-3 text-left transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.25)]',
+    'flex w-full items-center gap-3 rounded-md px-4 py-3 text-left transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.25)]',
     active
       ? 'bg-[hsl(var(--sidebar-active))] text-[hsl(var(--sidebar-active-foreground))]'
       : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
@@ -349,14 +349,14 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const nestedRailClass = 'mt-2 ml-5 flex flex-col gap-1.5';
 
   const secondaryButtonClass = (active: boolean) => cn(
-    'flex w-full items-center gap-2 rounded-none px-3 py-2.5 text-left text-sm transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.22)]',
+    'flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.22)]',
     active
       ? 'bg-[hsl(var(--sidebar-subactive))] text-[hsl(var(--sidebar-active-foreground))]'
       : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
   );
 
   const toolButtonClass =
-    'flex h-7 w-7 shrink-0 items-center justify-center rounded-none bg-[hsl(var(--sidebar-tool))] text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]';
+    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--sidebar-tool))] text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]';
 
   return (
     <aside
@@ -365,7 +365,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       {sessionMenu && sessionMenuSession ? (
         <div
           ref={sessionMenuRef}
-          className="fixed z-[90] min-w-[160px] rounded-none bg-[hsl(var(--sidebar-menu))] p-1.5 shadow-[0_14px_36px_hsl(var(--sidebar-shadow)/0.16)]"
+          className="fixed z-[90] min-w-[160px] rounded-lg bg-[hsl(var(--sidebar-menu))] p-1.5 shadow-[0_14px_36px_hsl(var(--sidebar-shadow)/0.16)]"
           style={{ left: sessionMenu.x, top: sessionMenu.y }}
         >
           <button
@@ -375,7 +375,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               setRenameValue(getSessionDisplayLabel(sessionMenuSession, t('shell.newChatTitle')));
               setSessionMenu(null);
             }}
-            className="flex w-full items-center rounded-none px-3 py-2 text-left text-sm text-[hsl(var(--sidebar-active-foreground))] transition-colors hover:bg-[hsl(var(--sidebar-hover))]"
+            className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-[hsl(var(--sidebar-active-foreground))] transition-colors hover:bg-[hsl(var(--sidebar-hover))]"
           >
             {t('shell.renameSession')}
           </button>
@@ -385,7 +385,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               setDeleteTargetSession(sessionMenuSession);
               setSessionMenu(null);
             }}
-            className="flex w-full items-center rounded-none px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+            className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
           >
             {t('shell.deleteSession')}
           </button>
@@ -430,7 +430,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                   className="flex items-center gap-1"
                   data-testid="sidebar-conversation-tools"
                 >
-                <div className="flex min-w-0 flex-1 items-center rounded-none bg-[hsl(var(--sidebar-tool))] px-2.5">
+                <div className="flex min-w-0 flex-1 items-center rounded-md bg-[hsl(var(--sidebar-tool))] px-2.5">
                   <input
                       ref={conversationSearchInputRef}
                       type="search"
@@ -485,7 +485,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                           <div
                             key={session.session_id}
                             className={cn(
-                              'group/session flex items-center gap-1 rounded-none transition-colors duration-150 ease-out',
+                              'group/session flex items-center gap-1 rounded-md transition-colors duration-150 ease-out',
                               active
                                 ? 'bg-[hsl(var(--sidebar-active))] text-[hsl(var(--sidebar-active-foreground))]'
                                 : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
@@ -505,7 +505,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                               }}
                               aria-label={displayLabel}
                               aria-current={active ? 'page' : undefined}
-                              className="flex min-w-0 flex-1 items-center gap-2 rounded-none px-2 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
+                              className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
                               title={displayLabel}
                             >
                               <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
@@ -525,7 +525,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                                 openSessionMenu(session.session_id, rect.right - 176, rect.bottom + 6);
                               }}
                               className={cn(
-                                'mr-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-[hsl(var(--sidebar-muted))] opacity-0 transition-all duration-150 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)] group-hover/session:opacity-100',
+                                'mr-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[hsl(var(--sidebar-muted))] opacity-0 transition-all duration-150 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)] group-hover/session:opacity-100',
                                 active
                                   ? 'hover:bg-[hsl(var(--sidebar-subactive))] hover:text-[hsl(var(--sidebar-active-foreground))]'
                                   : 'hover:bg-[hsl(var(--sidebar-tool-hover))] hover:text-[hsl(var(--sidebar-active-foreground))]'
