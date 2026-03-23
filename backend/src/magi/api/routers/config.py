@@ -645,13 +645,6 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             registry=registry,
             mask_api_key=mask_api_key,
         ),
-        loop=LoopConfigModel(
-            strategy=raw.get("loop", {}).get("strategy", "continuous"),
-            interval=float(raw.get("loop", {}).get("interval", runtime_config.agent.loop_interval)),
-        ),
-        message_bus=MessageBusConfigModel(
-            max_size=runtime_config.agent.message_bus.max_queue_size,
-        ),
         memory=_build_memory_config(raw, runtime_config),
         websocket=WebSocketConfigModel(
             enabled=runtime_config.features.enable_websocket,
