@@ -674,6 +674,12 @@ class L1EventStore:
                 await self._embedding_service.embed_text(text)
                 for text in texts
             ]
+        if len(embeddings) != len(eligible_events):
+            logger.warning(
+                "L1 embedding batch returned mismatched result count: expected=%s actual=%s",
+                len(eligible_events),
+                len(embeddings),
+            )
         if not embeddings:
             await self._update_event_embedding_states(
                 [
@@ -721,6 +727,15 @@ class L1EventStore:
                         state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile.profile_id))
         for event, profile_id in failed_events:
             state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile_id))
+        if len(embeddings) < len(eligible_events):
+            for event in eligible_events[len(embeddings):]:
+                state_updates.append(
+                    (
+                        event.event_id,
+                        EMBEDDING_STATUS_FAILED,
+                        self._initial_embedding_profile_id(event),
+                    )
+                )
         if state_updates:
             await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
 

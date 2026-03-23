@@ -79,6 +79,16 @@ class _RecordingVectorIndex:
         return None
 
 
+class _ShortBatchEmbeddingService(_BatchTrackingEmbeddingService):
+    def __init__(self, *, returned_count: int) -> None:
+        super().__init__()
+        self.returned_count = returned_count
+
+    async def embed_texts(self, texts: list[str]):
+        self.batch_calls.append(list(texts))
+        return [self._make_result(text) for text in texts[: self.returned_count]]
+
+
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
@@ -803,3 +813,55 @@ async def test_l1_event_store_marks_skipped_and_disabled_embedding_states(tmp_pa
         assert skipped["embedding_status"] == "skipped"
     finally:
         await skipped_store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_marks_unreturned_batch_embeddings_failed(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _ShortBatchEmbeddingService(returned_count=1)
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    recording_index = _RecordingVectorIndex()
+    store._vector_index = recording_index  # type: ignore[assignment]
+    store._schedule_event_embedding = lambda event: asyncio.sleep(0)  # type: ignore[method-assign]
+
+    try:
+        events = [
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": f"career note {idx}",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id=f"corr-short-{idx}",
+                ),
+                event_id=f"evt-short-{idx}",
+            )
+            for idx in range(2)
+        ]
+        for event in events:
+            await store.store(event)
+
+        await store._maybe_upsert_event_embeddings(events)
+
+        first = await store.get_event("evt-short-0")
+        second = await store.get_event("evt-short-1")
+    finally:
+        await store.shutdown()
+
+    assert recording_index.upsert_many_calls == [["evt-short-0"]]
+    assert first is not None
+    assert first["embedding_status"] == "ready"
+    assert second is not None
+    assert second["embedding_status"] == "failed"
