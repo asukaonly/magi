@@ -194,17 +194,24 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   key={providerId}
                   type="button"
                   onClick={() => onActiveProviderChange(providerId)}
+                  aria-current={providerId === activeProviderId ? 'page' : undefined}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ring-1 ring-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+                    'relative flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ring-1 ring-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
                     providerId === activeProviderId
                       ? 'bg-primary/15 text-foreground ring-primary/70'
                       : 'text-muted-foreground ring-transparent hover:bg-background/70 hover:text-foreground hover:ring-border/50',
                     isSettingsSurface &&
                       (providerId === activeProviderId
-                        ? 'rounded-md bg-[hsl(var(--settings-shell-elevated)/0.68)] ring-0 shadow-none'
+                        ? 'rounded-md bg-[hsl(var(--settings-nav-active)/0.56)] ring-0 shadow-none'
                         : 'rounded-md bg-transparent ring-0 shadow-none hover:bg-[hsl(var(--settings-shell-elevated)/0.4)]')
                   )}
                 >
+                  {isSettingsSurface && providerId === activeProviderId ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-[hsl(var(--settings-nav-active-foreground)/0.65)]"
+                    />
+                  ) : null}
                   <ProviderIcon
                     providerId={provider.provider_type}
                     iconName={providerMeta?.icon || (provider.provider_type === 'custom' ? 'custom' : undefined)}
@@ -218,7 +225,16 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   <span className="flex items-center gap-2">
                     <span
                       aria-hidden="true"
-                      className={cn('h-2.5 w-2.5 rounded-full', provider.enabled ? 'bg-emerald-500' : 'bg-border')}
+                      className={cn(
+                        'h-2.5 w-2.5 rounded-full',
+                        providerId === activeProviderId
+                          ? provider.enabled
+                            ? 'bg-[hsl(var(--settings-nav-active-foreground)/0.9)]'
+                            : 'bg-[hsl(var(--settings-nav-foreground)/0.45)]'
+                          : provider.enabled
+                            ? 'bg-emerald-500'
+                            : 'bg-border'
+                      )}
                     />
                     <span className="sr-only">
                       {provider.enabled ? t('llm.badges.enabled') : t('llm.badges.disabled')}
