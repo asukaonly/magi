@@ -32,6 +32,128 @@ def build_l2_batch_bucket_key(*, session_id: str | None, user_id: str | None) ->
 
 
 @dataclass(slots=True)
+class L2EventWindowSummary:
+    """Summary metadata for one typed L2 event window."""
+
+    event_count: int = 0
+    session_id: str | None = None
+    user_id: str | None = None
+    history_context_count: int = 0
+
+    def __post_init__(self) -> None:
+        self.event_count = max(0, int(self.event_count))
+        self.session_id = _optional_text(self.session_id)
+        self.user_id = _optional_text(self.user_id)
+        self.history_context_count = max(0, int(self.history_context_count))
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class L2EventWindow:
+    """Typed extraction window passed through the L2 pipeline."""
+
+    event_ids: list[str] = field(default_factory=list)
+    events: list[dict[str, Any]] = field(default_factory=list)
+    texts: list[str] = field(default_factory=list)
+    context_texts: list[str] = field(default_factory=list)
+    history_contexts: list[dict[str, Any]] = field(default_factory=list)
+    summary: L2EventWindowSummary = field(default_factory=L2EventWindowSummary)
+
+    def __post_init__(self) -> None:
+        normalized_events = [dict(item) for item in self.events if isinstance(item, dict)]
+        normalized_event_ids = [str(item).strip() for item in self.event_ids if str(item).strip()]
+        if not normalized_event_ids:
+            normalized_event_ids = [
+                str(item.get("event_id", "")).strip()
+                for item in normalized_events
+                if str(item.get("event_id", "")).strip()
+            ]
+        normalized_texts = [str(item) for item in self.texts if str(item).strip()]
+        if not normalized_texts:
+            normalized_texts = [
+                str(item.get("content", "")).strip()
+                for item in normalized_events
+                if str(item.get("content", "")).strip()
+            ]
+        if not isinstance(self.summary, L2EventWindowSummary):
+            self.summary = L2EventWindowSummary(**dict(self.summary))
+        if self.summary.event_count <= 0:
+            self.summary.event_count = max(len(normalized_event_ids), len(normalized_events), len(normalized_texts))
+        if self.summary.history_context_count <= 0 and self.history_contexts:
+            self.summary.history_context_count = len(self.history_contexts)
+
+        self.event_ids = normalized_event_ids
+        self.events = normalized_events
+        self.texts = normalized_texts
+        self.context_texts = [str(item) for item in self.context_texts if str(item).strip()]
+        self.history_contexts = [dict(item) for item in self.history_contexts if isinstance(item, dict)]
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["summary"] = self.summary.to_dict()
+        return payload
+
+
+@dataclass(slots=True)
+class L2CandidateSet:
+    """Typed candidate bundle used between extraction and arbitration."""
+
+    graph_candidates: list[dict[str, Any]] = field(default_factory=list)
+    assertion_candidates: list[dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.graph_candidates = [dict(item) for item in self.graph_candidates if isinstance(item, dict)]
+        self.assertion_candidates = [dict(item) for item in self.assertion_candidates if isinstance(item, dict)]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class L2UnifiedExtractionResult:
+    """Normalized typed result returned by unified extraction."""
+
+    mentions: list[dict[str, Any]] = field(default_factory=list)
+    resolved_context_refs: list[dict[str, Any]] = field(default_factory=list)
+    graph_candidates: list[dict[str, Any]] = field(default_factory=list)
+    assertion_candidates: list[dict[str, Any]] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=lambda: {"entity_status": "none"})
+
+    def __post_init__(self) -> None:
+        self.mentions = [dict(item) for item in self.mentions if isinstance(item, dict)]
+        self.resolved_context_refs = [dict(item) for item in self.resolved_context_refs if isinstance(item, dict)]
+        self.graph_candidates = [dict(item) for item in self.graph_candidates if isinstance(item, dict)]
+        self.assertion_candidates = [dict(item) for item in self.assertion_candidates if isinstance(item, dict)]
+        self.diagnostics = dict(self.diagnostics) if isinstance(self.diagnostics, dict) else {"entity_status": "none"}
+        if not self.diagnostics.get("entity_status"):
+            self.diagnostics["entity_status"] = "none"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class L2ConflictArbitrationResult:
+    """Typed final arbitration decision for severe L2 conflicts."""
+
+    decision: str
+    winning_record_ids: list[str] = field(default_factory=list)
+    superseded_record_ids: list[str] = field(default_factory=list)
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        self.decision = _non_empty_text(self.decision, field_name="decision")
+        self.winning_record_ids = [str(item).strip() for item in self.winning_record_ids if str(item).strip()]
+        self.superseded_record_ids = [str(item).strip() for item in self.superseded_record_ids if str(item).strip()]
+        self.reason = str(self.reason or "").strip()
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -273,9 +395,14 @@ __all__ = [
     "build_l2_batch_bucket_key",
     "ContradictionHint",
     "L2BatchJob",
+    "L2CandidateSet",
+    "L2ConflictArbitrationResult",
     "L2EntityReconcileJob",
+    "L2EventWindow",
+    "L2EventWindowSummary",
     "L2PendingBatchBucket",
     "L2SnapshotRefreshJob",
+    "L2UnifiedExtractionResult",
     "ManualL2EventRequest",
     "ReconciledTraitOutcome",
     "StructuredEntityHint",

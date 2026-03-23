@@ -11,6 +11,7 @@ from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, LLMScenario, ProviderResponse, ScenarioLLMPool
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
+from .models import L2CandidateSet, L2ConflictArbitrationResult, L2EventWindow, L2UnifiedExtractionResult
 from .prompts import (
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
     CONTRADICTION_HINT_SYSTEM_PROMPT,
@@ -37,7 +38,7 @@ class L2LLMService:
     def render_unified_extraction_prompt(
         self,
         *,
-        event_window: dict[str, Any],
+        event_window: L2EventWindow,
         profile: ExtractionProfile,
         focal_subject: dict[str, Any],
         context_bundle: ContextBundle | None = None,
@@ -52,28 +53,23 @@ class L2LLMService:
     async def extract_unified_candidates(
         self,
         *,
-        event_window: dict[str, Any],
+        event_window: L2EventWindow,
         profile: ExtractionProfile,
         focal_subject: dict[str, Any],
         context_bundle: ContextBundle | None = None,
-    ) -> dict[str, Any]:
+    ) -> L2UnifiedExtractionResult:
         started_at = time.perf_counter()
-        event_ids = event_window.get("event_ids") if isinstance(event_window.get("event_ids"), list) else []
-        batch_event_count = len(event_window.get("events", [])) if isinstance(event_window.get("events"), list) else 0
-        summary = event_window.get("summary") if isinstance(event_window.get("summary"), dict) else {}
-        session_id = self._non_empty_text(summary.get("session_id"))
-        user_id = self._non_empty_text(summary.get("user_id"))
+        event_ids = list(event_window.event_ids)
+        batch_event_count = len(event_window.events)
+        session_id = self._non_empty_text(event_window.summary.session_id)
+        user_id = self._non_empty_text(event_window.summary.user_id)
         logger.info(
             "L2 unified extraction started",
             event_ids=event_ids,
             profile_id=profile.profile_id,
             batch_event_count=batch_event_count or len(event_ids),
-            text_count=len(event_window.get("texts", [])) if isinstance(event_window.get("texts"), list) else 0,
-            context_count=(
-                len(event_window.get("context_texts", []))
-                if isinstance(event_window.get("context_texts"), list)
-                else 0
-            ),
+            text_count=len(event_window.texts),
+            context_count=len(event_window.context_texts),
             session_id=session_id,
             user_id=user_id,
         )
@@ -112,8 +108,7 @@ class L2LLMService:
             [item for item in graph_candidates if isinstance(item, dict)] if isinstance(graph_candidates, list) else []
         )
         normalized_assertions: list[dict[str, Any]] = []
-        event_ids = event_window.get("event_ids")
-        is_single_event = isinstance(event_ids, list) and len(event_ids) <= 1
+        is_single_event = len(event_window.event_ids) <= 1
         if isinstance(assertion_candidates, list):
             for item in assertion_candidates:
                 if not isinstance(item, dict):
@@ -125,17 +120,13 @@ class L2LLMService:
                 candidate["confidence"] = round(confidence, 4)
                 normalized_assertions.append(candidate)
 
-        normalized_diagnostics = diagnostics if isinstance(diagnostics, dict) else {"entity_status": "none"}
-        if not normalized_diagnostics.get("entity_status"):
-            normalized_diagnostics["entity_status"] = "none"
-
-        result = {
-            "mentions": normalized_mentions,
-            "resolved_context_refs": normalized_resolved_context_refs,
-            "graph_candidates": normalized_graph_candidates,
-            "assertion_candidates": normalized_assertions,
-            "diagnostics": normalized_diagnostics,
-        }
+        result = L2UnifiedExtractionResult(
+            mentions=normalized_mentions,
+            resolved_context_refs=normalized_resolved_context_refs,
+            graph_candidates=normalized_graph_candidates,
+            assertion_candidates=normalized_assertions,
+            diagnostics=diagnostics if isinstance(diagnostics, dict) else {"entity_status": "none"},
+        )
         duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
         logger.info(
             "L2 unified extraction completed",
@@ -205,13 +196,13 @@ class L2LLMService:
     async def arbitrate_conflict(
         self,
         *,
-        new_event_window: dict[str, Any],
-        new_candidates: dict[str, Any],
+        new_event_window: L2EventWindow,
+        new_candidates: L2CandidateSet,
         contradiction_hints: list[dict[str, Any]],
         existing_records: list[dict[str, Any]],
         source_events: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        event_ids = new_event_window.get("event_ids")
+    ) -> L2ConflictArbitrationResult | None:
+        event_ids = list(new_event_window.event_ids)
         payload = await self._generate_json(
             system_prompt=CONFLICT_ARBITRATION_SYSTEM_PROMPT,
             prompt=render_conflict_arbitration_prompt(
@@ -223,7 +214,7 @@ class L2LLMService:
             ),
             request_kind="memory:l2_conflict_arbitration",
             turn_id=str(event_ids[0]) if isinstance(event_ids, list) and event_ids else None,
-            session_id=str(new_event_window.get("summary", {}).get("session_id") or "") or None,
+            session_id=self._non_empty_text(new_event_window.summary.session_id),
             log_context={
                 "event_ids": event_ids if isinstance(event_ids, list) else [],
                 "contradiction_hint_count": len(contradiction_hints),
@@ -234,15 +225,15 @@ class L2LLMService:
         )
         decision = str(payload.get("decision") or "").strip()
         if decision not in {"keep_new", "keep_existing", "mark_evolution"}:
-            return {}
-        return {
-            "decision": decision,
-            "winning_record_ids": [str(item) for item in payload.get("winning_record_ids", []) if str(item).strip()],
-            "superseded_record_ids": [
+            return None
+        return L2ConflictArbitrationResult(
+            decision=decision,
+            winning_record_ids=[str(item) for item in payload.get("winning_record_ids", []) if str(item).strip()],
+            superseded_record_ids=[
                 str(item) for item in payload.get("superseded_record_ids", []) if str(item).strip()
             ],
-            "reason": str(payload.get("reason") or "").strip(),
-        }
+            reason=str(payload.get("reason") or "").strip(),
+        )
 
     async def reconcile_entity_state(
         self,

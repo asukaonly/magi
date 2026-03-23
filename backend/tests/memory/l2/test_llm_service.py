@@ -107,6 +107,14 @@ class _SelectionAwarePool(_ScenarioAwarePool):
         return self._selections.get(scenario)
 
 
+def _make_event_window(**overrides):  # type: ignore[no-untyped-def]
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary
+
+    summary_payload = overrides.pop("summary", None)
+    summary = summary_payload if isinstance(summary_payload, L2EventWindowSummary) else L2EventWindowSummary(**dict(summary_payload or {}))
+    return L2EventWindow(summary=summary, **overrides)
+
+
 def test_unified_prompt_only_includes_profile_allowed_entity_types():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
@@ -121,7 +129,7 @@ def test_unified_prompt_only_includes_profile_allowed_entity_types():
     )
 
     prompt = service.render_unified_extraction_prompt(
-        event_window={"event_ids": ["evt-1"], "texts": ["Visited GitHub"]},
+        event_window=_make_event_window(event_ids=["evt-1"], texts=["Visited GitHub"]),
         profile=profile,
         focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
     )
@@ -139,7 +147,7 @@ def test_unified_prompt_describes_food_mapping_and_none_status():
     profile = ExtractionProfile(profile_id="chat.user_message")
 
     prompt = service.render_unified_extraction_prompt(
-        event_window={"event_ids": ["evt-1"], "texts": ["I hate West Lake vinegar fish"]},
+        event_window=_make_event_window(event_ids=["evt-1"], texts=["I hate West Lake vinegar fish"]),
         profile=profile,
         focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
     )
@@ -157,7 +165,7 @@ def test_unified_prompt_includes_context_bundle_and_resolved_ref_schema():
     profile = ExtractionProfile(profile_id="chat.user_message")
 
     prompt = service.render_unified_extraction_prompt(
-        event_window={"event_ids": ["evt-1"], "texts": ["我真的很烦这种天气耶"]},
+        event_window=_make_event_window(event_ids=["evt-1"], texts=["我真的很烦这种天气耶"]),
         profile=profile,
         focal_subject={"entity_ref": "user:self", "entity_type": "user"},
         context_bundle=ContextBundle(
@@ -181,20 +189,21 @@ def test_unified_prompt_includes_context_bundle_and_resolved_ref_schema():
 def test_unified_prompt_includes_batch_window_rules_and_summary():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
     profile = ExtractionProfile(profile_id="chat.user_message")
 
     prompt = service.render_unified_extraction_prompt(
-        event_window={
-            "event_ids": ["evt-1", "evt-2"],
-            "events": [
+        event_window=L2EventWindow(
+            event_ids=["evt-1", "evt-2"],
+            events=[
                 {"event_id": "evt-1", "content": "Alice likes ramen"},
                 {"event_id": "evt-2", "content": "She eats it every week"},
             ],
-            "texts": ["Alice likes ramen", "She eats it every week"],
-            "summary": {"event_count": 2, "session_id": "s-1", "user_id": "u-1"},
-        },
+            texts=["Alice likes ramen", "She eats it every week"],
+            summary=L2EventWindowSummary(event_count=2, session_id="s-1", user_id="u-1"),
+        ),
         profile=profile,
         focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
     )
@@ -209,6 +218,12 @@ def test_unified_prompt_includes_batch_window_rules_and_summary():
 def test_conflict_arbitration_uses_core_scenario_adapter():
     from magi.config.models import LLMScenario
     from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import (
+        L2CandidateSet,
+        L2ConflictArbitrationResult,
+        L2EventWindow,
+        L2EventWindowSummary,
+    )
 
     fast_adapter = _FakeAdapter("{}")
     deep_adapter = _FakeAdapter(
@@ -233,15 +248,20 @@ def test_conflict_arbitration_uses_core_scenario_adapter():
 
     result = asyncio.run(
         service.arbitrate_conflict(
-            new_event_window={"event_ids": ["evt-1"], "events": [], "summary": {"session_id": "s1"}},
-            new_candidates={"graph_candidates": [], "assertion_candidates": []},
+            new_event_window=L2EventWindow(
+                event_ids=["evt-1"],
+                events=[],
+                summary=L2EventWindowSummary(event_count=1, session_id="s1"),
+            ),
+            new_candidates=L2CandidateSet(graph_candidates=[], assertion_candidates=[]),
             contradiction_hints=[{"target_record_id": "triple-1", "confidence": 0.9}],
             existing_records=[{"record_id": "triple-1"}],
             source_events=[],
         )
     )
 
-    assert result["decision"] == "keep_existing"
+    assert isinstance(result, L2ConflictArbitrationResult)
+    assert result.decision == "keep_existing"
     assert fast_adapter._client.completions.kwargs == {}
     assert deep_adapter._client.completions.kwargs["messages"][0]["content"]
 
@@ -272,7 +292,7 @@ def test_unified_extraction_uses_scenario_max_output_tokens_when_configured():
 
     asyncio.run(
         service.extract_unified_candidates(
-            event_window={"event_ids": ["evt-1"], "events": [], "texts": ["hello"], "summary": {}},
+            event_window=_make_event_window(event_ids=["evt-1"], events=[], texts=["hello"], summary={}),
             profile=ExtractionProfile(profile_id="chat.user_message"),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
         )
@@ -284,6 +304,7 @@ def test_unified_extraction_uses_scenario_max_output_tokens_when_configured():
 def test_unified_extraction_parses_mentions_graph_and_assertions():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2EventWindow, L2UnifiedExtractionResult
 
     response = json.dumps(
         {
@@ -299,19 +320,20 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
 
     result = asyncio.run(
         service.extract_unified_candidates(
-            event_window={"event_ids": ["evt-1"], "texts": ["但我讨厌吃西湖醋鱼"]},
+            event_window=L2EventWindow(event_ids=["evt-1"], texts=["但我讨厌吃西湖醋鱼"]),
             profile=ExtractionProfile(profile_id="chat.user_message"),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
             context_bundle=None,
         )
     )
 
-    assert result["mentions"] == [{"mention_text": "西湖醋鱼", "entity_type": "dish"}]
-    assert result["resolved_context_refs"] == [{"surface": "我", "reference_type": "self_actor", "resolved_ref": "user:self"}]
-    assert result["graph_candidates"] == [{"predicate": "DISLIKES", "object_type": "dish"}]
-    assert result["assertion_candidates"][0]["trait_family"] == "taste_profile"
-    assert result["assertion_candidates"][0]["confidence"] == 0.3
-    assert result["diagnostics"] == {"entity_status": "found"}
+    assert isinstance(result, L2UnifiedExtractionResult)
+    assert result.mentions == [{"mention_text": "西湖醋鱼", "entity_type": "dish"}]
+    assert result.resolved_context_refs == [{"surface": "我", "reference_type": "self_actor", "resolved_ref": "user:self"}]
+    assert result.graph_candidates == [{"predicate": "DISLIKES", "object_type": "dish"}]
+    assert result.assertion_candidates[0]["trait_family"] == "taste_profile"
+    assert result.assertion_candidates[0]["confidence"] == 0.3
+    assert result.diagnostics == {"entity_status": "found"}
 
 
 def test_unified_extraction_fails_closed_on_invalid_json():
@@ -322,14 +344,14 @@ def test_unified_extraction_fails_closed_on_invalid_json():
 
     result = asyncio.run(
         service.extract_unified_candidates(
-            event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
+            event_window=_make_event_window(event_ids=["evt-1"], texts=["hello"]),
             profile=ExtractionProfile(profile_id="chat.user_message"),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
             context_bundle=None,
         )
     )
 
-    assert result == {
+    assert result.to_dict() == {
         "mentions": [],
         "resolved_context_refs": [],
         "graph_candidates": [],
@@ -355,14 +377,14 @@ def test_unified_extraction_logs_timing():
     with patch("magi.memory.l2.llm_service.logger.info") as mock_info:
         result = asyncio.run(
             service.extract_unified_candidates(
-                event_window={"event_ids": ["evt-1"], "texts": ["I like Rust"]},
+                event_window=_make_event_window(event_ids=["evt-1"], texts=["I like Rust"]),
                 profile=ExtractionProfile(profile_id="chat.user_message"),
                 focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
                 context_bundle=None,
             )
         )
 
-    assert result["diagnostics"] == {"entity_status": "found"}
+    assert result.diagnostics == {"entity_status": "found"}
     assert [call.args[0] for call in mock_info.call_args_list] == [
         "L2 unified extraction started",
         "L2 LLM call completed",
@@ -394,7 +416,7 @@ def test_unified_extraction_uses_provider_bridge_and_logs_usage():
     with patch("magi.memory.l2.llm_service.logger.info") as mock_info:
         asyncio.run(
             service.extract_unified_candidates(
-                event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
+                event_window=_make_event_window(event_ids=["evt-1"], texts=["hello"]),
                 profile=ExtractionProfile(profile_id="chat.user_message"),
                 focal_subject={"entity_ref": "user:self", "entity_type": "user"},
                 context_bundle=None,
@@ -444,15 +466,15 @@ def test_unified_extraction_logs_batch_session_context():
     with patch("magi.memory.l2.llm_service.logger.info") as mock_info:
         asyncio.run(
             service.extract_unified_candidates(
-                event_window={
-                    "event_ids": ["evt-1", "evt-2"],
-                    "events": [
+                event_window=_make_event_window(
+                    event_ids=["evt-1", "evt-2"],
+                    events=[
                         {"event_id": "evt-1", "session_id": "sess-1"},
                         {"event_id": "evt-2", "session_id": "sess-1"},
                     ],
-                    "texts": ["Alice likes ramen", "She eats it weekly"],
-                    "summary": {"event_count": 2, "session_id": "sess-1", "user_id": "u-1"},
-                },
+                    texts=["Alice likes ramen", "She eats it weekly"],
+                    summary={"event_count": 2, "session_id": "sess-1", "user_id": "u-1"},
+                ),
                 profile=ExtractionProfile(profile_id="chat.user_message"),
                 focal_subject={"entity_ref": "user:self", "entity_type": "user"},
                 context_bundle=None,
@@ -485,7 +507,7 @@ def test_llm_call_completed_log_renders_duration(capsys):
 
     asyncio.run(
         service.extract_unified_candidates(
-            event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
+            event_window=_make_event_window(event_ids=["evt-1"], texts=["hello"]),
             profile=ExtractionProfile(profile_id="chat.user_message"),
             focal_subject={"entity_ref": "user:self", "entity_type": "user"},
             context_bundle=None,
@@ -528,7 +550,7 @@ async def test_unified_extraction_publishes_usage_events_for_llm_stats(tmp_path:
         service = L2LLMService(_FakeScenarioPool(adapter))
 
         await service.extract_unified_candidates(
-            event_window={"event_ids": ["evt-usage-1"], "texts": ["hello"]},
+            event_window=_make_event_window(event_ids=["evt-usage-1"], texts=["hello"]),
             profile=ExtractionProfile(profile_id="chat.user_message"),
             focal_subject={"entity_ref": "user:self", "entity_type": "user"},
             context_bundle=None,
@@ -578,14 +600,14 @@ def test_unified_extraction_retries_after_rate_limit() -> None:
     with patch("magi.memory.l2.llm_service.asyncio.sleep", side_effect=_fake_sleep):
         result = asyncio.run(
             service.extract_unified_candidates(
-                event_window={"event_ids": ["evt-rate-limit-1"], "texts": ["hello"]},
+                event_window=_make_event_window(event_ids=["evt-rate-limit-1"], texts=["hello"]),
                 profile=ExtractionProfile(profile_id="chat.user_message"),
                 focal_subject={"entity_ref": "user:self", "entity_type": "user"},
                 context_bundle=None,
             )
         )
 
-    assert result["diagnostics"] == {"entity_status": "none"}
+    assert result.diagnostics == {"entity_status": "none"}
     assert sleep_calls == [1.0]
 
 
@@ -611,14 +633,14 @@ def test_unified_extraction_returns_empty_after_retry_budget_exhausted() -> None
     with patch("magi.memory.l2.llm_service.asyncio.sleep", side_effect=_fake_sleep):
         result = asyncio.run(
             service.extract_unified_candidates(
-                event_window={"event_ids": ["evt-rate-limit-2"], "texts": ["hello"]},
+                event_window=_make_event_window(event_ids=["evt-rate-limit-2"], texts=["hello"]),
                 profile=ExtractionProfile(profile_id="chat.user_message"),
                 focal_subject={"entity_ref": "user:self", "entity_type": "user"},
                 context_bundle=None,
             )
         )
 
-    assert result == {
+    assert result.to_dict() == {
         "mentions": [],
         "resolved_context_refs": [],
         "graph_candidates": [],

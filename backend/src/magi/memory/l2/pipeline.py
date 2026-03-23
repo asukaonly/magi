@@ -15,7 +15,15 @@ from ..event_contracts import MemoryEvent
 from ..l1.event_store import L1EventStore
 from .context_bundle import ContextBundle
 from .context_collector import collect_context_bundle, resolve_direct_context_refs
-from .models import L2BatchJob, L2PendingBatchBucket, build_l2_batch_bucket_key
+from .models import (
+    L2BatchJob,
+    L2CandidateSet,
+    L2ConflictArbitrationResult,
+    L2EventWindow,
+    L2EventWindowSummary,
+    L2PendingBatchBucket,
+    build_l2_batch_bucket_key,
+)
 from .store import L2CognitionStore
 from .evidence_classifier import classify_event_evidence
 from .evidence_policy import resolve_l2_policy
@@ -622,20 +630,21 @@ class L2Pipeline:
             direct_context_ref_count=len(direct_context_refs),
             live_context_candidate_count=len(context_bundle.live_context_entities),
         )
+        event_window = L2EventWindow(
+            event_ids=batch_event_ids,
+            events=[self._serialize_event_for_batch(item[0]) for item in eligible_events],
+            texts=[item[0].content for item in eligible_events],
+            context_texts=context_texts,
+            history_contexts=history_contexts,
+            summary=L2EventWindowSummary(
+                event_count=len(eligible_events),
+                session_id=stored_event.session_id,
+                user_id=stored_event.user_id,
+                history_context_count=len(history_contexts),
+            ),
+        )
         unified_result = await self._llm_service.extract_unified_candidates(
-            event_window={
-                "event_ids": batch_event_ids,
-                "events": [self._serialize_event_for_batch(item[0]) for item in eligible_events],
-                "texts": [item[0].content for item in eligible_events],
-                "context_texts": context_texts,
-                "history_contexts": history_contexts,
-                "summary": {
-                    "event_count": len(eligible_events),
-                    "session_id": stored_event.session_id,
-                    "user_id": stored_event.user_id,
-                    "history_context_count": len(history_contexts),
-                },
-            },
+            event_window=event_window,
             profile=extraction_profile,
             focal_subject={
                 "entity_ref": self_entity_id,
@@ -645,11 +654,11 @@ class L2Pipeline:
         )
         resolved_context_refs = self._merge_resolved_context_refs(
             direct_refs=direct_context_refs,
-            llm_refs=list(unified_result.get("resolved_context_refs", [])),
+            llm_refs=list(unified_result.resolved_context_refs),
             context_bundle=context_bundle,
         )
 
-        raw_mentions = list(unified_result.get("mentions", []))
+        raw_mentions = list(unified_result.mentions)
         resolved_mentions: list[dict[str, Any]] = []
         if policy.allow_entity_extraction:
             resolved_mentions = await self._resolve_mentions(
@@ -672,9 +681,7 @@ class L2Pipeline:
             resolved_mentions=resolved_mentions,
             resolved_context_refs=resolved_context_refs,
             evidence_event_ids=batch_event_ids,
-            raw_candidates=(
-                list(unified_result.get("graph_candidates", []))
-            ),
+            raw_candidates=list(unified_result.graph_candidates),
         )
         if policy.allow_graph_write and policy.graph_scope == "full" and not graph_candidates:
             graph_candidates = self._build_graph_candidates(stored_event, resolved_mentions)
@@ -689,7 +696,7 @@ class L2Pipeline:
             graph_candidates=graph_candidates,
             resolved_context_refs=resolved_context_refs,
             default_event_ids=batch_event_ids,
-            raw_candidates=list(unified_result.get("assertion_candidates", [])),
+            raw_candidates=list(unified_result.assertion_candidates),
         )
         if policy.allow_assertion_write and not assertion_candidates and policy.assertion_scope == "full":
             assertion_candidates = self._cognition_store.extract_assertion_candidates(stored_event)
@@ -725,7 +732,7 @@ class L2Pipeline:
                 contradiction_hint_count=len(contradiction_hints),
             )
 
-        conflict_arbitration: dict[str, Any] | None = None
+        conflict_arbitration: L2ConflictArbitrationResult | None = None
         if contradiction_hints and (graph_candidates or assertion_candidates):
             conflict_arbitration = await self._arbitrate_conflicting_candidates(
                 anchor_event=stored_event,
@@ -734,9 +741,7 @@ class L2Pipeline:
                 assertion_candidates=assertion_candidates,
                 contradiction_hints=contradiction_hints,
             )
-            arbitration_decision = self._non_empty_text(
-                conflict_arbitration.get("decision") if isinstance(conflict_arbitration, dict) else None
-            )
+            arbitration_decision = conflict_arbitration.decision if conflict_arbitration is not None else None
             if arbitration_decision == "keep_existing":
                 logger.info(
                     "L2 conflict arbitration kept existing records",
@@ -776,14 +781,10 @@ class L2Pipeline:
             relation_count=relation_count,
             assertion_count=assertion_count,
             contradiction_hint_count=len(contradiction_hints),
-            conflict_arbitration_decision=(
-                conflict_arbitration.get("decision") if isinstance(conflict_arbitration, dict) else None
-            ),
+            conflict_arbitration_decision=conflict_arbitration.decision if conflict_arbitration is not None else None,
         )
 
-        conflict_arbitration_decision = (
-            conflict_arbitration.get("decision") if isinstance(conflict_arbitration, dict) else None
-        )
+        conflict_arbitration_decision = conflict_arbitration.decision if conflict_arbitration is not None else None
         touched_entity_ids = self._collect_touched_entities(graph_candidates, assertion_candidates)
         snapshot_refresh_entity_ids = (
             touched_entity_ids
@@ -1566,7 +1567,7 @@ class L2Pipeline:
         graph_candidates: list[dict[str, Any]],
         assertion_candidates: list[dict[str, Any]],
         contradiction_hints: list[dict[str, Any]],
-    ) -> dict[str, Any] | None:
+    ) -> L2ConflictArbitrationResult | None:
         if not self._enable_conflict_arbitration or self._llm_service is None or self._cognition_store is None:
             return None
 
@@ -1583,33 +1584,32 @@ class L2Pipeline:
             existing_records=existing_records,
         )
         result = await self._llm_service.arbitrate_conflict(
-            new_event_window={
-                "event_ids": [event.event_id for event in batch_events],
-                "events": [self._serialize_event_for_batch(event) for event in batch_events],
-                "summary": {
-                    "event_count": len(batch_events),
-                    "session_id": anchor_event.session_id,
-                    "user_id": anchor_event.user_id,
-                },
-            },
-            new_candidates={
-                "graph_candidates": graph_candidates,
-                "assertion_candidates": assertion_candidates,
-            },
+            new_event_window=L2EventWindow(
+                event_ids=[event.event_id for event in batch_events],
+                events=[self._serialize_event_for_batch(event) for event in batch_events],
+                summary=L2EventWindowSummary(
+                    event_count=len(batch_events),
+                    session_id=anchor_event.session_id,
+                    user_id=anchor_event.user_id,
+                ),
+            ),
+            new_candidates=L2CandidateSet(
+                graph_candidates=graph_candidates,
+                assertion_candidates=assertion_candidates,
+            ),
             contradiction_hints=severe_hints,
             existing_records=existing_records,
             source_events=source_events,
         )
         if not result:
             return None
-        decision = self._non_empty_text(result.get("decision"))
         self._stats.conflict_arbitration_triggered += 1
         self._stats.severe_contradiction_hint_count += len(severe_hints)
-        self._increment_bucket(self._stats.conflict_arbitration_by_decision, decision)
+        self._increment_bucket(self._stats.conflict_arbitration_by_decision, result.decision)
         logger.info(
             "L2 conflict arbitration completed",
             event_id=anchor_event.event_id,
-            decision=decision,
+            decision=result.decision,
             severe_hint_count=len(severe_hints),
             existing_record_count=len(existing_records),
             source_event_count=len(source_events),
@@ -1620,13 +1620,13 @@ class L2Pipeline:
         self,
         *,
         contradiction_hints: list[dict[str, Any]],
-        conflict_arbitration: dict[str, Any],
+        conflict_arbitration: L2ConflictArbitrationResult,
     ) -> list[dict[str, Any]]:
         superseded_record_ids = {
             record_id
             for record_id in (
                 self._non_empty_text(item)
-                for item in conflict_arbitration.get("superseded_record_ids", [])
+                for item in conflict_arbitration.superseded_record_ids
             )
             if record_id
         }
@@ -1657,13 +1657,13 @@ class L2Pipeline:
         self,
         *,
         contradiction_hints: list[dict[str, Any]],
-        conflict_arbitration: dict[str, Any],
+        conflict_arbitration: L2ConflictArbitrationResult,
     ) -> list[dict[str, Any]]:
         winning_record_ids = {
             record_id
             for record_id in (
                 self._non_empty_text(item)
-                for item in conflict_arbitration.get("winning_record_ids", [])
+                for item in conflict_arbitration.winning_record_ids
             )
             if record_id
         }

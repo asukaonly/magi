@@ -7,6 +7,7 @@ from typing import Any
 
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
+from .models import L2CandidateSet, L2EventWindow
 
 
 UNIFIED_EXTRACTION_SYSTEM_PROMPT = """You are a structured extraction engine for a memory system.
@@ -59,7 +60,7 @@ Do not hedge, and do not return multiple competing outcomes.
 
 def render_unified_extraction_prompt(
     *,
-    event_window: dict[str, Any],
+    event_window: L2EventWindow,
     profile: ExtractionProfile,
     focal_subject: dict[str, Any],
     context_bundle: ContextBundle | None = None,
@@ -67,7 +68,7 @@ def render_unified_extraction_prompt(
     """Render the unified extraction prompt with ontology/profile constraints."""
 
     payload = {
-        "event_window": event_window,
+        "event_window": event_window.to_dict(),
         "focal_subject": focal_subject,
         "context_bundle": context_bundle.to_dict() if context_bundle is not None else None,
         "allowed_entity_types": sorted(profile.allowed_entity_types),
@@ -176,16 +177,16 @@ def render_contradiction_hint_prompt(*, new_event: dict[str, Any], existing_reco
 
 def render_conflict_arbitration_prompt(
     *,
-    new_event_window: dict[str, Any],
-    new_candidates: dict[str, Any],
+    new_event_window: L2EventWindow,
+    new_candidates: L2CandidateSet,
     contradiction_hints: list[dict[str, Any]],
     existing_records: list[dict[str, Any]],
     source_events: list[dict[str, Any]],
 ) -> str:
     return (
         "Arbitrate the conflict between new evidence and existing memory records.\n\n"
-        f"New event window:\n{json.dumps(new_event_window, ensure_ascii=False, indent=2)}\n\n"
-        f"New candidates:\n{json.dumps(new_candidates, ensure_ascii=False, indent=2)}\n\n"
+        f"New event window:\n{json.dumps(new_event_window.to_dict(), ensure_ascii=False, indent=2)}\n\n"
+        f"New candidates:\n{json.dumps(new_candidates.to_dict(), ensure_ascii=False, indent=2)}\n\n"
         f"Contradiction hints:\n{json.dumps(contradiction_hints, ensure_ascii=False, indent=2)}\n\n"
         f"Existing records:\n{json.dumps(existing_records, ensure_ascii=False, indent=2)}\n\n"
         f"Supporting source events:\n{json.dumps(source_events, ensure_ascii=False, indent=2)}\n\n"
