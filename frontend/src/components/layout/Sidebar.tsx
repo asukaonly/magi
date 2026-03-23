@@ -335,32 +335,32 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const primaryButtonClass = (active: boolean) => cn(
     'flex w-full items-center gap-3 rounded-none px-4 py-3 text-left transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.25)]',
     active
-      ? 'bg-[hsl(24_34%_74%)] text-[hsl(20_20%_21%)]'
-      : 'text-[hsl(26_18%_38%)] hover:bg-[hsl(33_21%_88%)] hover:text-[hsl(20_18%_24%)]'
+      ? 'bg-[hsl(32_23%_82%)] text-[hsl(22_18%_24%)]'
+      : 'text-[hsl(26_16%_36%)] hover:bg-[hsl(34_20%_89%)] hover:text-[hsl(21_16%_25%)]'
   );
 
   const iconWrapClass = (active: boolean) => cn(
     'flex h-5 w-5 shrink-0 items-center justify-center transition-colors duration-150',
     active
-      ? 'text-[hsl(20_28%_24%)]'
-      : 'text-[hsl(26_11%_50%)]'
+      ? 'text-[hsl(23_22%_28%)]'
+      : 'text-[hsl(26_11%_48%)]'
   );
 
-  const nestedRailClass = 'mt-2 ml-8 flex flex-col gap-2 pl-3';
+  const nestedRailClass = 'mt-2 ml-5 flex flex-col gap-1.5';
 
   const secondaryButtonClass = (active: boolean) => cn(
     'flex w-full items-center gap-2 rounded-none px-3 py-2.5 text-left text-sm transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.22)]',
     active
-      ? 'bg-[hsl(28_25%_79%)] text-[hsl(20_18%_22%)]'
-      : 'text-[hsl(26_17%_40%)] hover:bg-[hsl(34_22%_88%)] hover:text-[hsl(20_18%_24%)]'
+      ? 'bg-[hsl(31_20%_84%)] text-[hsl(22_16%_24%)]'
+      : 'text-[hsl(26_15%_39%)] hover:bg-[hsl(34_20%_89%)] hover:text-[hsl(21_16%_25%)]'
   );
 
   const toolButtonClass =
-    'flex h-8 w-8 shrink-0 items-center justify-center rounded-none bg-[hsl(35_18%_86%)] text-[hsl(26_14%_44%)] transition-colors duration-150 ease-out hover:bg-[hsl(31_22%_80%)] hover:text-[hsl(20_18%_22%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.22)]';
+    'flex h-7 w-7 shrink-0 items-center justify-center rounded-none bg-[hsl(34_15%_88%)] text-[hsl(26_10%_50%)] transition-colors duration-150 ease-out hover:bg-[hsl(33_18%_84%)] hover:text-[hsl(22_15%_28%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.18)]';
 
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-[hsl(30_15%_80%)] bg-[linear-gradient(180deg,hsl(34_23%_93%)_0%,hsl(31_20%_90%)_100%)] pt-7"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-[hsl(33_12%_82%)] bg-[linear-gradient(180deg,hsl(34_19%_93%)_0%,hsl(31_17%_91%)_100%)] pt-7"
     >
       {sessionMenu && sessionMenuSession ? (
         <div
@@ -427,10 +427,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                 data-testid="sidebar-conversation-rail"
               >
                 <div
-                  className="flex items-center gap-1.5"
+                  className="flex items-center gap-1"
                   data-testid="sidebar-conversation-tools"
                 >
-                  <div className="flex min-w-0 flex-1 items-center rounded-none bg-[hsl(35_18%_86%)] px-3">
+                  <div className="flex min-w-0 flex-1 items-center rounded-none bg-[hsl(34_15%_88%)] px-2.5">
                     <input
                       ref={conversationSearchInputRef}
                       type="search"
@@ -438,7 +438,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       onChange={(event) => setConversationSearch(event.target.value)}
                       placeholder={t('shell.searchSessionsPlaceholder')}
                       aria-label={t('shell.searchSessions')}
-                      className="h-8 w-full bg-transparent text-xs text-[hsl(22_18%_24%)] outline-none placeholder:text-[hsl(26_12%_50%)]"
+                      className="h-7 w-full bg-transparent text-[11px] text-[hsl(24_12%_31%)] outline-none placeholder:text-[hsl(26_10%_54%)]"
                     />
                   </div>
                   <button
@@ -468,15 +468,15 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
                 <div className="max-h-[22rem] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
                   {sessionRows.length === 0 ? (
-                    <div className="bg-[hsl(35_18%_87%)] p-3 text-xs leading-5 text-[hsl(26_13%_45%)]">
+                    <div className="bg-[hsl(34_14%_88%)] px-3 py-2.5 text-xs leading-5 text-[hsl(26_12%_46%)]">
                       {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
                     </div>
                   ) : filteredSessionRows.length === 0 ? (
-                    <div className="bg-[hsl(35_18%_87%)] p-3 text-xs leading-5 text-[hsl(26_13%_45%)]">
+                    <div className="bg-[hsl(34_14%_88%)] px-3 py-2.5 text-xs leading-5 text-[hsl(26_12%_46%)]">
                       {t('shell.searchSessionsEmpty')}
                     </div>
                   ) : (
-                    <div className="space-y-1">
+                    <div className="space-y-0.5">
                       {filteredSessionRows.map((session) => {
                         const active = currentSessionId === session.session_id;
                         const unreadCount = unreadBySession[session.session_id] || 0;
@@ -487,8 +487,8 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                             className={cn(
                               'group/session flex items-center gap-1 rounded-none transition-colors duration-150 ease-out',
                               active
-                                ? 'bg-[hsl(24_34%_74%)] text-[hsl(20_20%_21%)]'
-                                : 'text-[hsl(26_18%_38%)] hover:bg-[hsl(33_21%_88%)] hover:text-[hsl(20_18%_24%)]'
+                                ? 'bg-[hsl(32_23%_82%)] text-[hsl(22_18%_24%)]'
+                                : 'text-[hsl(26_16%_36%)] hover:bg-[hsl(34_20%_89%)] hover:text-[hsl(21_16%_25%)]'
                             )}
                           >
                             <button
@@ -505,7 +505,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                               }}
                               aria-label={displayLabel}
                               aria-current={active ? 'page' : undefined}
-                              className="flex min-w-0 flex-1 items-center gap-2 rounded-none px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.22)]"
+                              className="flex min-w-0 flex-1 items-center gap-2 rounded-none px-2 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.18)]"
                               title={displayLabel}
                             >
                               <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
@@ -514,7 +514,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                                   {Math.min(unreadCount, 99)}
                                 </span>
                               ) : null}
-                              <span className="shrink-0 text-[11px] text-[hsl(26_11%_48%)]">
+                              <span className="shrink-0 text-[11px] text-[hsl(26_10%_50%)]">
                                 {formatSessionTime(session.last_timestamp, i18n.language)}
                               </span>
                             </button>
@@ -525,10 +525,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                                 openSessionMenu(session.session_id, rect.right - 176, rect.bottom + 6);
                               }}
                               className={cn(
-                                'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[hsl(26_11%_48%)] opacity-0 transition-all duration-150 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.22)] group-hover/session:opacity-100',
+                                'mr-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-[hsl(26_10%_50%)] opacity-0 transition-all duration-150 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.18)] group-hover/session:opacity-100',
                                 active
-                                  ? 'hover:bg-[hsl(22_29%_68%)] hover:text-[hsl(20_18%_21%)]'
-                                  : 'hover:bg-[hsl(34_20%_83%)] hover:text-[hsl(20_18%_24%)]'
+                                  ? 'hover:bg-[hsl(31_21%_76%)] hover:text-[hsl(22_16%_24%)]'
+                                  : 'hover:bg-[hsl(34_18%_85%)] hover:text-[hsl(21_16%_25%)]'
                               )}
                               aria-label={t('shell.sessionActions')}
                               title={t('shell.sessionActions')}

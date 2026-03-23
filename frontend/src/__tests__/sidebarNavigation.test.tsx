@@ -623,8 +623,8 @@ describe('sidebar navigation', () => {
     const conversationRail = await screen.findByTestId('sidebar-conversation-rail');
     const conversationTools = screen.getByTestId('sidebar-conversation-tools');
 
-    expect(conversationRail).toHaveClass('ml-8');
-    expect(conversationTools).toHaveClass('gap-1.5');
+    expect(conversationRail).toHaveClass('ml-5');
+    expect(conversationTools).toHaveClass('gap-1');
   });
 
   it('renders a memory rail with an independently highlighted active row', async () => {
@@ -637,7 +637,7 @@ describe('sidebar navigation', () => {
     const memoryRail = await screen.findByTestId('sidebar-memory-rail');
     const activeMemoryRow = screen.getByRole('button', { name: 'memory.nav.knowledge' });
 
-    expect(memoryRail).toHaveClass('ml-8');
+    expect(memoryRail).toHaveClass('ml-5');
     expect(activeMemoryRow).toHaveClass('rounded-none');
   });
 });
