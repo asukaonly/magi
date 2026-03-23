@@ -5,8 +5,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from ..common import BaseIntentDecision, BaseRuntimeContext
-from .run_contracts import ActiveRun
+from ....agent.runtime.contracts import FactRecord
+from ..common import BaseIntentDecision, BaseRuntimeContext, GenericFactPayload, IncomingFactKind, TaskFactPayload
+from .run_contracts import ActiveRun, PendingTurn
 
 
 class AssistantSurfaceMode(str, Enum):
@@ -68,10 +69,12 @@ class ChatRuntimeContext(BaseRuntimeContext):
     active_orchestrations: list[dict[str, Any]]
     recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
     active_run: ActiveRun | None = None
-    session_run_id: str = ""
-    planner_fact: Any | None = None
-    planner_fact_kind: Any | None = None
-    pending_turns: list[Any] = field(default_factory=list)
+    session_run_id: str | None = None
+    session_run_revision: int = 0
+    planner_fact: FactRecord | None = None
+    planner_fact_kind: IncomingFactKind = IncomingFactKind.OTHER_FACT
+    planner_payload: TaskFactPayload = field(default_factory=GenericFactPayload)
+    pending_turns: list[PendingTurn] = field(default_factory=list)
 
 
 @dataclass(slots=True, kw_only=True)

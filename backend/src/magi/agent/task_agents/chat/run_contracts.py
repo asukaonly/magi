@@ -42,6 +42,7 @@ class ActiveRun:
 
     session_id: str
     run_id: str
+    root_turn_id: str | None = None
     root_user_message: str = ""
     revision: int = 0
     pending_turns: list[PendingTurn] = field(default_factory=list)

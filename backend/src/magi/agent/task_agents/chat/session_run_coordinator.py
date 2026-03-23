@@ -65,21 +65,17 @@ class SessionRunCoordinator:
     def route(self, classified_fact: ClassifiedFact) -> SessionFactDecision:
         """Resolve the planner-facing fact for one classified batch."""
         active_run = self._run_store.get_active_run(classified_fact.session_id)
-        if classified_fact.kind == IncomingFactKind.USER_MESSAGE:
-            payload = classified_fact.payload
-            if not isinstance(payload, UserMessagePayload):
-                raise TypeError("User-message facts must normalize into UserMessagePayload")
+        if classified_fact.latest_user_payload is not None:
             return self.handle_user_turn(
-                payload,
-                source_fact=classified_fact.source_fact,
+                classified_fact.latest_user_payload,
+                source_fact=classified_fact.latest_user_fact,
             )
 
         if (
-            classified_fact.kind == IncomingFactKind.OTHER_FACT
+            classified_fact.latest_result_fact is not None
             and active_run is not None
-            and isinstance(classified_fact.source_fact, FactRecord)
-            and classified_fact.source_fact.event_type in _CHECKPOINT_EVENT_TYPES
-            and active_run.pending_turns
+            and classified_fact.latest_result_fact.event_type in _CHECKPOINT_EVENT_TYPES
+            and self._current_revision_pending_turns(active_run)
         ):
             checkpoint_pending_turns = self._run_store.consume_pending_turns(classified_fact.session_id)
             refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
@@ -89,10 +85,15 @@ class SessionRunCoordinator:
             )
             return SessionFactDecision(
                 active_run=refreshed_run,
-                planner_fact=classified_fact.source_fact,
+                planner_fact=classified_fact.latest_result_fact,
                 planner_fact_kind=IncomingFactKind.USER_MESSAGE,
                 planner_user_message=planner_user_message,
-                latest_payload=classified_fact.payload,
+                latest_payload=UserMessagePayload(
+                    user_id=classified_fact.user_id,
+                    session_id=classified_fact.session_id,
+                    content=planner_user_message,
+                    turn_id=checkpoint_pending_turns[-1].turn_id if checkpoint_pending_turns else active_run.root_turn_id,
+                ),
                 user_id=classified_fact.user_id,
                 session_id=classified_fact.session_id,
                 checkpoint_pending_turns=checkpoint_pending_turns,
@@ -103,7 +104,7 @@ class SessionRunCoordinator:
             planner_fact=classified_fact.source_fact,
             planner_fact_kind=classified_fact.kind,
             planner_user_message=classified_fact.user_message,
-            latest_payload=classified_fact.payload,
+            latest_payload=classified_fact.source_payload,
             user_id=classified_fact.user_id,
             session_id=classified_fact.session_id,
         )
@@ -120,6 +121,7 @@ class SessionRunCoordinator:
         if active_run is None:
             active_run = self._run_store.create_active_run(
                 payload.session_id,
+                root_turn_id=self._resolve_turn_id(payload=payload, source_fact=source_fact),
                 root_user_message=payload.content,
             )
             return SessionFactDecision(
@@ -141,8 +143,12 @@ class SessionRunCoordinator:
         if disposition == InterruptionDisposition.INTERRUPT:
             active_run = self._run_store.bump_revision(
                 payload.session_id,
-                root_user_message=payload.content,
                 clear_pending_turns=True,
+            )
+            active_run = self._run_store.set_root_turn(
+                payload.session_id,
+                turn_id=self._resolve_turn_id(payload=payload, source_fact=source_fact),
+                content=payload.content,
             )
             planner_fact_kind = IncomingFactKind.USER_MESSAGE
         else:
@@ -162,6 +168,7 @@ class SessionRunCoordinator:
             user_id=payload.user_id,
             session_id=payload.session_id,
             interruption_disposition=disposition,
+            checkpoint_pending_turns=self._current_revision_pending_turns(active_run),
         )
 
     def consume_checkpoint(self, session_id: str) -> CheckpointDecision:
@@ -223,3 +230,13 @@ class SessionRunCoordinator:
         messages = [root_user_message.strip()] if root_user_message.strip() else []
         messages.extend(turn.content.strip() for turn in pending_turns if turn.content.strip())
         return "\n\n".join(messages)
+
+    @staticmethod
+    def _current_revision_pending_turns(active_run: ActiveRun | None) -> list[PendingTurn]:
+        if active_run is None:
+            return []
+        return [
+            pending_turn
+            for pending_turn in active_run.pending_turns
+            if pending_turn.revision == active_run.revision
+        ]

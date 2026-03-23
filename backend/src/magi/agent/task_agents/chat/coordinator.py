@@ -60,7 +60,11 @@ class ChatExecutionCoordinator:
         self._intent_trace_callback = intent_trace_callback
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
-        planner_fact_kind = context.planner_fact_kind or context.incoming_fact_kind
+        planner_fact_kind = (
+            context.planner_fact_kind
+            if context.planner_fact is not None or context.planner_fact_kind != IncomingFactKind.OTHER_FACT
+            else context.incoming_fact_kind
+        )
         if planner_fact_kind == IncomingFactKind.WORKER_UPDATE:
             return IntentDecision(
                 intent="worker_orchestration_update",

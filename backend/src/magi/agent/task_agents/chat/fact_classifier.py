@@ -21,6 +21,11 @@ WORKER_AGENT_EVENT_TYPES = {
     "WORKER_AGENT_COMPLETED",
     "WORKER_AGENT_FAILED",
 }
+CHAT_TOOL_LOOP_STEP_EVENT_TYPE = "CHAT_TOOL_LOOP_STEP"
+SESSION_RUN_RESULT_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES | {
+    CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
+    EXPLORE_TASK_COMPLETED,
+}
 
 
 @dataclass(slots=True)
@@ -31,10 +36,14 @@ class ClassifiedFact:
     source_fact: Optional[FactRecord]
     latest_fact: Optional[FactRecord]
     batch_facts: list[FactRecord]
-    payload: TaskFactPayload
+    source_payload: TaskFactPayload
+    latest_payload: TaskFactPayload
     user_id: str
     session_id: str
     user_message: str
+    latest_user_fact: Optional[FactRecord] = None
+    latest_user_payload: UserMessagePayload | None = None
+    latest_result_fact: Optional[FactRecord] = None
 
 
 class ChatFactClassifier:
@@ -53,22 +62,50 @@ class ChatFactClassifier:
             latest_fact=latest_fact,
             batch_facts=batch_facts,
         )
-        payload_dict = source_fact.payload if isinstance(source_fact, FactRecord) and isinstance(source_fact.payload, dict) else {}
-        if not payload_dict and isinstance(latest_fact, FactRecord) and isinstance(latest_fact.payload, dict):
-            payload_dict = latest_fact.payload
-        payload = self._normalize_payload(kind=kind, payload=payload_dict, fallback_user_id=agent_id)
-        user_id = self._payload_user_id(payload, fallback_user_id=agent_id)
-        session_id = self._payload_session_id(payload)
-        user_message = self._payload_user_message(payload)
+        source_payload = self._normalize_fact_payload(
+            fact=source_fact,
+            kind=kind,
+            fallback_user_id=agent_id,
+        )
+        latest_payload = self._normalize_fact_payload(
+            fact=latest_fact,
+            kind=self._kind_for_fact(latest_fact),
+            fallback_user_id=agent_id,
+        )
+        latest_user_fact = self._find_last_matching_fact(
+            batch_facts=batch_facts,
+            predicate=lambda fact: fact.event_type == EventTypes.USER_MESSAGE,
+            fallback=latest_fact if isinstance(latest_fact, FactRecord) and latest_fact.event_type == EventTypes.USER_MESSAGE else None,
+        )
+        latest_user_payload = (
+            UserMessagePayload.from_dict(
+                dict(latest_user_fact.payload) if isinstance(latest_user_fact.payload, dict) else {},
+                fallback_user_id=agent_id,
+            )
+            if isinstance(latest_user_fact, FactRecord)
+            else None
+        )
+        latest_result_fact = self._find_last_matching_fact(
+            batch_facts=batch_facts,
+            predicate=lambda fact: fact.event_type in SESSION_RUN_RESULT_EVENT_TYPES,
+            fallback=latest_fact if isinstance(latest_fact, FactRecord) and latest_fact.event_type in SESSION_RUN_RESULT_EVENT_TYPES else None,
+        )
+        user_id = self._payload_user_id(source_payload, fallback_user_id=agent_id)
+        session_id = self._payload_session_id(source_payload)
+        user_message = self._payload_user_message(source_payload)
         return ClassifiedFact(
             kind=kind,
             source_fact=source_fact,
             latest_fact=latest_fact,
             batch_facts=batch_facts,
-            payload=payload,
+            source_payload=source_payload,
+            latest_payload=latest_payload,
             user_id=user_id,
             session_id=session_id,
             user_message=user_message,
+            latest_user_fact=latest_user_fact,
+            latest_user_payload=latest_user_payload,
+            latest_result_fact=latest_result_fact,
         )
 
     def _detect_kind(
@@ -94,6 +131,17 @@ class ChatFactClassifier:
             return IncomingFactKind.EXPLORE_TASK_COMPLETED
         if isinstance(latest_fact, FactRecord) and latest_fact.event_type == EventTypes.USER_MESSAGE:
             return IncomingFactKind.USER_MESSAGE
+        return IncomingFactKind.OTHER_FACT
+
+    def _kind_for_fact(self, fact: Optional[FactRecord]) -> IncomingFactKind:
+        if not isinstance(fact, FactRecord):
+            return IncomingFactKind.OTHER_FACT
+        if fact.event_type == EventTypes.USER_MESSAGE:
+            return IncomingFactKind.USER_MESSAGE
+        if fact.event_type in WORKER_AGENT_EVENT_TYPES:
+            return IncomingFactKind.WORKER_UPDATE
+        if fact.event_type == EXPLORE_TASK_COMPLETED:
+            return IncomingFactKind.EXPLORE_TASK_COMPLETED
         return IncomingFactKind.OTHER_FACT
 
     def _select_source_fact(
@@ -138,6 +186,20 @@ class ChatFactClassifier:
             if isinstance(fact, FactRecord) and predicate(fact):
                 return fact
         return fallback if isinstance(fallback, FactRecord) else None
+
+    def _normalize_fact_payload(
+        self,
+        *,
+        fact: Optional[FactRecord],
+        kind: IncomingFactKind,
+        fallback_user_id: str,
+    ) -> TaskFactPayload:
+        payload_dict = fact.payload if isinstance(fact, FactRecord) and isinstance(fact.payload, dict) else {}
+        return self._normalize_payload(
+            kind=kind,
+            payload=payload_dict,
+            fallback_user_id=fallback_user_id,
+        )
 
     def _normalize_payload(
         self,

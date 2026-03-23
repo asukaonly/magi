@@ -21,6 +21,7 @@ class SessionRunStore:
         self,
         session_id: str,
         *,
+        root_turn_id: str | None = None,
         root_user_message: str = "",
         run_id: str | None = None,
     ) -> ActiveRun:
@@ -28,6 +29,7 @@ class SessionRunStore:
         active_run = ActiveRun(
             session_id=session_id,
             run_id=run_id or uuid4().hex,
+            root_turn_id=root_turn_id,
             root_user_message=root_user_message,
         )
         self._set_run(active_run)
@@ -51,6 +53,21 @@ class SessionRunStore:
             active_run.pending_turns.append(pending_turn)
             active_run.updated_at = time()
             return deepcopy(pending_turn)
+
+    def set_root_turn(
+        self,
+        session_id: str,
+        *,
+        turn_id: str | None,
+        content: str,
+    ) -> ActiveRun:
+        """Set or replace the root user turn for the active run."""
+        with self._lock:
+            active_run = self._require_run(session_id)
+            active_run.root_turn_id = turn_id
+            active_run.root_user_message = content
+            active_run.updated_at = time()
+            return deepcopy(active_run)
 
     def consume_pending_turns(self, session_id: str) -> list[PendingTurn]:
         """Return and clear pending turns for the active run."""
