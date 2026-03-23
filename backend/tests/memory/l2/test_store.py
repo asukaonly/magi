@@ -59,16 +59,17 @@ async def _apply_rule_candidates(store, event):  # type: ignore[no-untyped-def]
     relation_count = 0
     assertion_count = 0
     for candidate in store.build_rule_graph_candidates(event):
-        await store.upsert_knowledge_edge(**candidate)
+        await store.upsert_knowledge_edge(**candidate.to_dict())
         relation_count += 1
     for candidate in store.build_rule_assertion_candidates(event):
-        await store.upsert_assertion_candidate(candidate)
+        await store.upsert_assertion_candidate(candidate.to_dict())
         assertion_count += 1
     return {"relation_count": relation_count, "assertion_count": assertion_count}
 
 
 @pytest.mark.asyncio
 async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
+    from magi.memory.l2.models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -79,10 +80,25 @@ async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
         correlation_id="evt-1",
         timestamp=1710000000.0,
     )
+    graph_candidates = store.build_rule_graph_candidates(event)
+    assertion_candidates = store.build_rule_assertion_candidates(event)
     result = await _apply_rule_candidates(store, event)
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
 
+    assert graph_candidates == []
+    assert len(assertion_candidates) == 1
+    assert isinstance(assertion_candidates[0], L2TomAssertionWrite)
+
+    preference_event = await _build_user_message(
+        "I like rainy days.",
+        correlation_id="evt-like-1",
+        timestamp=1710000100.0,
+    )
+    graph_candidates = store.build_rule_graph_candidates(preference_event)
+
+    assert len(graph_candidates) == 1
+    assert isinstance(graph_candidates[0], L2KnowledgeEdgeWrite)
     assert result["assertion_count"] == 1
     assert assertions[0]["trait_name"] == "stress_level"
     assert assertions[0]["validation_state"] == "tentative"

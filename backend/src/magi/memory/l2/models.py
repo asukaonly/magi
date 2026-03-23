@@ -338,6 +338,90 @@ class L2FocalEntityRef:
 
 
 @dataclass(slots=True)
+class L2KnowledgeEdgeWrite:
+    """Normalized knowledge-edge payload ready for L2 persistence."""
+
+    subject_id: str
+    subject_type: str
+    predicate: str
+    object_id: str
+    object_type: str
+    evidence_event_ids: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    observed_at: float = 0.0
+    source_type: str = "unknown"
+    extraction_method: str = "rule"
+
+    def __post_init__(self) -> None:
+        self.subject_id = _non_empty_text(self.subject_id, field_name="subject_id")
+        self.subject_type = _non_empty_text(self.subject_type, field_name="subject_type")
+        self.predicate = _non_empty_text(self.predicate, field_name="predicate")
+        self.object_id = _non_empty_text(self.object_id, field_name="object_id")
+        self.object_type = _non_empty_text(self.object_type, field_name="object_type")
+        self.evidence_event_ids = [str(item).strip() for item in self.evidence_event_ids if str(item).strip()]
+        self.confidence = float(self.confidence or 0.0)
+        self.observed_at = float(self.observed_at or 0.0)
+        self.source_type = _optional_text(self.source_type) or "unknown"
+        self.extraction_method = _optional_text(self.extraction_method) or "rule"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class L2TomAssertionWrite:
+    """Normalized ToM assertion payload ready for L2 persistence."""
+
+    entity_id: str
+    entity_type: str
+    trait_name: str
+    trait_value: str
+    confidence_score: float = 0.0
+    evidence_events: list[str] = field(default_factory=list)
+    volatility_index: float = 0.5
+    source_domain: str = ""
+    inference_depth: str = ""
+    validation_state: str = "tentative"
+    first_inferred_at: float = 0.0
+    last_validated_at: float = 0.0
+    trait_family: str = ""
+    target_entity_id: str = ""
+    target_entity_type: str = ""
+    target_scope: str = "global"
+    temporal_scope: str = ""
+    decay_policy: str = ""
+    decay_anchor_at: float = 0.0
+    context_ref_id: str = ""
+    expires_at: float | None = None
+
+    def __post_init__(self) -> None:
+        self.entity_id = _non_empty_text(self.entity_id, field_name="entity_id")
+        self.entity_type = _non_empty_text(self.entity_type, field_name="entity_type")
+        self.trait_name = _non_empty_text(self.trait_name, field_name="trait_name")
+        self.trait_value = str(self.trait_value)
+        self.confidence_score = float(self.confidence_score or 0.0)
+        self.evidence_events = [str(item).strip() for item in self.evidence_events if str(item).strip()]
+        self.volatility_index = float(self.volatility_index or 0.5)
+        self.source_domain = _optional_text(self.source_domain) or ""
+        self.inference_depth = _optional_text(self.inference_depth) or ""
+        self.validation_state = _optional_text(self.validation_state) or "tentative"
+        self.first_inferred_at = float(self.first_inferred_at or 0.0)
+        self.last_validated_at = float(self.last_validated_at or 0.0)
+        self.trait_family = _optional_text(self.trait_family) or ""
+        self.target_entity_id = _optional_text(self.target_entity_id) or ""
+        self.target_entity_type = _optional_text(self.target_entity_type) or ""
+        self.target_scope = _optional_text(self.target_scope) or "global"
+        self.temporal_scope = _optional_text(self.temporal_scope) or ""
+        self.decay_policy = _optional_text(self.decay_policy) or ""
+        self.decay_anchor_at = float(self.decay_anchor_at or 0.0)
+        self.context_ref_id = _optional_text(self.context_ref_id) or ""
+        self.expires_at = None if self.expires_at in (None, "") else float(self.expires_at)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -587,8 +671,10 @@ __all__ = [
     "L2EventWindowSummary",
     "L2FocalEntityRef",
     "L2GraphCandidate",
+    "L2KnowledgeEdgeWrite",
     "L2PendingBatchBucket",
     "L2SnapshotRefreshJob",
+    "L2TomAssertionWrite",
     "L2UnifiedExtractionResult",
     "ManualL2EventRequest",
     "ReconciledTraitOutcome",

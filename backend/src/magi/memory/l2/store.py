@@ -14,7 +14,7 @@ from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent, TomDepth
 from .graph_conflicts import DEFAULT_GRAPH_CONFLICT_RULES, GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix, iter_opposite_predicates
-from .models import ContradictionHint, ReconciledTraitOutcome
+from .models import ContradictionHint, L2KnowledgeEdgeWrite, L2TomAssertionWrite, ReconciledTraitOutcome
 from .ontology import coerce_unknown_entity_type
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
@@ -347,11 +347,11 @@ class L2CognitionStore:
             await db.commit()
         return normalized.to_record()
 
-    def build_rule_graph_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
+    def build_rule_graph_candidates(self, event: MemoryEvent) -> list[L2KnowledgeEdgeWrite]:
         """Build deterministic graph candidates from lightweight rules."""
         return self._extract_graph_candidates(event)
 
-    def build_rule_assertion_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
+    def build_rule_assertion_candidates(self, event: MemoryEvent) -> list[L2TomAssertionWrite]:
         """Build deterministic ToM assertion candidates from lightweight rules."""
         return self._extract_assertion_candidates(event)
 
@@ -898,7 +898,7 @@ class L2CognitionStore:
             )
         return snapshot
 
-    def _extract_graph_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
+    def _extract_graph_candidates(self, event: MemoryEvent) -> list[L2KnowledgeEdgeWrite]:
         content = event.content.lower()
         if " like " not in f" {content} ":
             return []
@@ -906,21 +906,21 @@ class L2CognitionStore:
         if subject_id is None:
             return []
         return [
-            {
-                "subject_id": subject_id,
-                "subject_type": subject_type,
-                "predicate": "LIKES",
-                "object_id": "topic:mentioned_preference",
-                "object_type": "topic",
-                "evidence_event_ids": [event.event_id],
-                "confidence": 0.7,
-                "observed_at": event.timestamp,
-                "source_type": event.source,
-                "extraction_method": "keyword_rule",
-            }
+            L2KnowledgeEdgeWrite(
+                subject_id=subject_id,
+                subject_type=subject_type,
+                predicate="LIKES",
+                object_id="topic:mentioned_preference",
+                object_type="topic",
+                evidence_event_ids=[event.event_id],
+                confidence=0.7,
+                observed_at=event.timestamp,
+                source_type=event.source,
+                extraction_method="keyword_rule",
+            )
         ]
 
-    def _extract_assertion_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
+    def _extract_assertion_candidates(self, event: MemoryEvent) -> list[L2TomAssertionWrite]:
         subject_id, subject_type = self._entity_identity(event)
         if subject_id is None:
             return []
@@ -930,37 +930,37 @@ class L2CognitionStore:
         text = event.content.lower()
         if any(keyword in text for keyword in _STRESS_KEYWORDS):
             return [
-                {
-                    "entity_id": subject_id,
-                    "entity_type": subject_type,
-                    "trait_name": "stress_level",
-                    "trait_value": "high",
-                    "confidence_score": 0.3,
-                    "evidence_events": [event.event_id],
-                    "volatility_index": 0.7,
-                    "source_domain": event.memory_domain.label,
-                    "inference_depth": event.tom_depth.label,
-                    "validation_state": "tentative",
-                    "first_inferred_at": event.timestamp,
-                    "last_validated_at": event.timestamp,
-                }
+                L2TomAssertionWrite(
+                    entity_id=subject_id,
+                    entity_type=subject_type,
+                    trait_name="stress_level",
+                    trait_value="high",
+                    confidence_score=0.3,
+                    evidence_events=[event.event_id],
+                    volatility_index=0.7,
+                    source_domain=event.memory_domain.label,
+                    inference_depth=event.tom_depth.label,
+                    validation_state="tentative",
+                    first_inferred_at=event.timestamp,
+                    last_validated_at=event.timestamp,
+                )
             ]
         if any(keyword in text for keyword in _CALM_KEYWORDS):
             return [
-                {
-                    "entity_id": subject_id,
-                    "entity_type": subject_type,
-                    "trait_name": "stress_level",
-                    "trait_value": "low",
-                    "confidence_score": 0.3,
-                    "evidence_events": [event.event_id],
-                    "volatility_index": 0.7,
-                    "source_domain": event.memory_domain.label,
-                    "inference_depth": event.tom_depth.label,
-                    "validation_state": "tentative",
-                    "first_inferred_at": event.timestamp,
-                    "last_validated_at": event.timestamp,
-                }
+                L2TomAssertionWrite(
+                    entity_id=subject_id,
+                    entity_type=subject_type,
+                    trait_name="stress_level",
+                    trait_value="low",
+                    confidence_score=0.3,
+                    evidence_events=[event.event_id],
+                    volatility_index=0.7,
+                    source_domain=event.memory_domain.label,
+                    inference_depth=event.tom_depth.label,
+                    validation_state="tentative",
+                    first_inferred_at=event.timestamp,
+                    last_validated_at=event.timestamp,
+                )
             ]
         return []
 
