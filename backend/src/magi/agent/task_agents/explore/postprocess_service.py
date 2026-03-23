@@ -65,6 +65,8 @@ class ExplorePostProcessService:
             payload={
                 "user_id": payload.user_id,
                 "session_id": payload.session_id,
+                "target_task_agent_type": upstream_task_agent_type,
+                "target_task_agent_id": upstream_task_agent_id,
                 "upstream_task_agent_type": upstream_task_agent_type,
                 "upstream_task_agent_id": upstream_task_agent_id,
                 **payload.to_dict(),

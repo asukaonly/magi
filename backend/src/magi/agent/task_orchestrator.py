@@ -284,6 +284,7 @@ class TaskOrchestrator:
 
     async def _launch_workers(self, state: TaskOrchestrationState) -> Optional[str]:
         context = self._build_agent_tool_context(state.user_id, state.session_id, state.workspace_root)
+        parent_task_agent_id = self._resolve_parent_task_agent_id(state.user_id, state.session_id)
         worker_payloads = [
             {
                 "subagent_type": item.subagent_type,
@@ -292,9 +293,9 @@ class TaskOrchestrator:
                 "orchestration_id": state.orchestration_id,
                 "subtask_id": item.subtask_id,
                 "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": state.user_id,
+                "parent_task_agent_id": parent_task_agent_id,
                 "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": state.user_id,
+                "target_task_agent_id": parent_task_agent_id,
                 "retry_count": max(item.attempt_count, 0),
                 "turn_id": state.turn_id,
             }
@@ -308,7 +309,7 @@ class TaskOrchestrator:
                 "parallel": state.allow_parallel,
                 "run_in_background": True,
                 "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": state.user_id,
+                "target_task_agent_id": parent_task_agent_id,
             },
             context,
         )
@@ -341,6 +342,7 @@ class TaskOrchestrator:
             return False
 
         context = self._build_agent_tool_context(state.user_id, state.session_id, state.workspace_root)
+        parent_task_agent_id = self._resolve_parent_task_agent_id(state.user_id, state.session_id)
         next_attempt = subtask.attempt_count + 1
         delay_seconds = self._retry_delay_seconds(failure_reason, subtask.attempt_count)
         if delay_seconds > 0:
@@ -365,9 +367,9 @@ class TaskOrchestrator:
                 "orchestration_id": state.orchestration_id,
                 "subtask_id": subtask.subtask_id,
                 "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": state.user_id,
+                "parent_task_agent_id": parent_task_agent_id,
                 "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": state.user_id,
+                "target_task_agent_id": parent_task_agent_id,
                 "retry_count": next_attempt - 1,
                 "turn_id": state.turn_id,
             },
@@ -414,6 +416,7 @@ class TaskOrchestrator:
         session_id: str,
         workspace_root: Optional[str] = None,
     ) -> ToolExecutionContext:
+        parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         return ToolExecutionContext(
             agent_id=self._runtime_key,
             workspace=workspace_root or self._default_workspace_root(),
@@ -421,12 +424,17 @@ class TaskOrchestrator:
                 "user_id": user_id,
                 "session_id": session_id,
                 "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": user_id,
+                "target_task_agent_id": parent_task_agent_id,
                 "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": user_id,
+                "parent_task_agent_id": parent_task_agent_id,
             },
             permissions=["authenticated"],
         )
+
+    def _resolve_parent_task_agent_id(self, user_id: str, session_id: str) -> str:
+        if self._parent_task_agent_type == "chat" and str(session_id).strip():
+            return session_id
+        return user_id
 
     def _resolve_workspace_root(self, user_message: str) -> str:
         default_root = self._default_workspace_root()

@@ -228,6 +228,7 @@ class ChatPlanningService:
         session_id: str,
     ) -> Optional[SubtaskPlan]:
         context = self._build_agent_tool_context(user_id, session_id)
+        parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         result = await self._tool_registry.execute(
             "agent",
             {
@@ -241,9 +242,9 @@ class ChatPlanningService:
                 ),
                 "run_in_background": False,
                 "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": user_id,
+                "target_task_agent_id": parent_task_agent_id,
                 "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": user_id,
+                "parent_task_agent_id": parent_task_agent_id,
             },
             context,
         )
@@ -595,6 +596,7 @@ class ChatPlanningService:
         return None
 
     def _build_agent_tool_context(self, user_id: str, session_id: str) -> ToolExecutionContext:
+        parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         return ToolExecutionContext(
             agent_id=self._runtime_key,
             workspace=os.getcwd(),
@@ -602,9 +604,14 @@ class ChatPlanningService:
                 "user_id": user_id,
                 "session_id": session_id,
                 "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": user_id,
+                "target_task_agent_id": parent_task_agent_id,
                 "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": user_id,
+                "parent_task_agent_id": parent_task_agent_id,
             },
             permissions=["authenticated"],
         )
+
+    def _resolve_parent_task_agent_id(self, user_id: str, session_id: str) -> str:
+        if self._parent_task_agent_type == "chat" and str(session_id).strip():
+            return session_id
+        return user_id

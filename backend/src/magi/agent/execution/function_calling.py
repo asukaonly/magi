@@ -1314,6 +1314,7 @@ class FunctionCallingOrchestrator:
             tool_info = self.tool_registry.get_tool_info(tool_name)
             if tool_info and tool_info.get("dangerous", False):
                 permissions.append("dangerous_tools")
+            target_task_agent_id = session_id or user_id
 
             context = ToolExecutionContext(
                 agent_id=execution_agent_id,
@@ -1324,7 +1325,7 @@ class FunctionCallingOrchestrator:
                     "turn_id": turn_id or "",
                     "intent": intent,
                     "target_task_agent_type": "chat",
-                    "target_task_agent_id": user_id,
+                    "target_task_agent_id": target_task_agent_id,
                 },
                 permissions=permissions,
             )

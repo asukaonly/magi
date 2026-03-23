@@ -202,7 +202,7 @@ async def _start_explore_task_agent(
         content=request.context.latest_user_message,
         history_snapshot=history,
         upstream_task_agent_type=TaskAgentType.CHAT.value,
-        upstream_task_agent_id=request.context.user_id,
+        upstream_task_agent_id=request.context.session_id or request.context.user_id,
         turn_id=getattr(request.context.latest_payload, "turn_id", None),
     )
     fact = FactRecord(
