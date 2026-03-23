@@ -119,7 +119,7 @@ const SectionBlock: React.FC<{
   description?: string;
   children: React.ReactNode;
 }> = ({ title, description, children }) => (
-  <section className="space-y-4 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6">
+  <section className="space-y-4 pt-4">
     <div className="space-y-1">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}

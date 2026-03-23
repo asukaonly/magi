@@ -90,7 +90,7 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
             return (
               <section
                 key={plugin.manifest.plugin_id}
-                className="space-y-5 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6"
+                className="space-y-5 pt-4"
               >
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
