@@ -57,6 +57,8 @@ class UnifiedMemoryStore:
         enable_l4: bool = True,
         l0_checkpoint_interval_seconds: int = 30,
         l2_batch_flush_interval_seconds: int = 60,
+        enable_l2_conflict_arbitration: bool = True,
+        l2_conflict_arbitration_min_confidence: float = 0.85,
         session_timeout_seconds: int = 3600,
         embedding_service: MemoryEmbeddingService | None = None,
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
@@ -124,6 +126,8 @@ class UnifiedMemoryStore:
                 llm_service=self.l2_llm_service,
                 state_change_callback=self._handle_l2_state_change_outcomes,
                 batch_flush_interval_seconds=l2_batch_flush_interval_seconds,
+                enable_conflict_arbitration=enable_l2_conflict_arbitration,
+                conflict_arbitration_min_confidence=l2_conflict_arbitration_min_confidence,
             )
         if enable_l3:
             self.l3 = L3SummaryStore(

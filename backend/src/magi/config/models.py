@@ -192,6 +192,8 @@ class MemorySettings(BaseModel):
     runtime_replay_include_l0_only: bool = Field(default=False)
     enable_t1_importance: bool = Field(default=True)
     enable_l2_llm_extraction: bool = Field(default=True)
+    enable_l2_conflict_arbitration: bool = Field(default=True)
+    l2_conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
     enable_l3_llm_summary: bool = Field(default=True)
     l3_temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
     l3_temporal_llm_min_event_count: int = Field(default=2, ge=1)

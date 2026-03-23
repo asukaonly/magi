@@ -38,6 +38,8 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.enable_l4 is True
     assert config.memory.l0_checkpoint_interval_seconds == 30
     assert config.memory.l2_batch_flush_interval_seconds == 60
+    assert config.memory.enable_l2_conflict_arbitration is True
+    assert config.memory.l2_conflict_arbitration_min_confidence == 0.85
     assert config.memory.enable_l2_llm_extraction is True
     assert config.memory.l3_temporal_llm_timeout_seconds == 3.0
     assert config.memory.l3_temporal_llm_min_event_count == 2
@@ -47,6 +49,11 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
 def test_memory_config_rejects_l2_batch_flush_interval_below_minimum():
     with pytest.raises(ValueError):
         SystemConfigModel(memory={"l2_batch_flush_interval_seconds": 29})
+
+
+def test_memory_config_rejects_l2_conflict_arbitration_threshold_above_maximum():
+    with pytest.raises(ValueError):
+        SystemConfigModel(memory={"l2_conflict_arbitration_min_confidence": 1.1})
 
 
 def test_llm_settings_reject_duplicate_builtin_provider_types():
@@ -99,6 +106,8 @@ def test_build_update_paths_contains_new_sections():
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.memory.enable_l0 = not current.memory.enable_l0
     config.memory.l2_batch_flush_interval_seconds = 90
+    config.memory.enable_l2_conflict_arbitration = False
+    config.memory.l2_conflict_arbitration_min_confidence = 0.9
     config.memory.l3_temporal_llm_timeout_seconds = 1.5
     config.memory.l3_temporal_llm_min_event_count = 3
     config.timeline.enabled = not current.timeline.enabled
@@ -107,6 +116,8 @@ def test_build_update_paths_contains_new_sections():
     assert "agent.memory.enable_l0" in updates
     assert updates["agent.memory.enable_l0"] == config.memory.enable_l0
     assert updates["agent.memory.l2_batch_flush_interval_seconds"] == 90
+    assert updates["agent.memory.enable_l2_conflict_arbitration"] is False
+    assert updates["agent.memory.l2_conflict_arbitration_min_confidence"] == 0.9
     assert updates["agent.memory.l3_temporal_llm_timeout_seconds"] == 1.5
     assert updates["agent.memory.l3_temporal_llm_min_event_count"] == 3
     assert "timeline" in updates

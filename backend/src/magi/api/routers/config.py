@@ -113,6 +113,8 @@ class MemoryConfigModel(BaseModel):
     runtime_replay_include_l0_only: bool = Field(default=False)
     enable_t1_importance: bool = Field(default=True)
     enable_l2_llm_extraction: bool = Field(default=True)
+    enable_l2_conflict_arbitration: bool = Field(default=True)
+    l2_conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
     enable_l3_llm_summary: bool = Field(default=True)
     l3_temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
     l3_temporal_llm_min_event_count: int = Field(default=2, ge=1)
@@ -405,6 +407,8 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
         runtime_replay_include_l0_only=memory_cfg.runtime_replay_include_l0_only,
         enable_t1_importance=memory_cfg.enable_t1_importance,
         enable_l2_llm_extraction=memory_cfg.enable_l2_llm_extraction,
+        enable_l2_conflict_arbitration=memory_cfg.enable_l2_conflict_arbitration,
+        l2_conflict_arbitration_min_confidence=memory_cfg.l2_conflict_arbitration_min_confidence,
         enable_l3_llm_summary=memory_cfg.enable_l3_llm_summary,
         l3_temporal_llm_timeout_seconds=memory_cfg.l3_temporal_llm_timeout_seconds,
         l3_temporal_llm_min_event_count=memory_cfg.l3_temporal_llm_min_event_count,
@@ -761,6 +765,8 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.runtime_replay_include_l0_only": config.memory.runtime_replay_include_l0_only,
         "agent.memory.enable_t1_importance": config.memory.enable_t1_importance,
         "agent.memory.enable_l2_llm_extraction": config.memory.enable_l2_llm_extraction,
+        "agent.memory.enable_l2_conflict_arbitration": config.memory.enable_l2_conflict_arbitration,
+        "agent.memory.l2_conflict_arbitration_min_confidence": config.memory.l2_conflict_arbitration_min_confidence,
         "agent.memory.enable_l3_llm_summary": config.memory.enable_l3_llm_summary,
         "agent.memory.l3_temporal_llm_timeout_seconds": config.memory.l3_temporal_llm_timeout_seconds,
         "agent.memory.l3_temporal_llm_min_event_count": config.memory.l3_temporal_llm_min_event_count,

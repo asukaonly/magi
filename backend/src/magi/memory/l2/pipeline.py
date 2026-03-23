@@ -54,7 +54,8 @@ DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS = 2.0
 DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT = 3
 DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3
 DEFAULT_L2_HISTORY_SEARCH_LIMIT = 4
-SEVERE_CONTRADICTION_HINT_CONFIDENCE = 0.85
+DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION = True
+DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE = 0.85
 SEVERE_CONTRADICTION_KINDS = {
     "direct_negation",
     "state_reversal",
@@ -88,6 +89,9 @@ class L2PipelineStats:
     avg_batch_estimated_tokens: float = 0.0
     extract_by_evidence_class: dict[str, int] = field(default_factory=dict)
     skip_by_reason: dict[str, int] = field(default_factory=dict)
+    conflict_arbitration_triggered: int = 0
+    conflict_arbitration_by_decision: dict[str, int] = field(default_factory=dict)
+    severe_contradiction_hint_count: int = 0
 
 
 class L2Pipeline:
@@ -102,6 +106,8 @@ class L2Pipeline:
         llm_service: Optional[L2LLMService] = None,
         state_change_callback: Callable[[str, str, list[dict[str, Any]]], Awaitable[None]] | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
+        enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
+        conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
     ) -> None:
         self._cognition_store = cognition_store
         self._l1_store = l1_store
@@ -109,6 +115,8 @@ class L2Pipeline:
         self._llm_service = llm_service
         self._state_change_callback = state_change_callback
         self._batch_flush_interval_seconds = max(0, int(batch_flush_interval_seconds))
+        self._enable_conflict_arbitration = bool(enable_conflict_arbitration)
+        self._conflict_arbitration_min_confidence = max(0.0, min(1.0, float(conflict_arbitration_min_confidence)))
         self._extract_queue: asyncio.Queue[L2BatchJob | None] = asyncio.Queue()
         self._reconcile_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
         self._snapshot_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
@@ -726,7 +734,10 @@ class L2Pipeline:
                 assertion_candidates=assertion_candidates,
                 contradiction_hints=contradiction_hints,
             )
-            if conflict_arbitration and conflict_arbitration.get("decision") == "keep_existing":
+            arbitration_decision = self._non_empty_text(
+                conflict_arbitration.get("decision") if isinstance(conflict_arbitration, dict) else None
+            )
+            if arbitration_decision == "keep_existing":
                 logger.info(
                     "L2 conflict arbitration kept existing records",
                     event_id=stored_event.event_id,
@@ -736,6 +747,11 @@ class L2Pipeline:
                 graph_candidates = []
                 assertion_candidates = []
                 contradiction_hints = []
+            elif arbitration_decision == "mark_evolution":
+                contradiction_hints = self._rewrite_hints_for_evolution(
+                    contradiction_hints=contradiction_hints,
+                    conflict_arbitration=conflict_arbitration,
+                )
 
         relation_count = 0
         assertion_count = 0
@@ -1556,7 +1572,7 @@ class L2Pipeline:
             confidence = float(hint.get("confidence", 0.0) or 0.0)
             if contradiction_kind not in SEVERE_CONTRADICTION_KINDS:
                 continue
-            if confidence < SEVERE_CONTRADICTION_HINT_CONFIDENCE:
+            if confidence < self._conflict_arbitration_min_confidence:
                 continue
             severe.append(dict(hint))
         return severe
@@ -1570,7 +1586,7 @@ class L2Pipeline:
         assertion_candidates: list[dict[str, Any]],
         contradiction_hints: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        if self._llm_service is None or self._cognition_store is None:
+        if not self._enable_conflict_arbitration or self._llm_service is None or self._cognition_store is None:
             return None
 
         severe_hints = self._severe_contradiction_hints(contradiction_hints)
@@ -1605,15 +1621,56 @@ class L2Pipeline:
         )
         if not result:
             return None
+        decision = self._non_empty_text(result.get("decision"))
+        self._stats.conflict_arbitration_triggered += 1
+        self._stats.severe_contradiction_hint_count += len(severe_hints)
+        self._increment_bucket(self._stats.conflict_arbitration_by_decision, decision)
         logger.info(
             "L2 conflict arbitration completed",
             event_id=anchor_event.event_id,
-            decision=result.get("decision"),
+            decision=decision,
             severe_hint_count=len(severe_hints),
             existing_record_count=len(existing_records),
             source_event_count=len(source_events),
         )
         return result
+
+    def _rewrite_hints_for_evolution(
+        self,
+        *,
+        contradiction_hints: list[dict[str, Any]],
+        conflict_arbitration: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        superseded_record_ids = {
+            record_id
+            for record_id in (
+                self._non_empty_text(item)
+                for item in conflict_arbitration.get("superseded_record_ids", [])
+            )
+            if record_id
+        }
+        evolved_target_ids = superseded_record_ids or {
+            target_record_id
+            for target_record_id in (
+                self._non_empty_text(hint.get("target_record_id"))
+                for hint in self._severe_contradiction_hints(contradiction_hints)
+            )
+            if target_record_id
+        }
+        rewritten_hints: list[dict[str, Any]] = []
+        for hint in contradiction_hints:
+            if not isinstance(hint, dict):
+                continue
+            next_hint = dict(hint)
+            target_record_id = self._non_empty_text(next_hint.get("target_record_id"))
+            target_record_type = self._non_empty_text(next_hint.get("target_record_type"))
+            if target_record_id in evolved_target_ids:
+                if target_record_type == "knowledge_graph":
+                    next_hint["recommended_action"] = "mark_deprecated"
+                elif target_record_type == "tom_trait_assertion":
+                    next_hint["recommended_action"] = "mark_conflicted"
+            rewritten_hints.append(next_hint)
+        return rewritten_hints
 
     async def _load_existing_records(self, focal_entities: list[dict[str, str]]) -> list[dict[str, Any]]:
         if self._cognition_store is None:

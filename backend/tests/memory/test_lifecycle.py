@@ -81,6 +81,8 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
                 l3_temporal_llm_min_event_count=5,
                 l0_checkpoint_interval_seconds=60,
                 l2_batch_flush_interval_seconds=90,
+                enable_l2_conflict_arbitration=True,
+                l2_conflict_arbitration_min_confidence=0.85,
                 summary_interval_minutes=15,
             )
         )
@@ -99,3 +101,5 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     await module.init()
 
     assert captured["l2_batch_flush_interval_seconds"] == 90
+    assert captured["enable_l2_conflict_arbitration"] is True
+    assert captured["l2_conflict_arbitration_min_confidence"] == 0.85

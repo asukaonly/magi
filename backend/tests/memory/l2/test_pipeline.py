@@ -457,10 +457,19 @@ async def test_l2_pipeline_starts_with_five_extract_workers():
 
 
 def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
-    store = UnifiedMemoryStore(enable_l0=False, enable_l3=False, enable_l4=False, l2_batch_flush_interval_seconds=90)
+    store = UnifiedMemoryStore(
+        enable_l0=False,
+        enable_l3=False,
+        enable_l4=False,
+        l2_batch_flush_interval_seconds=90,
+        enable_l2_conflict_arbitration=False,
+        l2_conflict_arbitration_min_confidence=0.9,
+    )
 
     assert store.l2_pipeline is not None
     assert store.l2_pipeline._batch_flush_interval_seconds == 90
+    assert store.l2_pipeline._enable_conflict_arbitration is False
+    assert store.l2_pipeline._conflict_arbitration_min_confidence == 0.9
 
 
 @pytest.mark.asyncio
@@ -1301,6 +1310,115 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
             assert active_edges[0]["triple_id"] == existing_triple_id
             assert active_edges[0]["predicate"] == "LIKES"
             assert deprecated_edges == []
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_marks_evolution_by_deprecating_old_graph_fact_and_keeping_new_one():
+    adapter = _FakeAdapter("{}")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l2 is not None
+            await store.l2.upsert_knowledge_edge(
+                subject_id="user:u1",
+                subject_type="user",
+                predicate="LIKES",
+                object_id="place:shanghai",
+                object_type="place",
+                evidence_event_ids=["evt-like-1"],
+                confidence=0.91,
+                observed_at=1710000000.0,
+                source_type="chat",
+                extraction_method="llm",
+            )
+            previous_edge = (await store.l2.get_relationships(subject_id="user:u1", status="active", limit=10))[0]
+            adapter._responses = [
+                json.dumps(
+                    {
+                        "mentions": [],
+                        "graph_candidates": [
+                            {
+                                "subject_ref": "user:u1",
+                                "subject_type": "user",
+                                "predicate": "DISLIKES",
+                                "object_ref": "place:shanghai",
+                                "object_type": "place",
+                                "fact_kind": "stable_preference",
+                                "polarity": "negative",
+                                "evidence_text": "I hate Shanghai these days.",
+                                "confidence": 0.94,
+                            }
+                        ],
+                        "assertion_candidates": [],
+                        "diagnostics": {"entity_status": "none"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "contradiction_hints": [
+                            {
+                                "target_record_id": previous_edge["triple_id"],
+                                "target_record_type": "knowledge_graph",
+                                "contradiction_kind": "preference_reversal",
+                                "confidence": 0.92,
+                                "evidence_text": "I hate Shanghai these days.",
+                                "recommended_action": "revalidate_only",
+                            }
+                        ]
+                    }
+                ),
+                json.dumps(
+                    {
+                        "decision": "mark_evolution",
+                        "winning_record_ids": [],
+                        "superseded_record_ids": [previous_edge["triple_id"]],
+                        "reason": "The user's preference appears to have evolved over time.",
+                    }
+                ),
+            ]
+
+            await store.ingest_event(
+                {
+                    "id": "evt-evolution-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-new",
+                        "content": "I hate Shanghai these days.",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            active_edges = await store.l2.get_relationships(subject_id="user:u1", status="active", limit=10)
+            deprecated_edges = await store.l2.get_relationships(subject_id="user:u1", status="deprecated", limit=10)
+            stats = store.get_l2_pipeline_stats()
+
+            assert len(active_edges) == 1
+            assert active_edges[0]["predicate"] == "DISLIKES"
+            assert len(deprecated_edges) == 1
+            assert deprecated_edges[0]["triple_id"] == previous_edge["triple_id"]
+            assert stats["conflict_arbitration_triggered"] == 1
+            assert stats["conflict_arbitration_by_decision"]["mark_evolution"] == 1
         finally:
             await store.shutdown()
 
