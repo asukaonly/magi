@@ -144,6 +144,8 @@ class MemoryEvent:
     importance_score: float
     level: int
     media_path: Optional[str] = None
+    embedding_status: Optional[str] = None
+    embedding_profile_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -169,6 +171,8 @@ class MemoryEvent:
             "importance_score": self.importance_score,
             "level": self.level,
             "media_path": self.media_path,
+            "embedding_status": self.embedding_status,
+            "embedding_profile_id": self.embedding_profile_id,
         }
 
 

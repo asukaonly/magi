@@ -12,9 +12,12 @@ from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionCla
 
 
 class _BatchTrackingEmbeddingService:
-    def __init__(self) -> None:
+    def __init__(self, *, model_name: str = "test-embedding", dimension: int = 4) -> None:
         self.single_calls: list[str] = []
         self.batch_calls: list[list[str]] = []
+        self.model_name = model_name
+        self.provider_name = "fake"
+        self.embedding_dimension = dimension
 
     async def embed_text(self, text: str):
         self.single_calls.append(text)
@@ -25,10 +28,10 @@ class _BatchTrackingEmbeddingService:
         return [self._make_result(text) for text in texts]
 
     def _make_result(self, text: str):
-        from magi.memory.embedding_service import EmbeddingResult
+        from magi.memory.embedding_service import EmbeddingProfile, EmbeddingResult
 
         lowered = text.lower()
-        vector = [0.0, 0.0, 0.0, 0.0]
+        vector = [0.0] * self.embedding_dimension
         if "stress" in lowered:
             vector[0] = 1.0
         if "calm" in lowered:
@@ -36,8 +39,28 @@ class _BatchTrackingEmbeddingService:
         if "career" in lowered:
             vector[2] = 1.0
         if not any(vector):
-            vector[3] = 1.0
-        return EmbeddingResult(model_name="test-embedding", dimension=4, vector=vector)
+            vector[min(3, self.embedding_dimension - 1)] = 1.0
+        return EmbeddingResult(model_name=self.model_name, dimension=self.embedding_dimension, vector=vector)
+
+    def get_active_profile(self, *, text_builder_version: str):
+        from magi.memory.embedding_service import EmbeddingProfile
+
+        return EmbeddingProfile.build(
+            provider_name=self.provider_name,
+            model_name=self.model_name,
+            dimension=self.embedding_dimension,
+            text_builder_version=text_builder_version,
+        )
+
+    def profile_from_result(self, result, *, text_builder_version: str):
+        from magi.memory.embedding_service import EmbeddingProfile
+
+        return EmbeddingProfile.build(
+            provider_name=self.provider_name,
+            model_name=result.model_name,
+            dimension=result.dimension,
+            text_builder_version=text_builder_version,
+        )
 
 
 @pytest.mark.asyncio
@@ -468,3 +491,157 @@ async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
         "stress note 0",
         "stress note 1",
     ]]
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_marks_embedding_ready_with_profile_row(tmp_path):
+    from magi.memory.l1.event_store import EMBEDDING_PROFILES_TABLE, L1EventStore
+
+    embedding_service = _BatchTrackingEmbeddingService(model_name="embed-a", dimension=8)
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    try:
+        await store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "career note",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-ready",
+                ),
+                event_id="evt-ready",
+            )
+        )
+
+        fetched = await store.get_event("evt-ready")
+        assert fetched is not None
+        assert fetched["embedding_status"] == "ready"
+        assert fetched["embedding_profile_id"] is not None
+
+        conn = sqlite3.connect(str(tmp_path / "l1_events.db"))
+        profile_row = conn.execute(
+            f"SELECT provider_name, model_name, embedding_dim FROM {EMBEDDING_PROFILES_TABLE} WHERE profile_id = ?",
+            (fetched["embedding_profile_id"],),
+        ).fetchone()
+        conn.close()
+
+        assert profile_row == ("fake", "embed-a", 8)
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_marks_ready_embeddings_stale_after_profile_switch(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _BatchTrackingEmbeddingService(model_name="embed-a", dimension=8)
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    try:
+        await store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "calm note",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-stale",
+                ),
+                event_id="evt-stale",
+            )
+        )
+
+        embedding_service.model_name = "embed-b"
+        embedding_service.embedding_dimension = 16
+
+        fetched = await store.get_event("evt-stale")
+
+        assert fetched is not None
+        assert fetched["embedding_status"] == "stale"
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_marks_skipped_and_disabled_embedding_states(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    disabled_store = L1EventStore(db_path=str(tmp_path / "disabled.db"), vector_enabled=False)
+    await disabled_store.initialize()
+    try:
+        await disabled_store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "plain note",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-disabled",
+                ),
+                event_id="evt-disabled",
+            )
+        )
+        disabled = await disabled_store.get_event("evt-disabled")
+        assert disabled is not None
+        assert disabled["embedding_status"] == "disabled"
+    finally:
+        await disabled_store.shutdown()
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    skipped_store = L1EventStore(
+        db_path=str(tmp_path / "skipped.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await skipped_store.initialize()
+    try:
+        await skipped_store.store(
+            normalize_runtime_event(
+                Event(
+                    type="TRACE_NODE_COMPLETED",
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "trace node",
+                        "author_type": "system",
+                        "content_type": "observation",
+                    },
+                    source="runtime",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-skipped",
+                ),
+                event_id="evt-skipped",
+            )
+        )
+        skipped = await skipped_store.get_event("evt-skipped")
+        assert skipped is not None
+        assert skipped["embedding_status"] == "skipped"
+    finally:
+        await skipped_store.shutdown()

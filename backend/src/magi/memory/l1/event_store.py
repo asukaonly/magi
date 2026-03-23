@@ -13,13 +13,21 @@ import aiosqlite
 
 from ...events.events import Event, EventLevel, EventTypes
 from ...timeline.contracts import TimelineEvent
-from ..embedding_service import MemoryEmbeddingService
+from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
 from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
+EMBEDDING_PROFILES_TABLE = "embedding_profiles"
+EMBEDDING_TEXT_BUILDER_VERSION = "l1_content_v1"
+EMBEDDING_STATUS_PENDING = "pending"
+EMBEDDING_STATUS_READY = "ready"
+EMBEDDING_STATUS_FAILED = "failed"
+EMBEDDING_STATUS_SKIPPED = "skipped"
+EMBEDDING_STATUS_DISABLED = "disabled"
+EMBEDDING_STATUS_STALE = "stale"
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +101,8 @@ class L1EventStore:
                     importance_score REAL NOT NULL DEFAULT 0.5,
                     level INTEGER NOT NULL DEFAULT 1,
                     media_path TEXT,
+                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
+                    embedding_profile_id TEXT,
                     deleted_at REAL
                 );
 
@@ -105,6 +115,14 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_fact_events_user ON fact_events(user_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON fact_events(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON fact_events(retention_class);
+                CREATE TABLE IF NOT EXISTS embedding_profiles (
+                    profile_id TEXT PRIMARY KEY,
+                    provider_name TEXT NOT NULL,
+                    model_name TEXT NOT NULL,
+                    embedding_dim INTEGER,
+                    text_builder_version TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                );
 
                 CREATE TABLE IF NOT EXISTS l1_event_vectors (
                     vec_rowid INTEGER PRIMARY KEY,
@@ -126,6 +144,13 @@ class L1EventStore:
                     tokenize='unicode61'
                 );
                 """
+            )
+            await self._ensure_embedding_status_columns(db)
+            await db.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON {FACT_EVENTS_TABLE}(embedding_status)"
+            )
+            await db.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_profile ON {FACT_EVENTS_TABLE}(embedding_profile_id)"
             )
             await ensure_chat_sessions_schema_async(db)
             if self._vector_enabled:
@@ -164,8 +189,8 @@ class L1EventStore:
                     event_type, source, source_item_id, memory_domain, ingest_target,
                     cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
                     task_id, content, author_type, content_type, importance_score,
-                    level, media_path, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    level, media_path, embedding_status, embedding_profile_id, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -190,6 +215,8 @@ class L1EventStore:
                     float(event.importance_score),
                     int(event.level),
                     event.media_path,
+                    self._initial_embedding_status(event),
+                    self._initial_embedding_profile_id(event),
                     None,
                 ),
             )
@@ -416,6 +443,7 @@ class L1EventStore:
             "db_path": self.db_path,
             "vector_enabled": self._vector_enabled,
             "async_embeddings": self._async_embeddings,
+            "active_embedding_profile_id": self.get_active_embedding_profile_id(),
             "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
             "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
         }
@@ -589,7 +617,7 @@ class L1EventStore:
         eligible_events = [
             event
             for event in events
-            if event.memory_domain not in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}
+            if self._embedding_eligible(event)
         ]
         if not eligible_events:
             return
@@ -602,18 +630,35 @@ class L1EventStore:
                 for text in texts
             ]
         if not embeddings:
+            await self._update_event_embedding_states(
+                [
+                    (event.event_id, EMBEDDING_STATUS_FAILED, self._initial_embedding_profile_id(event))
+                    for event in eligible_events
+                ]
+            )
             return
+        state_updates: list[tuple[str, str, str | None]] = []
+        profiles_by_id: dict[str, EmbeddingProfile] = {}
         for event, embedding in zip(eligible_events, embeddings):
             if embedding is None:
+                state_updates.append(
+                    (event.event_id, EMBEDDING_STATUS_FAILED, self._initial_embedding_profile_id(event))
+                )
                 continue
+            profile = self._profile_from_embedding_result(embedding)
+            profiles_by_id[profile.profile_id] = profile
             try:
                 await self._vector_index.upsert(
                     entity_id=event.event_id,
                     embedding=embedding,
                     metadata={"event_type": event.event_type, "source": event.source},
                 )
+                state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id))
             except Exception as exc:
                 logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, exc)
+                state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile.profile_id))
+        if state_updates:
+            await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
 
     async def _semantic_search_event_hits(self, *, query: str, limit: int) -> list[VectorSearchHit]:
         if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
@@ -739,7 +784,123 @@ class L1EventStore:
             return f"{text} {labels}"
         return text or labels
 
+    def get_active_embedding_profile_id(self) -> str | None:
+        if self._embedding_service is None:
+            return None
+        getter = getattr(self._embedding_service, "get_active_profile", None)
+        if not callable(getter):
+            return None
+        profile = getter(text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION)
+        return profile.profile_id if profile is not None else None
+
+    async def _ensure_embedding_status_columns(self, db: aiosqlite.Connection) -> None:
+        async with db.execute(f"PRAGMA table_info({FACT_EVENTS_TABLE})") as cursor:
+            columns = {str(row[1]) for row in await cursor.fetchall()}
+        if "embedding_status" not in columns:
+            await db.execute(
+                f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN embedding_status TEXT NOT NULL DEFAULT '{EMBEDDING_STATUS_DISABLED}'"
+            )
+        if "embedding_profile_id" not in columns:
+            await db.execute(
+                f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN embedding_profile_id TEXT"
+            )
+
+    def _embedding_eligible(self, event: MemoryEvent) -> bool:
+        return event.memory_domain not in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}
+
+    def _initial_embedding_status(self, event: MemoryEvent) -> str:
+        if not self._vector_enabled or self._embedding_service is None:
+            return EMBEDDING_STATUS_DISABLED
+        if not self._embedding_eligible(event):
+            return EMBEDDING_STATUS_SKIPPED
+        return EMBEDDING_STATUS_PENDING
+
+    def _initial_embedding_profile_id(self, event: MemoryEvent) -> str | None:
+        if not self._vector_enabled or self._embedding_service is None or not self._embedding_eligible(event):
+            return None
+        return self.get_active_embedding_profile_id()
+
+    def _profile_from_embedding_result(self, embedding: Any) -> EmbeddingProfile:
+        if self._embedding_service is not None and hasattr(self._embedding_service, "profile_from_result"):
+            return self._embedding_service.profile_from_result(
+                embedding,
+                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+            )
+        return EmbeddingProfile.build(
+            provider_name="unknown",
+            model_name=str(getattr(embedding, "model_name", "embedding")),
+            dimension=int(getattr(embedding, "dimension", 0) or 0),
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        )
+
+    async def _update_event_embedding_states(
+        self,
+        updates: list[tuple[str, str, str | None]],
+        *,
+        profiles_by_id: dict[str, EmbeddingProfile] | None = None,
+    ) -> None:
+        if not updates:
+            return
+        profile_ids = {profile_id for _, _, profile_id in updates if profile_id}
+        async with aiosqlite.connect(self.db_path) as db:
+            if profile_ids:
+                await self._sync_embedding_profiles(db, profile_ids, profiles_by_id=profiles_by_id or {})
+            await db.executemany(
+                f"UPDATE {FACT_EVENTS_TABLE} SET embedding_status = ?, embedding_profile_id = ? WHERE event_id = ?",
+                [(status, profile_id, event_id) for event_id, status, profile_id in updates],
+            )
+            await db.commit()
+
+    async def _sync_embedding_profiles(
+        self,
+        db: aiosqlite.Connection,
+        profile_ids: set[str],
+        *,
+        profiles_by_id: dict[str, EmbeddingProfile],
+    ) -> None:
+        active_profile = None
+        if self._embedding_service is not None and hasattr(self._embedding_service, "get_active_profile"):
+            active_profile = self._embedding_service.get_active_profile(
+                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION
+            )
+        if active_profile is not None:
+            profiles_by_id[active_profile.profile_id] = active_profile
+        now = time.time()
+        for profile_id in profile_ids:
+            profile = profiles_by_id.get(profile_id)
+            if profile is None:
+                continue
+            await db.execute(
+                f"""
+                INSERT OR IGNORE INTO {EMBEDDING_PROFILES_TABLE}(
+                    profile_id, provider_name, model_name, embedding_dim, text_builder_version, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile.profile_id,
+                    profile.provider_name,
+                    profile.model_name,
+                    profile.dimension,
+                    profile.text_builder_version,
+                    now,
+                ),
+            )
+
+    def _effective_embedding_status(
+        self,
+        stored_status: str,
+        stored_profile_id: str | None,
+    ) -> str:
+        normalized_status = str(stored_status or EMBEDDING_STATUS_DISABLED)
+        if normalized_status != EMBEDDING_STATUS_READY:
+            return normalized_status
+        active_profile_id = self.get_active_embedding_profile_id()
+        if active_profile_id and stored_profile_id and stored_profile_id != active_profile_id:
+            return EMBEDDING_STATUS_STALE
+        return normalized_status
+
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
+        stored_profile_id = row["embedding_profile_id"]
         return {
             "event_id": str(row["event_id"]),
             "correlation_id": str(row["correlation_id"]),
@@ -763,10 +924,13 @@ class L1EventStore:
             "importance_score": float(row["importance_score"]),
             "level": int(row["level"]),
             "media_path": row["media_path"],
+            "embedding_status": self._effective_embedding_status(row["embedding_status"], stored_profile_id),
+            "embedding_profile_id": stored_profile_id,
             "deleted_at": float(row["deleted_at"]) if row["deleted_at"] is not None else None,
         }
 
     def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent:
+        stored_profile_id = row["embedding_profile_id"]
         return MemoryEvent(
             event_id=str(row["event_id"]),
             correlation_id=str(row["correlation_id"]),
@@ -790,6 +954,8 @@ class L1EventStore:
             importance_score=float(row["importance_score"]),
             level=int(row["level"]),
             media_path=row["media_path"],
+            embedding_status=self._effective_embedding_status(row["embedding_status"], stored_profile_id),
+            embedding_profile_id=stored_profile_id,
         )
 
 
