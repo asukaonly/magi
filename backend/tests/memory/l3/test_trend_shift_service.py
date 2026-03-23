@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import TrendShiftPacket
 from magi.memory.l3.trend_shift_service import TrendShiftService
 
@@ -14,14 +15,18 @@ async def test_build_trend_shift_candidate_from_reconcile_outcomes() -> None:
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                {
-                    "trait_name": "stress_level",
-                    "winning_value": "high",
-                    "status": "stable",
-                    "time_span_hours": 48.0,
-                    "stability_kind": "temporary_state",
-                    "evidence_event_ids": ["evt-1", "evt-2", "evt-3"],
-                }
+                ReconciledTraitOutcome(
+                    entity_id="user:self",
+                    entity_type="user",
+                    trait_name="stress_level",
+                    winning_value="high",
+                    status="stable",
+                    confidence=0.92,
+                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
+                    time_span_hours=48.0,
+                    stability_kind="temporary_state",
+                    recommended_snapshot_field="core_traits",
+                )
             ],
         )
     )
@@ -42,14 +47,18 @@ async def test_build_trend_shift_candidate_returns_none_without_long_span_signal
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                {
-                    "trait_name": "stress_level",
-                    "winning_value": "high",
-                    "status": "corroborated",
-                    "time_span_hours": 2.0,
-                    "stability_kind": "temporary_state",
-                    "evidence_event_ids": ["evt-1"],
-                }
+                ReconciledTraitOutcome(
+                    entity_id="user:self",
+                    entity_type="user",
+                    trait_name="stress_level",
+                    winning_value="high",
+                    status="corroborated",
+                    confidence=0.75,
+                    evidence_event_ids=["evt-1"],
+                    time_span_hours=2.0,
+                    stability_kind="temporary_state",
+                    recommended_snapshot_field="core_traits",
+                )
             ],
         )
     )

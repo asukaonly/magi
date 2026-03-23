@@ -12,6 +12,7 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
 from magi.memory import UnifiedMemoryStore
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
+from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import L3Candidate, StateChangePacket, TaskOutcomePacket
 from magi.timeline import TimelineContentBlock, TimelineEvent
 from magi.timeline.service import TimelineService
@@ -467,18 +468,30 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 entity_id="user:u1",
                 entity_type="user",
                 outcomes=[
-                    {
-                        "trait_name": "stress_level",
-                        "winning_value": "high",
-                        "status": "stable",
-                        "evidence_event_ids": [first_event_id, second_event_id],
-                    },
-                    {
-                        "trait_name": "mood",
-                        "winning_value": "anxious",
-                        "status": "corroborated",
-                        "evidence_event_ids": [second_event_id],
-                    },
+                    ReconciledTraitOutcome(
+                        entity_id="user:u1",
+                        entity_type="user",
+                        trait_name="stress_level",
+                        winning_value="high",
+                        status="stable",
+                        confidence=0.92,
+                        evidence_event_ids=[first_event_id, second_event_id],
+                        time_span_hours=48.0,
+                        stability_kind="stable_pattern",
+                        recommended_snapshot_field="core_traits",
+                    ),
+                    ReconciledTraitOutcome(
+                        entity_id="user:u1",
+                        entity_type="user",
+                        trait_name="mood",
+                        winning_value="anxious",
+                        status="corroborated",
+                        confidence=0.81,
+                        evidence_event_ids=[second_event_id],
+                        time_span_hours=12.0,
+                        stability_kind="emerging_pattern",
+                        recommended_snapshot_field="core_traits",
+                    ),
                 ],
             )
         )

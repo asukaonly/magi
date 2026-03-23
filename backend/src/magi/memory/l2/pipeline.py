@@ -123,7 +123,7 @@ class L2Pipeline:
         l1_store: Optional[L1EventStore] = None,
         entity_catalog: Optional[L2EntityCatalog] = None,
         llm_service: Optional[L2LLMService] = None,
-        state_change_callback: Callable[[str, str, list[dict[str, Any]]], Awaitable[None]] | None = None,
+        state_change_callback: Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]] | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
         enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
         conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
@@ -477,7 +477,7 @@ class L2Pipeline:
         if self._state_change_callback is None or not outcomes:
             return
         try:
-            await self._state_change_callback(entity_id, entity_type, [item.to_dict() for item in outcomes])
+            await self._state_change_callback(entity_id, entity_type, outcomes)
         except Exception:
             logger.exception(
                 "L2 state change insight callback failed",

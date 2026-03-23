@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from ..l2.models import ReconciledTraitOutcome
+
 SummaryType = Literal["temporal", "thematic", "insight"]
 SummaryCategory = Literal[
     "hour",
@@ -56,7 +58,7 @@ class StateChangePacket:
 
     entity_id: str
     entity_type: str
-    outcomes: list[dict[str, object]] = field(default_factory=list)
+    outcomes: list[ReconciledTraitOutcome] = field(default_factory=list)
     trigger_reason: str = "l2_reconcile"
 
 
@@ -75,7 +77,7 @@ class TrendShiftPacket:
 
     entity_id: str
     entity_type: str
-    outcomes: list[dict[str, object]] = field(default_factory=list)
+    outcomes: list[ReconciledTraitOutcome] = field(default_factory=list)
     trigger_reason: str = "l2_reconcile"
 
 

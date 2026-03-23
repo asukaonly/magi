@@ -17,7 +17,7 @@ from .l1.event_store import L1EventStore
 from .l2.store import L2CognitionStore
 from .l2.entity_catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
-from .l2.models import ManualL2EventRequest
+from .l2.models import ManualL2EventRequest, ReconciledTraitOutcome
 from .l2.pipeline import L2Pipeline
 from .l3.contradiction_service import ContradictionInsightService
 from .l3.models import ContradictionPacket, L3Candidate, StateChangePacket, TaskOutcomePacket, TrendShiftPacket
@@ -392,7 +392,7 @@ class UnifiedMemoryStore:
         self,
         entity_id: str,
         entity_type: str,
-        outcomes: list[dict[str, Any]],
+        outcomes: list[ReconciledTraitOutcome],
     ) -> None:
         await self.persist_state_change_insight(
             StateChangePacket(
@@ -404,15 +404,15 @@ class UnifiedMemoryStore:
         contradiction_source_ids: list[str] = []
         contradictions: list[dict[str, Any]] = []
         for outcome in outcomes:
-            if str(outcome.get("status") or "") != "contradicted":
+            if str(outcome.status or "") != "contradicted":
                 continue
             contradictions.append(
                 {
-                    "trait_name": str(outcome.get("trait_name") or ""),
-                    "winning_value": str(outcome.get("winning_value") or ""),
+                    "trait_name": str(outcome.trait_name or ""),
+                    "winning_value": str(outcome.winning_value or ""),
                 }
             )
-            for event_id in outcome.get("evidence_event_ids", []):
+            for event_id in outcome.evidence_event_ids:
                 event_id_str = str(event_id).strip()
                 if event_id_str and event_id_str not in contradiction_source_ids:
                     contradiction_source_ids.append(event_id_str)

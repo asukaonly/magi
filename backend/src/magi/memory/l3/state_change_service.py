@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..l2.models import ReconciledTraitOutcome
 from .models import L3Candidate, StateChangePacket
 
 
@@ -12,29 +13,19 @@ class StateChangeService:
         self,
         packet: StateChangePacket,
     ) -> L3Candidate | None:
-        normalized_outcomes: list[dict[str, object]] = []
+        normalized_outcomes: list[ReconciledTraitOutcome] = []
         source_event_ids: list[str] = []
 
-        for raw_outcome in packet.outcomes:
-            trait_name = str(raw_outcome.get("trait_name") or "").strip()
-            winning_value = str(raw_outcome.get("winning_value") or "").strip()
-            status = str(raw_outcome.get("status") or "").strip()
-            evidence_event_ids = [
-                str(event_id).strip()
-                for event_id in raw_outcome.get("evidence_event_ids", [])
-                if str(event_id).strip()
-            ]
+        for outcome in packet.outcomes:
+            trait_name = str(outcome.trait_name or "").strip()
+            winning_value = str(outcome.winning_value or "").strip()
+            status = str(outcome.status or "").strip()
+            evidence_event_ids = [str(event_id).strip() for event_id in outcome.evidence_event_ids if str(event_id).strip()]
             if not trait_name or not winning_value or not status:
                 continue
             if not evidence_event_ids:
                 continue
-            normalized_outcomes.append(
-                {
-                    "trait_name": trait_name,
-                    "winning_value": winning_value,
-                    "status": status,
-                }
-            )
+            normalized_outcomes.append(outcome)
             for event_id in evidence_event_ids:
                 if event_id not in source_event_ids:
                     source_event_ids.append(event_id)
@@ -59,10 +50,10 @@ class StateChangeService:
             subtypes=["state_transition"],
         )
 
-    def _render_outcome_fragment(self, outcome: dict[str, object]) -> str:
-        trait_name = str(outcome["trait_name"])
-        winning_value = str(outcome["winning_value"])
-        status = str(outcome["status"])
+    def _render_outcome_fragment(self, outcome: ReconciledTraitOutcome) -> str:
+        trait_name = str(outcome.trait_name)
+        winning_value = str(outcome.winning_value)
+        status = str(outcome.status)
         if status == "stable":
             return f"{trait_name} has stabilized around {winning_value}"
         if status == "corroborated":

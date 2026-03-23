@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import StateChangePacket
 from magi.memory.l3.state_change_service import StateChangeService
 
@@ -14,18 +15,30 @@ async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                {
-                    "trait_name": "stress_level",
-                    "winning_value": "high",
-                    "status": "stable",
-                    "evidence_event_ids": ["evt-1", "evt-2"],
-                },
-                {
-                    "trait_name": "mood",
-                    "winning_value": "anxious",
-                    "status": "corroborated",
-                    "evidence_event_ids": ["evt-2"],
-                },
+                ReconciledTraitOutcome(
+                    entity_id="user:self",
+                    entity_type="user",
+                    trait_name="stress_level",
+                    winning_value="high",
+                    status="stable",
+                    confidence=0.9,
+                    evidence_event_ids=["evt-1", "evt-2"],
+                    time_span_hours=48.0,
+                    stability_kind="stable_pattern",
+                    recommended_snapshot_field="core_traits",
+                ),
+                ReconciledTraitOutcome(
+                    entity_id="user:self",
+                    entity_type="user",
+                    trait_name="mood",
+                    winning_value="anxious",
+                    status="corroborated",
+                    confidence=0.8,
+                    evidence_event_ids=["evt-2"],
+                    time_span_hours=12.0,
+                    stability_kind="emerging_pattern",
+                    recommended_snapshot_field="core_traits",
+                ),
             ],
         )
     )
@@ -46,12 +59,18 @@ async def test_build_state_change_candidate_returns_none_without_evidence() -> N
             entity_id="user:self",
             entity_type="user",
             outcomes=[
-                {
-                    "trait_name": "stress_level",
-                    "winning_value": "high",
-                    "status": "stable",
-                    "evidence_event_ids": [],
-                }
+                ReconciledTraitOutcome(
+                    entity_id="user:self",
+                    entity_type="user",
+                    trait_name="stress_level",
+                    winning_value="high",
+                    status="stable",
+                    confidence=0.9,
+                    evidence_event_ids=[],
+                    time_span_hours=6.0,
+                    stability_kind="emerging_pattern",
+                    recommended_snapshot_field="core_traits",
+                )
             ],
         )
     )
