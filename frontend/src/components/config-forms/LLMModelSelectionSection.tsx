@@ -91,7 +91,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         ) : null}
         <div className={cn(
           'rounded-xl border border-border/65 p-4 text-sm text-muted-foreground',
-          isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] px-0 pb-0 pt-6'
+          isSettingsSurface && 'rounded-none border-0 px-0 pb-0 pt-0'
         )}>
           {t('llm.modelSelection.empty')}
         </div>
@@ -112,7 +112,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       ) : null}
 
       <div className="grid gap-3">
-        {SCENARIOS.map((scenario) => {
+        {SCENARIOS.map((scenario, index) => {
           const selection = value.selections[scenario];
           const provider = value.providers[selection.provider_id];
           const isCustomProvider = provider?.provider_type === 'custom';
@@ -136,7 +136,13 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                 data-testid={`llm-scenario-${scenario}`}
                 className={cn(
                   'rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
-                  isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] px-0 pb-0 pt-6 shadow-none'
+                  isSettingsSurface &&
+                    cn(
+                      'rounded-none border-x-0 border-b-0 px-0 pb-0 shadow-none',
+                      index === 0
+                        ? 'border-t-0 pt-0'
+                        : 'border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6'
+                    )
                 )}
               >
                 <div className="space-y-1 mb-4">
@@ -231,7 +237,13 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             data-testid={`llm-scenario-${scenario}`}
             className={cn(
               'rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
-              isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] px-0 pb-0 pt-6 shadow-none'
+              isSettingsSurface &&
+                cn(
+                  'rounded-none border-x-0 border-b-0 px-0 pb-0 shadow-none',
+                  index === 0
+                    ? 'border-t-0 pt-0'
+                    : 'border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6'
+                )
             )}
           >
               <div className="space-y-1 mb-4">
