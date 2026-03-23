@@ -9,7 +9,6 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING
 from ....core.logger import get_logger
 from ....awareness.contracts import ActionEmissionRecord
 from ....agent.runtime.contracts import FactRecord
-from ....agent.runtime.types import TaskAgentType
 from ....agent.trace import (
     now_wall_ms,
 )
@@ -473,53 +472,33 @@ class ChatPostProcessService:
         session_id = self._history_service.require_session_id(user_id, payload.get("session_id"))
         stage = str(payload.get("stage") or "unknown")
         turn_id = str(payload.get("turn_id") or "").strip() or None
-        fact = FactRecord(
-            agent_id=f"{TaskAgentType.CHAT.value}:{user_id}",
-            event_type=CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
-            payload={
-                "stage": stage,
-                "iteration": payload.get("iteration"),
-                "max_iterations": payload.get("max_iterations"),
-                "tool_name": payload.get("tool_name"),
-                "tool_names": payload.get("tool_names"),
-                "tool_count": payload.get("tool_count"),
-                "tool_call_id": payload.get("tool_call_id"),
-                "success": payload.get("success"),
-                "error": payload.get("error"),
-                "execution_time": payload.get("execution_time"),
-                "llm_trace": payload.get("llm_trace") if isinstance(payload.get("llm_trace"), dict) else None,
-                "response_preview": payload.get("response_preview"),
-                "intent": payload.get("intent"),
-                "execution_agent_id": payload.get("execution_agent_id"),
-                "user_id": user_id,
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "timestamp": time.time(),
-            },
-            agent_type=TaskAgentType.CHAT.value,
-            agent_instance_id=user_id,
-            timestamp=time.time(),
-            correlation_id=str(payload.get("tool_call_id") or str(uuid.uuid4())),
-        )
-        manager = self._get_task_agent_manager()
-        if manager is None:
-            self._local_fact_memory.append(fact)
-            if len(self._local_fact_memory) > self._max_fact_memory:
-                self._local_fact_memory = self._local_fact_memory[-self._max_fact_memory :]
-        else:
-            try:
-                await manager.add_fact_to_agent(TaskAgentType.CHAT, user_id, fact)
-            except Exception as exc:
-                logger.debug("Failed to append loop stage fact via runtime manager: %s", exc)
-                self._local_fact_memory.append(fact)
-                if len(self._local_fact_memory) > self._max_fact_memory:
-                    self._local_fact_memory = self._local_fact_memory[-self._max_fact_memory :]
+        runtime_payload = {
+            "stage": stage,
+            "iteration": payload.get("iteration"),
+            "max_iterations": payload.get("max_iterations"),
+            "tool_name": payload.get("tool_name"),
+            "tool_names": payload.get("tool_names"),
+            "tool_count": payload.get("tool_count"),
+            "tool_call_id": payload.get("tool_call_id"),
+            "success": payload.get("success"),
+            "error": payload.get("error"),
+            "execution_time": payload.get("execution_time"),
+            "llm_trace": payload.get("llm_trace") if isinstance(payload.get("llm_trace"), dict) else None,
+            "response_preview": payload.get("response_preview"),
+            "intent": payload.get("intent"),
+            "execution_agent_id": payload.get("execution_agent_id"),
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "timestamp": time.time(),
+        }
+        correlation_id = str(payload.get("tool_call_id") or str(uuid.uuid4()))
         action_emitter = self._get_action_emitter()
         if action_emitter is not None:
             await action_emitter.emit_runtime_event(
                 event_type=CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
-                payload=dict(fact.payload),
-                correlation_id=fact.correlation_id,
+                payload=runtime_payload,
+                correlation_id=correlation_id,
                 success=bool(payload.get("success", True)),
             )
         await self._emit_trace_update_notification(
