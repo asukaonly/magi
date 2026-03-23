@@ -312,6 +312,7 @@ def test_unified_extraction_uses_scenario_max_output_tokens_when_configured():
 
 
 def test_unified_extraction_parses_mentions_graph_and_assertions():
+    from magi.memory.l2.context_bundle import ResolvedContextRef
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2EventWindow, L2UnifiedExtractionResult
@@ -339,7 +340,15 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
 
     assert isinstance(result, L2UnifiedExtractionResult)
     assert result.mentions == [{"mention_text": "西湖醋鱼", "entity_type": "dish"}]
-    assert result.resolved_context_refs == [{"surface": "我", "reference_type": "self_actor", "resolved_ref": "user:self"}]
+    assert isinstance(result.resolved_context_refs[0], ResolvedContextRef)
+    assert result.resolved_context_refs[0].to_dict() == {
+        "surface": "我",
+        "reference_type": "self_actor",
+        "resolved_ref": "user:self",
+        "resolved_kind": "",
+        "confidence": 0.0,
+        "evidence_text": "",
+    }
     assert result.graph_candidates == [{"predicate": "DISLIKES", "object_type": "dish"}]
     assert result.assertion_candidates[0]["trait_family"] == "taste_profile"
     assert result.assertion_candidates[0]["confidence"] == 0.3

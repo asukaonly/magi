@@ -6,6 +6,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
+from .context_bundle import ResolvedContextRef
+
 
 def _non_empty_text(value: str, *, field_name: str) -> str:
     text = value.strip()
@@ -116,14 +118,29 @@ class L2UnifiedExtractionResult:
     """Normalized typed result returned by unified extraction."""
 
     mentions: list[dict[str, Any]] = field(default_factory=list)
-    resolved_context_refs: list[dict[str, Any]] = field(default_factory=list)
+    resolved_context_refs: list[ResolvedContextRef] = field(default_factory=list)
     graph_candidates: list[dict[str, Any]] = field(default_factory=list)
     assertion_candidates: list[dict[str, Any]] = field(default_factory=list)
     diagnostics: dict[str, Any] = field(default_factory=lambda: {"entity_status": "none"})
 
     def __post_init__(self) -> None:
         self.mentions = [dict(item) for item in self.mentions if isinstance(item, dict)]
-        self.resolved_context_refs = [dict(item) for item in self.resolved_context_refs if isinstance(item, dict)]
+        normalized_resolved_context_refs: list[ResolvedContextRef] = []
+        for item in self.resolved_context_refs:
+            if isinstance(item, ResolvedContextRef):
+                normalized_resolved_context_refs.append(item)
+            elif isinstance(item, dict):
+                normalized_resolved_context_refs.append(
+                    ResolvedContextRef(
+                        surface=str(item.get("surface") or "").strip(),
+                        reference_type=str(item.get("reference_type") or "unresolved").strip() or "unresolved",
+                        resolved_ref=str(item.get("resolved_ref") or "").strip(),
+                        resolved_kind=str(item.get("resolved_kind") or "").strip(),
+                        confidence=float(item.get("confidence", 0.0) or 0.0),
+                        evidence_text=str(item.get("evidence_text") or "").strip(),
+                    )
+                )
+        self.resolved_context_refs = [item for item in normalized_resolved_context_refs if item.surface]
         self.graph_candidates = [dict(item) for item in self.graph_candidates if isinstance(item, dict)]
         self.assertion_candidates = [dict(item) for item in self.assertion_candidates if isinstance(item, dict)]
         self.diagnostics = dict(self.diagnostics) if isinstance(self.diagnostics, dict) else {"entity_status": "none"}
@@ -131,7 +148,9 @@ class L2UnifiedExtractionResult:
             self.diagnostics["entity_status"] = "none"
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["resolved_context_refs"] = [item.to_dict() for item in self.resolved_context_refs]
+        return payload
 
 
 @dataclass(slots=True)

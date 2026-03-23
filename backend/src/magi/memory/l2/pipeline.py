@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, Optional
 from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
 from ..l1.event_store import L1EventStore
-from .context_bundle import ContextBundle
+from .context_bundle import ContextBundle, ResolvedContextRef
 from .context_collector import collect_context_bundle, resolve_direct_context_refs
 from .models import (
     ContradictionHint,
@@ -1136,7 +1136,7 @@ class L2Pipeline:
         profile: ExtractionProfile,
         policy: Any,
         resolved_mentions: list[dict[str, Any]],
-        resolved_context_refs: list[dict[str, Any]],
+        resolved_context_refs: list[ResolvedContextRef],
         evidence_event_ids: list[str],
         raw_candidates: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], int]:
@@ -1203,7 +1203,7 @@ class L2Pipeline:
         profile: ExtractionProfile,
         policy: Any,
         graph_candidates: list[dict[str, Any]],
-        resolved_context_refs: list[dict[str, Any]],
+        resolved_context_refs: list[ResolvedContextRef],
         default_event_ids: list[str],
         raw_candidates: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], int]:
@@ -1261,7 +1261,7 @@ class L2Pipeline:
         raw_object_ref: Any,
         object_type: str,
         resolved_mentions: list[dict[str, Any]],
-        resolved_context_refs: list[dict[str, Any]],
+        resolved_context_refs: list[ResolvedContextRef],
     ) -> str | None:
         object_ref = self._non_empty_text(raw_object_ref)
         if not object_ref:
@@ -1270,10 +1270,8 @@ class L2Pipeline:
             return object_ref
         object_ref_casefold = object_ref.casefold()
         for context_ref in resolved_context_refs:
-            surface = self._non_empty_text(context_ref.get("surface"))
-            resolved_ref = self._non_empty_text(context_ref.get("resolved_ref"))
-            if surface and resolved_ref and surface.casefold() == object_ref_casefold:
-                return resolved_ref
+            if context_ref.surface and context_ref.resolved_ref and context_ref.surface.casefold() == object_ref_casefold:
+                return context_ref.resolved_ref
         for mention in resolved_mentions:
             surfaces = {
                 str(mention.get("mention_text", "")).strip().casefold(),
@@ -1288,7 +1286,7 @@ class L2Pipeline:
         self,
         event: MemoryEvent,
         candidate: dict[str, Any],
-        resolved_context_refs: list[dict[str, Any]],
+        resolved_context_refs: list[ResolvedContextRef],
         *,
         default_event_ids: list[str] | None = None,
     ) -> dict[str, Any]:
@@ -1357,37 +1355,45 @@ class L2Pipeline:
         self,
         *,
         direct_refs: list[Any],
-        llm_refs: list[dict[str, Any]],
+        llm_refs: list[ResolvedContextRef],
         context_bundle: ContextBundle,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ResolvedContextRef]:
         allowed_refs = {
             item.context_id: item.kind
             for item in context_bundle.live_context_entities
             if item.expires_at is None or item.expires_at > time.time()
         }
-        merged: dict[str, dict[str, Any]] = {}
+        merged: dict[str, ResolvedContextRef] = {}
         for ref in direct_refs:
-            payload = ref.to_dict() if hasattr(ref, "to_dict") else dict(ref)
-            merged[str(payload.get("surface", ""))] = payload
-        for ref in llm_refs:
-            if not isinstance(ref, dict):
+            if isinstance(ref, ResolvedContextRef):
+                merged[ref.surface] = ref
                 continue
-            surface = self._non_empty_text(ref.get("surface"))
+            payload = ref.to_dict() if hasattr(ref, "to_dict") else dict(ref)
+            surface = self._non_empty_text(payload.get("surface"))
             if not surface:
                 continue
-            resolved_ref = self._non_empty_text(ref.get("resolved_ref"))
-            reference_type = self._non_empty_text(ref.get("reference_type")) or "unresolved"
-            if reference_type == "context_entity":
-                if not resolved_ref or resolved_ref not in allowed_refs:
+            merged[surface] = ResolvedContextRef(
+                surface=surface,
+                reference_type=self._non_empty_text(payload.get("reference_type")) or "unresolved",
+                resolved_ref=self._non_empty_text(payload.get("resolved_ref")) or "",
+                resolved_kind=self._non_empty_text(payload.get("resolved_kind")) or "",
+                confidence=float(payload.get("confidence", 0.0) or 0.0),
+                evidence_text=self._non_empty_text(payload.get("evidence_text")) or "",
+            )
+        for ref in llm_refs:
+            if not isinstance(ref, ResolvedContextRef) or not ref.surface:
+                continue
+            if ref.reference_type == "context_entity":
+                if not ref.resolved_ref or ref.resolved_ref not in allowed_refs:
                     continue
-            merged[surface] = dict(ref)
+            merged[ref.surface] = ref
         return list(merged.values())
 
     def _resolve_assertion_target(
         self,
         *,
         candidate: dict[str, Any],
-        resolved_context_refs: list[dict[str, Any]],
+        resolved_context_refs: list[ResolvedContextRef],
     ) -> tuple[str | None, str | None, str | None]:
         target_ref = self._non_empty_text(candidate.get("target_ref"))
         explicit_target_entity_id = self._non_empty_text(candidate.get("target_entity_id"))
@@ -1398,13 +1404,11 @@ class L2Pipeline:
             return None, None, None
         target_ref_casefold = target_ref.casefold()
         for context_ref in resolved_context_refs:
-            surface = self._non_empty_text(context_ref.get("surface"))
-            resolved_ref = self._non_empty_text(context_ref.get("resolved_ref"))
-            if surface and resolved_ref and surface.casefold() == target_ref_casefold:
-                kind = self._normalize_entity_type(context_ref.get("resolved_kind")) or self._normalize_entity_type(
-                    resolved_ref.split(":", 1)[0]
+            if context_ref.surface and context_ref.resolved_ref and context_ref.surface.casefold() == target_ref_casefold:
+                kind = self._normalize_entity_type(context_ref.resolved_kind) or self._normalize_entity_type(
+                    context_ref.resolved_ref.split(":", 1)[0]
                 )
-                return resolved_ref, kind, resolved_ref
+                return context_ref.resolved_ref, kind, context_ref.resolved_ref
         return None, None, None
 
     def _derive_assertion_decay(
