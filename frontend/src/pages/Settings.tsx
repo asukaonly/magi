@@ -759,10 +759,13 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      data-testid="settings-theme-root"
+      className="settings-theme-surface flex h-full min-h-0 flex-col"
+    >
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <nav className="flex w-56 shrink-0 flex-col border-r border-border/50 bg-muted/40">
-          <div className="flex h-16 shrink-0 items-center border-b border-border/60 bg-background/95 px-5 backdrop-blur-sm">
+        <nav className="flex w-56 shrink-0 flex-col border-r border-[hsl(var(--settings-subnav-border)/0.72)] bg-[hsl(var(--settings-shell)/0.78)]">
+          <div className="flex h-16 shrink-0 items-center border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] px-5 backdrop-blur-sm">
             <p className="text-base font-semibold tracking-[0.01em] text-foreground">
               {t('settings.shellTitle')}
             </p>
@@ -792,14 +795,16 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                       'transition-all duration-200 ease-out',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                       isActive
-                        ? 'bg-primary text-primary-foreground shadow-sm'
-                        : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+                        ? 'bg-[hsl(var(--settings-nav-active))] text-[hsl(var(--settings-nav-active-foreground))] shadow-sm'
+                        : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover))] hover:text-foreground'
                     )}
                   >
                     <div className="flex items-center gap-3">
                       <Icon className={cn(
                         'h-4 w-4 transition-colors',
-                        isActive ? 'text-primary-foreground' : 'text-muted-foreground group-hover:text-foreground'
+                        isActive
+                          ? 'text-[hsl(var(--settings-nav-active-foreground))]'
+                          : 'text-[hsl(var(--settings-nav-foreground))] group-hover:text-foreground'
                       )} />
                       <span className="transition-colors">{t(`settings.tabs.${item.id}`)}</span>
                     </div>
@@ -816,7 +821,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   </button>
 
                   {isNavGroup(item) && isExpanded ? (
-                    <div className="ml-3 space-y-1 border-l border-border/50 pl-3">
+                    <div className="ml-3 space-y-1 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-3">
                       {item.children.map((child) => {
                         const isChildActive = activeSection === child.id;
                         return (
@@ -831,8 +836,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                             className={cn(
                               'flex w-full items-center rounded-md px-3 py-2 text-sm transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                               isChildActive
-                                ? 'bg-background/80 text-foreground font-medium shadow-sm'
-                                : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
+                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.84)] text-foreground font-medium shadow-sm'
+                                : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
                             )}
                           >
                             {t(`settings.tabs.${child.id}`)}
@@ -843,7 +848,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   ) : null}
 
                   {item.id === 'timeline' && isActive ? (
-                    <div className="ml-3 space-y-1 border-l border-border/50 pl-3">
+                    <div className="ml-3 space-y-1 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-3">
                       <button
                         type="button"
                         onClick={() => setTimelineSelection(null)}
@@ -854,8 +859,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                           'transition-all duration-150 ease-out',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                           timelineSelection === null
-                            ? 'bg-background/80 text-foreground font-medium shadow-sm'
-                            : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
+                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.84)] text-foreground font-medium shadow-sm'
+                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
                         )}
                       >
                         {t('settings.timeline.nav.overview')}
@@ -875,8 +880,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                               'transition-all duration-150 ease-out',
                               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                               isSelected
-                                ? 'bg-background/80 text-foreground font-medium shadow-sm'
-                                : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
+                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.84)] text-foreground font-medium shadow-sm'
+                                : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
                             )}
                           >
                             <span className="truncate">{source.display_name}</span>
@@ -895,7 +900,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         </nav>
 
         <main className="flex min-h-0 flex-1 flex-col">
-          <header className="shrink-0 border-b border-border/60 bg-background/95 backdrop-blur-sm">
+          <header className="shrink-0 border-b border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">
             <div className="flex h-16 w-full items-center gap-4 px-8">
               <h2 className="text-lg font-semibold tracking-[0.01em] text-foreground">
                 {t(`settings.tabs.${activeSection}`)}
@@ -905,7 +910,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 variant="ghost"
                 size="icon"
                 onClick={() => void onRequestClose?.()}
-                className="ml-auto h-8 w-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="ml-auto h-8 w-8 rounded-md text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover))] hover:text-foreground"
                 aria-label={t('settings.actions.close')}
               >
                 <X className="h-4 w-4" />
@@ -953,7 +958,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       </div>
 
       {activeSection !== 'personality' ? (
-        <footer className="shrink-0 border-t border-border/60 bg-background/95 backdrop-blur-sm">
+        <footer className="shrink-0 border-t border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">
           <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-4">
             <p className={cn(
               'text-sm transition-colors duration-200',

@@ -62,7 +62,7 @@ const SettingsCenterDialog: React.FC<SettingsCenterDialogProps> = ({ open, onOpe
               event.preventDefault();
             }
           }}
-          className="h-[88vh] max-w-6xl overflow-hidden p-0"
+          className="settings-theme-surface h-[88vh] max-w-6xl overflow-hidden p-0"
         >
           <DialogHeader className="sr-only">
             <DialogTitle>{t('settings.title')}</DialogTitle>

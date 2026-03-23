@@ -712,4 +712,14 @@ describe('settings page draft saving', () => {
     expect(screen.getByTestId('settings-section-content')).not.toHaveClass('max-w-3xl');
     expect(screen.queryByRole('button', { name: 'settings.actions.save' })).not.toBeInTheDocument();
   });
+
+  it('applies the dedicated warm settings theme shell to the settings workspace', async () => {
+    render(<SettingsPage />);
+
+    const settingsRoot = await screen.findByTestId('settings-theme-root');
+    const activeNav = screen.getByRole('button', { name: 'settings.tabs.preferences' });
+
+    expect(settingsRoot.className).toContain('settings-theme-surface');
+    expect(activeNav.className).toContain('var(--settings-nav-active)');
+  });
 });

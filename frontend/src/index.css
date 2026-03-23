@@ -39,6 +39,28 @@
     --sidebar-badge-foreground: 34 38% 96%;
     --sidebar-divider: 30 15% 80%;
     --sidebar-ring: 22 45% 54%;
+    --settings-background: 33 22% 96%;
+    --settings-foreground: 22 16% 22%;
+    --settings-card: 35 20% 96%;
+    --settings-card-foreground: 22 16% 22%;
+    --settings-primary: 25 45% 44%;
+    --settings-primary-foreground: 34 32% 96%;
+    --settings-secondary: 32 16% 90%;
+    --settings-secondary-foreground: 24 16% 28%;
+    --settings-muted: 32 14% 92%;
+    --settings-muted-foreground: 24 10% 45%;
+    --settings-accent: 32 18% 88%;
+    --settings-accent-foreground: 24 16% 26%;
+    --settings-border: 30 14% 82%;
+    --settings-input: 30 14% 82%;
+    --settings-ring: 24 38% 48%;
+    --settings-nav-active: 31 22% 84%;
+    --settings-nav-active-foreground: 24 18% 24%;
+    --settings-nav-hover: 31 20% 88%;
+    --settings-nav-foreground: 24 14% 34%;
+    --settings-shell: 34 18% 95%;
+    --settings-shell-elevated: 35 24% 97%;
+    --settings-subnav-border: 30 14% 82%;
     --radius: 0.9rem;
   }
 
@@ -77,6 +99,28 @@
     --sidebar-badge-foreground: 30 35% 96%;
     --sidebar-divider: 220 13% 24%;
     --sidebar-ring: 28 88% 58%;
+    --settings-background: 224 16% 12%;
+    --settings-foreground: 30 18% 92%;
+    --settings-card: 223 16% 14%;
+    --settings-card-foreground: 30 18% 92%;
+    --settings-primary: 25 46% 56%;
+    --settings-primary-foreground: 25 20% 12%;
+    --settings-secondary: 221 14% 18%;
+    --settings-secondary-foreground: 30 12% 84%;
+    --settings-muted: 221 14% 17%;
+    --settings-muted-foreground: 28 10% 68%;
+    --settings-accent: 222 14% 20%;
+    --settings-accent-foreground: 30 18% 92%;
+    --settings-border: 222 12% 24%;
+    --settings-input: 222 12% 24%;
+    --settings-ring: 25 46% 56%;
+    --settings-nav-active: 24 20% 25%;
+    --settings-nav-active-foreground: 30 20% 94%;
+    --settings-nav-hover: 222 14% 18%;
+    --settings-nav-foreground: 28 12% 78%;
+    --settings-shell: 223 16% 13%;
+    --settings-shell-elevated: 223 16% 16%;
+    --settings-subnav-border: 222 11% 26%;
     --radius: 0.9rem;
   }
 
@@ -133,6 +177,26 @@
     @apply border;
     border-color: hsl(var(--border) / 0.4);
     background: hsl(var(--card));
+  }
+
+  .settings-theme-surface {
+    --background: var(--settings-background);
+    --foreground: var(--settings-foreground);
+    --card: var(--settings-card);
+    --card-foreground: var(--settings-card-foreground);
+    --primary: var(--settings-primary);
+    --primary-foreground: var(--settings-primary-foreground);
+    --secondary: var(--settings-secondary);
+    --secondary-foreground: var(--settings-secondary-foreground);
+    --muted: var(--settings-muted);
+    --muted-foreground: var(--settings-muted-foreground);
+    --accent: var(--settings-accent);
+    --accent-foreground: var(--settings-accent-foreground);
+    --border: var(--settings-border);
+    --input: var(--settings-input);
+    --ring: var(--settings-ring);
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
 }
 
