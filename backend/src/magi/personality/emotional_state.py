@@ -19,6 +19,8 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from enum import Enum
 
+from ..core.sqlite import sqlite_connection_async
+
 from .models import EmotionalState
 
 logger = logging.getLogger(__name__)
@@ -131,7 +133,7 @@ class EmotionalStateEngine:
         """initializedatabase"""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             # emotionStatetable
             await db.execute("""
                 create table IF NOT EXISTS emotional_state (
@@ -177,7 +179,7 @@ class EmotionalStateEngine:
 
     async def _load_current_state(self) -> None:
         """Load current state from database"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT value FROM emotional_state WHERE key = 'current'"
             )
@@ -192,7 +194,7 @@ class EmotionalStateEngine:
 
     async def _save_current_state(self) -> None:
         """savecurrentState"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE intO emotional_state (key, value, updated_at)
                    valueS (?, ?, ?)""",
@@ -545,7 +547,7 @@ class EmotionalStateEngine:
         cause: str
     ) -> None:
         """recordemotionevent"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT intO emotional_events
                    (timestamp, event_type, previous_mood, new_mood,
@@ -560,7 +562,7 @@ class EmotionalStateEngine:
 
     async def get_recent_events(self, limit: int = 50) -> List[Emotionalevent]:
         """Get recent emotional events"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT timestamp, event_type, previous_mood, new_mood,
                           mood_delta, energy_delta, stress_delta, cause
@@ -594,7 +596,7 @@ class EmotionalStateEngine:
         await self._save_current_state()
 
         # cleareventhistory
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute("delete FROM emotional_events")
             await db.commit()
 

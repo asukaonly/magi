@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
+from ..core.sqlite import sqlite_connection_async
+
 logger = logging.getLogger(__name__)
 
 
@@ -113,7 +115,7 @@ class GrowthMemoryEngine:
         """initializedatabase"""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             # milestonetable
             await db.execute("""
                 create table IF NOT EXISTS milestones (
@@ -208,7 +210,7 @@ class GrowthMemoryEngine:
             metadata=metadata or {},
         )
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT intO milestones (id, Type, title, description, timestamp, metadata)
                    valueS (?, ?, ?, ?, ?, ?)""",
@@ -252,7 +254,7 @@ class GrowthMemoryEngine:
         if self._milestone_cache is not None and milestone_type is None:
             return self._milestone_cache[:limit]
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             if milestone_type:
                 cursor = await db.execute(
                     """SELECT id, Type, title, description, timestamp, metadata
@@ -384,7 +386,7 @@ class GrowthMemoryEngine:
         if user_id in self._relationship_cache:
             return self._relationship_cache[user_id]
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
@@ -503,7 +505,7 @@ class GrowthMemoryEngine:
         if previous_value == new_value:
             return False
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT intO personality_evolution
                    (timestamp, aspect, previous_value, new_value, confidence, reason)
@@ -587,7 +589,7 @@ class GrowthMemoryEngine:
         milestones = await self.get_milestones(limit=1000)
 
         # getallrelationship
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM relationships")
             total_relationships = (await cursor.fetchone())[0]
 
@@ -602,7 +604,7 @@ class GrowthMemoryEngine:
 
     async def _get_all_stats(self) -> Dict[str, Any]:
         """getallstatistics"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT key, value FROM growth_statistics")
             rows = await cursor.fetchall()
 
@@ -617,7 +619,7 @@ class GrowthMemoryEngine:
 
     async def _increment_stat(self, key: str, value: Any = 1) -> None:
         """Increment statistic value"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT value FROM growth_statistics WHERE key = ?", (key,))
             row = await cursor.fetchone()
 
@@ -646,7 +648,7 @@ class GrowthMemoryEngine:
 
     async def _save_relationship(self, profile: RelationshipProfile) -> None:
         """Save relationship profile"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE intO relationships
                    (user_id, depth, first_interaction, last_interaction,
@@ -675,7 +677,7 @@ class GrowthMemoryEngine:
 
     async def export_relationships(self) -> List[Dict[str, Any]]:
         """exportallrelationship"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
@@ -703,7 +705,7 @@ class GrowthMemoryEngine:
 
     async def reset_user(self, user_id: str) -> None:
         """resetUser relationship"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute("delete FROM relationships WHERE user_id = ?", (user_id,))
             await db.commit()
 

@@ -9,6 +9,7 @@ from typing import Iterable
 
 import aiosqlite
 
+from ..core.sqlite import sqlite_connection_async
 from .contracts import RuntimeCommandType, RuntimeQueuedCommand, UserMessageCommand
 
 STATUS_PENDING = "pending"
@@ -36,7 +37,7 @@ class SQLiteRuntimeCommandQueue:
 
     async def enqueue_user_message(self, command: UserMessageCommand) -> int:
         await self._initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
                 """
                 INSERT INTO runtime_commands (
@@ -74,7 +75,7 @@ class SQLiteRuntimeCommandQueue:
 
         placeholders = ", ".join("?" for _ in allowed_types)
         now = time.time()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
                 f"""
                 UPDATE runtime_commands
@@ -120,7 +121,7 @@ class SQLiteRuntimeCommandQueue:
 
     async def requeue(self, command_id: int, *, error_text: str | None = None) -> None:
         await self._initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE runtime_commands
@@ -138,7 +139,7 @@ class SQLiteRuntimeCommandQueue:
 
     async def get_stats(self) -> dict[str, int]:
         await self._initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             pending_count = await self._count_by_status(db, STATUS_PENDING)
             claimed_count = await self._count_by_status(db, STATUS_CLAIMED)
             completed_count = await self._count_by_status(db, STATUS_COMPLETED)
@@ -152,7 +153,7 @@ class SQLiteRuntimeCommandQueue:
 
     async def _initialize(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS runtime_commands (
@@ -178,7 +179,7 @@ class SQLiteRuntimeCommandQueue:
 
     async def _update_status(self, *, command_id: int, status: str, clear_claim: bool) -> None:
         await self._initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE runtime_commands

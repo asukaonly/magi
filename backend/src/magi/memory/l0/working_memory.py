@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 import aiosqlite
 
+from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 
 
@@ -46,7 +47,7 @@ class L0WorkingMemoryStore:
             return
 
         Path(self.checkpoint_db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.checkpoint_db_path) as db:
+        async with sqlite_connection_async(self.checkpoint_db_path) as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS l0_sessions (
@@ -304,7 +305,7 @@ class L0WorkingMemoryStore:
         now = time.time()
         session["last_checkpoint_at"] = now
 
-        async with aiosqlite.connect(self.checkpoint_db_path) as db:
+        async with sqlite_connection_async(self.checkpoint_db_path) as db:
             await db.execute(
                 """
                 INSERT INTO l0_sessions(
@@ -417,7 +418,7 @@ class L0WorkingMemoryStore:
         self._active_entities.clear()
         self._temporary_tactics.clear()
 
-        async with aiosqlite.connect(self.checkpoint_db_path) as db:
+        async with sqlite_connection_async(self.checkpoint_db_path) as db:
             await db.executescript(
                 """
                 DELETE FROM l0_sessions;
@@ -473,7 +474,7 @@ class L0WorkingMemoryStore:
         return lru_id
 
     async def _restore_from_checkpoint(self) -> None:
-        async with aiosqlite.connect(self.checkpoint_db_path) as db:
+        async with sqlite_connection_async(self.checkpoint_db_path) as db:
             db.row_factory = aiosqlite.Row
 
             async with db.execute("SELECT * FROM l0_sessions") as cursor:

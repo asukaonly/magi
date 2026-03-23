@@ -88,6 +88,11 @@ async def test_record_mention_preserves_surface_form_and_evidence_event_ids():
         db_path = str(Path(temp_dir) / "memory.db")
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
+        await catalog.upsert_entity(
+            canonical_name="Shanghai",
+            entity_type="place",
+            entity_id="place:shanghai",
+        )
 
         mention_id = await catalog.record_mention(
             mention_text="魔都",

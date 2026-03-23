@@ -6,6 +6,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from ..core.sqlite import sqlite_connection_async
 from .contracts import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
 from .store import ChatStore
 
@@ -20,7 +21,7 @@ async def backfill_chat_store_from_legacy(*, chat_store: ChatStore, legacy_l1_db
         return
 
     await chat_store.initialize()
-    async with aiosqlite.connect(str(legacy_db_path)) as db:
+    async with sqlite_connection_async(str(legacy_db_path)) as db:
         db.row_factory = aiosqlite.Row
         table_names = await _list_table_names(db)
         if "chat_sessions" in table_names:

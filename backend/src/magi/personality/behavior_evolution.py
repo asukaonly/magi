@@ -18,6 +18,8 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from enum import Enum
 
+from ..core.sqlite import sqlite_connection_async
+
 from .models import TaskBehaviorProfile, AmbiguityTolerance
 
 logger = logging.getLogger(__name__)
@@ -101,7 +103,7 @@ class BehaviorEvolutionEngine:
         """initializedatabase"""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             # Internal note.
             await db.execute("""
                 create table IF NOT EXISTS task_interactions (
@@ -207,7 +209,7 @@ class BehaviorEvolutionEngine:
         # JSON cannot serialize Enum directly.
         record_data["satisfaction"] = record.satisfaction.value
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE intO task_interactions
                    (task_id, task_category, timestamp, clarification_count,
@@ -260,7 +262,7 @@ class BehaviorEvolutionEngine:
         if task_category in self._cache:
             return self._cache[task_category]
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT profile_json FROM behavior_profiles WHERE task_category = ?",
                 (task_category,)
@@ -301,7 +303,7 @@ class BehaviorEvolutionEngine:
         if task_category in self._stats_cache:
             return self._stats_cache[task_category]
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT * FROM category_statistics WHERE category = ?",
                 (task_category,)
@@ -331,7 +333,7 @@ class BehaviorEvolutionEngine:
 
     async def get_all_categories(self) -> List[str]:
         """Get all task categories"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT DISTINCT task_category FROM task_interactions order BY task_category"
             )
@@ -342,7 +344,7 @@ class BehaviorEvolutionEngine:
 
     async def _update_category_statistics(self, task_category: str) -> None:
         """Update category statistics"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT
                     COUNT(*) as total,
@@ -490,7 +492,7 @@ class BehaviorEvolutionEngine:
         if "ambiguity_tolerance" in data:
             data["ambiguity_tolerance"] = data["ambiguity_tolerance"].value
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE intO behavior_profiles
                    (task_category, profile_json, updated_at)
@@ -503,7 +505,7 @@ class BehaviorEvolutionEngine:
 
     async def reset_category(self, task_category: str) -> None:
         """Reset category behavior evolution"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute("delete FROM task_interactions WHERE task_category = ?", (task_category,))
             await db.execute("delete FROM category_statistics WHERE category = ?", (task_category,))
             await db.execute("delete FROM behavior_profiles WHERE task_category = ?", (task_category,))

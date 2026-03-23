@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
+from ...core.sqlite import sqlite_connection_async
 from ...llm import ScenarioLLMPool
 from ..embedding_service import MemoryEmbeddingService
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
@@ -81,7 +82,7 @@ class L3SummaryStore:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS summaries (
@@ -386,7 +387,7 @@ class L3SummaryStore:
     async def list_summaries(self, *, limit: int = 100) -> List[Dict[str, Any]]:
         """List most recent summaries."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM summaries ORDER BY updated_at DESC LIMIT ?", (int(limit),)) as cursor:
                 rows = await cursor.fetchall()
@@ -395,7 +396,7 @@ class L3SummaryStore:
     async def clear(self) -> int:
         """Delete all summaries."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             async with db.execute("SELECT COUNT(*) FROM summaries") as cursor:
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
@@ -452,7 +453,7 @@ class L3SummaryStore:
     async def list_summary_event_links(self, summary_id: str) -> List[Dict[str, Any]]:
         """Return event links for a summary."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
@@ -479,7 +480,7 @@ class L3SummaryStore:
     async def list_summary_task_links(self, summary_id: str) -> List[Dict[str, Any]]:
         """Return task links for a summary."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
@@ -510,7 +511,7 @@ class L3SummaryStore:
             return []
 
         placeholders = ", ".join("?" for _ in normalized_ids)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 f"""
                 SELECT DISTINCT event_id
@@ -542,7 +543,7 @@ class L3SummaryStore:
         escaped = escape_fts_query(tokenized)
         if not escaped:
             return []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             try:
                 async with db.execute(
                     """
@@ -574,7 +575,7 @@ class L3SummaryStore:
         """Backfill FTS5 index from existing summaries rows."""
         await self.initialize()
         indexed = 0
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 """
                 SELECT summary_id, content FROM summaries
@@ -613,7 +614,7 @@ class L3SummaryStore:
         }
 
     async def _store_summary(self, summary: Dict[str, Any]) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO summaries(
@@ -660,7 +661,7 @@ class L3SummaryStore:
 
     async def _replace_summary_event_links(self, summary_id: str, event_ids: list[str]) -> None:
         now = time.time()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute("DELETE FROM summary_event_links WHERE summary_id = ?", (summary_id,))
             if event_ids:
                 await db.executemany(
@@ -678,7 +679,7 @@ class L3SummaryStore:
 
     async def _replace_summary_task_links(self, summary_id: str, task_ids: list[str]) -> None:
         now = time.time()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute("DELETE FROM summary_task_links WHERE summary_id = ?", (summary_id,))
             if task_ids:
                 await db.executemany(
@@ -792,7 +793,7 @@ class L3SummaryStore:
         if summary_category:
             sql += " AND summary_category = ?"
             args.append(summary_category)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -826,7 +827,7 @@ class L3SummaryStore:
             args.append(summary_category)
         sql += " ORDER BY updated_at DESC LIMIT ?"
         args.append(int(limit))
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -850,7 +851,7 @@ class L3SummaryStore:
         if summary_category:
             sql += " AND summary_category = ?"
             args.append(summary_category)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()

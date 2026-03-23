@@ -10,6 +10,8 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Callable, Dict, List, Optional
 from collections import defaultdict
+
+from ..core.sqlite import sqlite_connection_async
 from .backend import MessageBusBackend
 from .events import Event, REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY
 
@@ -114,7 +116,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         db_path = Path(self._expanded_db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             # check if table exists and if schema is correct
             cursor = await db.execute("""
                 SELECT name FROM sqlite_master
@@ -217,7 +219,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             bool: Whether publish was successful
         """
         try:
-            async with aiosqlite.connect(self._expanded_db_path) as db:
+            async with sqlite_connection_async(self._expanded_db_path) as db:
                 # checkqueuelength (only count pending messages)
                 cursor = await db.execute(
                     "SELECT COUNT(*) FROM message_queue WHERE status = ?",
@@ -328,7 +330,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         start_time = time.time()
 
         while (time.time() - start_time) < timeout:
-            async with aiosqlite.connect(self._expanded_db_path) as db:
+            async with sqlite_connection_async(self._expanded_db_path) as db:
                 cursor = await db.execute(
                     "SELECT COUNT(*) FROM message_queue WHERE status = ?",
                     (STATUS_PENDING,),
@@ -385,7 +387,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         Returns:
             Tuple of (event_id, event) or None if no pending events
         """
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             # Atomic operation: SELECT + update in same transaction
             cursor = await db.execute("""
                 UPDATE message_queue SET status = ?
@@ -409,7 +411,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
     async def _mark_completed(self, event_id: int) -> None:
         """Mark message as successfully completed."""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 "UPDATE message_queue SET status = ? WHERE id = ?",
                 (STATUS_COMPLETED, event_id),
@@ -424,7 +426,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         If retry_count < max_retries, reset to pending for retry.
         Otherwise, mark as failed (dead letter).
         """
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             # Get current retry count
             cursor = await db.execute(
                 "SELECT retry_count FROM message_queue WHERE id = ?",
@@ -457,7 +459,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
     async def _requeue_for_other_subscribers(self, event_id: int) -> None:
         """Release a critical event back to pending when this instance has no local subscribers."""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 "UPDATE message_queue SET status = ?, last_error = NULL WHERE id = ?",
                 (STATUS_PENDING, event_id),
@@ -578,7 +580,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
     async def get_stats(self) -> dict:
         """Get statistics"""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM message_queue WHERE status = ?",
                 (STATUS_PENDING,),
@@ -633,7 +635,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         cutoff_time = time.time() - (retain_hours * 3600)
         deleted_count = 0
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             # Delete completed messages older than cutoff
             # SQLite doesn't support LIMIT in DELETE directly, use subquery
             cursor = await db.execute("""
@@ -668,7 +670,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         # This is a best-effort recovery mechanism
         cutoff_time = time.time() - timeout_seconds
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute("""
                 UPDATE message_queue SET status = ?
                 WHERE status = ? AND created_at < ?
@@ -683,7 +685,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
     async def get_queue_health(self) -> dict:
         """Get queue health statistics."""
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             stats = {}
 
             for status in [STATUS_PENDING, STATUS_PROCESSING, STATUS_COMPLETED, STATUS_FAILED]:

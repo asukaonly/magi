@@ -11,6 +11,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from ...core.sqlite import sqlite_connection_async
 from .answerability import (
     extract_query_phrases,
     extract_query_tokens,
@@ -234,7 +235,7 @@ class L1Handler:
             query += " AND memory_domain != ?"
             args.append(int(MemoryDomain.RUNTIME_TELEMETRY))
 
-        async with aiosqlite.connect(self._store.db_path) as db:
+        async with sqlite_connection_async(self._store.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -736,7 +737,7 @@ class L3Handler:
                 args.append(summary_category)
             sql += " ORDER BY updated_at DESC LIMIT ?"
             args.append(limit)
-            async with aiosqlite.connect(self._store.db_path) as db:
+            async with sqlite_connection_async(self._store.db_path) as db:
                 async with db.execute(sql, tuple(args)) as cursor:
                     rows = await cursor.fetchall()
             return [str(row[0]) for row in rows]
@@ -763,7 +764,7 @@ class L3Handler:
         if summary_category:
             sql += " AND summary_category = ?"
             args.append(summary_category)
-        async with aiosqlite.connect(self._store.db_path) as db:
+        async with sqlite_connection_async(self._store.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -852,7 +853,7 @@ class L4Handler:
             import aiosqlite
 
             like_query = f"%{query}%"
-            async with aiosqlite.connect(self._store.db_path) as db:
+            async with sqlite_connection_async(self._store.db_path) as db:
                 async with db.execute(
                     """
                     SELECT skill_id FROM procedural_skills
@@ -874,7 +875,7 @@ class L4Handler:
         import aiosqlite
 
         placeholders = ", ".join("?" for _ in skill_ids)
-        async with aiosqlite.connect(self._store.db_path) as db:
+        async with sqlite_connection_async(self._store.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",

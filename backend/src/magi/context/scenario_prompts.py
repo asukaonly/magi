@@ -12,6 +12,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, Optional, Any
 
+from ..core.sqlite import sqlite_connection_async
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +46,7 @@ class ScenarioPromptsStore:
         """Initialize database."""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS scenario_prompts (
                     persona TEXT NOT NULL,
@@ -77,7 +79,7 @@ class ScenarioPromptsStore:
         if cache_key in self._cache:
             return self._cache[cache_key].prompt
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT prompt FROM scenario_prompts WHERE persona = ? AND scenario = ?",
                 (persona, scenario)
@@ -105,7 +107,7 @@ class ScenarioPromptsStore:
         """
         cache_key = f"{persona}:{scenario}"
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             now = time.time()
             await db.execute("""
                 INSERT INTO scenario_prompts (persona, scenario, prompt, created_at, updated_at)
@@ -135,7 +137,7 @@ class ScenarioPromptsStore:
         """
         result: Dict[str, ScenarioPrompt] = {}
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             if persona:
                 cursor = await db.execute(
                     "SELECT persona, scenario, prompt FROM scenario_prompts WHERE persona = ?",
@@ -169,7 +171,7 @@ class ScenarioPromptsStore:
         """
         cache_key = f"{persona}:{scenario}"
 
-        async with aiosqlite.connect(self._expanded_db_path) as db:
+        async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "DELETE FROM scenario_prompts WHERE persona = ? AND scenario = ?",
                 (persona, scenario)

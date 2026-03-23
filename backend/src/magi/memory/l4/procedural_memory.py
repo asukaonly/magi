@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
+from ...core.sqlite import sqlite_connection_async
 from ..embedding_service import MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
@@ -59,7 +60,7 @@ class L4ProceduralMemoryStore:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS procedural_skills (
@@ -140,7 +141,7 @@ class L4ProceduralMemoryStore:
         skill_name, skill_category, skill_type, success, duration_ms, error, optimized_prompt = identity
         now = time.time()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ?",
@@ -312,7 +313,7 @@ class L4ProceduralMemoryStore:
     async def get_skill(self, *, skill_name: str, skill_category: str) -> Optional[Dict[str, Any]]:
         """Fetch a single procedural skill."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ?",
@@ -324,7 +325,7 @@ class L4ProceduralMemoryStore:
     async def get_all_skills(self, *, limit: int = 100) -> List[Dict[str, Any]]:
         """List all stored skills."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM procedural_skills ORDER BY updated_at DESC LIMIT ?",
@@ -340,7 +341,7 @@ class L4ProceduralMemoryStore:
         if semantic:
             return semantic
         like_query = f"%{query}%"
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
@@ -357,7 +358,7 @@ class L4ProceduralMemoryStore:
     async def clear(self) -> int:
         """Delete all procedural skills."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             async with db.execute("SELECT COUNT(*) FROM procedural_skills") as cursor:
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
@@ -385,7 +386,7 @@ class L4ProceduralMemoryStore:
         escaped = escape_fts_query(tokenized)
         if not escaped:
             return []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             try:
                 async with db.execute(
                     """
@@ -407,7 +408,7 @@ class L4ProceduralMemoryStore:
         """Backfill FTS5 index from existing procedural_skills rows."""
         await self.initialize()
         indexed = 0
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 """
                 SELECT skill_id, skill_name, skill_category, optimized_prompt
@@ -570,7 +571,7 @@ class L4ProceduralMemoryStore:
             return []
         skill_ids = [hit.entity_id for hit in hits]
         placeholders = ", ".join("?" for _ in skill_ids)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",

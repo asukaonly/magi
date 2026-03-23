@@ -7,6 +7,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from ..core.sqlite import sqlite_connection_async
 from .projection_models import TimelineProjectionItem
 
 
@@ -22,7 +23,7 @@ class TimelineProjectionStore:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS timeline_projection_items (
@@ -57,7 +58,7 @@ class TimelineProjectionStore:
         limit: int,
     ) -> list[TimelineProjectionItem]:
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
@@ -80,7 +81,7 @@ class TimelineProjectionStore:
         items: list[TimelineProjectionItem],
     ) -> None:
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 DELETE FROM timeline_projection_items
@@ -135,7 +136,7 @@ class TimelineProjectionStore:
         if projection_version is not None:
             query += " AND projection_version = ?"
             args.append(int(projection_version))
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(query, tuple(args))
             await db.commit()
         return int(cursor.rowcount or 0)
@@ -143,7 +144,7 @@ class TimelineProjectionStore:
     async def clear(self) -> int:
         """Delete all cached projection items."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute("DELETE FROM timeline_projection_items")
             await db.commit()
         return int(cursor.rowcount or 0)

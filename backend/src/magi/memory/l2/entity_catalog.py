@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import aiosqlite
 
+from ...core.sqlite import sqlite_connection_async
 from .ontology import coerce_unknown_entity_type
 
 
@@ -46,7 +47,7 @@ class L2EntityCatalog:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS entity_catalog (
@@ -100,7 +101,7 @@ class L2EntityCatalog:
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
         normalized_entity_id = _normalize_entity_ref(entity_id, normalized_entity_type) or entity_id
         now = time.time()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 INSERT INTO entity_catalog(entity_id, canonical_name, entity_type, created_at, updated_at)
@@ -119,7 +120,7 @@ class L2EntityCatalog:
         await self.initialize()
         now = time.time()
         normalized_alias = _normalize_alias(alias_text)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 INSERT INTO entity_aliases(entity_id, alias_text, normalized_alias, confidence, created_at, updated_at)
@@ -156,7 +157,7 @@ class L2EntityCatalog:
             args.append(normalized_entity_type)
         query += " ORDER BY a.confidence DESC, c.entity_id ASC"
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -208,7 +209,7 @@ class L2EntityCatalog:
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
         normalized_resolved_entity_id = _normalize_entity_ref(resolved_entity_id, normalized_entity_type)
         now = time.time()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
                 """
                 INSERT INTO entity_mentions(
@@ -238,7 +239,7 @@ class L2EntityCatalog:
 
     async def get_mention(self, mention_id: int) -> Optional[dict[str, Any]]:
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
@@ -269,7 +270,7 @@ class L2EntityCatalog:
 
     async def list_mentions(self, *, limit: int = 100) -> list[dict[str, Any]]:
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
@@ -369,7 +370,7 @@ class L2EntityCatalog:
     async def clear(self) -> int:
         """Delete all catalog entities, aliases, and mention evidence."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 """
                 SELECT
@@ -406,7 +407,7 @@ class L2EntityCatalog:
         query += " ORDER BY entity_id ASC LIMIT ?"
         args.append(int(limit))
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 query,

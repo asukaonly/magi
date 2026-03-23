@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Mapping, Optional
 import aiosqlite
 
 from ...core.logger import get_logger
+from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent, TomDepth
 from .graph_conflicts import DEFAULT_GRAPH_CONFLICT_RULES, GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix, iter_opposite_predicates
 from .models import ContradictionHint, ReconciledTraitOutcome
@@ -66,7 +67,7 @@ class L2CognitionStore:
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS knowledge_graph (
@@ -296,7 +297,7 @@ class L2CognitionStore:
         normalized = rule if isinstance(rule, GraphConflictRule) else GraphConflictRule.from_mapping(rule)
         now = time.time()
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 INSERT INTO graph_conflict_rules(
@@ -376,7 +377,7 @@ class L2CognitionStore:
         now = time.time()
         triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{subject_id}:{predicate}:{normalized_object_id}')}"
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT evidence_event_ids, observation_count, first_observed_at FROM knowledge_graph WHERE triple_id = ?",
@@ -500,7 +501,7 @@ class L2CognitionStore:
         query += " ORDER BY updated_at DESC LIMIT ?"
         args.append(int(limit))
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -509,7 +510,7 @@ class L2CognitionStore:
     async def get_tom_snapshot(self, *, entity_id: str, entity_type: str) -> Optional[Dict[str, Any]]:
         """Fetch the current stable snapshot for an entity."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
@@ -538,7 +539,7 @@ class L2CognitionStore:
         query += " ORDER BY last_updated_at DESC LIMIT ?"
         args.append(int(limit))
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -580,7 +581,7 @@ class L2CognitionStore:
             args.extend([str(item).strip().lower() for item in object_types])
         query += " ORDER BY updated_at DESC LIMIT ?"
         args.append(int(limit))
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -600,7 +601,7 @@ class L2CognitionStore:
     async def clear(self) -> int:
         """Delete all cognition artifacts."""
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             async with db.execute("SELECT COUNT(*) FROM tom_trait_assertions") as cursor:
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
@@ -626,7 +627,7 @@ class L2CognitionStore:
 
         now = time.time()
         await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             if target_record_type == "tom_trait_assertion":
                 async with db.execute(
@@ -713,7 +714,7 @@ class L2CognitionStore:
         now = time.time()
         outcomes: list[dict[str, Any]] = []
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             for assertion in assertions:
                 evidence_events = [str(item) for item in assertion.get("evidence_events", [])]
                 timestamps = sorted(
@@ -917,7 +918,7 @@ class L2CognitionStore:
             anchor_at=normalized_candidate["decay_anchor_at"],
         )
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
@@ -1062,7 +1063,7 @@ class L2CognitionStore:
         last_interaction_at: float,
     ) -> None:
         now = time.time()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
@@ -1212,7 +1213,7 @@ class L2CognitionStore:
         )
         interaction_count = max(1, len(assertions) + len(outgoing_relations) + len(incoming_relations))
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
