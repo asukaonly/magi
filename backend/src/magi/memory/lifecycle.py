@@ -71,6 +71,9 @@ class MemoryStoreModule(LifecycleModule):
             temporal_l3_llm_timeout_seconds=config.agent.memory.l3_temporal_llm_timeout_seconds,
             temporal_l3_llm_min_event_count=config.agent.memory.l3_temporal_llm_min_event_count,
             l0_checkpoint_interval_seconds=config.agent.memory.l0_checkpoint_interval_seconds,
+            l2_batch_flush_interval_seconds=config.agent.memory.l2_batch_flush_interval_seconds,
+            enable_l2_conflict_arbitration=config.agent.memory.enable_l2_conflict_arbitration,
+            l2_conflict_arbitration_min_confidence=config.agent.memory.l2_conflict_arbitration_min_confidence,
         )
         await self._context.memory.unified_memory.initialize()
         logger.info("UnifiedMemoryStore initialized (L0-L4)")

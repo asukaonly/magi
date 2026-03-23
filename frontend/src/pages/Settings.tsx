@@ -370,20 +370,67 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 });
               }}
             >
-              <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_llm_extraction.label')}</div>
-                  <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_llm_extraction.description')}</div>
+              <div className="space-y-4">
+                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_llm_extraction.label')}</div>
+                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_llm_extraction.description')}</div>
+                  </div>
+                  <Switch
+                    checked={draftConfig.memory.enable_l2_llm_extraction ?? false}
+                    disabled={!draftConfig.memory.enable_l2}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.memory.enable_l2_llm_extraction = checked;
+                    })}
+                    aria-label={t('settings.memory.fields.enable_l2_llm_extraction.label')}
+                  />
+                </label>
+
+                <div className={cn("space-y-1", !draftConfig.memory.enable_l2 && "opacity-50")}>
+                  <NumberField
+                    label={t('settings.memory.fields.l2_batch_flush_interval_seconds.label')}
+                    value={draftConfig.memory.l2_batch_flush_interval_seconds ?? 60}
+                    min={30}
+                    onChange={(value) => patchDraftConfig((draft) => {
+                      draft.memory.l2_batch_flush_interval_seconds = value;
+                    })}
+                  />
+                  <p className="text-[11px] leading-4 text-muted-foreground">
+                    {t('settings.memory.fields.l2_batch_flush_interval_seconds.description')}
+                  </p>
                 </div>
-                <Switch
-                  checked={draftConfig.memory.enable_l2_llm_extraction ?? false}
-                  disabled={!draftConfig.memory.enable_l2}
-                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                    draft.memory.enable_l2_llm_extraction = checked;
-                  })}
-                  aria-label={t('settings.memory.fields.enable_l2_llm_extraction.label')}
-                />
-              </label>
+
+                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_conflict_arbitration.label')}</div>
+                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_conflict_arbitration.description')}</div>
+                  </div>
+                  <Switch
+                    checked={draftConfig.memory.enable_l2_conflict_arbitration ?? true}
+                    disabled={!draftConfig.memory.enable_l2}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.memory.enable_l2_conflict_arbitration = checked;
+                    })}
+                    aria-label={t('settings.memory.fields.enable_l2_conflict_arbitration.label')}
+                  />
+                </label>
+
+                <div className={cn("space-y-1", !draftConfig.memory.enable_l2 && "opacity-50")}>
+                  <NumberField
+                    label={t('settings.memory.fields.l2_conflict_arbitration_min_confidence.label')}
+                    value={draftConfig.memory.l2_conflict_arbitration_min_confidence ?? 0.85}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onChange={(value) => patchDraftConfig((draft) => {
+                      draft.memory.l2_conflict_arbitration_min_confidence = value;
+                    })}
+                  />
+                  <p className="text-[11px] leading-4 text-muted-foreground">
+                    {t('settings.memory.fields.l2_conflict_arbitration_min_confidence.description')}
+                  </p>
+                </div>
+              </div>
             </ExpandableMemoryLayerCard>
 
             {/* L3 Reflection */}

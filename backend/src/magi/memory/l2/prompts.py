@@ -70,6 +70,13 @@ Be conservative:
 - Return JSON only.
 """
 
+CONFLICT_ARBITRATION_SYSTEM_PROMPT = """You are a conflict arbitration assistant for a memory system.
+
+Your task is to review new evidence, conflicting existing memory records, and supporting source events.
+Return exactly one final arbitration decision: keep_new, keep_existing, or mark_evolution.
+Do not hedge, and do not return multiple competing outcomes.
+"""
+
 
 def render_entity_mention_prompt(*, event_text: str, context_texts: list[str]) -> str:
     payload = {
@@ -117,6 +124,8 @@ def render_unified_extraction_prompt(
             "Specific dishes, drinks, snacks, and ingredients must use `food`.",
             "Use diagnostics.entity_status = `none` when no entity mention is extracted.",
             "Resolve context references only from the supplied context bundle candidates or return unresolved.",
+            "Use batch-level context across the supplied event window, but only cite supporting_event_ids that are present in the event window.",
+            "When multiple events support the same candidate, include every relevant supporting_event_ids entry that directly supports it.",
             "Return JSON with mentions, resolved_context_refs, graph_candidates, assertion_candidates, and diagnostics.",
         ],
         "output_schema": {
@@ -221,6 +230,29 @@ def render_contradiction_hint_prompt(*, new_event: dict[str, Any], existing_reco
     )
 
 
+def render_conflict_arbitration_prompt(
+    *,
+    new_event_window: dict[str, Any],
+    new_candidates: dict[str, Any],
+    contradiction_hints: list[dict[str, Any]],
+    existing_records: list[dict[str, Any]],
+    source_events: list[dict[str, Any]],
+) -> str:
+    return (
+        "Arbitrate the conflict between new evidence and existing memory records.\n\n"
+        f"New event window:\n{json.dumps(new_event_window, ensure_ascii=False, indent=2)}\n\n"
+        f"New candidates:\n{json.dumps(new_candidates, ensure_ascii=False, indent=2)}\n\n"
+        f"Contradiction hints:\n{json.dumps(contradiction_hints, ensure_ascii=False, indent=2)}\n\n"
+        f"Existing records:\n{json.dumps(existing_records, ensure_ascii=False, indent=2)}\n\n"
+        f"Supporting source events:\n{json.dumps(source_events, ensure_ascii=False, indent=2)}\n\n"
+        "Return JSON with this schema:\n"
+        '{\n  "decision": "keep_new|keep_existing|mark_evolution",\n'
+        '  "winning_record_ids": ["string"],\n'
+        '  "superseded_record_ids": ["string"],\n'
+        '  "reason": "string"\n}'
+    )
+
+
 def render_entity_reconcile_prompt(
     *,
     entity: dict[str, Any],
@@ -250,6 +282,8 @@ __all__ = [
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
     "CONTRADICTION_HINT_SYSTEM_PROMPT",
     "TOM_EXTRACTION_SYSTEM_PROMPT",
+    "CONFLICT_ARBITRATION_SYSTEM_PROMPT",
+    "render_conflict_arbitration_prompt",
     "render_contradiction_hint_prompt",
     "render_entity_mention_prompt",
     "render_entity_reconcile_prompt",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import aiosqlite
 
 import pytest
 
@@ -325,6 +326,113 @@ async def test_refresh_snapshot_ignores_expired_temporary_assertions(tmp_path):
     assert snapshot["current_context"]["active_assertion_count"] == 1
     assert snapshot["current_context"]["expired_assertion_count"] == 1
     assert any(item["trait_name"] == "annoyance" and item["expires_at"] is not None for item in assertions)
+
+
+@pytest.mark.asyncio
+async def test_refresh_entity_snapshot_excludes_deprecated_preference_and_keeps_history(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:sushi",
+        object_type="food",
+        evidence_event_ids=["evt-like-1"],
+        confidence=0.82,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+    first_snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="DISLIKES",
+        object_id="food:sushi",
+        object_type="food",
+        evidence_event_ids=["evt-dislike-1"],
+        confidence=0.9,
+        observed_at=1710090000.0,
+        source_type="chat",
+    )
+    second_snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+
+    assert first_snapshot is not None
+    assert first_snapshot["preferences"]["food:sushi"] == "like"
+    assert second_snapshot is not None
+    assert second_snapshot["preferences"]["food:sushi"] == "dislike"
+    assert second_snapshot["preferences_history"][0]["field"] == "food:sushi"
+    assert second_snapshot["preferences_history"][0]["from"] == "like"
+    assert second_snapshot["preferences_history"][0]["to"] == "dislike"
+
+
+@pytest.mark.asyncio
+async def test_refresh_entity_snapshot_tracks_core_trait_evolution_history(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "stress",
+            "trait_name": "stress_level",
+            "trait_value": "high",
+            "confidence_score": 0.84,
+            "evidence_events": ["evt-stress-high-1", "evt-stress-high-2", "evt-stress-high-3"],
+            "volatility_index": 0.5,
+            "source_domain": "user_authored",
+            "inference_depth": "defensive_psychology",
+            "validation_state": "stable",
+            "first_inferred_at": now - 172800,
+            "last_validated_at": now - 7200,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "daily",
+            "decay_policy": "time_window",
+            "decay_anchor_at": now - 7200,
+            "context_ref_id": "",
+            "expires_at": now + 86400,
+        }
+    )
+    first_snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+
+    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
+        await db.execute(
+            """
+            UPDATE tom_trait_assertions
+            SET trait_value = ?, confidence_score = ?, validation_state = ?, last_validated_at = ?, updated_at = ?
+            WHERE entity_id = ? AND entity_type = ? AND trait_name = ?
+            """,
+            (
+                "low",
+                0.86,
+                "stable",
+                now,
+                now,
+                "user:u1",
+                "user",
+                "stress_level",
+            ),
+        )
+        await db.commit()
+    second_snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+
+    assert first_snapshot is not None
+    assert first_snapshot["core_traits"]["stress_level"] == "high"
+    assert second_snapshot is not None
+    assert second_snapshot["core_traits"]["stress_level"] == "low"
+    assert second_snapshot["core_traits_history"][0]["field"] == "stress_level"
+    assert second_snapshot["core_traits_history"][0]["from"] == "high"
+    assert second_snapshot["core_traits_history"][0]["to"] == "low"
 
 
 @pytest.mark.asyncio

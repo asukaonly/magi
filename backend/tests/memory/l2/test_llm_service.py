@@ -90,6 +90,14 @@ class _FakeScenarioPool:
         return self.adapter
 
 
+class _ScenarioAwarePool:
+    def __init__(self, adapters: dict[object, _FakeAdapter]) -> None:
+        self.adapters = adapters
+
+    def get(self, scenario):  # type: ignore[no-untyped-def]
+        return self.adapters[scenario]
+
+
 def test_unified_prompt_only_includes_profile_allowed_entity_types():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
@@ -159,6 +167,74 @@ def test_unified_prompt_includes_context_bundle_and_resolved_ref_schema():
     assert payload["output_schema"]["resolved_context_refs"][0]["reference_type"] == (
         "context_entity|canonical_entity|self_actor|unresolved"
     )
+
+
+def test_unified_prompt_includes_batch_window_rules_and_summary():
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
+    profile = ExtractionProfile(profile_id="chat.user_message")
+
+    prompt = service.render_unified_extraction_prompt(
+        event_window={
+            "event_ids": ["evt-1", "evt-2"],
+            "events": [
+                {"event_id": "evt-1", "content": "Alice likes ramen"},
+                {"event_id": "evt-2", "content": "She eats it every week"},
+            ],
+            "texts": ["Alice likes ramen", "She eats it every week"],
+            "summary": {"event_count": 2, "session_id": "s-1", "user_id": "u-1"},
+        },
+        profile=profile,
+        focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+    )
+    payload = json.loads(prompt.split("\n\n", maxsplit=1)[1])
+
+    assert payload["event_window"]["summary"]["event_count"] == 2
+    assert any(
+        "Use batch-level context across the supplied event window" in rule for rule in payload["rules"]
+    )
+
+
+def test_conflict_arbitration_uses_core_scenario_adapter():
+    from magi.config.models import LLMScenario
+    from magi.memory.l2.llm_service import L2LLMService
+
+    fast_adapter = _FakeAdapter("{}")
+    deep_adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "decision": "keep_existing",
+                "winning_record_ids": ["triple-1"],
+                "superseded_record_ids": [],
+                "reason": "Older evidence is stronger.",
+            }
+        ),
+        model_name="gpt-deep",
+    )
+    service = L2LLMService(
+        _ScenarioAwarePool(
+            {
+                LLMScenario.CONTEXT_DECIDER: fast_adapter,
+                LLMScenario.CORE: deep_adapter,
+            }
+        )
+    )
+
+    result = asyncio.run(
+        service.arbitrate_conflict(
+            new_event_window={"event_ids": ["evt-1"], "events": [], "summary": {"session_id": "s1"}},
+            new_candidates={"graph_candidates": [], "assertion_candidates": []},
+            contradiction_hints=[{"target_record_id": "triple-1", "confidence": 0.9}],
+            existing_records=[{"record_id": "triple-1"}],
+            source_events=[],
+        )
+    )
+
+    assert result["decision"] == "keep_existing"
+    assert fast_adapter._client.completions.kwargs == {}
+    assert deep_adapter._client.completions.kwargs["messages"][0]["content"]
 
 
 def test_unified_extraction_parses_mentions_graph_and_assertions():
@@ -304,6 +380,47 @@ def test_unified_extraction_uses_provider_bridge_and_logs_usage():
     assert llm_completed_extra["total_tokens"] == 30
     assert completed_extra["event_ids"] == ["evt-1"]
     assert completed_extra["profile_id"] == "chat.user_message"
+
+
+def test_unified_extraction_logs_batch_session_context():
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    response = json.dumps(
+        {
+            "mentions": [],
+            "graph_candidates": [],
+            "assertion_candidates": [],
+            "diagnostics": {"entity_status": "none"},
+        }
+    )
+    adapter = _FakeAdapter(response)
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    with patch("magi.memory.l2.llm_service.logger.info") as mock_info:
+        asyncio.run(
+            service.extract_unified_candidates(
+                event_window={
+                    "event_ids": ["evt-1", "evt-2"],
+                    "events": [
+                        {"event_id": "evt-1", "session_id": "sess-1"},
+                        {"event_id": "evt-2", "session_id": "sess-1"},
+                    ],
+                    "texts": ["Alice likes ramen", "She eats it weekly"],
+                    "summary": {"event_count": 2, "session_id": "sess-1", "user_id": "u-1"},
+                },
+                profile=ExtractionProfile(profile_id="chat.user_message"),
+                focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+                context_bundle=None,
+            )
+        )
+    started_extra = mock_info.call_args_list[0].kwargs
+    llm_completed_extra = mock_info.call_args_list[1].kwargs
+    completed_extra = mock_info.call_args_list[2].kwargs
+    assert started_extra["session_id"] == "sess-1"
+    assert started_extra["batch_event_count"] == 2
+    assert llm_completed_extra["session_id"] == "sess-1"
+    assert completed_extra["session_id"] == "sess-1"
 
 
 def test_llm_call_completed_log_renders_duration(capsys):

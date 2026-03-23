@@ -313,18 +313,33 @@ export const MemoryForm: React.FC = () => {
                 onToggle={(checked) => handleLayerToggle('enable_l2', checked)}
                 onExpand={() => toggleExpand('l2')}
               >
-                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_llm_extraction.label')}</div>
-                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_llm_extraction.description')}</div>
-                  </div>
-                  <SwitchField
-                    checked={memory.enable_l2_llm_extraction !== false}
-                    disabled={!l2Enabled}
-                    onChange={(checked) => patchMemory({ enable_l2_llm_extraction: checked })}
-                    ariaLabel={t('settings.memory.fields.enable_l2_llm_extraction.label')}
-                  />
-                </label>
+                <div className="space-y-3">
+                  <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_llm_extraction.label')}</div>
+                      <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_llm_extraction.description')}</div>
+                    </div>
+                    <SwitchField
+                      checked={memory.enable_l2_llm_extraction !== false}
+                      disabled={!l2Enabled}
+                      onChange={(checked) => patchMemory({ enable_l2_llm_extraction: checked })}
+                      ariaLabel={t('settings.memory.fields.enable_l2_llm_extraction.label')}
+                    />
+                  </label>
+
+                  <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_conflict_arbitration.label')}</div>
+                      <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_conflict_arbitration.description')}</div>
+                    </div>
+                    <SwitchField
+                      checked={memory.enable_l2_conflict_arbitration !== false}
+                      disabled={!l2Enabled}
+                      onChange={(checked) => patchMemory({ enable_l2_conflict_arbitration: checked })}
+                      ariaLabel={t('settings.memory.fields.enable_l2_conflict_arbitration.label')}
+                    />
+                  </label>
+                </div>
               </ExpandableMemoryLayerCard>
 
               {/* L3 Reflection */}
