@@ -34,26 +34,28 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
 def test_system_config_defaults_include_memory_lifecycle_settings():
     config = SystemConfigModel()
 
-    assert config.memory.enable_l0 is True
-    assert config.memory.enable_l4 is True
-    assert config.memory.l0_checkpoint_interval_seconds == 30
-    assert config.memory.l2_batch_flush_interval_seconds == 60
-    assert config.memory.enable_l2_conflict_arbitration is True
-    assert config.memory.l2_conflict_arbitration_min_confidence == 0.85
-    assert config.memory.enable_l2_llm_extraction is True
-    assert config.memory.l3_temporal_llm_timeout_seconds == 3.0
-    assert config.memory.l3_temporal_llm_min_event_count == 2
-    assert config.memory.enable_l4_skill_extraction is True
+    assert config.memory.l0.enabled is True
+    assert config.memory.l4.enabled is True
+    assert config.memory.l0.checkpoint_interval_seconds == 30
+    assert config.memory.l2.batch_flush_interval_seconds == 60
+    assert config.memory.l2.conflict_arbitration_enabled is True
+    assert config.memory.l2.conflict_arbitration_min_confidence == 0.85
+    assert config.memory.l2.llm_extraction_enabled is True
+    assert config.memory.l3.temporal_llm_timeout_seconds == 3.0
+    assert config.memory.l3.temporal_llm_min_event_count == 2
+    assert config.memory.l4.skill_extraction_enabled is True
+    assert config.memory.l1.vectors_enabled is True
+    assert config.memory.l3.vectors_enabled is True
 
 
 def test_memory_config_rejects_l2_batch_flush_interval_below_minimum():
     with pytest.raises(ValueError):
-        SystemConfigModel(memory={"l2_batch_flush_interval_seconds": 29})
+        SystemConfigModel(memory={"l2": {"batch_flush_interval_seconds": 29}})
 
 
 def test_memory_config_rejects_l2_conflict_arbitration_threshold_above_maximum():
     with pytest.raises(ValueError):
-        SystemConfigModel(memory={"l2_conflict_arbitration_min_confidence": 1.1})
+        SystemConfigModel(memory={"l2": {"conflict_arbitration_min_confidence": 1.1}})
 
 
 def test_llm_settings_reject_duplicate_builtin_provider_types():
@@ -104,25 +106,25 @@ def test_custom_provider_default_model_must_be_in_model_list():
 def test_build_update_paths_contains_new_sections():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
-    config.memory.enable_l0 = not current.memory.enable_l0
-    config.memory.l2_batch_flush_interval_seconds = 90
-    config.memory.enable_l2_conflict_arbitration = False
-    config.memory.l2_conflict_arbitration_min_confidence = 0.9
-    config.memory.l3_temporal_llm_timeout_seconds = 1.5
-    config.memory.l3_temporal_llm_min_event_count = 3
+    config.memory.l0.enabled = not current.memory.l0.enabled
+    config.memory.l2.batch_flush_interval_seconds = 90
+    config.memory.l2.conflict_arbitration_enabled = False
+    config.memory.l2.conflict_arbitration_min_confidence = 0.9
+    config.memory.l3.temporal_llm_timeout_seconds = 1.5
+    config.memory.l3.temporal_llm_min_event_count = 3
     config.timeline.enabled = not current.timeline.enabled
     updates = _build_update_paths(config)
 
-    assert "agent.memory.enable_l0" in updates
-    assert updates["agent.memory.enable_l0"] == config.memory.enable_l0
-    assert updates["agent.memory.l2_batch_flush_interval_seconds"] == 90
-    assert updates["agent.memory.enable_l2_conflict_arbitration"] is False
-    assert updates["agent.memory.l2_conflict_arbitration_min_confidence"] == 0.9
-    assert updates["agent.memory.l3_temporal_llm_timeout_seconds"] == 1.5
-    assert updates["agent.memory.l3_temporal_llm_min_event_count"] == 3
+    assert "agent.memory.l0.enabled" in updates
+    assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
+    assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90
+    assert updates["agent.memory.l2.conflict_arbitration_enabled"] is False
+    assert updates["agent.memory.l2.conflict_arbitration_min_confidence"] == 0.9
+    assert updates["agent.memory.l3.temporal_llm_timeout_seconds"] == 1.5
+    assert updates["agent.memory.l3.temporal_llm_min_event_count"] == 3
     assert "timeline" in updates
     assert updates["timeline"]["enabled"] == config.timeline.enabled
-    assert "agent.memory.enable_l4" not in updates
+    assert "agent.memory.l4.enabled" not in updates
     assert "memory_layers" not in updates
     assert "tools.skills" not in updates
     assert "agent.personality.name" not in updates
@@ -513,7 +515,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(monk
 
     payload = SystemConfigModel()
     expected_updates = {
-        "agent.memory.enable_l0": False,
+        "agent.memory.l0.enabled": False,
         "tools.web_fetch.default_provider": "browser",
     }
     captured_updates: dict[str, object] = {}
@@ -524,7 +526,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(monk
 
     refreshed_config = object()
     returned_config = SystemConfigModel()
-    returned_config.memory.enable_l0 = False
+    returned_config.memory.l0.enabled = False
     returned_config.tools.builtIn.webFetch.usePlaywright = True
 
     monkeypatch.setattr("magi.api.routers.config._build_update_paths", lambda config: expected_updates)
@@ -537,7 +539,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(monk
 
     assert response.status_code == 200
     assert captured_updates == expected_updates
-    assert response.json()["data"]["memory"]["enable_l0"] is False
+    assert response.json()["data"]["memory"]["l0"]["enabled"] is False
     assert response.json()["data"]["tools"]["builtIn"]["webFetch"]["usePlaywright"] is True
 
 

@@ -71,19 +71,38 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
             memory=SimpleNamespace(
                 embedding=SimpleNamespace(backend=EmbeddingBackend.OPENAI),
                 async_embeddings=True,
-                enable_l0=True,
-                enable_l1=True,
-                enable_l2=True,
-                enable_l3=True,
-                enable_l4=True,
-                enable_l3_llm_summary=True,
-                l3_temporal_llm_timeout_seconds=30,
-                l3_temporal_llm_min_event_count=5,
-                l0_checkpoint_interval_seconds=60,
-                l2_batch_flush_interval_seconds=90,
-                enable_l2_conflict_arbitration=True,
-                l2_conflict_arbitration_min_confidence=0.85,
-                summary_interval_minutes=15,
+                l0=SimpleNamespace(
+                    enabled=True,
+                    checkpoint_interval_seconds=60,
+                    runtime_replay_include_l0_only=False,
+                ),
+                l1=SimpleNamespace(
+                    enabled=True,
+                    retention_days=7,
+                    t1_importance_enabled=True,
+                    vectors_enabled=True,
+                ),
+                l2=SimpleNamespace(
+                    enabled=True,
+                    batch_flush_interval_seconds=90,
+                    llm_extraction_enabled=True,
+                    auto_extract_relations=True,
+                    conflict_arbitration_enabled=True,
+                    conflict_arbitration_min_confidence=0.85,
+                ),
+                l3=SimpleNamespace(
+                    enabled=True,
+                    vectors_enabled=True,
+                    llm_summary_enabled=True,
+                    temporal_llm_timeout_seconds=30,
+                    temporal_llm_min_event_count=5,
+                    summary_interval_minutes=15,
+                ),
+                l4=SimpleNamespace(
+                    enabled=True,
+                    vectors_enabled=True,
+                    skill_extraction_enabled=True,
+                ),
             )
         )
     )

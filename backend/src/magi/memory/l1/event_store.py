@@ -7,11 +7,12 @@ import asyncio
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
+from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
 from ...timeline.contracts import TimelineEvent
 from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
@@ -47,13 +48,15 @@ class L1EventStore:
         *,
         db_path: str = "~/.magi/data/memories/l1_events.db",
         embedding_service: MemoryEmbeddingService | None = None,
+        memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
-        self._vector_enabled = bool(vector_enabled and embedding_service is not None)
-        self._async_embeddings = bool(async_embeddings)
+        self._memory_config_getter = memory_config_getter
+        self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
+        self._default_async_embeddings = bool(async_embeddings)
         self._vector_index = (
             SqliteVecIndex(
                 db_path=self.db_path,
@@ -61,10 +64,12 @@ class L1EventStore:
                 entity_column="event_id",
                 vec_table_prefix="l1_event_vec",
             )
-            if self._vector_enabled
+            if embedding_service is not None or vector_enabled
             else None
         )
-        self._embedding_queue: asyncio.Queue[MemoryEvent | None] | None = asyncio.Queue() if self._vector_enabled and self._async_embeddings else None
+        self._embedding_queue: asyncio.Queue[MemoryEvent | None] | None = (
+            asyncio.Queue() if embedding_service is not None else None
+        )
         self._embedding_worker: asyncio.Task[None] | None = None
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
@@ -154,7 +159,7 @@ class L1EventStore:
                 f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_profile ON {FACT_EVENTS_TABLE}(embedding_profile_id)"
             )
             await ensure_chat_sessions_schema_async(db)
-            if self._vector_enabled:
+            if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
 
@@ -169,6 +174,33 @@ class L1EventStore:
             self._embedding_worker = None
         if self._vector_index is not None:
             await self._vector_index.close()
+
+    def _current_memory_config(self) -> Any | None:
+        if self._memory_config_getter is None:
+            return None
+        try:
+            return self._memory_config_getter()
+        except Exception as exc:
+            logger.debug("Failed to resolve current memory config: %s", exc)
+            return None
+
+    def _vectors_enabled(self) -> bool:
+        if self._embedding_service is None:
+            return False
+        config = self._current_memory_config()
+        if config is None:
+            return self._default_vector_enabled
+        return bool(
+            config.embedding.backend == EmbeddingBackend.SQLITE_VEC
+            and config.l1.enabled
+            and config.l1.vectors_enabled
+        )
+
+    def _async_embeddings_enabled(self) -> bool:
+        config = self._current_memory_config()
+        if config is None:
+            return self._default_async_embeddings
+        return bool(config.async_embeddings)
 
     async def store(self, event: MemoryEvent) -> str:
         """Persist a normalized memory event."""
@@ -442,8 +474,8 @@ class L1EventStore:
         """Return lightweight runtime stats for reporting and backlog polling."""
         return {
             "db_path": self.db_path,
-            "vector_enabled": self._vector_enabled,
-            "async_embeddings": self._async_embeddings,
+            "vector_enabled": self._vectors_enabled(),
+            "async_embeddings": self._async_embeddings_enabled(),
             "active_embedding_profile_id": self.get_active_embedding_profile_id(),
             "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
             "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
@@ -613,7 +645,7 @@ class L1EventStore:
         await self._maybe_upsert_event_embeddings([event])
 
     async def _maybe_upsert_event_embeddings(self, events: list[MemoryEvent]) -> None:
-        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
             return
         eligible_events = [
             event
@@ -681,7 +713,7 @@ class L1EventStore:
             await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
 
     async def _semantic_search_event_hits(self, *, query: str, limit: int) -> list[VectorSearchHit]:
-        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
@@ -693,9 +725,9 @@ class L1EventStore:
             return []
 
     async def _schedule_event_embedding(self, event: MemoryEvent) -> None:
-        if not self._vector_enabled:
+        if not self._vectors_enabled():
             return
-        if self._embedding_queue is not None:
+        if self._embedding_queue is not None and self._async_embeddings_enabled():
             await self._embedding_queue.put(event)
             return
         await self._maybe_upsert_event_embedding(event)
@@ -805,7 +837,7 @@ class L1EventStore:
         return text or labels
 
     def get_active_embedding_profile_id(self) -> str | None:
-        if self._embedding_service is None:
+        if self._embedding_service is None or not self._vectors_enabled():
             return None
         getter = getattr(self._embedding_service, "get_active_profile", None)
         if not callable(getter):
@@ -829,14 +861,14 @@ class L1EventStore:
         return event.memory_domain not in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}
 
     def _initial_embedding_status(self, event: MemoryEvent) -> str:
-        if not self._vector_enabled or self._embedding_service is None:
+        if not self._vectors_enabled() or self._embedding_service is None:
             return EMBEDDING_STATUS_DISABLED
         if not self._embedding_eligible(event):
             return EMBEDDING_STATUS_SKIPPED
         return EMBEDDING_STATUS_PENDING
 
     def _initial_embedding_profile_id(self, event: MemoryEvent) -> str | None:
-        if not self._vector_enabled or self._embedding_service is None or not self._embedding_eligible(event):
+        if not self._vectors_enabled() or self._embedding_service is None or not self._embedding_eligible(event):
             return None
         return self.get_active_embedding_profile_id()
 

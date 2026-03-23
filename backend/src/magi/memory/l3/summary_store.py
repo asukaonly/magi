@@ -8,11 +8,12 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
+from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
 from ..embedding_service import MemoryEmbeddingService
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
@@ -38,6 +39,7 @@ class L3SummaryStore:
         *,
         db_path: str = "~/.magi/data/memories/memory.db",
         embedding_service: MemoryEmbeddingService | None = None,
+        memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
         enable_temporal_llm_summary: bool = True,
@@ -47,8 +49,9 @@ class L3SummaryStore:
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
-        self._vector_enabled = bool(vector_enabled and embedding_service is not None)
-        self._async_embeddings = bool(async_embeddings)
+        self._memory_config_getter = memory_config_getter
+        self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
+        self._default_async_embeddings = bool(async_embeddings)
         self._temporal_llm_service = TemporalSummaryLLMService(
             enabled=enable_temporal_llm_summary,
             llm_timeout_seconds=temporal_llm_timeout_seconds,
@@ -67,10 +70,12 @@ class L3SummaryStore:
                 entity_column="summary_id",
                 vec_table_prefix="l3_summary_vec",
             )
-            if self._vector_enabled
+            if embedding_service is not None or vector_enabled
             else None
         )
-        self._embedding_queue: asyncio.Queue[Dict[str, Any] | None] | None = asyncio.Queue() if self._vector_enabled and self._async_embeddings else None
+        self._embedding_queue: asyncio.Queue[Dict[str, Any] | None] | None = (
+            asyncio.Queue() if embedding_service is not None else None
+        )
         self._embedding_worker: asyncio.Task[None] | None = None
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
@@ -152,7 +157,7 @@ class L3SummaryStore:
                 );
                 """
             )
-            if self._vector_enabled:
+            if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
         if self._embedding_queue is not None and self._embedding_worker is None:
@@ -166,6 +171,33 @@ class L3SummaryStore:
             self._embedding_worker = None
         if self._vector_index is not None:
             await self._vector_index.close()
+
+    def _current_memory_config(self) -> Any | None:
+        if self._memory_config_getter is None:
+            return None
+        try:
+            return self._memory_config_getter()
+        except Exception as exc:
+            logger.debug("Failed to resolve current memory config: %s", exc)
+            return None
+
+    def _vectors_enabled(self) -> bool:
+        if self._embedding_service is None:
+            return False
+        config = self._current_memory_config()
+        if config is None:
+            return self._default_vector_enabled
+        return bool(
+            config.embedding.backend == EmbeddingBackend.SQLITE_VEC
+            and config.l3.enabled
+            and config.l3.vectors_enabled
+        )
+
+    def _async_embeddings_enabled(self) -> bool:
+        config = self._current_memory_config()
+        if config is None:
+            return self._default_async_embeddings
+        return bool(config.async_embeddings)
 
     async def generate_temporal_summary(
         self,
@@ -607,8 +639,8 @@ class L3SummaryStore:
         """Return lightweight metadata for reporting."""
         return {
             "db_path": self.db_path,
-            "vector_enabled": self._vector_enabled,
-            "async_embeddings": self._async_embeddings,
+            "vector_enabled": self._vectors_enabled(),
+            "async_embeddings": self._async_embeddings_enabled(),
             "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
             "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
         }
@@ -739,7 +771,7 @@ class L3SummaryStore:
         await self._maybe_upsert_summary_embeddings([summary])
 
     async def _maybe_upsert_summary_embeddings(self, summaries: List[Dict[str, Any]]) -> None:
-        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
             return
         contents = [str(summary.get("content") or "") for summary in summaries]
         if hasattr(self._embedding_service, "embed_texts"):
@@ -771,7 +803,7 @@ class L3SummaryStore:
         summary_category: Optional[str],
         limit: int,
     ) -> List[Dict[str, Any]]:
-        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
@@ -859,9 +891,9 @@ class L3SummaryStore:
         return [summaries_by_id[summary_id] for summary_id in summary_ids if summary_id in summaries_by_id]
 
     async def _schedule_summary_embedding(self, summary: Dict[str, Any]) -> None:
-        if not self._vector_enabled:
+        if not self._vectors_enabled():
             return
-        if self._embedding_queue is not None:
+        if self._embedding_queue is not None and self._async_embeddings_enabled():
             await self._embedding_queue.put(dict(summary))
             return
         await self._maybe_upsert_summary_embedding(summary)

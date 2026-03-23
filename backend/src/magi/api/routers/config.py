@@ -99,26 +99,56 @@ class MessageBusConfigModel(BaseModel):
     max_size: Optional[int] = Field(default=1000)
 
 
-class MemoryConfigModel(BaseModel):
-    backend: str = Field(default="sqlite")
-    path: Optional[str] = Field(default="~/.magi/data/memories")
-    retention_days: int = Field(default=7, ge=1)
-    enable_l0: bool = Field(default=True)
-    enable_l1: bool = Field(default=True)
-    enable_l2: bool = Field(default=True)
-    enable_l3: bool = Field(default=True)
-    enable_l4: bool = Field(default=True)
-    l0_checkpoint_interval_seconds: int = Field(default=30, ge=1)
-    l2_batch_flush_interval_seconds: int = Field(default=60, ge=30)
+class MemoryEmbeddingConfigModel(BaseModel):
+    backend: str = Field(default="sqlite_vec")
+
+
+class MemoryL0ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    checkpoint_interval_seconds: int = Field(default=30, ge=1)
     runtime_replay_include_l0_only: bool = Field(default=False)
-    enable_t1_importance: bool = Field(default=True)
-    enable_l2_llm_extraction: bool = Field(default=True)
-    enable_l2_conflict_arbitration: bool = Field(default=True)
-    l2_conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
-    enable_l3_llm_summary: bool = Field(default=True)
-    l3_temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
-    l3_temporal_llm_min_event_count: int = Field(default=2, ge=1)
-    enable_l4_skill_extraction: bool = Field(default=True)
+
+
+class MemoryL1ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    retention_days: int = Field(default=7, ge=1)
+    t1_importance_enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+
+
+class MemoryL2ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    batch_flush_interval_seconds: int = Field(default=60, ge=30)
+    llm_extraction_enabled: bool = Field(default=True)
+    auto_extract_relations: bool = Field(default=True)
+    conflict_arbitration_enabled: bool = Field(default=True)
+    conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+
+
+class MemoryL3ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+    llm_summary_enabled: bool = Field(default=True)
+    temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
+    temporal_llm_min_event_count: int = Field(default=2, ge=1)
+    summary_interval_minutes: int = Field(default=60, ge=1)
+
+
+class MemoryL4ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+    skill_extraction_enabled: bool = Field(default=True)
+
+
+class MemoryConfigModel(BaseModel):
+    db_path: Optional[str] = Field(default="~/.magi/data/memories")
+    async_embeddings: bool = Field(default=True)
+    embedding: MemoryEmbeddingConfigModel = Field(default_factory=MemoryEmbeddingConfigModel)
+    l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
+    l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
+    l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)
+    l3: MemoryL3ConfigModel = Field(default_factory=MemoryL3ConfigModel)
+    l4: MemoryL4ConfigModel = Field(default_factory=MemoryL4ConfigModel)
 
 
 class WebSocketConfigModel(BaseModel):
@@ -388,31 +418,45 @@ def _load_llm_provider_registry() -> LLMProviderRegistryModel:
 
 
 def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfigModel:
-    saved_memory = raw.get("memory", {})
-    if not isinstance(saved_memory, dict):
-        saved_memory = {}
-
     memory_cfg = runtime_config.agent.memory
     return MemoryConfigModel(
-        backend=saved_memory.get("backend", "sqlite"),
-        path=memory_cfg.db_path,
-        retention_days=memory_cfg.retention_days,
-        enable_l0=memory_cfg.enable_l0,
-        enable_l1=memory_cfg.enable_l1,
-        enable_l2=memory_cfg.enable_l2,
-        enable_l3=memory_cfg.enable_l3,
-        enable_l4=memory_cfg.enable_l4,
-        l0_checkpoint_interval_seconds=memory_cfg.l0_checkpoint_interval_seconds,
-        l2_batch_flush_interval_seconds=memory_cfg.l2_batch_flush_interval_seconds,
-        runtime_replay_include_l0_only=memory_cfg.runtime_replay_include_l0_only,
-        enable_t1_importance=memory_cfg.enable_t1_importance,
-        enable_l2_llm_extraction=memory_cfg.enable_l2_llm_extraction,
-        enable_l2_conflict_arbitration=memory_cfg.enable_l2_conflict_arbitration,
-        l2_conflict_arbitration_min_confidence=memory_cfg.l2_conflict_arbitration_min_confidence,
-        enable_l3_llm_summary=memory_cfg.enable_l3_llm_summary,
-        l3_temporal_llm_timeout_seconds=memory_cfg.l3_temporal_llm_timeout_seconds,
-        l3_temporal_llm_min_event_count=memory_cfg.l3_temporal_llm_min_event_count,
-        enable_l4_skill_extraction=memory_cfg.enable_l4_skill_extraction,
+        db_path=memory_cfg.db_path,
+        async_embeddings=memory_cfg.async_embeddings,
+        embedding=MemoryEmbeddingConfigModel(
+            backend=str(memory_cfg.embedding.backend),
+        ),
+        l0=MemoryL0ConfigModel(
+            enabled=memory_cfg.l0.enabled,
+            checkpoint_interval_seconds=memory_cfg.l0.checkpoint_interval_seconds,
+            runtime_replay_include_l0_only=memory_cfg.l0.runtime_replay_include_l0_only,
+        ),
+        l1=MemoryL1ConfigModel(
+            enabled=memory_cfg.l1.enabled,
+            retention_days=memory_cfg.l1.retention_days,
+            t1_importance_enabled=memory_cfg.l1.t1_importance_enabled,
+            vectors_enabled=memory_cfg.l1.vectors_enabled,
+        ),
+        l2=MemoryL2ConfigModel(
+            enabled=memory_cfg.l2.enabled,
+            batch_flush_interval_seconds=memory_cfg.l2.batch_flush_interval_seconds,
+            llm_extraction_enabled=memory_cfg.l2.llm_extraction_enabled,
+            auto_extract_relations=memory_cfg.l2.auto_extract_relations,
+            conflict_arbitration_enabled=memory_cfg.l2.conflict_arbitration_enabled,
+            conflict_arbitration_min_confidence=memory_cfg.l2.conflict_arbitration_min_confidence,
+        ),
+        l3=MemoryL3ConfigModel(
+            enabled=memory_cfg.l3.enabled,
+            vectors_enabled=memory_cfg.l3.vectors_enabled,
+            llm_summary_enabled=memory_cfg.l3.llm_summary_enabled,
+            temporal_llm_timeout_seconds=memory_cfg.l3.temporal_llm_timeout_seconds,
+            temporal_llm_min_event_count=memory_cfg.l3.temporal_llm_min_event_count,
+            summary_interval_minutes=memory_cfg.l3.summary_interval_minutes,
+        ),
+        l4=MemoryL4ConfigModel(
+            enabled=memory_cfg.l4.enabled,
+            vectors_enabled=memory_cfg.l4.vectors_enabled,
+            skill_extraction_enabled=memory_cfg.l4.skill_extraction_enabled,
+        ),
     )
 
 
@@ -752,25 +796,31 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "loop.interval": config.loop.interval,
         "agent.loop_interval": config.loop.interval,
         "agent.message_bus.max_queue_size": config.message_bus.max_size,
-        "memory.backend": config.memory.backend,
-        "agent.memory.db_path": config.memory.path,
-        "agent.memory.retention_days": config.memory.retention_days,
-        "agent.memory.enable_l0": config.memory.enable_l0,
-        "agent.memory.enable_l1": config.memory.enable_l1,
-        "agent.memory.enable_l2": config.memory.enable_l2,
-        "agent.memory.enable_l3": config.memory.enable_l3,
-        "agent.memory.enable_l4": config.memory.enable_l4,
-        "agent.memory.l0_checkpoint_interval_seconds": config.memory.l0_checkpoint_interval_seconds,
-        "agent.memory.l2_batch_flush_interval_seconds": config.memory.l2_batch_flush_interval_seconds,
-        "agent.memory.runtime_replay_include_l0_only": config.memory.runtime_replay_include_l0_only,
-        "agent.memory.enable_t1_importance": config.memory.enable_t1_importance,
-        "agent.memory.enable_l2_llm_extraction": config.memory.enable_l2_llm_extraction,
-        "agent.memory.enable_l2_conflict_arbitration": config.memory.enable_l2_conflict_arbitration,
-        "agent.memory.l2_conflict_arbitration_min_confidence": config.memory.l2_conflict_arbitration_min_confidence,
-        "agent.memory.enable_l3_llm_summary": config.memory.enable_l3_llm_summary,
-        "agent.memory.l3_temporal_llm_timeout_seconds": config.memory.l3_temporal_llm_timeout_seconds,
-        "agent.memory.l3_temporal_llm_min_event_count": config.memory.l3_temporal_llm_min_event_count,
-        "agent.memory.enable_l4_skill_extraction": config.memory.enable_l4_skill_extraction,
+        "agent.memory.db_path": config.memory.db_path,
+        "agent.memory.async_embeddings": config.memory.async_embeddings,
+        "agent.memory.embedding.backend": config.memory.embedding.backend,
+        "agent.memory.l0.enabled": config.memory.l0.enabled,
+        "agent.memory.l0.checkpoint_interval_seconds": config.memory.l0.checkpoint_interval_seconds,
+        "agent.memory.l0.runtime_replay_include_l0_only": config.memory.l0.runtime_replay_include_l0_only,
+        "agent.memory.l1.enabled": config.memory.l1.enabled,
+        "agent.memory.l1.retention_days": config.memory.l1.retention_days,
+        "agent.memory.l1.t1_importance_enabled": config.memory.l1.t1_importance_enabled,
+        "agent.memory.l1.vectors_enabled": config.memory.l1.vectors_enabled,
+        "agent.memory.l2.enabled": config.memory.l2.enabled,
+        "agent.memory.l2.batch_flush_interval_seconds": config.memory.l2.batch_flush_interval_seconds,
+        "agent.memory.l2.llm_extraction_enabled": config.memory.l2.llm_extraction_enabled,
+        "agent.memory.l2.auto_extract_relations": config.memory.l2.auto_extract_relations,
+        "agent.memory.l2.conflict_arbitration_enabled": config.memory.l2.conflict_arbitration_enabled,
+        "agent.memory.l2.conflict_arbitration_min_confidence": config.memory.l2.conflict_arbitration_min_confidence,
+        "agent.memory.l3.enabled": config.memory.l3.enabled,
+        "agent.memory.l3.vectors_enabled": config.memory.l3.vectors_enabled,
+        "agent.memory.l3.llm_summary_enabled": config.memory.l3.llm_summary_enabled,
+        "agent.memory.l3.temporal_llm_timeout_seconds": config.memory.l3.temporal_llm_timeout_seconds,
+        "agent.memory.l3.temporal_llm_min_event_count": config.memory.l3.temporal_llm_min_event_count,
+        "agent.memory.l3.summary_interval_minutes": config.memory.l3.summary_interval_minutes,
+        "agent.memory.l4.enabled": config.memory.l4.enabled,
+        "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
+        "agent.memory.l4.skill_extraction_enabled": config.memory.l4.skill_extraction_enabled,
         "features.enable_websocket": config.websocket.enabled,
         "server.port": config.websocket.port,
         "log_level": config.log.level,

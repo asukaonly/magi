@@ -7,7 +7,7 @@ import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from ..events.events import Event, EventLevel, EventTypes
 from .embedding_service import MemoryEmbeddingService
@@ -62,6 +62,7 @@ class UnifiedMemoryStore:
         session_timeout_seconds: int = 3600,
         embedding_service: MemoryEmbeddingService | None = None,
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
+        memory_config_getter: Callable[[], Any] | None = None,
         async_embeddings: bool = True,
         enable_l1_vectors: bool = True,
         enable_l3_vectors: bool = True,
@@ -112,6 +113,7 @@ class UnifiedMemoryStore:
             self.l1 = L1EventStore(
                 db_path=l1_db,
                 embedding_service=embedding_service,
+                memory_config_getter=memory_config_getter,
                 vector_enabled=enable_l1_vectors,
                 async_embeddings=async_embeddings,
             )
@@ -133,6 +135,7 @@ class UnifiedMemoryStore:
             self.l3 = L3SummaryStore(
                 db_path=shared_memory_db,
                 embedding_service=embedding_service,
+                memory_config_getter=memory_config_getter,
                 vector_enabled=enable_l3_vectors,
                 async_embeddings=async_embeddings,
                 enable_temporal_llm_summary=enable_l3_llm_summary,
@@ -144,6 +147,7 @@ class UnifiedMemoryStore:
             self.l4 = L4ProceduralMemoryStore(
                 db_path=shared_memory_db,
                 embedding_service=embedding_service,
+                memory_config_getter=memory_config_getter,
                 vector_enabled=enable_l4_vectors,
                 async_embeddings=async_embeddings,
             )

@@ -7,7 +7,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from ..llm.usage_events import LLMUsageEventPublisher
 from ..llm import get_llm_usage_store
-from ..config.models import EmbeddingBackend
+from ..config import get_config
 from ..config.models import LLMScenario
 from ..llm.provider_bridge import LLMProviderBridge
 from . import UnifiedMemoryStore
@@ -49,8 +49,8 @@ class MemoryStoreModule(LifecycleModule):
         await self._context.llm.llm_usage_store.start(message_bus)
         logger.info("LLM usage store started")
 
-        vector_backend_enabled = config.agent.memory.embedding.backend == EmbeddingBackend.SQLITE_VEC
-        embedding_service = MemoryEmbeddingService(scenario_llm_pool) if vector_backend_enabled else None
+        memory_config = config.agent.memory
+        embedding_service = MemoryEmbeddingService(scenario_llm_pool)
 
         self._context.memory.unified_memory = UnifiedMemoryStore(
             l1_db_path=str(runtime_paths.l1_memory_db_path),
@@ -58,22 +58,23 @@ class MemoryStoreModule(LifecycleModule):
             persist_dir=str(runtime_paths.memories_dir),
             embedding_service=embedding_service,
             scenario_llm_pool=scenario_llm_pool,
-            async_embeddings=config.agent.memory.async_embeddings,
-            enable_l1_vectors=vector_backend_enabled and config.agent.memory.enable_l1,
-            enable_l3_vectors=vector_backend_enabled and config.agent.memory.enable_l3,
-            enable_l4_vectors=vector_backend_enabled and config.agent.memory.enable_l4,
-            enable_l0=config.agent.memory.enable_l0,
-            enable_l1=config.agent.memory.enable_l1,
-            enable_l2=config.agent.memory.enable_l2,
-            enable_l3=config.agent.memory.enable_l3,
-            enable_l4=config.agent.memory.enable_l4,
-            enable_l3_llm_summary=config.agent.memory.enable_l3_llm_summary,
-            temporal_l3_llm_timeout_seconds=config.agent.memory.l3_temporal_llm_timeout_seconds,
-            temporal_l3_llm_min_event_count=config.agent.memory.l3_temporal_llm_min_event_count,
-            l0_checkpoint_interval_seconds=config.agent.memory.l0_checkpoint_interval_seconds,
-            l2_batch_flush_interval_seconds=config.agent.memory.l2_batch_flush_interval_seconds,
-            enable_l2_conflict_arbitration=config.agent.memory.enable_l2_conflict_arbitration,
-            l2_conflict_arbitration_min_confidence=config.agent.memory.l2_conflict_arbitration_min_confidence,
+            memory_config_getter=lambda: get_config().agent.memory,
+            async_embeddings=memory_config.async_embeddings,
+            enable_l1_vectors=memory_config.l1.vectors_enabled,
+            enable_l3_vectors=memory_config.l3.vectors_enabled,
+            enable_l4_vectors=memory_config.l4.vectors_enabled,
+            enable_l0=memory_config.l0.enabled,
+            enable_l1=memory_config.l1.enabled,
+            enable_l2=memory_config.l2.enabled,
+            enable_l3=memory_config.l3.enabled,
+            enable_l4=memory_config.l4.enabled,
+            enable_l3_llm_summary=memory_config.l3.llm_summary_enabled,
+            temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
+            temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
+            l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
+            l2_batch_flush_interval_seconds=memory_config.l2.batch_flush_interval_seconds,
+            enable_l2_conflict_arbitration=memory_config.l2.conflict_arbitration_enabled,
+            l2_conflict_arbitration_min_confidence=memory_config.l2.conflict_arbitration_min_confidence,
         )
         await self._context.memory.unified_memory.initialize()
         logger.info("UnifiedMemoryStore initialized (L0-L4)")
@@ -88,12 +89,12 @@ class MemoryStoreModule(LifecycleModule):
 
         if self.start_memory_integration:
             memory_integration_config = MemoryIntegrationConfig(
-                enable_l0=config.agent.memory.enable_l0,
-                enable_l1=config.agent.memory.enable_l1,
-                enable_l2=config.agent.memory.enable_l2,
-                enable_l3=config.agent.memory.enable_l3,
-                enable_l4=config.agent.memory.enable_l4,
-                summary_interval_minutes=config.agent.memory.summary_interval_minutes,
+                enable_l0=memory_config.l0.enabled,
+                enable_l1=memory_config.l1.enabled,
+                enable_l2=memory_config.l2.enabled,
+                enable_l3=memory_config.l3.enabled,
+                enable_l4=memory_config.l4.enabled,
+                summary_interval_minutes=memory_config.l3.summary_interval_minutes,
             )
             self._context.memory.memory_integration = MemoryIntegrationModule(
                 unified_memory=self._context.memory.unified_memory,

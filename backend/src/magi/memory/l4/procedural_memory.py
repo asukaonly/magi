@@ -8,11 +8,12 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
+from ...config.models import EmbeddingBackend
 from ..embedding_service import MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
@@ -29,6 +30,7 @@ class L4ProceduralMemoryStore:
         *,
         db_path: str = "~/.magi/data/memories/memory.db",
         embedding_service: MemoryEmbeddingService | None = None,
+        memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
         breaker_failure_threshold: int = 3,
@@ -36,8 +38,9 @@ class L4ProceduralMemoryStore:
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
-        self._vector_enabled = bool(vector_enabled and embedding_service is not None)
-        self._async_embeddings = bool(async_embeddings)
+        self._memory_config_getter = memory_config_getter
+        self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
+        self._default_async_embeddings = bool(async_embeddings)
         self._vector_index = (
             SqliteVecIndex(
                 db_path=self.db_path,
@@ -45,10 +48,12 @@ class L4ProceduralMemoryStore:
                 entity_column="skill_id",
                 vec_table_prefix="l4_skill_vec",
             )
-            if self._vector_enabled
+            if embedding_service is not None or vector_enabled
             else None
         )
-        self._embedding_queue: asyncio.Queue[dict[str, Any] | None] | None = asyncio.Queue() if self._vector_enabled and self._async_embeddings else None
+        self._embedding_queue: asyncio.Queue[dict[str, Any] | None] | None = (
+            asyncio.Queue() if embedding_service is not None else None
+        )
         self._embedding_worker: asyncio.Task[None] | None = None
         self.breaker_failure_threshold = int(breaker_failure_threshold)
         self.breaker_recovery_successes = int(breaker_recovery_successes)
@@ -116,7 +121,7 @@ class L4ProceduralMemoryStore:
                 );
                 """
             )
-            if self._vector_enabled:
+            if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
         if self._embedding_queue is not None and self._embedding_worker is None:
@@ -130,6 +135,33 @@ class L4ProceduralMemoryStore:
             self._embedding_worker = None
         if self._vector_index is not None:
             await self._vector_index.close()
+
+    def _current_memory_config(self) -> Any | None:
+        if self._memory_config_getter is None:
+            return None
+        try:
+            return self._memory_config_getter()
+        except Exception as exc:
+            logger.debug("Failed to resolve current memory config: %s", exc)
+            return None
+
+    def _vectors_enabled(self) -> bool:
+        if self._embedding_service is None:
+            return False
+        config = self._current_memory_config()
+        if config is None:
+            return self._default_vector_enabled
+        return bool(
+            config.embedding.backend == EmbeddingBackend.SQLITE_VEC
+            and config.l4.enabled
+            and config.l4.vectors_enabled
+        )
+
+    def _async_embeddings_enabled(self) -> bool:
+        config = self._current_memory_config()
+        if config is None:
+            return self._default_async_embeddings
+        return bool(config.async_embeddings)
 
     async def record_memory_event(self, event: MemoryEvent) -> Optional[str]:
         """Update procedural memory based on a normalized event."""
@@ -441,8 +473,8 @@ class L4ProceduralMemoryStore:
         """Return lightweight metadata for higher-level reporting."""
         return {
             "db_path": self.db_path,
-            "vector_enabled": self._vector_enabled,
-            "async_embeddings": self._async_embeddings,
+            "vector_enabled": self._vectors_enabled(),
+            "async_embeddings": self._async_embeddings_enabled(),
             "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
             "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
         }
@@ -537,7 +569,7 @@ class L4ProceduralMemoryStore:
         skill_category: str,
         optimized_prompt: Optional[str],
     ) -> None:
-        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
             return
         text = self._build_skill_embedding_text(
             skill_name=skill_name,
@@ -557,7 +589,7 @@ class L4ProceduralMemoryStore:
             logger.warning("Failed to upsert skill embedding for %s: %s", skill_id, exc)
 
     async def _semantic_query_strategies(self, *, query: str, limit: int) -> List[Dict[str, Any]]:
-        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
@@ -610,9 +642,9 @@ class L4ProceduralMemoryStore:
         skill_category: str,
         optimized_prompt: Optional[str],
     ) -> None:
-        if not self._vector_enabled:
+        if not self._vectors_enabled():
             return
-        if self._embedding_queue is not None:
+        if self._embedding_queue is not None and self._async_embeddings_enabled():
             await self._embedding_queue.put(
                 {
                     "skill_id": skill_id,

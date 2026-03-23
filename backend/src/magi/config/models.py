@@ -177,33 +177,63 @@ class EmbeddingSettings(BaseModel):
     backend: EmbeddingBackend = Field(default=EmbeddingBackend.SQLITE_VEC)
 
 
+class MemoryL0Settings(BaseModel):
+    """L0 working-memory settings."""
+
+    enabled: bool = Field(default=True)
+    checkpoint_interval_seconds: int = Field(default=30, ge=1)
+    runtime_replay_include_l0_only: bool = Field(default=False)
+
+
+class MemoryL1Settings(BaseModel):
+    """L1 long-term event memory settings."""
+
+    enabled: bool = Field(default=True)
+    retention_days: int = Field(default=7, ge=1)
+    t1_importance_enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+
+
+class MemoryL2Settings(BaseModel):
+    """L2 structured cognition settings."""
+
+    enabled: bool = Field(default=True)
+    batch_flush_interval_seconds: int = Field(default=60, ge=30)
+    llm_extraction_enabled: bool = Field(default=True)
+    auto_extract_relations: bool = Field(default=True)
+    conflict_arbitration_enabled: bool = Field(default=True)
+    conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+
+
+class MemoryL3Settings(BaseModel):
+    """L3 reflection-memory settings."""
+
+    enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+    llm_summary_enabled: bool = Field(default=True)
+    temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
+    temporal_llm_min_event_count: int = Field(default=2, ge=1)
+    summary_interval_minutes: int = Field(default=60, ge=1)
+
+
+class MemoryL4Settings(BaseModel):
+    """L4 procedural-memory settings."""
+
+    enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
+    skill_extraction_enabled: bool = Field(default=True)
+
+
 class MemorySettings(BaseModel):
     """Memory configuration."""
     db_path: str = Field(default="~/.magi/data/memories")
-    retention_days: int = Field(default=7, ge=1)
-
-    enable_l0: bool = Field(default=True)
-    enable_l1: bool = Field(default=True)
-    enable_l2: bool = Field(default=True)
-    enable_l3: bool = Field(default=True)
-    enable_l4: bool = Field(default=True)
-    l0_checkpoint_interval_seconds: int = Field(default=30, ge=1)
-    l2_batch_flush_interval_seconds: int = Field(default=60, ge=30)
-    runtime_replay_include_l0_only: bool = Field(default=False)
-    enable_t1_importance: bool = Field(default=True)
-    enable_l2_llm_extraction: bool = Field(default=True)
-    enable_l2_conflict_arbitration: bool = Field(default=True)
-    l2_conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
-    enable_l3_llm_summary: bool = Field(default=True)
-    l3_temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
-    l3_temporal_llm_min_event_count: int = Field(default=2, ge=1)
-    enable_l4_skill_extraction: bool = Field(default=True)
-
     async_embeddings: bool = Field(default=True)
-    auto_extract_relations: bool = Field(default=True)
-    summary_interval_minutes: int = Field(default=60, ge=1)
-
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
+    l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)
+    l2: MemoryL2Settings = Field(default_factory=MemoryL2Settings)
+    l3: MemoryL3Settings = Field(default_factory=MemoryL3Settings)
+    l4: MemoryL4Settings = Field(default_factory=MemoryL4Settings)
 
 
 class PersonalitySettings(BaseModel):
