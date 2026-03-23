@@ -51,6 +51,7 @@ def test_mark_stale_result_tracks_stale_results_separately() -> None:
 
     stale_result = store.mark_stale_result(
         session_id="session-1",
+        run_id="run-1",
         result_id="result-1",
         revision=0,
         payload={"content": "old result"},
@@ -59,8 +60,64 @@ def test_mark_stale_result_tracks_stale_results_separately() -> None:
     active_run = store.get_active_run("session-1")
 
     assert stale_result.disposition == RunResultDisposition.STALE
+    assert stale_result.run_id == "run-1"
     assert stale_result.revision == 0
     assert stale_result.payload == {"content": "old result"}
     assert active_run is not None
     assert active_run.accepted_results == []
     assert active_run.stale_results == [stale_result]
+
+
+def test_record_result_routes_by_run_identity_and_revision() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+
+    accepted_result = store.record_result(
+        session_id="session-1",
+        run_id="run-1",
+        result_id="result-1",
+        revision=0,
+        payload={"content": "current"},
+    )
+    store.bump_revision("session-1")
+    stale_result = store.record_result(
+        session_id="session-1",
+        run_id="run-1",
+        result_id="result-2",
+        revision=0,
+        payload={"content": "older"},
+    )
+
+    active_run = store.get_active_run("session-1")
+
+    assert accepted_result.disposition == RunResultDisposition.ACCEPTED
+    assert accepted_result.run_id == "run-1"
+    assert stale_result.disposition == RunResultDisposition.STALE
+    assert stale_result.run_id == "run-1"
+    assert active_run is not None
+    assert [item.result_id for item in active_run.accepted_results] == ["result-1"]
+    assert [item.result_id for item in active_run.stale_results] == ["result-2"]
+
+
+def test_record_result_rejects_late_result_from_superseded_run() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+    store.bump_revision("session-1")
+    store.create_active_run(session_id="session-1", run_id="run-2")
+
+    late_result = store.record_result(
+        session_id="session-1",
+        run_id="run-1",
+        result_id="result-3",
+        revision=0,
+        payload={"content": "late"},
+    )
+
+    active_run = store.get_active_run("session-1")
+
+    assert late_result.disposition == RunResultDisposition.STALE
+    assert late_result.run_id == "run-1"
+    assert active_run is not None
+    assert active_run.run_id == "run-2"
+    assert active_run.accepted_results == []
+    assert [item.result_id for item in active_run.stale_results] == ["result-3"]

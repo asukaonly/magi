@@ -56,6 +56,7 @@ class SessionRunStore:
     def mark_stale_result(
         self,
         session_id: str,
+        run_id: str,
         result_id: str,
         *,
         revision: int,
@@ -66,6 +67,7 @@ class SessionRunStore:
             active_run = self._require_run(session_id)
             stale_result = RunResult(
                 result_id=result_id,
+                run_id=run_id,
                 revision=revision,
                 payload=deepcopy(payload),
                 disposition=RunResultDisposition.STALE,
@@ -77,6 +79,7 @@ class SessionRunStore:
     def mark_accepted_result(
         self,
         session_id: str,
+        run_id: str,
         result_id: str,
         *,
         revision: int,
@@ -87,6 +90,7 @@ class SessionRunStore:
             active_run = self._require_run(session_id)
             accepted_result = RunResult(
                 result_id=result_id,
+                run_id=run_id,
                 revision=revision,
                 payload=deepcopy(payload),
                 disposition=RunResultDisposition.ACCEPTED,
@@ -98,6 +102,7 @@ class SessionRunStore:
     def record_result(
         self,
         session_id: str,
+        run_id: str,
         result_id: str,
         *,
         revision: int,
@@ -106,15 +111,17 @@ class SessionRunStore:
         """Route a result to accepted or stale storage based on revision."""
         with self._lock:
             active_run = self._require_run(session_id)
-            if revision < active_run.revision:
+            if run_id != active_run.run_id or revision != active_run.revision:
                 return self.mark_stale_result(
                     session_id,
+                    run_id,
                     result_id,
                     revision=revision,
                     payload=payload,
                 )
             return self.mark_accepted_result(
                 session_id,
+                run_id,
                 result_id,
                 revision=revision,
                 payload=payload,

@@ -29,6 +29,7 @@ class RunResult:
     """A result emitted for a run revision."""
 
     result_id: str
+    run_id: str
     revision: int
     payload: dict[str, Any]
     disposition: RunResultDisposition
