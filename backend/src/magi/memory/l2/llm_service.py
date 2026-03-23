@@ -15,16 +15,12 @@ from .prompts import (
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
     CONTRADICTION_HINT_SYSTEM_PROMPT,
     ENTITY_RECONCILE_SYSTEM_PROMPT,
-    ENTITY_MENTION_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
-    TOM_EXTRACTION_SYSTEM_PROMPT,
     UNIFIED_EXTRACTION_SYSTEM_PROMPT,
     render_conflict_arbitration_prompt,
     render_contradiction_hint_prompt,
-    render_entity_mention_prompt,
     render_entity_reconcile_prompt,
     render_entity_resolution_prompt,
-    render_tom_extraction_prompt,
     render_unified_extraction_prompt,
 )
 
@@ -37,9 +33,6 @@ class L2LLMService:
 
     def __init__(self, scenario_llm_pool: ScenarioLLMPool | None) -> None:
         self._scenario_llm_pool = scenario_llm_pool
-
-    def render_entity_mention_prompt(self, *, event_text: str, context_texts: list[str]) -> str:
-        return render_entity_mention_prompt(event_text=event_text, context_texts=context_texts)
 
     def render_unified_extraction_prompt(
         self,
@@ -159,15 +152,6 @@ class L2LLMService:
         )
         return result
 
-    async def extract_entity_mentions(self, *, event_text: str, context_texts: list[str]) -> list[dict[str, Any]]:
-        payload = await self._generate_json(
-            system_prompt=ENTITY_MENTION_SYSTEM_PROMPT,
-            prompt=self.render_entity_mention_prompt(event_text=event_text, context_texts=context_texts),
-            request_kind="memory:l2_entity_mentions",
-        )
-        mentions = payload.get("mentions")
-        return mentions if isinstance(mentions, list) else []
-
     async def resolve_entity(
         self,
         *,
@@ -202,36 +186,6 @@ class L2LLMService:
             "should_merge": bool(resolution.get("should_merge", False)),
             "canonical_name_suggestion": resolution.get("canonical_name_suggestion"),
         }
-
-    async def extract_tom_assertions(
-        self,
-        *,
-        event_window: dict[str, Any],
-        focal_entities: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        event_ids = event_window.get("event_ids")
-        payload = await self._generate_json(
-            system_prompt=TOM_EXTRACTION_SYSTEM_PROMPT,
-            prompt=render_tom_extraction_prompt(event_window=event_window, focal_entities=focal_entities),
-            request_kind="memory:l2_tom_extraction",
-            turn_id=event_ids[0] if isinstance(event_ids, list) and event_ids else None,
-        )
-        assertions = payload.get("assertion_candidates")
-        if not isinstance(assertions, list):
-            return []
-
-        normalized: list[dict[str, Any]] = []
-        is_single_event = isinstance(event_ids, list) and len(event_ids) <= 1
-        for item in assertions:
-            if not isinstance(item, dict):
-                continue
-            candidate = dict(item)
-            confidence = float(candidate.get("confidence", 0.0) or 0.0)
-            if is_single_event:
-                confidence = min(confidence, 0.3)
-            candidate["confidence"] = round(confidence, 4)
-            normalized.append(candidate)
-        return normalized
 
     async def detect_contradiction_hints(
         self,

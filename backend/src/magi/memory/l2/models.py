@@ -32,23 +32,6 @@ def build_l2_batch_bucket_key(*, session_id: str | None, user_id: str | None) ->
 
 
 @dataclass(slots=True)
-class L2EventExtractionJob:
-    """Queue payload for event-to-candidate extraction."""
-
-    event_ids: list[str]
-    batch_key: str
-    job_type: str = "extract"
-
-    @classmethod
-    def from_event_id(cls, event_id: str) -> "L2EventExtractionJob":
-        normalized = _non_empty_text(event_id, field_name="event_id")
-        return cls(event_ids=[normalized], batch_key=f"event:{normalized}")
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -290,7 +273,6 @@ __all__ = [
     "ContradictionHint",
     "L2BatchJob",
     "L2EntityReconcileJob",
-    "L2EventExtractionJob",
     "L2PendingBatchBucket",
     "L2SnapshotRefreshJob",
     "ManualL2EventRequest",

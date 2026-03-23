@@ -93,16 +93,6 @@ def _make_memory_event(
     )
 
 
-def test_extraction_job_payload_can_be_created_from_event_id():
-    from magi.memory.l2.models import L2EventExtractionJob
-
-    job = L2EventExtractionJob.from_event_id("evt-1")
-
-    assert job.job_type == "extract"
-    assert job.event_ids == ["evt-1"]
-    assert job.batch_key == "event:evt-1"
-
-
 def test_reconcile_job_accepts_multiple_entities():
     from magi.memory.l2.models import L2EntityReconcileJob
 
@@ -670,20 +660,6 @@ async def test_enqueue_event_flushes_when_bucket_hits_token_cap():
             await pipeline.shutdown()
 
 
-def test_entity_mention_prompt_rendering_is_deterministic():
-    from magi.memory.l2.llm_service import L2LLMService
-
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
-    prompt = service.render_entity_mention_prompt(
-        event_text="I like Shanghai.",
-        context_texts=["I also call it Modu."],
-    )
-
-    assert "I like Shanghai." in prompt
-    assert "I also call it Modu." in prompt
-    assert prompt.count("Event text:") == 1
-
-
 def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
     from magi.memory.l2.prompts import (
         render_contradiction_hint_prompt,
@@ -705,17 +681,6 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
     assert '"predicate": "LIKES"' in contradiction_prompt
     assert '"entity_id": "user:u1"' in reconcile_prompt
     assert '"trait_name": "stress_level"' in reconcile_prompt
-
-
-@pytest.mark.asyncio
-async def test_invalid_json_from_llm_fails_closed():
-    from magi.memory.l2.llm_service import L2LLMService
-
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
-
-    mentions = await service.extract_entity_mentions(event_text="I like Shanghai.", context_texts=[])
-
-    assert mentions == []
 
 
 @pytest.mark.asyncio
@@ -744,40 +709,6 @@ async def test_low_confidence_resolution_is_returned_as_unresolved():
 
     assert resolution["decision"] == "unresolved"
     assert resolution["matched_entity_id"] is None
-
-
-@pytest.mark.asyncio
-async def test_single_event_tom_candidates_are_capped_to_low_confidence():
-    from magi.memory.l2.llm_service import L2LLMService
-
-    response = json.dumps(
-        {
-            "assertion_candidates": [
-                {
-                    "entity_ref": "user:u1",
-                    "entity_type": "user",
-                    "trait_family": "stress",
-                    "trait_name": "stress_level",
-                    "trait_value": "high",
-                    "inference_depth": "defensive_psychology",
-                    "volatility_index": 0.7,
-                    "confidence": 0.92,
-                    "validation_state": "tentative",
-                    "evidence_texts": ["I am stressed about work."],
-                    "supporting_event_ids": ["evt-1"],
-                    "notes": None,
-                }
-            ]
-        }
-    )
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
-
-    assertions = await service.extract_tom_assertions(
-        event_window={"event_ids": ["evt-1"], "texts": ["I am stressed about work."]},
-        focal_entities=[{"entity_id": "user:u1", "entity_type": "user"}],
-    )
-
-    assert assertions[0]["confidence"] == 0.3
 
 
 @pytest.mark.asyncio

@@ -122,7 +122,6 @@ class L2Pipeline:
         self._snapshot_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
         self._extract_worker_count = DEFAULT_L2_EXTRACT_WORKER_COUNT
         self._extract_workers: list[asyncio.Task[None]] = []
-        self._extract_worker: asyncio.Task[None] | None = None
         self._flush_worker: asyncio.Task[None] | None = None
         self._reconcile_worker: asyncio.Task[None] | None = None
         self._snapshot_worker: asyncio.Task[None] | None = None
@@ -136,7 +135,6 @@ class L2Pipeline:
 
         self._stats.is_running = True
         self._extract_workers = [asyncio.create_task(self._run_extract_worker()) for _ in range(self._extract_worker_count)]
-        self._extract_worker = self._extract_workers[0] if self._extract_workers else None
         self._flush_worker = asyncio.create_task(self._run_flush_worker())
         self._reconcile_worker = asyncio.create_task(self._run_reconcile_worker())
         self._snapshot_worker = asyncio.create_task(self._run_snapshot_worker())
@@ -173,7 +171,6 @@ class L2Pipeline:
                 pass
 
         self._extract_workers = []
-        self._extract_worker = None
         self._flush_worker = None
         self._reconcile_worker = None
         self._snapshot_worker = None
@@ -1460,17 +1457,6 @@ class L2Pipeline:
 
     def _load_source_event_ids(self, event: MemoryEvent) -> list[str]:
         return []
-
-    def _parse_json_object(self, raw: Any) -> dict[str, Any]:
-        if isinstance(raw, dict):
-            return raw
-        if not raw:
-            return {}
-        try:
-            parsed = json.loads(str(raw))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
 
     def _collect_touched_entities(
         self,
