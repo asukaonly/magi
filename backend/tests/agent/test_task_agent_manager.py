@@ -16,6 +16,8 @@ except ModuleNotFoundError:  # pragma: no cover
 from magi.agent.runtime import TaskAgent, TaskAgentManager, TaskAgentType
 from magi.agent.task_agents import DefaultTaskAgent
 from magi.agent.runtime.contracts import FactRecord
+from magi.awareness.contracts import SensorEvent
+from magi.events.events import EventTypes
 
 
 class _CollectTaskAgent(TaskAgent):
@@ -53,6 +55,44 @@ async def test_task_agent_manager_hybrid_creation_and_dispatch():
     assert dynamic.get_stats()["processed"] >= 1
 
     await manager.stop_all()
+
+
+def test_task_agent_manager_routes_user_messages_by_session_id():
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.CHAT, agent_id),
+    )
+
+    targets = manager.resolve_targets(
+        SensorEvent(
+            sensor_name="user_input_sensor",
+            event_type=EventTypes.USER_MESSAGE,
+            payload={
+                "content": "hello",
+                "user_id": "u-chat",
+                "session_id": "s-chat",
+            },
+        )
+    )
+
+    assert targets == [(TaskAgentType.CHAT, "s-chat")]
+
+
+def test_task_agent_manager_rejects_user_messages_without_session_id():
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.CHAT, agent_id),
+    )
+
+    with pytest.raises(ValueError, match="session_id"):
+        manager.resolve_targets(
+            SensorEvent(
+                sensor_name="user_input_sensor",
+                event_type=EventTypes.USER_MESSAGE,
+                payload={
+                    "content": "hello",
+                    "user_id": "u-chat",
+                },
+            )
+        )
 
 
 @pytest.mark.asyncio

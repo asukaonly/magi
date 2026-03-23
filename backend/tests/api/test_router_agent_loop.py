@@ -64,7 +64,7 @@ async def test_router_agent_loop_dispatches_batch_to_targets():
 
     await asyncio.sleep(0.5)
     router_stats = router_agent.get_stats()
-    assert manager.get_agent(TaskAgentType.CHAT, "u1") is not None
+    assert manager.get_agent(TaskAgentType.CHAT, "s1") is not None
     await router_agent.stop()
     await manager.stop_all()
     await sensor_hub.stop()

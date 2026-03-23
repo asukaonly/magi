@@ -131,8 +131,10 @@ class TaskAgentManager:
             return [(resolved_type, resolved_id)]
 
         if sensor_event.event_type == EventTypes.USER_MESSAGE:
-            chat_id = str(payload.get("target_task_agent_id") or payload.get("user_id") or "default")
-            return [(TaskAgentType.CHAT, chat_id)]
+            session_id = str(payload.get("session_id") or "").strip()
+            if not session_id:
+                raise ValueError("USER_MESSAGE requires session_id for chat routing")
+            return [(TaskAgentType.CHAT, session_id)]
 
         return [(TaskAgentType.CHAT, "default")]
 
