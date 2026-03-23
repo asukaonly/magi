@@ -137,6 +137,26 @@ def test_microbatch_bucket_tracks_pending_events_and_estimated_tokens():
     assert bucket.newest_event_timestamp == 2.0
 
 
+def test_microbatch_bucket_uses_enqueue_time_when_initialized_with_existing_events(monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l2.models import L2PendingBatchBucket
+
+    monkeypatch.setattr("magi.memory.l2.models.time.time", lambda: 1234.5)
+    bucket = L2PendingBatchBucket(
+        bucket_key="session:s1",
+        session_id="s1",
+        user_id="u1",
+        events=[
+            {"event_id": "evt-1", "timestamp": 1.0, "content": "first"},
+            {"event_id": "evt-2", "timestamp": 2.0, "content": "second"},
+        ],
+    )
+
+    assert bucket.created_at == 1234.5
+    assert bucket.last_event_at == 1234.5
+    assert bucket.oldest_event_timestamp == 1.0
+    assert bucket.newest_event_timestamp == 2.0
+
+
 def test_microbatch_job_captures_flush_reason_and_sorts_events_by_timestamp():
     from magi.memory.l2.models import L2PendingBatchBucket
 
@@ -972,6 +992,93 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
             assert len(unified_prompts) == 1
             assert "I still like Modu." in unified_prompts[0]
             assert "I call Shanghai Modu sometimes." in unified_prompts[0]
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_orders_history_contexts_chronologically_in_prompt():
+    from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
+
+    adapter = _FakeAdapter(
+        [
+            json.dumps(
+                {
+                    "mentions": [],
+                    "graph_candidates": [],
+                    "assertion_candidates": [],
+                    "diagnostics": {"entity_status": "none"},
+                }
+            ),
+        ]
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l1 is not None
+            assert store.l2_entity_catalog is not None
+            await store.l1.store(
+                _make_memory_event(
+                    event_id="evt-history-early",
+                    session_id="s-old-1",
+                    user_id="u1",
+                    timestamp=100.0,
+                    content="I called Shanghai Modu years ago.",
+                )
+            )
+            await store.l1.store(
+                _make_memory_event(
+                    event_id="evt-history-late",
+                    session_id="s-old-2",
+                    user_id="u1",
+                    timestamp=200.0,
+                    content="I still call Shanghai Modu now.",
+                )
+            )
+            await store.l2_entity_catalog.upsert_entity(
+                canonical_name="Shanghai",
+                entity_type="place",
+                entity_id="place:shanghai",
+            )
+            await store.l2_entity_catalog.add_alias(entity_id="place:shanghai", alias_text="Modu")
+
+            await store.ingest_event(
+                {
+                    "id": "evt-history-anchor",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": 300.0,
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-new",
+                        "content": "Modu is still my favorite city.",
+                    },
+                }
+            )
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            unified_prompts = [
+                str(call["prompt"])
+                for call in adapter.calls
+                if call.get("system_prompt") == UNIFIED_EXTRACTION_SYSTEM_PROMPT
+            ]
+
+            assert len(unified_prompts) == 1
+            prompt = unified_prompts[0]
+            assert prompt.index("I called Shanghai Modu years ago.") < prompt.index("I still call Shanghai Modu now.")
         finally:
             await store.shutdown()
 

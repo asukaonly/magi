@@ -95,11 +95,12 @@ class L2PendingBatchBucket:
         self.estimated_tokens = max(0, int(self.estimated_tokens))
         self.events = [dict(item) for item in self.events if isinstance(item, dict)]
         if self.events:
+            enqueued_at = float(self.created_at or self.last_event_at or time.time())
             timestamps = [float(item.get("timestamp", 0.0) or 0.0) for item in self.events]
             self.oldest_event_timestamp = float(self.oldest_event_timestamp or min(timestamps))
             self.newest_event_timestamp = float(self.newest_event_timestamp or max(timestamps))
-            self.created_at = float(self.created_at or self.oldest_event_timestamp)
-            self.last_event_at = float(self.last_event_at or self.newest_event_timestamp)
+            self.created_at = float(self.created_at or enqueued_at)
+            self.last_event_at = float(self.last_event_at or enqueued_at)
 
     @classmethod
     def for_owner(cls, *, session_id: str | None = None, user_id: str | None = None) -> "L2PendingBatchBucket":

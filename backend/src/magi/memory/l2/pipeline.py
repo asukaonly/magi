@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, Optional
 from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
 from ..l1.event_store import L1EventStore
-from .context_bundle import ContextBundle, ContextEntity
+from .context_bundle import ContextBundle
 from .context_collector import collect_context_bundle, resolve_direct_context_refs
 from .models import L2BatchJob, L2PendingBatchBucket, build_l2_batch_bucket_key
 from .store import L2CognitionStore
@@ -905,7 +905,7 @@ class L2Pipeline:
 
         seen_event_ids = set(exclude_event_ids or [])
         seen_terms: set[str] = set()
-        history_contexts: list[dict[str, Any]] = []
+        matches_by_event_id: dict[str, dict[str, Any]] = {}
         for match in entity_matches:
             candidate_terms = [
                 self._non_empty_text(match.get("matched_text")),
@@ -932,22 +932,30 @@ class L2Pipeline:
                         continue
                     if anchor_event.session_id and str(row.get("session_id") or "") == anchor_event.session_id:
                         continue
-                    history_contexts.append(
-                        {
-                            "event_id": event_id,
-                            "session_id": self._non_empty_text(row.get("session_id")),
-                            "timestamp": float(row.get("timestamp", 0.0) or 0.0),
-                            "content": content,
-                            "matched_entity_id": self._non_empty_text(match.get("entity_id")),
-                            "matched_text": term,
-                            "canonical_name": self._non_empty_text(match.get("canonical_name")),
-                            "match_source": self._non_empty_text(match.get("match_source")),
-                        }
-                    )
+                    history_context = {
+                        "event_id": event_id,
+                        "session_id": self._non_empty_text(row.get("session_id")),
+                        "timestamp": float(row.get("timestamp", 0.0) or 0.0),
+                        "content": content,
+                        "matched_entity_id": self._non_empty_text(match.get("entity_id")),
+                        "matched_text": term,
+                        "canonical_name": self._non_empty_text(match.get("canonical_name")),
+                        "match_source": self._non_empty_text(match.get("match_source")),
+                    }
+                    existing_context = matches_by_event_id.get(event_id)
+                    if existing_context is None or history_context["timestamp"] > float(existing_context["timestamp"]):
+                        matches_by_event_id[event_id] = history_context
                     seen_event_ids.add(event_id)
-                    if len(history_contexts) >= DEFAULT_L2_HISTORY_CONTEXT_LIMIT:
-                        return history_contexts
-        return history_contexts
+        ranked_contexts = sorted(
+            matches_by_event_id.values(),
+            key=lambda item: (float(item["timestamp"]), str(item["event_id"])),
+            reverse=True,
+        )
+        selected_contexts = ranked_contexts[:DEFAULT_L2_HISTORY_CONTEXT_LIMIT]
+        return sorted(
+            selected_contexts,
+            key=lambda item: (float(item["timestamp"]), str(item["event_id"])),
+        )
 
     async def _resolve_mentions(
         self,
@@ -1346,8 +1354,7 @@ class L2Pipeline:
             event=event,
             recent_messages=[{"text": text} for text in context_texts if text],
             recent_entities=recent_entities,
-            live_context_entities=self._parse_live_context_entities(event),
-            source_event_ids=list(source_event_ids or []) + self._load_source_event_ids(event),
+            source_event_ids=list(source_event_ids or []),
         )
 
     def _merge_resolved_context_refs(
@@ -1430,33 +1437,6 @@ class L2Pipeline:
         if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
             return "session", "session_decay", event.timestamp + 6 * 60 * 60
         return "stable", "evidence_only", None
-
-    def _parse_live_context_entities(self, event: MemoryEvent) -> list[ContextEntity]:
-        raw_entities: list[dict[str, Any]] = []
-        entities: list[ContextEntity] = []
-        for item in raw_entities if isinstance(raw_entities, list) else []:
-            if not isinstance(item, dict):
-                continue
-            context_id = self._non_empty_text(item.get("context_id"))
-            kind = self._normalize_entity_type(item.get("kind"))
-            summary = self._non_empty_text(item.get("summary"))
-            if not context_id or not kind or not summary:
-                continue
-            entities.append(
-                ContextEntity(
-                    context_id=context_id,
-                    kind=kind,
-                    summary=summary,
-                    payload=item.get("payload", {}) if isinstance(item.get("payload"), dict) else {},
-                    source_event_ids=[str(value) for value in item.get("source_event_ids", []) if str(value).strip()],
-                    created_at=float(item.get("created_at", event.timestamp) or event.timestamp),
-                    expires_at=float(item["expires_at"]) if item.get("expires_at") is not None else None,
-                )
-            )
-        return entities
-
-    def _load_source_event_ids(self, event: MemoryEvent) -> list[str]:
-        return []
 
     def _collect_touched_entities(
         self,
