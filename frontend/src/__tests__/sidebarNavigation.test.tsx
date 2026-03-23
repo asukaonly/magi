@@ -128,6 +128,50 @@ describe('sidebar navigation', () => {
     expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument();
   });
 
+  it('uses flat square active states instead of bordered cards', async () => {
+    vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
+      sessions: [
+        {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+      ],
+      user_id: 'web_user',
+      count: 1,
+    });
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a'],
+      sessionsById: {
+        'session-a': {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+      },
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    const conversationAction = await screen.findByRole('button', { name: 'shell.conversation' });
+    const sessionAction = await screen.findByRole('button', { name: '杭州天气' });
+
+    expect(conversationAction.className).toContain('rounded-none');
+    expect(conversationAction.className).not.toContain(' border ');
+    expect(sessionAction.className).toContain('rounded-none');
+  });
+
   it('keeps the currently selected session when it still exists in the refreshed list', async () => {
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
       sessions: [
@@ -579,7 +623,7 @@ describe('sidebar navigation', () => {
     const conversationRail = await screen.findByTestId('sidebar-conversation-rail');
     const conversationTools = screen.getByTestId('sidebar-conversation-tools');
 
-    expect(conversationRail).toHaveClass('border-l');
+    expect(conversationRail).toHaveClass('ml-8');
     expect(conversationTools).toHaveClass('gap-1.5');
   });
 
@@ -593,7 +637,7 @@ describe('sidebar navigation', () => {
     const memoryRail = await screen.findByTestId('sidebar-memory-rail');
     const activeMemoryRow = screen.getByRole('button', { name: 'memory.nav.knowledge' });
 
-    expect(memoryRail).toHaveClass('border-l');
-    expect(activeMemoryRow).toHaveClass('border-l-2');
+    expect(memoryRail).toHaveClass('ml-8');
+    expect(activeMemoryRow).toHaveClass('rounded-none');
   });
 });

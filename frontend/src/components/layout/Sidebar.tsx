@@ -333,39 +333,39 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
 
   const primaryButtonClass = (active: boolean) => cn(
-    'flex w-full items-center gap-3 rounded-[20px] border px-3.5 py-3 text-left transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35',
+    'flex w-full items-center gap-3 rounded-none px-4 py-3 text-left transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.25)]',
     active
-      ? 'border-primary/15 bg-primary/[0.08] text-foreground shadow-[0_10px_24px_rgba(109,92,77,0.08)]'
-      : 'border-transparent text-muted-foreground hover:border-border/35 hover:bg-background/70 hover:text-foreground'
+      ? 'bg-[hsl(24_34%_74%)] text-[hsl(20_20%_21%)]'
+      : 'text-[hsl(26_18%_38%)] hover:bg-[hsl(33_21%_88%)] hover:text-[hsl(20_18%_24%)]'
   );
 
   const iconWrapClass = (active: boolean) => cn(
-    'flex h-9 w-9 shrink-0 items-center justify-center rounded-[14px] border transition-colors duration-200',
+    'flex h-5 w-5 shrink-0 items-center justify-center transition-colors duration-150',
     active
-      ? 'border-primary/16 bg-background/88 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]'
-      : 'border-border/28 bg-background/78 text-muted-foreground'
+      ? 'text-[hsl(20_28%_24%)]'
+      : 'text-[hsl(26_11%_50%)]'
   );
 
-  const nestedRailClass = 'mt-3 ml-4 flex flex-col gap-2 border-l border-border/55 pl-3';
+  const nestedRailClass = 'mt-2 ml-8 flex flex-col gap-2 pl-3';
 
   const secondaryButtonClass = (active: boolean) => cn(
-    'flex w-full items-center gap-2 rounded-r-2xl border-l-2 border-transparent px-3 py-2.5 text-left text-sm transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
+    'flex w-full items-center gap-2 rounded-none px-3 py-2.5 text-left text-sm transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.22)]',
     active
-      ? 'border-primary/60 bg-primary/[0.08] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.32)]'
-      : 'text-muted-foreground hover:border-border/60 hover:bg-background/72 hover:text-foreground'
+      ? 'bg-[hsl(28_25%_79%)] text-[hsl(20_18%_22%)]'
+      : 'text-[hsl(26_17%_40%)] hover:bg-[hsl(34_22%_88%)] hover:text-[hsl(20_18%_24%)]'
   );
 
   const toolButtonClass =
-    'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/18 bg-background/78 text-muted-foreground shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all duration-200 ease-out hover:border-border/38 hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
+    'flex h-8 w-8 shrink-0 items-center justify-center rounded-none bg-[hsl(35_18%_86%)] text-[hsl(26_14%_44%)] transition-colors duration-150 ease-out hover:bg-[hsl(31_22%_80%)] hover:text-[hsl(20_18%_22%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.22)]';
 
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/45 pt-7"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-[hsl(30_15%_80%)] bg-[linear-gradient(180deg,hsl(34_23%_93%)_0%,hsl(31_20%_90%)_100%)] pt-7"
     >
       {sessionMenu && sessionMenuSession ? (
         <div
           ref={sessionMenuRef}
-          className="fixed z-[90] min-w-[160px] rounded-xl border border-border/70 bg-card/95 p-1.5 shadow-lg backdrop-blur-md"
+          className="fixed z-[90] min-w-[160px] rounded-none bg-[hsl(34_18%_92%)] p-1.5 shadow-[0_14px_36px_rgba(88,67,52,0.16)]"
           style={{ left: sessionMenu.x, top: sessionMenu.y }}
         >
           <button
@@ -375,7 +375,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               setRenameValue(getSessionDisplayLabel(sessionMenuSession, t('shell.newChatTitle')));
               setSessionMenu(null);
             }}
-            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+            className="flex w-full items-center rounded-none px-3 py-2 text-left text-sm text-[hsl(24_18%_24%)] transition-colors hover:bg-[hsl(33_20%_85%)]"
           >
             {t('shell.renameSession')}
           </button>
@@ -385,13 +385,13 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               setDeleteTargetSession(sessionMenuSession);
               setSessionMenu(null);
             }}
-            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+            className="flex w-full items-center rounded-none px-3 py-2 text-left text-sm text-[hsl(7_70%_45%)] transition-colors hover:bg-[hsl(12_45%_86%)]"
           >
             {t('shell.deleteSession')}
           </button>
         </div>
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
+      <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
         <div className="flex min-h-0 flex-1 flex-col gap-2.5">
           <section className="shrink-0">
             <button
@@ -430,7 +430,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                   className="flex items-center gap-1.5"
                   data-testid="sidebar-conversation-tools"
                 >
-                  <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/18 bg-background/84 px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+                  <div className="flex min-w-0 flex-1 items-center rounded-none bg-[hsl(35_18%_86%)] px-3">
                     <input
                       ref={conversationSearchInputRef}
                       type="search"
@@ -438,7 +438,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       onChange={(event) => setConversationSearch(event.target.value)}
                       placeholder={t('shell.searchSessionsPlaceholder')}
                       aria-label={t('shell.searchSessions')}
-                      className="h-9 w-full bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/85"
+                      className="h-8 w-full bg-transparent text-xs text-[hsl(22_18%_24%)] outline-none placeholder:text-[hsl(26_12%_50%)]"
                     />
                   </div>
                   <button
@@ -468,11 +468,11 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
                 <div className="max-h-[22rem] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
                   {sessionRows.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-border/40 bg-background/45 p-3 text-xs leading-5 text-muted-foreground">
+                    <div className="bg-[hsl(35_18%_87%)] p-3 text-xs leading-5 text-[hsl(26_13%_45%)]">
                       {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
                     </div>
                   ) : filteredSessionRows.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-border/40 bg-background/45 p-3 text-xs leading-5 text-muted-foreground">
+                    <div className="bg-[hsl(35_18%_87%)] p-3 text-xs leading-5 text-[hsl(26_13%_45%)]">
                       {t('shell.searchSessionsEmpty')}
                     </div>
                   ) : (
@@ -485,10 +485,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                           <div
                             key={session.session_id}
                             className={cn(
-                              'group/session flex items-center gap-1 rounded-r-2xl border-l-2 border-transparent transition-all duration-200 ease-out',
+                              'group/session flex items-center gap-1 rounded-none transition-colors duration-150 ease-out',
                               active
-                                ? 'border-primary/60 bg-primary/[0.08] text-foreground'
-                                : 'text-muted-foreground hover:border-border/60 hover:bg-background/72 hover:text-foreground'
+                                ? 'bg-[hsl(24_34%_74%)] text-[hsl(20_20%_21%)]'
+                                : 'text-[hsl(26_18%_38%)] hover:bg-[hsl(33_21%_88%)] hover:text-[hsl(20_18%_24%)]'
                             )}
                           >
                             <button
@@ -505,16 +505,16 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                               }}
                               aria-label={displayLabel}
                               aria-current={active ? 'page' : undefined}
-                              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                              className="flex min-w-0 flex-1 items-center gap-2 rounded-none px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.22)]"
                               title={displayLabel}
                             >
                               <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
                               {unreadCount > 0 ? (
-                                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary/85 px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[hsl(20_45%_42%)] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(34_38%_96%)]">
                                   {Math.min(unreadCount, 99)}
                                 </span>
                               ) : null}
-                              <span className="shrink-0 text-[11px] text-muted-foreground/80">
+                              <span className="shrink-0 text-[11px] text-[hsl(26_11%_48%)]">
                                 {formatSessionTime(session.last_timestamp, i18n.language)}
                               </span>
                             </button>
@@ -525,10 +525,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                                 openSessionMenu(session.session_id, rect.right - 176, rect.bottom + 6);
                               }}
                               className={cn(
-                                'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground opacity-0 transition-all duration-200 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 group-hover/session:opacity-100',
+                                'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[hsl(26_11%_48%)] opacity-0 transition-all duration-150 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(22_45%_54%/0.22)] group-hover/session:opacity-100',
                                 active
-                                  ? 'hover:bg-primary/10 hover:text-primary'
-                                  : 'hover:bg-background hover:text-foreground'
+                                  ? 'hover:bg-[hsl(22_29%_68%)] hover:text-[hsl(20_18%_21%)]'
+                                  : 'hover:bg-[hsl(34_20%_83%)] hover:text-[hsl(20_18%_24%)]'
                               )}
                               aria-label={t('shell.sessionActions')}
                               title={t('shell.sessionActions')}
@@ -626,7 +626,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
 
         <div className="shrink-0 pt-4">
-          <div className="mb-3 h-px bg-border/45" />
+          <div className="mb-3 h-px bg-[hsl(30_15%_80%)]" />
           <button
             type="button"
             onClick={() => {
@@ -664,7 +664,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
               placeholder={t('shell.renameSessionPlaceholder')}
-              className="h-11 w-full rounded-xl border border-border/55 bg-background px-3 text-sm outline-none transition-colors focus:border-primary/40"
+              className="h-11 w-full rounded-none border border-border/55 bg-background px-3 text-sm outline-none transition-colors focus:border-primary/40"
             />
           </div>
           <DialogFooter>
