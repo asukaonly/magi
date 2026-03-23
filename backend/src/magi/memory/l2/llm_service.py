@@ -22,6 +22,7 @@ from .models import (
     L2EventWindow,
     L2GraphCandidate,
     L2UnifiedExtractionResult,
+    ReconciledTraitOutcome,
 )
 from .prompts import (
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
@@ -280,7 +281,7 @@ class L2LLMService:
         graph_facts: list[dict[str, Any]],
         assertions: list[dict[str, Any]],
         recent_events: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+    ) -> list[ReconciledTraitOutcome]:
         payload = await self._generate_json(
             system_prompt=ENTITY_RECONCILE_SYSTEM_PROMPT,
             prompt=render_entity_reconcile_prompt(
@@ -293,7 +294,17 @@ class L2LLMService:
             turn_id=str(entity.get("entity_id") or "") or None,
         )
         outcomes = payload.get("reconciled_traits")
-        return outcomes if isinstance(outcomes, list) else []
+        if not isinstance(outcomes, list):
+            return []
+        normalized_outcomes: list[ReconciledTraitOutcome] = []
+        for item in outcomes:
+            if not isinstance(item, dict):
+                continue
+            try:
+                normalized_outcomes.append(ReconciledTraitOutcome(**item))
+            except Exception:
+                continue
+        return normalized_outcomes
 
     async def _generate_json(
         self,

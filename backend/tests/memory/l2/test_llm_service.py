@@ -416,6 +416,45 @@ def test_contradiction_hint_detection_returns_typed_hints():
     assert hints[0].recommended_action == "mark_deprecated"
 
 
+def test_entity_reconcile_returns_typed_outcomes():
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import ReconciledTraitOutcome
+
+    response = json.dumps(
+        {
+            "reconciled_traits": [
+                {
+                    "entity_id": "user:u1",
+                    "entity_type": "user",
+                    "trait_name": "stress_level",
+                    "winning_value": "high",
+                    "status": "corroborated",
+                    "confidence": 0.82,
+                    "evidence_event_ids": ["evt-1", "evt-2"],
+                    "time_span_hours": 24.0,
+                    "stability_kind": "temporary_state",
+                    "recommended_snapshot_field": "current_stress_level",
+                }
+            ]
+        }
+    )
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
+
+    outcomes = asyncio.run(
+        service.reconcile_entity_state(
+            entity={"entity_id": "user:u1", "entity_type": "user"},
+            graph_facts=[],
+            assertions=[],
+            recent_events=[],
+        )
+    )
+
+    assert len(outcomes) == 1
+    assert isinstance(outcomes[0], ReconciledTraitOutcome)
+    assert outcomes[0].trait_name == "stress_level"
+    assert outcomes[0].confidence == 0.82
+
+
 def test_unified_extraction_fails_closed_on_invalid_json():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
