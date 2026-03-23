@@ -36,6 +36,9 @@ class ChatOutcomeWriter:
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         updated_at_ms: int,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
     ) -> None:
         if self._chat_store is None or not ux_plan:
             return
@@ -58,6 +61,9 @@ class ChatOutcomeWriter:
                 updated_at_ms=updated_at_ms,
                 completed_at_ms=None,
                 error_text=existing_turn.error_text,
+                run_id=run_id or existing_turn.run_id,
+                run_revision=run_revision if run_id is not None else existing_turn.run_revision,
+                run_disposition=run_disposition or existing_turn.run_disposition,
             )
         )
         if response_mode == "interim_then_final":
@@ -86,6 +92,9 @@ class ChatOutcomeWriter:
         response_text: str,
         started_at_ms: int,
         completed_at_ms: int,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._chat_store is None or not normalized_turn_id:
@@ -116,6 +125,9 @@ class ChatOutcomeWriter:
                 updated_at_ms=completed_at_ms,
                 completed_at_ms=completed_at_ms,
                 error_text=existing_turn.error_text,
+                run_id=run_id or existing_turn.run_id,
+                run_revision=run_revision if run_id is not None else existing_turn.run_revision,
+                run_disposition=run_disposition or existing_turn.run_disposition,
             )
         )
         if response_mode == "reaction_only":

@@ -31,6 +31,7 @@ class SessionFactDecision:
     latest_payload: TaskFactPayload
     user_id: str
     session_id: str
+    run_disposition: str | None = None
     interruption_disposition: InterruptionDisposition | None = None
     checkpoint_pending_turns: list[PendingTurn] = field(default_factory=list)
 
@@ -116,6 +117,7 @@ class SessionRunCoordinator:
                 ),
                 user_id=classified_fact.user_id,
                 session_id=classified_fact.session_id,
+                run_disposition=InterruptionDisposition.AUGMENT.value,
                 checkpoint_pending_turns=checkpoint_pending_turns,
             )
 
@@ -152,6 +154,7 @@ class SessionRunCoordinator:
                 latest_payload=payload,
                 user_id=payload.user_id,
                 session_id=payload.session_id,
+                run_disposition="root",
             )
 
         disposition = self._interruption_classifier.classify(
@@ -187,6 +190,9 @@ class SessionRunCoordinator:
             latest_payload=payload,
             user_id=payload.user_id,
             session_id=payload.session_id,
+            run_disposition=(
+                disposition.value if isinstance(disposition, InterruptionDisposition) else None
+            ),
             interruption_disposition=disposition,
             checkpoint_pending_turns=self._current_revision_pending_turns(active_run),
         )

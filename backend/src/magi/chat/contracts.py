@@ -42,6 +42,9 @@ class ChatTurnRecord:
     updated_at_ms: int
     completed_at_ms: int | None
     error_text: str | None
+    run_id: str | None = None
+    run_revision: int = 0
+    run_disposition: str | None = None
 
 
 @dataclass(slots=True)

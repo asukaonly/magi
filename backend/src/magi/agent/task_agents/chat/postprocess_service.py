@@ -179,6 +179,9 @@ class ChatPostProcessService:
             orchestration_id=result.orchestration_id,
             execution_mode=self._normalize_mode(result.mode),
             ux_plan=result.ux_plan if isinstance(result.ux_plan, dict) else {},
+            run_id=context.session_run_id,
+            run_revision=context.session_run_revision,
+            run_disposition=context.session_run_disposition,
         )
         notification_message = await self._get_notification_chat_message(
             turn_id=turn_id,
@@ -299,6 +302,9 @@ class ChatPostProcessService:
             execution_mode=self._normalize_mode(getattr(decision, "execution_mode", None)),
             ux_plan=ux_plan,
             updated_at_ms=ended_at_ms,
+            run_id=context.session_run_id,
+            run_revision=context.session_run_revision,
+            run_disposition=context.session_run_disposition,
         )
         turn_ux_message = await self._get_turn_ux_chat_message(
             turn_id=turn_id,
@@ -562,12 +568,18 @@ class ChatPostProcessService:
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         updated_at_ms: int,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
     ) -> None:
         await self._chat_outcome_writer.persist_turn_ux_plan(
             turn_id=turn_id,
             execution_mode=execution_mode,
             ux_plan=ux_plan,
             updated_at_ms=updated_at_ms,
+            run_id=run_id,
+            run_revision=run_revision,
+            run_disposition=run_disposition,
         )
 
     async def _persist_final_chat_outcome(
@@ -580,6 +592,9 @@ class ChatPostProcessService:
         orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
     ) -> None:
         await self._chat_outcome_writer.persist_final_chat_outcome(
             turn_id=turn_id,
@@ -589,6 +604,9 @@ class ChatPostProcessService:
             response_text=response_text,
             started_at_ms=started_at_ms,
             completed_at_ms=completed_at_ms,
+            run_id=run_id,
+            run_revision=run_revision,
+            run_disposition=run_disposition,
         )
 
     async def _get_chat_message(

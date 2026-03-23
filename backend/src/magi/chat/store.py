@@ -59,7 +59,10 @@ class ChatStore:
                     created_at_ms INTEGER NOT NULL,
                     updated_at_ms INTEGER NOT NULL,
                     completed_at_ms INTEGER,
-                    error_text TEXT
+                    error_text TEXT,
+                    run_id TEXT,
+                    run_revision INTEGER NOT NULL DEFAULT 0,
+                    run_disposition TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_chat_turns_session_created
                     ON chat_turns(session_id, created_at_ms ASC);
@@ -88,6 +91,7 @@ class ChatStore:
                     ON chat_messages(turn_id, sequence_no ASC);
                 """
             )
+            await self._ensure_chat_turn_columns(db)
             await db.commit()
         self._initialized = True
 
@@ -121,6 +125,9 @@ class ChatStore:
         turn_id: str,
         message_text: str,
         created_at_ms: int,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
     ) -> ChatMessageRecord:
         """Create a user turn and its first transcript message transactionally."""
         await self.initialize()
@@ -179,9 +186,12 @@ class ChatStore:
                     created_at_ms,
                     updated_at_ms,
                     completed_at_ms,
-                    error_text
+                    error_text,
+                    run_id,
+                    run_revision,
+                    run_disposition
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(turn_id) DO NOTHING
                 """,
                 (
@@ -198,6 +208,9 @@ class ChatStore:
                     created_at_ms,
                     None,
                     None,
+                    run_id,
+                    run_revision,
+                    run_disposition,
                 ),
             )
             await db.execute(
@@ -259,9 +272,12 @@ class ChatStore:
                     created_at_ms,
                     updated_at_ms,
                     completed_at_ms,
-                    error_text
+                    error_text,
+                    run_id,
+                    run_revision,
+                    run_disposition
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(turn_id) DO UPDATE SET
                     session_id = excluded.session_id,
                     user_id = excluded.user_id,
@@ -273,7 +289,10 @@ class ChatStore:
                     ux_plan_json = excluded.ux_plan_json,
                     updated_at_ms = excluded.updated_at_ms,
                     completed_at_ms = excluded.completed_at_ms,
-                    error_text = excluded.error_text
+                    error_text = excluded.error_text,
+                    run_id = excluded.run_id,
+                    run_revision = excluded.run_revision,
+                    run_disposition = excluded.run_disposition
                 """,
                 (
                     record.turn_id,
@@ -289,6 +308,9 @@ class ChatStore:
                     record.updated_at_ms,
                     record.completed_at_ms,
                     record.error_text,
+                    record.run_id,
+                    record.run_revision,
+                    record.run_disposition,
                 ),
             )
             await db.commit()
@@ -396,7 +418,8 @@ class ChatStore:
             """
             SELECT turn_id, session_id, user_id, trace_id, orchestration_id, status,
                    response_mode, execution_mode, ux_plan_json, created_at_ms,
-                   updated_at_ms, completed_at_ms, error_text
+                   updated_at_ms, completed_at_ms, error_text, run_id,
+                   run_revision, run_disposition
             FROM chat_turns
             WHERE turn_id = ?
             """,
@@ -418,7 +441,21 @@ class ChatStore:
             updated_at_ms=int(row["updated_at_ms"]),
             completed_at_ms=int(row["completed_at_ms"]) if row["completed_at_ms"] is not None else None,
             error_text=row["error_text"],
+            run_id=row["run_id"],
+            run_revision=int(row["run_revision"] or 0),
+            run_disposition=row["run_disposition"],
         )
+
+    async def _ensure_chat_turn_columns(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(chat_turns)")
+        rows = await cursor.fetchall()
+        column_names = {str(row[1]) for row in rows}
+        if "run_id" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN run_id TEXT")
+        if "run_revision" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN run_revision INTEGER NOT NULL DEFAULT 0")
+        if "run_disposition" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN run_disposition TEXT")
 
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""

@@ -71,6 +71,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     active_run: ActiveRun | None = None
     session_run_id: str | None = None
     session_run_revision: int = 0
+    session_run_disposition: str | None = None
     planner_fact: FactRecord | None = None
     planner_fact_kind: IncomingFactKind = IncomingFactKind.OTHER_FACT
     planner_payload: TaskFactPayload = field(default_factory=GenericFactPayload)
