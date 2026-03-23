@@ -186,6 +186,7 @@ class UnifiedMemoryStore:
             )
         l2_result = {"relation_count": 0, "assertion_count": 0}
         l4_skill_id: Optional[str] = None
+        l1_written = False
 
         async with self._write_lock:
             if self.l0 is not None:
@@ -193,6 +194,7 @@ class UnifiedMemoryStore:
 
             if self.l1 is not None and memory_event.ingest_target.includes_l1:
                 await self.l1.store(memory_event)
+                l1_written = True
                 if memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES:
                     logger.info(
                         "UnifiedMemory stored event in L1 | event_id=%s type=%s session_id=%s user_id=%s",
@@ -201,15 +203,16 @@ class UnifiedMemoryStore:
                         memory_event.session_id,
                         memory_event.user_id,
                     )
-                if self.l2_pipeline is not None:
-                    await self.l2_pipeline.enqueue_event(memory_event)
-                if self.l4 is not None:
-                    l4_skill_id = await self.l4.record_memory_event(memory_event)
+
+        if l1_written and self.l2_pipeline is not None:
+            await self.l2_pipeline.enqueue_event(memory_event)
+        if l1_written and self.l4 is not None:
+            l4_skill_id = await self.l4.record_memory_event(memory_event)
 
         return {
             "event_id": memory_event.event_id,
             "ingest_target": memory_event.ingest_target.label,
-            "l1_written": bool(self.l1 is not None and memory_event.ingest_target.includes_l1),
+            "l1_written": l1_written,
             "l2_relation_count": int(l2_result["relation_count"]),
             "l2_assertion_count": int(l2_result["assertion_count"]),
             "l4_skill_id": l4_skill_id,
