@@ -106,6 +106,32 @@ describe('ChatPage', () => {
     expect(screen.getByRole('button', { name: 'chat.trace.view' })).toBeInTheDocument();
   });
 
+  it('preserves millisecond timestamps from realtime agent responses', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          message_id: 'msg-final-ms',
+          message_kind: 'assistant_final',
+          content: '毫秒时间戳',
+          timestamp: 1710000000000,
+          turn_id: 'turn-ms',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('毫秒时间戳')).toBeInTheDocument();
+    });
+
+    expect(
+      useConversationStore.getState().messagesBySession['session-1']?.find((message) => message.turnId === 'turn-ms')?.timestamp
+    ).toBe(1710000000000);
+  });
+
   it('hides the trace entry when ux plan disables trace display', async () => {
     const view = render(<ChatPage />);
     const scoped = within(view.container);

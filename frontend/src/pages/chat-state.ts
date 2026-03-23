@@ -1,4 +1,5 @@
 import type { ChatHistoryMessage, ExecutionTraceNode, ExecutionTraceSnapshot, ExecutionTraceSummary } from '@/api';
+import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 
 export type ChatMessageKind = 'user' | 'assistant' | 'status';
 
@@ -189,7 +190,7 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       role: message.role === 'user' ? 'user' : 'assistant',
       kind,
       content: message.content,
-      timestamp: Number(message.timestamp || Date.now()),
+      timestamp: normalizeChatTimestamp(message.timestamp),
       messageId: message.message_id || undefined,
       messageKind: message.message_kind || null,
       turnId: message.turn_id || undefined,
@@ -264,7 +265,7 @@ export const applyTurnUxPlan = (
       role: 'assistant',
       kind: 'assistant',
       content: interimText,
-      timestamp: Number(options.timestamp || Date.now()),
+      timestamp: normalizeChatTimestamp(options.timestamp),
       messageId: options.messageId,
       messageKind: options.messageKind || 'assistant_interim',
       turnId: resolvedTurnId,
@@ -400,7 +401,7 @@ export const applyAgentResponse = (
   },
 ): ChatTimelineMessage[] => {
   const turnId = String(payload.turnId || '').trim();
-  const timestamp = Number(payload.timestamp || Date.now());
+  const timestamp = normalizeChatTimestamp(payload.timestamp);
   const traceSummary = payload.traceSummary || null;
   const traceAvailable = Boolean(payload.traceAvailable || traceSummary?.traceAvailable);
   const uxPlan = payload.uxPlan || null;

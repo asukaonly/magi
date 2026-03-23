@@ -13,6 +13,7 @@ import type {
   ExecutionTraceNodeRaw,
   ExecutionTraceSnapshotRaw,
 } from '@/types';
+import { normalizeChatTimestamp } from './timestamps';
 
 // ============================================================================
 // ID Generation
@@ -136,7 +137,7 @@ export function normalizeHistoryMessages(
       role: message.role === 'user' ? 'user' : 'assistant',
       kind,
       content: message.content,
-      timestamp: Number(message.timestamp || Date.now()),
+      timestamp: normalizeChatTimestamp(message.timestamp),
       turnId: message.turn_id || undefined,
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
@@ -248,7 +249,7 @@ export function applyAgentResponse(
   }
 ): ChatTimelineMessage[] {
   const turnId = String(payload.turnId || '').trim();
-  const timestamp = Number(payload.timestamp || Date.now());
+  const timestamp = normalizeChatTimestamp(payload.timestamp);
   const traceSummary = payload.traceSummary || null;
   const traceAvailable = Boolean(payload.traceAvailable || traceSummary?.traceAvailable);
 

@@ -23,6 +23,7 @@ import {
   shouldShowTraceEntry,
   type ChatTimelineMessage,
 } from './chat-state';
+import { formatChatClockTime, normalizeChatTimestamp } from '@/domain/chat/timestamps';
 
 interface WSMessage {
   type?: string;
@@ -202,7 +203,7 @@ export const ChatPage: React.FC = () => {
           receiveAgentResponse({
             sessionId,
             content: String(payload?.content || ''),
-            timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
+            timestamp: normalizeChatTimestamp(payload?.timestamp),
             messageId: payload?.message_id ? String(payload.message_id) : undefined,
             messageKind: payload?.message_kind ? String(payload.message_kind) : null,
             turnId: turnId || undefined,
@@ -260,7 +261,7 @@ export const ChatPage: React.FC = () => {
         pendingLabel: t('chat.trace.pending'),
         messageId: payload?.message_id ? String(payload.message_id) : undefined,
         messageKind: payload?.message_kind ? String(payload.message_kind) : null,
-        timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
+        timestamp: normalizeChatTimestamp(payload?.timestamp),
       });
     },
     [applyTurnUxPlan, currentSessionId, t]
@@ -525,7 +526,7 @@ export const ChatPage: React.FC = () => {
                       {msg.role === 'user' ? t('chat.you') : aiName}
                     </span>
                     <span className="text-[11px] text-muted-foreground">
-                      {new Date(msg.timestamp).toLocaleTimeString(i18n.language === 'en' ? 'en-US' : 'zh-CN')}
+                      {formatChatClockTime(msg.timestamp, i18n.language)}
                     </span>
                     {msg.role === 'assistant' && renderTraceEntry(msg)}
                   </div>

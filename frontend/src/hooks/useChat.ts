@@ -29,6 +29,7 @@ import {
   normalizeTraceSnapshot,
   createClientTurnId,
 } from '@/domain/chat/normalizers';
+import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 import type {
   RealtimeMessage,
   ChatTimelineMessage,
@@ -194,7 +195,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         receiveAgentResponse({
           sessionId,
           content: String(data?.content || ''),
-          timestamp: Number(data?.timestamp || Date.now() / 1000) * 1000,
+          timestamp: normalizeChatTimestamp(data?.timestamp),
           messageId: data?.message_id ? String(data.message_id) : undefined,
           messageKind: data?.message_kind ? String(data.message_kind) : null,
           turnId: turnId || undefined,

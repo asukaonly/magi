@@ -277,6 +277,20 @@ describe('chat trace state helpers', () => {
     expect(normalized[0].traceAvailable).toBe(true);
   });
 
+  it('normalizes second-based history timestamps into millisecond timestamps', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        role: 'assistant',
+        content: '时间测试',
+        timestamp: 1710000000,
+        turn_id: 'turn_ts',
+        kind: 'assistant',
+      },
+    ]);
+
+    expect(normalized[0].timestamp).toBe(1710000000 * 1000);
+  });
+
   it('hydrates reaction-only history rows onto the persisted user message', () => {
     const normalized = normalizeHistoryMessages([
       {

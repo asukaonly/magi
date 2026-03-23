@@ -7,6 +7,7 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { normalizeHistoryMessages, normalizeTraceSummary } from '@/pages/chat-state';
+import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useRealtimeStore } from '@/stores/realtime-store';
@@ -76,7 +77,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
           conversationStore.receiveAgentResponse({
             sessionId,
             content: String(payload.content || ''),
-            timestamp: Number(payload.timestamp || Date.now() / 1000) * 1000,
+            timestamp: normalizeChatTimestamp(payload.timestamp),
             messageId: payload.message_id ? String(payload.message_id) : undefined,
             messageKind: payload.message_kind ? String(payload.message_kind) : null,
             turnId: String(payload.turn_id || '').trim() || undefined,

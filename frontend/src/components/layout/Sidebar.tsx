@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useChatShellStore, useConversationStore } from '@/stores';
+import { formatChatClockTime } from '@/domain/chat/timestamps';
 
 const USER_ID = 'web_user';
 const SESSION_EVENT = 'magi-session-sync';
@@ -43,17 +44,7 @@ const MEMORY_DESTINATIONS = [
 ] as const;
 
 const formatSessionTime = (timestamp: number, locale: string): string => {
-  if (!timestamp) {
-    return '';
-  }
-  try {
-    return new Date(timestamp * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return '';
-  }
+  return formatChatClockTime(timestamp, locale);
 };
 
 const getSessionDisplayLabel = (
