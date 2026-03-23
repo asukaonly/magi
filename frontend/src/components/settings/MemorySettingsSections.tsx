@@ -189,7 +189,7 @@ export function MemoryWorkbenchSettingsSection({
   return (
     <MemorySectionShell>
       <MemoryGroup
-        title={t('settings.memory.fields.enable_l0.label')}
+        title={t('settings.tabs.memoryWorkbench')}
         description={t('settings.memory.fields.enable_l0.description')}
       >
         <MemorySwitchRow
@@ -233,7 +233,7 @@ export function MemoryEventsSettingsSection({
   return (
     <MemorySectionShell>
       <MemoryGroup
-        title={t('settings.memory.fields.enable_l1.label')}
+        title={t('settings.tabs.memoryEvents')}
         description={t('settings.memory.fields.enable_l1.description')}
       >
         <MemorySwitchRow
