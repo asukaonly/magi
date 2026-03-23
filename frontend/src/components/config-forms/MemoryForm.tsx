@@ -147,12 +147,17 @@ export const MemoryForm: React.FC = () => {
         setFieldValue: (name: any, value: any) => void;
       }) => {
         const memory = getFieldValue(['memory']) || {};
+        const l0 = memory.l0 || {};
+        const l1 = memory.l1 || {};
+        const l2 = memory.l2 || {};
+        const l3 = memory.l3 || {};
+        const l4 = memory.l4 || {};
         const llm = getFieldValue(['llm']) || {};
-        const l1Enabled = memory.enable_l1 !== false;
-        const l0Enabled = memory.enable_l0 !== false;
-        const l2Enabled = l1Enabled && memory.enable_l2 !== false;
-        const l3Enabled = l1Enabled && memory.enable_l3 !== false;
-        const l4Enabled = l1Enabled && memory.enable_l4 !== false;
+        const l1Enabled = l1.enabled !== false;
+        const l0Enabled = l0.enabled !== false;
+        const l2Enabled = l1Enabled && l2.enabled !== false;
+        const l3Enabled = l1Enabled && l3.enabled !== false;
+        const l4Enabled = l1Enabled && l4.enabled !== false;
 
         // Check if embedding model is configured
         const embeddingSelection = llm?.selections?.embedding;
@@ -165,49 +170,53 @@ export const MemoryForm: React.FC = () => {
           });
         };
 
-        const handleLayerToggle = (layer: 'enable_l0' | 'enable_l1' | 'enable_l2' | 'enable_l3' | 'enable_l4', checked: boolean) => {
+        const patchLayer = (layer: 'l0' | 'l1' | 'l2' | 'l3' | 'l4', updates: Record<string, any>) => {
+          patchMemory({
+            [layer]: {
+              ...(memory[layer] || {}),
+              ...updates,
+            },
+          });
+        };
+
+        const handleLayerToggle = (layer: 'l0' | 'l1' | 'l2' | 'l3' | 'l4', checked: boolean) => {
           // When disabling a layer, collapse it
           if (!checked) {
-            const layerKey = layer.replace('enable_', '');
             setExpandedLayers((prev) => {
               const next = new Set(prev);
-              next.delete(layerKey);
+              next.delete(layer);
               return next;
             });
           }
 
-          if (layer === 'enable_l1' && !checked) {
+          if (layer === 'l1' && !checked) {
             patchMemory({
-              enable_l1: false,
-              enable_l2: false,
-              enable_l3: false,
-              enable_l4: false,
-              enable_t1_importance: false,
-              enable_l2_llm_extraction: false,
-              enable_l3_llm_summary: false,
-              enable_l4_skill_extraction: false,
+              l1: { ...l1, enabled: false, t1_importance_enabled: false },
+              l2: { ...l2, enabled: false, llm_extraction_enabled: false },
+              l3: { ...l3, enabled: false, llm_summary_enabled: false },
+              l4: { ...l4, enabled: false, skill_extraction_enabled: false },
             });
             // Collapse all downstream layers
             setExpandedLayers(new Set());
             return;
           }
 
-          if (layer === 'enable_l2' && !checked) {
-            patchMemory({ enable_l2: false, enable_l2_llm_extraction: false });
+          if (layer === 'l2' && !checked) {
+            patchLayer('l2', { enabled: false, llm_extraction_enabled: false });
             return;
           }
 
-          if (layer === 'enable_l3' && !checked) {
-            patchMemory({ enable_l3: false, enable_l3_llm_summary: false });
-            return
-          }
-
-          if (layer === 'enable_l4' && !checked) {
-            patchMemory({ enable_l4: false, enable_l4_skill_extraction: false });
+          if (layer === 'l3' && !checked) {
+            patchLayer('l3', { enabled: false, llm_summary_enabled: false });
             return;
           }
 
-          patchMemory({ [layer]: checked });
+          if (layer === 'l4' && !checked) {
+            patchLayer('l4', { enabled: false, skill_extraction_enabled: false });
+            return;
+          }
+
+          patchLayer(layer, { enabled: checked });
         };
 
         return (
@@ -225,13 +234,13 @@ export const MemoryForm: React.FC = () => {
                 description={t('settings.memory.fields.enable_l0.description')}
                 checked={l0Enabled}
                 expanded={expandedLayers.has('l0')}
-                onToggle={(checked) => handleLayerToggle('enable_l0', checked)}
+                onToggle={(checked) => handleLayerToggle('l0', checked)}
                 onExpand={() => toggleExpand('l0')}
               >
                 <div className="space-y-3">
                   <div>
                     <FieldLabel>{t('settings.memory.fields.l0_checkpoint_interval_seconds.label')}</FieldLabel>
-                    <Form.Item name={['memory', 'l0_checkpoint_interval_seconds']} noStyle>
+                    <Form.Item name={['memory', 'l0', 'checkpoint_interval_seconds']} noStyle>
                       <NumberInput min={1} defaultValue={60} />
                     </Form.Item>
                   </div>
@@ -242,8 +251,8 @@ export const MemoryForm: React.FC = () => {
                       <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.runtime_replay_include_l0_only.description')}</div>
                     </div>
                     <SwitchField
-                      checked={memory.runtime_replay_include_l0_only !== false}
-                      onChange={(checked) => patchMemory({ runtime_replay_include_l0_only: checked })}
+                      checked={l0.runtime_replay_include_l0_only !== false}
+                      onChange={(checked) => patchLayer('l0', { runtime_replay_include_l0_only: checked })}
                       ariaLabel={t('settings.memory.fields.runtime_replay_include_l0_only.label')}
                     />
                   </label>
@@ -257,13 +266,13 @@ export const MemoryForm: React.FC = () => {
                 description={t('settings.memory.fields.enable_l1.description')}
                 checked={l1Enabled}
                 expanded={expandedLayers.has('l1')}
-                onToggle={(checked) => handleLayerToggle('enable_l1', checked)}
+                onToggle={(checked) => handleLayerToggle('l1', checked)}
                 onExpand={() => toggleExpand('l1')}
               >
                 <div className="space-y-3">
                   <div>
                     <FieldLabel>{t('settings.memory.fields.retention_days.label')}</FieldLabel>
-                    <Form.Item name={['memory', 'retention_days']} noStyle>
+                    <Form.Item name={['memory', 'l1', 'retention_days']} noStyle>
                       <NumberInput min={1} defaultValue={30} />
                     </Form.Item>
                   </div>
@@ -274,8 +283,8 @@ export const MemoryForm: React.FC = () => {
                       <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_t1_importance.description')}</div>
                     </div>
                     <SwitchField
-                      checked={memory.enable_t1_importance !== false}
-                      onChange={(checked) => patchMemory({ enable_t1_importance: checked })}
+                      checked={l1.t1_importance_enabled !== false}
+                      onChange={(checked) => patchLayer('l1', { t1_importance_enabled: checked })}
                       ariaLabel={t('settings.memory.fields.enable_t1_importance.label')}
                     />
                   </label>
@@ -293,9 +302,9 @@ export const MemoryForm: React.FC = () => {
                       </div>
                     </div>
                     <SwitchField
-                      checked={memory.enable_l1_vectorization === true}
+                      checked={l1.vectors_enabled === true}
                       disabled={!hasEmbeddingModel}
-                      onChange={(checked) => patchMemory({ enable_l1_vectorization: checked })}
+                      onChange={(checked) => patchLayer('l1', { vectors_enabled: checked })}
                       ariaLabel={t('settings.memory.fields.enable_l1_vectorization.label')}
                     />
                   </label>
@@ -310,7 +319,7 @@ export const MemoryForm: React.FC = () => {
                 checked={l2Enabled}
                 disabled={!l1Enabled}
                 expanded={expandedLayers.has('l2')}
-                onToggle={(checked) => handleLayerToggle('enable_l2', checked)}
+                onToggle={(checked) => handleLayerToggle('l2', checked)}
                 onExpand={() => toggleExpand('l2')}
               >
                 <div className="space-y-3">
@@ -320,9 +329,9 @@ export const MemoryForm: React.FC = () => {
                       <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_llm_extraction.description')}</div>
                     </div>
                     <SwitchField
-                      checked={memory.enable_l2_llm_extraction !== false}
+                      checked={l2.llm_extraction_enabled !== false}
                       disabled={!l2Enabled}
-                      onChange={(checked) => patchMemory({ enable_l2_llm_extraction: checked })}
+                      onChange={(checked) => patchLayer('l2', { llm_extraction_enabled: checked })}
                       ariaLabel={t('settings.memory.fields.enable_l2_llm_extraction.label')}
                     />
                   </label>
@@ -333,9 +342,9 @@ export const MemoryForm: React.FC = () => {
                       <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_conflict_arbitration.description')}</div>
                     </div>
                     <SwitchField
-                      checked={memory.enable_l2_conflict_arbitration !== false}
+                      checked={l2.conflict_arbitration_enabled !== false}
                       disabled={!l2Enabled}
-                      onChange={(checked) => patchMemory({ enable_l2_conflict_arbitration: checked })}
+                      onChange={(checked) => patchLayer('l2', { conflict_arbitration_enabled: checked })}
                       ariaLabel={t('settings.memory.fields.enable_l2_conflict_arbitration.label')}
                     />
                   </label>
@@ -350,7 +359,7 @@ export const MemoryForm: React.FC = () => {
                 checked={l3Enabled}
                 disabled={!l1Enabled}
                 expanded={expandedLayers.has('l3')}
-                onToggle={(checked) => handleLayerToggle('enable_l3', checked)}
+                onToggle={(checked) => handleLayerToggle('l3', checked)}
                 onExpand={() => toggleExpand('l3')}
               >
                 <div className="space-y-3">
@@ -360,9 +369,9 @@ export const MemoryForm: React.FC = () => {
                       <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l3_llm_summary.description')}</div>
                     </div>
                     <SwitchField
-                      checked={memory.enable_l3_llm_summary !== false}
+                      checked={l3.llm_summary_enabled !== false}
                       disabled={!l3Enabled}
-                      onChange={(checked) => patchMemory({ enable_l3_llm_summary: checked })}
+                      onChange={(checked) => patchLayer('l3', { llm_summary_enabled: checked })}
                       ariaLabel={t('settings.memory.fields.enable_l3_llm_summary.label')}
                     />
                   </label>
@@ -380,9 +389,9 @@ export const MemoryForm: React.FC = () => {
                       </div>
                     </div>
                     <SwitchField
-                      checked={memory.enable_l3_vectorization === true}
+                      checked={l3.vectors_enabled === true}
                       disabled={!l3Enabled || !hasEmbeddingModel}
-                      onChange={(checked) => patchMemory({ enable_l3_vectorization: checked })}
+                      onChange={(checked) => patchLayer('l3', { vectors_enabled: checked })}
                       ariaLabel={t('settings.memory.fields.enable_l3_vectorization.label')}
                     />
                   </label>
@@ -397,7 +406,7 @@ export const MemoryForm: React.FC = () => {
                 checked={l4Enabled}
                 disabled={!l1Enabled}
                 expanded={expandedLayers.has('l4')}
-                onToggle={(checked) => handleLayerToggle('enable_l4', checked)}
+                onToggle={(checked) => handleLayerToggle('l4', checked)}
                 onExpand={() => toggleExpand('l4')}
               >
                 <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
@@ -406,9 +415,9 @@ export const MemoryForm: React.FC = () => {
                     <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l4_skill_extraction.description')}</div>
                   </div>
                   <SwitchField
-                    checked={memory.enable_l4_skill_extraction !== false}
+                    checked={l4.skill_extraction_enabled !== false}
                     disabled={!l4Enabled}
-                    onChange={(checked) => patchMemory({ enable_l4_skill_extraction: checked })}
+                    onChange={(checked) => patchLayer('l4', { skill_extraction_enabled: checked })}
                     ariaLabel={t('settings.memory.fields.enable_l4_skill_extraction.label')}
                   />
                 </label>
@@ -422,7 +431,7 @@ export const MemoryForm: React.FC = () => {
                 <button
                   type="button"
                   className="mt-3 rounded-lg border border-amber-300 bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-200"
-                  onClick={() => handleLayerToggle('enable_l1', true)}
+                  onClick={() => handleLayerToggle('l1', true)}
                 >
                   {t('settings.memory.form.restoreL1')}
                 </button>

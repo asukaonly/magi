@@ -58,6 +58,7 @@ const ChatBox: React.FC = () => {
       const response = await messagesApi.sendMessage({
         message: inputValue,
         user_id: 'web_user',
+        session_id: 'demo-session',
       });
 
       if (response.success) {

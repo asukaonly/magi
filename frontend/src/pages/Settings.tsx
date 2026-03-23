@@ -242,9 +242,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               layerKey="l0"
               label={t('settings.memory.fields.enable_l0.label')}
               description={t('settings.memory.fields.enable_l0.description')}
-              checked={draftConfig.memory.enable_l0}
+              checked={draftConfig.memory.l0.enabled}
               expanded={expandedMemoryLayers.has('l0')}
-              onToggle={(checked) => updateMemoryToggle('enable_l0', checked)}
+              onToggle={(checked) => updateMemoryToggle('l0', checked)}
               onExpand={(expanded) => {
                 setExpandedMemoryLayers((prev) => {
                   const next = new Set(prev);
@@ -260,10 +260,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               <div className="space-y-4">
                 <NumberField
                   label={t('settings.memory.fields.l0_checkpoint_interval_seconds.label')}
-                  value={draftConfig.memory.l0_checkpoint_interval_seconds ?? 60}
+                  value={draftConfig.memory.l0.checkpoint_interval_seconds ?? 60}
                   min={1}
                   onChange={(value) => patchDraftConfig((draft) => {
-                    draft.memory.l0_checkpoint_interval_seconds = value;
+                    draft.memory.l0.checkpoint_interval_seconds = value;
                   })}
                 />
                 <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
@@ -272,9 +272,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.runtime_replay_include_l0_only.description')}</div>
                   </div>
                   <Switch
-                    checked={draftConfig.memory.runtime_replay_include_l0_only ?? false}
+                    checked={draftConfig.memory.l0.runtime_replay_include_l0_only ?? false}
                     onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.runtime_replay_include_l0_only = checked;
+                      draft.memory.l0.runtime_replay_include_l0_only = checked;
                     })}
                     aria-label={t('settings.memory.fields.runtime_replay_include_l0_only.label')}
                   />
@@ -287,9 +287,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               layerKey="l1"
               label={t('settings.memory.fields.enable_l1.label')}
               description={t('settings.memory.fields.enable_l1.description')}
-              checked={draftConfig.memory.enable_l1}
+              checked={draftConfig.memory.l1.enabled}
               expanded={expandedMemoryLayers.has('l1')}
-              onToggle={(checked) => updateMemoryToggle('enable_l1', checked)}
+              onToggle={(checked) => updateMemoryToggle('l1', checked)}
               onExpand={(expanded) => {
                 setExpandedMemoryLayers((prev) => {
                   const next = new Set(prev);
@@ -305,10 +305,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               <div className="space-y-4">
                 <NumberField
                   label={t('settings.memory.fields.retention_days.label')}
-                  value={draftConfig.memory.retention_days ?? 30}
+                  value={draftConfig.memory.l1.retention_days ?? 30}
                   min={1}
                   onChange={(value) => patchDraftConfig((draft) => {
-                    draft.memory.retention_days = value;
+                    draft.memory.l1.retention_days = value;
                   })}
                 />
                 <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
@@ -317,9 +317,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_t1_importance.description')}</div>
                   </div>
                   <Switch
-                    checked={draftConfig.memory.enable_t1_importance ?? false}
+                    checked={draftConfig.memory.l1.t1_importance_enabled ?? false}
                     onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.enable_t1_importance = checked;
+                      draft.memory.l1.t1_importance_enabled = checked;
                     })}
                     aria-label={t('settings.memory.fields.enable_t1_importance.label')}
                   />
@@ -338,10 +338,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     </div>
                   </div>
                   <Switch
-                    checked={draftConfig.memory.enable_l1_vectorization ?? false}
+                    checked={draftConfig.memory.l1.vectors_enabled ?? false}
                     disabled={!hasEmbeddingModel}
                     onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.enable_l1_vectorization = checked;
+                      draft.memory.l1.vectors_enabled = checked;
                     })}
                     aria-label={t('settings.memory.fields.enable_l1_vectorization.label')}
                   />
@@ -354,10 +354,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               layerKey="l2"
               label={t('settings.memory.fields.enable_l2.label')}
               description={t('settings.memory.fields.enable_l2.description')}
-              checked={draftConfig.memory.enable_l1 && draftConfig.memory.enable_l2}
-              disabled={!draftConfig.memory.enable_l1}
+              checked={draftConfig.memory.l1.enabled && draftConfig.memory.l2.enabled}
+              disabled={!draftConfig.memory.l1.enabled}
               expanded={expandedMemoryLayers.has('l2')}
-              onToggle={(checked) => updateMemoryToggle('enable_l2', checked)}
+              onToggle={(checked) => updateMemoryToggle('l2', checked)}
               onExpand={(expanded) => {
                 setExpandedMemoryLayers((prev) => {
                   const next = new Set(prev);
@@ -377,22 +377,22 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_llm_extraction.description')}</div>
                   </div>
                   <Switch
-                    checked={draftConfig.memory.enable_l2_llm_extraction ?? false}
-                    disabled={!draftConfig.memory.enable_l2}
+                    checked={draftConfig.memory.l2.llm_extraction_enabled ?? false}
+                    disabled={!draftConfig.memory.l2.enabled}
                     onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.enable_l2_llm_extraction = checked;
+                      draft.memory.l2.llm_extraction_enabled = checked;
                     })}
                     aria-label={t('settings.memory.fields.enable_l2_llm_extraction.label')}
                   />
                 </label>
 
-                <div className={cn("space-y-1", !draftConfig.memory.enable_l2 && "opacity-50")}>
+                <div className={cn("space-y-1", !draftConfig.memory.l2.enabled && "opacity-50")}>
                   <NumberField
                     label={t('settings.memory.fields.l2_batch_flush_interval_seconds.label')}
-                    value={draftConfig.memory.l2_batch_flush_interval_seconds ?? 60}
+                    value={draftConfig.memory.l2.batch_flush_interval_seconds ?? 60}
                     min={30}
                     onChange={(value) => patchDraftConfig((draft) => {
-                      draft.memory.l2_batch_flush_interval_seconds = value;
+                      draft.memory.l2.batch_flush_interval_seconds = value;
                     })}
                   />
                   <p className="text-[11px] leading-4 text-muted-foreground">
@@ -406,24 +406,24 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_conflict_arbitration.description')}</div>
                   </div>
                   <Switch
-                    checked={draftConfig.memory.enable_l2_conflict_arbitration ?? true}
-                    disabled={!draftConfig.memory.enable_l2}
+                    checked={draftConfig.memory.l2.conflict_arbitration_enabled ?? true}
+                    disabled={!draftConfig.memory.l2.enabled}
                     onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.enable_l2_conflict_arbitration = checked;
+                      draft.memory.l2.conflict_arbitration_enabled = checked;
                     })}
                     aria-label={t('settings.memory.fields.enable_l2_conflict_arbitration.label')}
                   />
                 </label>
 
-                <div className={cn("space-y-1", !draftConfig.memory.enable_l2 && "opacity-50")}>
+                <div className={cn("space-y-1", !draftConfig.memory.l2.enabled && "opacity-50")}>
                   <NumberField
                     label={t('settings.memory.fields.l2_conflict_arbitration_min_confidence.label')}
-                    value={draftConfig.memory.l2_conflict_arbitration_min_confidence ?? 0.85}
+                    value={draftConfig.memory.l2.conflict_arbitration_min_confidence ?? 0.85}
                     min={0}
                     max={1}
                     step={0.05}
                     onChange={(value) => patchDraftConfig((draft) => {
-                      draft.memory.l2_conflict_arbitration_min_confidence = value;
+                      draft.memory.l2.conflict_arbitration_min_confidence = value;
                     })}
                   />
                   <p className="text-[11px] leading-4 text-muted-foreground">
@@ -438,10 +438,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               layerKey="l3"
               label={t('settings.memory.fields.enable_l3.label')}
               description={t('settings.memory.fields.enable_l3.description')}
-              checked={draftConfig.memory.enable_l1 && draftConfig.memory.enable_l3}
-              disabled={!draftConfig.memory.enable_l1}
+              checked={draftConfig.memory.l1.enabled && draftConfig.memory.l3.enabled}
+              disabled={!draftConfig.memory.l1.enabled}
               expanded={expandedMemoryLayers.has('l3')}
-              onToggle={(checked) => updateMemoryToggle('enable_l3', checked)}
+              onToggle={(checked) => updateMemoryToggle('l3', checked)}
               onExpand={(expanded) => {
                 setExpandedMemoryLayers((prev) => {
                   const next = new Set(prev);
@@ -461,10 +461,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l3_llm_summary.description')}</div>
                   </div>
                   <Switch
-                    checked={draftConfig.memory.enable_l3_llm_summary ?? false}
-                    disabled={!draftConfig.memory.enable_l3}
+                    checked={draftConfig.memory.l3.llm_summary_enabled ?? false}
+                    disabled={!draftConfig.memory.l3.enabled}
                     onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.enable_l3_llm_summary = checked;
+                      draft.memory.l3.llm_summary_enabled = checked;
                     })}
                     aria-label={t('settings.memory.fields.enable_l3_llm_summary.label')}
                   />
@@ -483,10 +483,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     </div>
                   </div>
                   <Switch
-                    checked={draftConfig.memory.enable_l3_vectorization ?? false}
-                    disabled={!draftConfig.memory.enable_l3 || !hasEmbeddingModel}
+                    checked={draftConfig.memory.l3.vectors_enabled ?? false}
+                    disabled={!draftConfig.memory.l3.enabled || !hasEmbeddingModel}
                     onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.memory.enable_l3_vectorization = checked;
+                      draft.memory.l3.vectors_enabled = checked;
                     })}
                     aria-label={t('settings.memory.fields.enable_l3_vectorization.label')}
                   />
@@ -499,10 +499,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               layerKey="l4"
               label={t('settings.memory.fields.enable_l4.label')}
               description={t('settings.memory.fields.enable_l4.description')}
-              checked={draftConfig.memory.enable_l1 && draftConfig.memory.enable_l4}
-              disabled={!draftConfig.memory.enable_l1}
+              checked={draftConfig.memory.l1.enabled && draftConfig.memory.l4.enabled}
+              disabled={!draftConfig.memory.l1.enabled}
               expanded={expandedMemoryLayers.has('l4')}
-              onToggle={(checked) => updateMemoryToggle('enable_l4', checked)}
+              onToggle={(checked) => updateMemoryToggle('l4', checked)}
               onExpand={(expanded) => {
                 setExpandedMemoryLayers((prev) => {
                   const next = new Set(prev);
@@ -521,17 +521,17 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l4_skill_extraction.description')}</div>
                 </div>
                 <Switch
-                  checked={draftConfig.memory.enable_l4_skill_extraction ?? false}
-                  disabled={!draftConfig.memory.enable_l4}
+                  checked={draftConfig.memory.l4.skill_extraction_enabled ?? false}
+                  disabled={!draftConfig.memory.l4.enabled}
                   onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                    draft.memory.enable_l4_skill_extraction = checked;
+                    draft.memory.l4.skill_extraction_enabled = checked;
                   })}
                   aria-label={t('settings.memory.fields.enable_l4_skill_extraction.label')}
                 />
               </label>
             </ExpandableMemoryLayerCard>
 
-            {!draftConfig.memory.enable_l1 ? (
+            {!draftConfig.memory.l1.enabled ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 <div className="font-medium">{t('settings.memory.form.l1DependencyTitle')}</div>
                 <div className="mt-1 text-amber-800">{t('settings.memory.form.l1DependencyDescription')}</div>
@@ -540,7 +540,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   variant="outline"
                   size="sm"
                   className="mt-3"
-                  onClick={() => updateMemoryToggle('enable_l1', true)}
+                  onClick={() => updateMemoryToggle('l1', true)}
                 >
                   {t('settings.memory.form.restoreL1')}
                 </Button>

@@ -190,26 +190,56 @@ export interface ToolsConfig {
   skills: string[];
 }
 
-export interface MemoryConfig {
-  backend: 'memory' | 'sqlite' | 'chromadb';
-  path?: string;
-  retention_days: number;
-  enable_l0: boolean;
-  enable_l1: boolean;
-  enable_l2: boolean;
-  enable_l3: boolean;
-  enable_l4: boolean;
-  l0_checkpoint_interval_seconds: number;
+export interface MemoryEmbeddingConfig {
+  backend: 'sqlite_vec' | 'openai';
+}
+
+export interface MemoryL0Config {
+  enabled: boolean;
+  checkpoint_interval_seconds: number;
   runtime_replay_include_l0_only: boolean;
-  enable_t1_importance: boolean;
-  enable_l1_vectorization: boolean;
-  enable_l2_llm_extraction: boolean;
-  l2_batch_flush_interval_seconds: number;
-  enable_l2_conflict_arbitration: boolean;
-  l2_conflict_arbitration_min_confidence: number;
-  enable_l3_vectorization: boolean;
-  enable_l3_llm_summary: boolean;
-  enable_l4_skill_extraction: boolean;
+}
+
+export interface MemoryL1Config {
+  enabled: boolean;
+  retention_days: number;
+  t1_importance_enabled: boolean;
+  vectors_enabled: boolean;
+}
+
+export interface MemoryL2Config {
+  enabled: boolean;
+  batch_flush_interval_seconds: number;
+  llm_extraction_enabled: boolean;
+  auto_extract_relations: boolean;
+  conflict_arbitration_enabled: boolean;
+  conflict_arbitration_min_confidence: number;
+}
+
+export interface MemoryL3Config {
+  enabled: boolean;
+  vectors_enabled: boolean;
+  llm_summary_enabled: boolean;
+  temporal_llm_timeout_seconds: number;
+  temporal_llm_min_event_count: number;
+  summary_interval_minutes: number;
+}
+
+export interface MemoryL4Config {
+  enabled: boolean;
+  vectors_enabled: boolean;
+  skill_extraction_enabled: boolean;
+}
+
+export interface MemoryConfig {
+  db_path?: string;
+  async_embeddings: boolean;
+  embedding: MemoryEmbeddingConfig;
+  l0: MemoryL0Config;
+  l1: MemoryL1Config;
+  l2: MemoryL2Config;
+  l3: MemoryL3Config;
+  l4: MemoryL4Config;
 }
 
 export type TimelineSyncMode = 'manual' | 'interval' | 'watch';
@@ -340,25 +370,43 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   loop: { strategy: 'continuous', interval: 1 },
   message_bus: { backend: 'sqlite', max_size: 1000 },
   memory: {
-    backend: 'sqlite',
-    path: '~/.magi/data/memories',
-    retention_days: 30,
-    enable_l0: true,
-    enable_l1: true,
-    enable_l2: true,
-    enable_l3: true,
-    enable_l4: true,
-    l0_checkpoint_interval_seconds: 60,
-    runtime_replay_include_l0_only: false,
-    enable_t1_importance: true,
-    enable_l1_vectorization: false,
-    enable_l2_llm_extraction: true,
-    l2_batch_flush_interval_seconds: 60,
-    enable_l2_conflict_arbitration: true,
-    l2_conflict_arbitration_min_confidence: 0.85,
-    enable_l3_vectorization: false,
-    enable_l3_llm_summary: true,
-    enable_l4_skill_extraction: true,
+    db_path: '~/.magi/data/memories',
+    async_embeddings: true,
+    embedding: {
+      backend: 'sqlite_vec',
+    },
+    l0: {
+      enabled: true,
+      checkpoint_interval_seconds: 30,
+      runtime_replay_include_l0_only: false,
+    },
+    l1: {
+      enabled: true,
+      retention_days: 7,
+      t1_importance_enabled: true,
+      vectors_enabled: true,
+    },
+    l2: {
+      enabled: true,
+      batch_flush_interval_seconds: 60,
+      llm_extraction_enabled: true,
+      auto_extract_relations: true,
+      conflict_arbitration_enabled: true,
+      conflict_arbitration_min_confidence: 0.85,
+    },
+    l3: {
+      enabled: true,
+      vectors_enabled: true,
+      llm_summary_enabled: true,
+      temporal_llm_timeout_seconds: 3.0,
+      temporal_llm_min_event_count: 2,
+      summary_interval_minutes: 60,
+    },
+    l4: {
+      enabled: true,
+      vectors_enabled: true,
+      skill_extraction_enabled: true,
+    },
   },
   websocket: { enabled: true, port: 8000 },
   log: { level: 'INFO' },

@@ -11,7 +11,6 @@ export type {
   SensorStatus,
   ConversationHistory,
   ChatHistoryMessage,
-  SessionInfo,
   ChatSessionListItem,
   SessionListResponse,
   ExecutionTraceSummary,

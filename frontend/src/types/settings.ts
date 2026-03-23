@@ -30,21 +30,11 @@ export const isNavGroup = (item: NavItem): item is NavGroup =>
 // ============================================================================
 
 export type MemoryToggleFieldId =
-  | 'enable_l0'
-  | 'enable_l1'
-  | 'enable_l2'
-  | 'enable_l3'
-  | 'enable_l4'
-  | 'runtime_replay_include_l0_only'
-  | 'enable_t1_importance'
-  | 'enable_l1_vectorization'
-  | 'enable_l2_llm_extraction'
-  | 'enable_l2_conflict_arbitration'
-  | 'enable_l3_llm_summary'
-  | 'enable_l3_vectorization'
-  | 'enable_l4_skill_extraction'
-  | 'retention_days'
-  | 'l0_checkpoint_interval_seconds';
+  | 'l0'
+  | 'l1'
+  | 'l2'
+  | 'l3'
+  | 'l4';
 
 // ============================================================================
 // Draft Types

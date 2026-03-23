@@ -1008,7 +1008,31 @@ describe('config forms', () => {
   it('memory form warns when l1 is turned off', async () => {
     const user = userEvent.setup();
     render(
-      <Form initialValues={{ memory: { enable_l0: true, enable_l1: true, enable_l2: true, enable_l3: true, enable_l4: true } }}>
+      <Form
+        initialValues={{
+          memory: {
+            l0: { enabled: true, checkpoint_interval_seconds: 30, runtime_replay_include_l0_only: false },
+            l1: { enabled: true, retention_days: 7, t1_importance_enabled: true, vectors_enabled: true },
+            l2: {
+              enabled: true,
+              batch_flush_interval_seconds: 60,
+              llm_extraction_enabled: true,
+              auto_extract_relations: true,
+              conflict_arbitration_enabled: true,
+              conflict_arbitration_min_confidence: 0.85,
+            },
+            l3: {
+              enabled: true,
+              vectors_enabled: true,
+              llm_summary_enabled: true,
+              temporal_llm_timeout_seconds: 3.0,
+              temporal_llm_min_event_count: 2,
+              summary_interval_minutes: 60,
+            },
+            l4: { enabled: true, vectors_enabled: true, skill_extraction_enabled: true },
+          },
+        }}
+      >
         <MemoryForm />
       </Form>
     );

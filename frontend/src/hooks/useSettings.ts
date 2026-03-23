@@ -553,37 +553,37 @@ export function useSettings(): UseSettingsReturn {
 
   const updateMemoryToggle = useCallback((field: MemoryToggleFieldId, checked: boolean) => {
     patchDraftConfig((draft) => {
-      if (field === 'enable_l1' && !checked) {
-        draft.memory.enable_l1 = false;
-        draft.memory.enable_l2 = false;
-        draft.memory.enable_l3 = false;
-        draft.memory.enable_l4 = false;
-        draft.memory.enable_t1_importance = false;
-        draft.memory.enable_l2_llm_extraction = false;
-        draft.memory.enable_l3_llm_summary = false;
-        draft.memory.enable_l4_skill_extraction = false;
+      if (field === 'l1' && !checked) {
+        draft.memory.l1.enabled = false;
+        draft.memory.l2.enabled = false;
+        draft.memory.l3.enabled = false;
+        draft.memory.l4.enabled = false;
+        draft.memory.l1.t1_importance_enabled = false;
+        draft.memory.l2.llm_extraction_enabled = false;
+        draft.memory.l3.llm_summary_enabled = false;
+        draft.memory.l4.skill_extraction_enabled = false;
         return;
       }
 
-      if (field === 'enable_l2' && !checked) {
-        draft.memory.enable_l2 = false;
-        draft.memory.enable_l2_llm_extraction = false;
+      if (field === 'l2' && !checked) {
+        draft.memory.l2.enabled = false;
+        draft.memory.l2.llm_extraction_enabled = false;
         return;
       }
 
-      if (field === 'enable_l3' && !checked) {
-        draft.memory.enable_l3 = false;
-        draft.memory.enable_l3_llm_summary = false;
+      if (field === 'l3' && !checked) {
+        draft.memory.l3.enabled = false;
+        draft.memory.l3.llm_summary_enabled = false;
         return;
       }
 
-      if (field === 'enable_l4' && !checked) {
-        draft.memory.enable_l4 = false;
-        draft.memory.enable_l4_skill_extraction = false;
+      if (field === 'l4' && !checked) {
+        draft.memory.l4.enabled = false;
+        draft.memory.l4.skill_extraction_enabled = false;
         return;
       }
 
-      (draft.memory as unknown as Record<string, unknown>)[field] = checked;
+      draft.memory[field].enabled = checked;
     });
   }, [patchDraftConfig]);
 
