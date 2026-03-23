@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,7 +28,7 @@ def adapt_longmemeval_entry(entry: dict[str, Any], *, namespace: str) -> Adapted
     haystack_dates = list(entry.get("haystack_dates") or [])
     haystack_sessions = list(entry.get("haystack_sessions") or [])
 
-    timestamp_counter = 0.0
+    synthetic_timestamp_counter = 0.0
     for session_index, turns in enumerate(haystack_sessions):
         session_id = str(
             haystack_session_ids[session_index]
@@ -39,14 +40,18 @@ def adapt_longmemeval_entry(entry: dict[str, Any], *, namespace: str) -> Adapted
             if session_index < len(haystack_dates)
             else None
         )
+        session_base_timestamp = _parse_longmemeval_timestamp(session_date)
+        if session_base_timestamp is None:
+            synthetic_timestamp_counter += 60.0
+            session_base_timestamp = synthetic_timestamp_counter
         for turn_index, turn in enumerate(turns or []):
-            timestamp_counter += 1.0
+            turn_timestamp = session_base_timestamp + (session_index * 0.0001) + (turn_index * 0.001)
             replay_records.append(
                 EvalMemoryWriteRecord(
                     namespace=namespace,
                     session_id=session_id,
                     turn_id=f"{session_id}:turn-{turn_index + 1}",
-                    timestamp=timestamp_counter,
+                    timestamp=turn_timestamp,
                     role=str(turn.get("role") or "user"),
                     content=str(turn.get("content") or ""),
                     metadata={
@@ -65,7 +70,7 @@ def adapt_longmemeval_entry(entry: dict[str, Any], *, namespace: str) -> Adapted
     query = EvalMemoryQuery(
         namespace=namespace,
         query=str(entry.get("question") or ""),
-        query_timestamp=timestamp_counter + 1.0,
+        query_timestamp=(max((record.timestamp for record in replay_records), default=0.0) + 1.0),
     )
     return AdaptedLongMemEvalEntry(
         question_id=str(entry.get("question_id") or ""),
@@ -82,3 +87,15 @@ def _is_abstention_entry(entry: dict[str, Any]) -> bool:
     answer = str(entry.get("answer") or "").strip().lower()
     question_id = str(entry.get("question_id") or "").strip().lower()
     return answer in {"unknown", "cannot be determined", "cannot determine"} or question_id.endswith("_abs")
+
+
+def _parse_longmemeval_timestamp(value: Any) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y/%m/%d (%a) %H:%M", "%Y/%m/%d %H:%M", "%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            continue
+    return None

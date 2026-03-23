@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from benchmark.longmemeval.adapter import adapt_longmemeval_entry
 
 
@@ -62,3 +64,34 @@ def test_adapter_marks_abstention_questions() -> None:
     )
 
     assert adapted.metadata["is_abstention"] is True
+
+
+def test_adapter_parses_session_dates_into_real_timestamps() -> None:
+    entry = {
+        "question_id": "q-3",
+        "question_type": "single-session-user",
+        "question": "When did I mention this?",
+        "answer": "March 10",
+        "question_date": "2024-01-10",
+        "answer_session_ids": ["sess-1"],
+        "haystack_session_ids": ["sess-1"],
+        "haystack_dates": ["2023/03/10 (Fri) 23:15"],
+        "haystack_sessions": [
+            [
+                {"role": "user", "content": "First message."},
+                {"role": "assistant", "content": "Second message."},
+            ]
+        ],
+    }
+
+    adapted = adapt_longmemeval_entry(
+        entry,
+        namespace="benchmark/longmemeval/run-1/q-3",
+    )
+
+    expected_base = datetime.strptime("2023/03/10 (Fri) 23:15", "%Y/%m/%d (%a) %H:%M").replace(
+        tzinfo=timezone.utc
+    ).timestamp()
+    assert adapted.replay_records[0].timestamp == expected_base
+    assert adapted.replay_records[1].timestamp > adapted.replay_records[0].timestamp
+    assert adapted.replay_records[1].timestamp < expected_base + 60.0
