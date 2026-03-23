@@ -289,13 +289,6 @@ export interface SystemConfig {
     description?: string;
   };
   llm: LLMConfig;
-  loop: {
-    strategy: 'step' | 'wave' | 'continuous';
-    interval: number;
-  };
-  message_bus: {
-    max_size?: number;
-  };
   memory: MemoryConfig;
   websocket: {
     enabled: boolean;
@@ -366,8 +359,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       },
     },
   },
-  loop: { strategy: 'continuous', interval: 1 },
-  message_bus: { max_size: 1000 },
   memory: {
     db_path: '~/.magi/data/memories',
     async_embeddings: true,
