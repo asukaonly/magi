@@ -46,7 +46,6 @@ export const ActionsSection: React.FC<ActionsSectionProps> = ({
     <div className="space-y-8">
       <div>
         <h2 className="text-lg font-semibold">{t('settings.tabs.actions')}</h2>
-        <p className="text-sm leading-6 text-muted-foreground">{t('settings.actionsDesc')}</p>
       </div>
 
       <div className="grid gap-4">

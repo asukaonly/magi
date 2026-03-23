@@ -64,7 +64,6 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">{t('settings.tabs.extensions')}</h2>
-          <p className="text-sm leading-6 text-muted-foreground">{t('settings.extensionsDesc')}</p>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="rounded-md px-3 py-1">

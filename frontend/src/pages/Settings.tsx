@@ -41,18 +41,11 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { toast } from 'sonner';
 
 function SettingsSectionShell({
-  description,
   children,
 }: {
-  description?: string;
   children: React.ReactNode;
 }) {
-  return (
-    <div className="space-y-8">
-      {description ? <p className="max-w-3xl text-sm leading-7 text-muted-foreground">{description}</p> : null}
-      <div className="space-y-8">{children}</div>
-    </div>
-  );
+  return <div className="space-y-8">{children}</div>;
 }
 
 function SettingsGroup({
@@ -183,7 +176,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     switch (activeSection) {
       case 'preferences':
         return (
-          <SettingsSectionShell description={t('settings.preferencesDesc')}>
+          <SettingsSectionShell>
             <SettingsGroup title={t('settings.fields.language')}>
               <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
                 <LabeledSelectField
@@ -476,7 +469,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'system':
         return (
-          <SettingsSectionShell description={t('settings.systemDesc')}>
+          <SettingsSectionShell>
             <SettingsGroup title={t('settings.fields.loopStrategy')}>
               <div className="grid gap-6 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2">
                 <LabeledSelectField
@@ -576,14 +569,14 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               {t('settings.shellTitle')}
             </p>
           </div>
-          <div className="flex-1 space-y-1.5 overflow-y-auto px-4 py-4">
+          <div className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = isNavGroupActive(item);
               const isExpanded = isNavGroup(item) ? getGroupExpanded(item.id) : false;
               const ParentChevron = isNavGroup(item) && isExpanded ? ChevronDown : ChevronRight;
               return (
-                <div key={item.id} className="space-y-1.5">
+                <div key={item.id} className="space-y-1">
                   <button
                     type="button"
                     onClick={() => {
@@ -597,11 +590,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     aria-expanded={isNavGroup(item) ? isExpanded : undefined}
                     aria-label={t(`settings.tabs.${item.id}`)}
                     className={cn(
-                      'group flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium',
-                      'transition-all duration-200 ease-out',
+                      'group flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm',
+                      'transition-colors duration-150 ease-out',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                       isActive
-                        ? 'bg-[hsl(var(--settings-nav-active))] text-[hsl(var(--settings-nav-active-foreground))] shadow-sm'
+                        ? 'bg-[hsl(var(--settings-nav-active)/0.42)] text-foreground'
                         : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover))] hover:text-foreground'
                     )}
                   >
@@ -609,13 +602,15 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                       <Icon className={cn(
                         'h-4 w-4 transition-colors',
                         isActive
-                          ? 'text-[hsl(var(--settings-nav-active-foreground))]'
+                          ? 'text-foreground'
                           : 'text-[hsl(var(--settings-nav-foreground))] group-hover:text-foreground'
                       )} />
-                      <span className="transition-colors">{t(`settings.tabs.${item.id}`)}</span>
+                      <span className={cn('transition-colors', isActive ? 'font-medium' : 'font-normal')}>
+                        {t(`settings.tabs.${item.id}`)}
+                      </span>
                     </div>
                     <ParentChevron className={cn(
-                      'h-4 w-4 transition-all duration-200',
+                      'h-4 w-4 text-[hsl(var(--settings-nav-foreground))] transition-all duration-150',
                       isNavGroup(item)
                         ? isExpanded
                           ? 'opacity-100 translate-x-0'
@@ -627,7 +622,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   </button>
 
                   {isNavGroup(item) && isExpanded ? (
-                    <div className="ml-3 space-y-1 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-3">
+                    <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
                       {item.children.map((child) => {
                         const isChildActive = activeSection === child.id;
                         return (
@@ -640,9 +635,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                             }}
                             aria-current={isChildActive ? 'page' : undefined}
                             className={cn(
-                              'flex w-full items-center rounded-md px-3 py-2 text-sm transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px] transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                               isChildActive
-                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.84)] text-foreground font-medium shadow-sm'
+                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
                                 : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
                             )}
                           >
@@ -654,18 +649,18 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   ) : null}
 
                   {item.id === 'timeline' && isActive ? (
-                    <div className="ml-3 space-y-1 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-3">
+                    <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
                       <button
                         type="button"
                         onClick={() => setTimelineSelection(null)}
                         data-testid="timeline-nav-overview"
                         aria-current={timelineSelection === null ? 'page' : undefined}
                         className={cn(
-                          'flex w-full items-center rounded-md px-3 py-2 text-sm',
-                          'transition-all duration-150 ease-out',
+                          'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px]',
+                          'transition-colors duration-150 ease-out',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                           timelineSelection === null
-                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.84)] text-foreground font-medium shadow-sm'
+                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
                             : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
                         )}
                       >
@@ -682,11 +677,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                             data-testid={`timeline-nav-source-${source.source_name}`}
                             aria-current={isSelected ? 'page' : undefined}
                             className={cn(
-                              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm',
-                              'transition-all duration-150 ease-out',
+                              'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px]',
+                              'transition-colors duration-150 ease-out',
                               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                               isSelected
-                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.84)] text-foreground font-medium shadow-sm'
+                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
                                 : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
                             )}
                           >

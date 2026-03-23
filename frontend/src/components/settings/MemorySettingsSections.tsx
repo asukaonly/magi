@@ -14,18 +14,11 @@ interface MemorySettingsSectionProps {
 }
 
 function MemorySectionShell({
-  description,
   children,
 }: {
-  description: string;
   children: React.ReactNode;
 }) {
-  return (
-    <div className="space-y-8">
-      <p className="max-w-3xl text-sm leading-7 text-muted-foreground">{description}</p>
-      <div className="space-y-8">{children}</div>
-    </div>
-  );
+  return <div className="space-y-8">{children}</div>;
 }
 
 function MemoryGroup({
@@ -123,7 +116,7 @@ export function MemoryGeneralSettingsSection({
   const embeddingSelection = draftConfig.llm?.selections?.embedding;
 
   return (
-    <MemorySectionShell description={t('settings.memory.sections.general.description')}>
+    <MemorySectionShell>
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
         <MemoryGroup
           title={t('settings.memory.sections.general.pipelineTitle')}
@@ -194,7 +187,7 @@ export function MemoryWorkbenchSettingsSection({
   const { t } = useTranslation('app');
 
   return (
-    <MemorySectionShell description={t('settings.memory.sections.workbench.description')}>
+    <MemorySectionShell>
       <MemoryGroup
         title={t('settings.memory.fields.enable_l0.label')}
         description={t('settings.memory.fields.enable_l0.description')}
@@ -238,7 +231,7 @@ export function MemoryEventsSettingsSection({
   const { t } = useTranslation('app');
 
   return (
-    <MemorySectionShell description={t('settings.memory.sections.events.description')}>
+    <MemorySectionShell>
       <MemoryGroup
         title={t('settings.memory.fields.enable_l1.label')}
         description={t('settings.memory.fields.enable_l1.description')}
@@ -300,7 +293,7 @@ export function MemoryKnowledgeSettingsSection({
   const { t } = useTranslation('app');
 
   return (
-    <MemorySectionShell description={t('settings.memory.sections.knowledge.description')}>
+    <MemorySectionShell>
       {!draftConfig.memory.l1.enabled ? (
         <DependencyNotice
           title={t('settings.memory.form.l1DependencyTitle')}
@@ -393,7 +386,7 @@ export function MemoryReflectionSettingsSection({
   const { t } = useTranslation('app');
 
   return (
-    <MemorySectionShell description={t('settings.memory.sections.reflection.description')}>
+    <MemorySectionShell>
       {!draftConfig.memory.l1.enabled ? (
         <DependencyNotice
           title={t('settings.memory.form.l1DependencyTitle')}
@@ -449,7 +442,7 @@ export function MemorySkillsSettingsSection({
   const { t } = useTranslation('app');
 
   return (
-    <MemorySectionShell description={t('settings.memory.sections.skills.description')}>
+    <MemorySectionShell>
       {!draftConfig.memory.l1.enabled ? (
         <DependencyNotice
           title={t('settings.memory.form.l1DependencyTitle')}

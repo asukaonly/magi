@@ -273,7 +273,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         <header className="space-y-5">
           <div className="space-y-2">
             <h2 className="text-lg font-semibold text-foreground">{t('settings.timeline.title')}</h2>
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{t('settings.timeline.workspace.desc')}</p>
           </div>
 
           <div className="grid gap-6 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6 md:grid-cols-2">
