@@ -517,6 +517,31 @@ class L2SourceEvent:
 
 
 @dataclass(slots=True)
+class L2EntityResolution:
+    """Normalized entity resolution result returned by the L2 LLM service."""
+
+    decision: str = "unresolved"
+    matched_entity_id: str | None = None
+    matched_entity_name: str | None = None
+    confidence: float = 0.0
+    reason_tags: list[str] = field(default_factory=list)
+    should_merge: bool = False
+    canonical_name_suggestion: str | None = None
+
+    def __post_init__(self) -> None:
+        self.decision = _optional_text(self.decision) or "unresolved"
+        self.matched_entity_id = _optional_text(self.matched_entity_id)
+        self.matched_entity_name = _optional_text(self.matched_entity_name)
+        self.confidence = float(self.confidence or 0.0)
+        self.reason_tags = [str(item).strip() for item in self.reason_tags if str(item).strip()]
+        self.should_merge = bool(self.should_merge)
+        self.canonical_name_suggestion = _optional_text(self.canonical_name_suggestion)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -761,6 +786,7 @@ __all__ = [
     "L2BatchJob",
     "L2CandidateSet",
     "L2ConflictArbitrationResult",
+    "L2EntityResolution",
     "L2EntityReconcileJob",
     "L2ExistingRecord",
     "L2EventWindow",

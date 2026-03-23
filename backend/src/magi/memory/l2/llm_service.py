@@ -16,6 +16,7 @@ from .models import (
     L2AssertionCandidate,
     L2CandidateSet,
     L2ConflictArbitrationResult,
+    L2EntityResolution,
     L2ExistingRecord,
     L2SourceEvent,
     L2EventWindow,
@@ -162,7 +163,7 @@ class L2LLMService:
         mention: dict[str, Any],
         candidate_entities: list[dict[str, Any]],
         min_confidence: float = 0.8,
-    ) -> dict[str, Any]:
+    ) -> L2EntityResolution:
         payload = await self._generate_json(
             system_prompt=ENTITY_RESOLUTION_SYSTEM_PROMPT,
             prompt=render_entity_resolution_prompt(mention=mention, candidate_entities=candidate_entities),
@@ -181,15 +182,15 @@ class L2LLMService:
         if decision != "match" or not matched_entity_id:
             return self._unresolved_resolution(confidence=confidence)
 
-        return {
-            "decision": "match",
-            "matched_entity_id": str(matched_entity_id),
-            "matched_entity_name": resolution.get("matched_entity_name"),
-            "confidence": confidence,
-            "reason_tags": resolution.get("reason_tags", []),
-            "should_merge": bool(resolution.get("should_merge", False)),
-            "canonical_name_suggestion": resolution.get("canonical_name_suggestion"),
-        }
+        return L2EntityResolution(
+            decision="match",
+            matched_entity_id=str(matched_entity_id),
+            matched_entity_name=resolution.get("matched_entity_name"),
+            confidence=confidence,
+            reason_tags=resolution.get("reason_tags", []),
+            should_merge=bool(resolution.get("should_merge", False)),
+            canonical_name_suggestion=resolution.get("canonical_name_suggestion"),
+        )
 
     async def detect_contradiction_hints(
         self,
@@ -457,16 +458,11 @@ class L2LLMService:
             "total_tokens": int(usage.total_tokens or 0),
         }
 
-    def _unresolved_resolution(self, *, confidence: float = 0.0) -> dict[str, Any]:
-        return {
-            "decision": "unresolved",
-            "matched_entity_id": None,
-            "matched_entity_name": None,
-            "confidence": float(confidence),
-            "reason_tags": ["insufficient_evidence"],
-            "should_merge": False,
-            "canonical_name_suggestion": None,
-        }
+    def _unresolved_resolution(self, *, confidence: float = 0.0) -> L2EntityResolution:
+        return L2EntityResolution(
+            confidence=float(confidence),
+            reason_tags=["insufficient_evidence"],
+        )
 
     def _non_empty_text(self, value: Any) -> str | None:
         if value is None:

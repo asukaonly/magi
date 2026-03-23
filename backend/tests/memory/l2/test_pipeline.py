@@ -724,6 +724,7 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
 @pytest.mark.asyncio
 async def test_low_confidence_resolution_is_returned_as_unresolved():
     from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2EntityResolution
 
     response = json.dumps(
         {
@@ -745,8 +746,9 @@ async def test_low_confidence_resolution_is_returned_as_unresolved():
         candidate_entities=[{"entity_id": "place:shanghai", "canonical_name": "Shanghai", "entity_type": "place"}],
     )
 
-    assert resolution["decision"] == "unresolved"
-    assert resolution["matched_entity_id"] is None
+    assert isinstance(resolution, L2EntityResolution)
+    assert resolution.decision == "unresolved"
+    assert resolution.matched_entity_id is None
 
 
 @pytest.mark.asyncio

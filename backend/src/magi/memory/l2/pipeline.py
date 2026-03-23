@@ -1044,10 +1044,10 @@ class L2Pipeline:
                     },
                     candidate_entities=candidate_entities,
                 )
-                if llm_resolution.get("decision") == "match":
+                if llm_resolution.decision == "match" and llm_resolution.matched_entity_id:
                     return (
-                        str(llm_resolution["matched_entity_id"]),
-                        float(llm_resolution.get("confidence", mention_confidence)),
+                        str(llm_resolution.matched_entity_id),
+                        float(llm_resolution.confidence or mention_confidence),
                     )
 
         canonical_name = self._non_empty_text(mention.get("canonical_name_hint")) or mention_text
