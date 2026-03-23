@@ -420,10 +420,18 @@
           "description": "Configure short-lived workbench memory retention and recovery cadence so runtime context can be checkpointed and replayed safely."
         },
         "events": {
-          "description": "Configure retention, importance scoring, and semantic retrieval for raw event memory, which feeds every downstream layer."
+          "description": "Configure retention, importance scoring, and semantic retrieval for raw event memory, which feeds every downstream layer.",
+          "retrievalTitle": "Event understanding & retrieval",
+          "retrievalDescription": "Decide which events deserve extra attention and whether they can participate in semantic search."
         },
         "knowledge": {
-          "description": "Configure knowledge extraction, batch flushing, and conflict arbitration so facts settle into stable cognition."
+          "description": "Configure knowledge extraction, batch flushing, and conflict arbitration so facts settle into stable cognition.",
+          "extractionTitle": "Knowledge extraction",
+          "extractionDescription": "Control whether the knowledge layer is enabled and whether the model participates in entity, relation, and assertion extraction.",
+          "flushTitle": "Batch flushing",
+          "flushDescription": "Control how long staged microbatches wait before being written into the formal knowledge graph.",
+          "arbitrationTitle": "Conflict arbitration",
+          "arbitrationDescription": "When the knowledge layer sees high-confidence conflicts, decide whether to trigger a more cautious arbitration pass."
         },
         "reflection": {
           "description": "Configure summary and reflection generation so long event streams can be compressed into higher-level abstractions."
