@@ -300,19 +300,19 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     ) : null}
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-2 whitespace-nowrap lg:justify-end">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2.5 lg:justify-end">
                     {activeProvider.provider_type === 'custom' ? (
                       <button
                         type="button"
                         onClick={() => onRemoveCustomProvider(activeProviderId)}
-                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]"
+                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-md border border-destructive/18 bg-transparent px-3 py-2.5 text-sm font-medium text-destructive/85 transition hover:bg-destructive/6 hover:text-destructive"
                       >
                         <Trash2 className="h-4 w-4" />
                         <span>{t('llm.actions.removeProvider')}</span>
                       </button>
                     ) : null}
-                    <div className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 py-2">
-                      <span className="whitespace-nowrap text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
+                    <div className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-md bg-[hsl(var(--settings-shell-elevated)/0.58)] px-3 py-2 text-[hsl(var(--settings-nav-foreground))]">
+                      <span className="whitespace-nowrap text-sm font-medium text-foreground/88">{t('llm.fields.enabled')}</span>
                       <Switch
                         aria-label={t('llm.fields.enabled')}
                         checked={activeProvider.enabled}
@@ -328,7 +328,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       type="button"
                       onClick={() => onTestProviderConnection(activeProviderId)}
                       disabled={activeTestState.loading}
-                      className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.42)] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[hsl(var(--settings-shell-elevated)/0.58)] px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.82)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
                       <span>
