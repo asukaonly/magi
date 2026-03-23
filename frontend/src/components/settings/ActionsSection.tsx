@@ -9,7 +9,6 @@ import {
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 type ActionContributionEntry = {
   plugin: PluginPackageState;
@@ -44,23 +43,28 @@ export const ActionsSection: React.FC<ActionsSectionProps> = ({
   const actionEntries = useMemo(() => listActionEntries(plugins), [plugins]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-semibold">{t('settings.tabs.actions')}</h2>
-        <p className="text-sm text-muted-foreground">{t('settings.actionsDesc')}</p>
+        <h2 className="text-lg font-semibold">{t('settings.tabs.actions')}</h2>
+        <p className="text-sm leading-6 text-muted-foreground">{t('settings.actionsDesc')}</p>
       </div>
 
       <div className="grid gap-4">
         {actionEntries.map(({ plugin, contribution }) => (
-          <Card key={contribution.contribution_id} className="border-border/50 bg-card/80 shadow-sm">
-            <CardHeader>
+          <section
+            key={contribution.contribution_id}
+            className="space-y-5 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6"
+          >
+            <div className="space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <CardTitle className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                     <Mail className="h-4 w-4 text-primary" />
                     {contribution.display_name}
-                  </CardTitle>
-                  <CardDescription className="mt-1">{contribution.description || contribution.contribution_id}</CardDescription>
+                  </div>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    {contribution.description || contribution.contribution_id}
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={plugin.enabled ? 'default' : 'secondary'}>
@@ -81,10 +85,9 @@ export const ActionsSection: React.FC<ActionsSectionProps> = ({
                   ) : null}
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
+
               {Array.isArray(contribution.metadata.required_permissions) && contribution.metadata.required_permissions.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
                   {contribution.metadata.required_permissions.map((permission: string) => (
                     <Badge key={permission} variant="outline">
                       {permission}
@@ -101,7 +104,7 @@ export const ActionsSection: React.FC<ActionsSectionProps> = ({
                   disabled={!plugin.enabled}
                 />
               ) : (
-                <div className="rounded-2xl border border-dashed border-border/50 bg-background/60 px-4 py-3 text-sm text-muted-foreground">
+                <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">
                   {t('settings.actionsConfig.emptySettings')}
                 </div>
               )}
@@ -118,16 +121,16 @@ export const ActionsSection: React.FC<ActionsSectionProps> = ({
                   {t('settings.extensions.actions.reload')}
                 </Button>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         ))}
 
         {actionEntries.length === 0 ? (
-          <Card className="border-dashed border-border/60 bg-card/60">
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          <div className="border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6">
+            <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-8 text-center text-sm text-muted-foreground">
               {t('settings.actionsConfig.emptyState')}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         ) : null}
       </div>
     </div>
