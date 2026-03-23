@@ -385,6 +385,9 @@ class L2Pipeline:
                 touched_entity_ids = result.get("touched_entity_ids", [])
                 if isinstance(touched_entity_ids, list) and touched_entity_ids:
                     await self.enqueue_entities(touched_entity_ids)
+                snapshot_refresh_entity_ids = result.get("snapshot_refresh_entity_ids", [])
+                if isinstance(snapshot_refresh_entity_ids, list) and snapshot_refresh_entity_ids:
+                    await self.enqueue_snapshot_refresh(snapshot_refresh_entity_ids)
             except Exception:
                 self._stats.extract_failed += 1
                 logger.exception(
@@ -778,10 +781,21 @@ class L2Pipeline:
             ),
         )
 
+        conflict_arbitration_decision = (
+            conflict_arbitration.get("decision") if isinstance(conflict_arbitration, dict) else None
+        )
+        touched_entity_ids = self._collect_touched_entities(graph_candidates, assertion_candidates)
+        snapshot_refresh_entity_ids = (
+            touched_entity_ids
+            if conflict_arbitration_decision == "mark_evolution" and relation_count > 0
+            else []
+        )
+
         return {
             "relation_count": relation_count,
             "assertion_count": assertion_count,
-            "touched_entity_ids": self._collect_touched_entities(graph_candidates, assertion_candidates),
+            "touched_entity_ids": touched_entity_ids,
+            "snapshot_refresh_entity_ids": snapshot_refresh_entity_ids,
             "skipped": False,
             "evidence_class": classification.evidence_class,
             "profile_id": extraction_profile.profile_id,
@@ -792,9 +806,7 @@ class L2Pipeline:
             "rejected_graph_candidate_count": rejected_graph_candidate_count,
             "rejected_assertion_candidate_count": rejected_assertion_candidate_count,
             "contradiction_hint_count": len(contradiction_hints),
-            "conflict_arbitration_decision": (
-                conflict_arbitration.get("decision") if isinstance(conflict_arbitration, dict) else None
-            ),
+            "conflict_arbitration_decision": conflict_arbitration_decision,
         }
 
     async def _load_stored_event(self, event: MemoryEvent) -> MemoryEvent:

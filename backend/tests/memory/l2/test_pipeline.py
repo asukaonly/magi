@@ -1424,6 +1424,118 @@ async def test_extract_worker_marks_evolution_by_deprecating_old_graph_fact_and_
 
 
 @pytest.mark.asyncio
+async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
+    adapter = _FakeAdapter("{}")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l2 is not None
+            await store.l2.upsert_knowledge_edge(
+                subject_id="user:u1",
+                subject_type="user",
+                predicate="LIKES",
+                object_id="place:shanghai",
+                object_type="place",
+                evidence_event_ids=["evt-like-1"],
+                confidence=0.91,
+                observed_at=1710000000.0,
+                source_type="chat",
+                extraction_method="llm",
+            )
+            previous_edge = (await store.l2.get_relationships(subject_id="user:u1", status="active", limit=10))[0]
+            seeded_snapshot = await store.l2.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+            assert seeded_snapshot is not None
+            assert seeded_snapshot["preferences"]["place:shanghai"] == "like"
+
+            adapter._responses = [
+                json.dumps(
+                    {
+                        "mentions": [],
+                        "graph_candidates": [
+                            {
+                                "subject_ref": "user:u1",
+                                "subject_type": "user",
+                                "predicate": "DISLIKES",
+                                "object_ref": "place:shanghai",
+                                "object_type": "place",
+                                "fact_kind": "stable_preference",
+                                "polarity": "negative",
+                                "evidence_text": "I hate Shanghai these days.",
+                                "confidence": 0.94,
+                            }
+                        ],
+                        "assertion_candidates": [],
+                        "diagnostics": {"entity_status": "none"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "contradiction_hints": [
+                            {
+                                "target_record_id": previous_edge["triple_id"],
+                                "target_record_type": "knowledge_graph",
+                                "contradiction_kind": "preference_reversal",
+                                "confidence": 0.92,
+                                "evidence_text": "I hate Shanghai these days.",
+                                "recommended_action": "revalidate_only",
+                            }
+                        ]
+                    }
+                ),
+                json.dumps(
+                    {
+                        "decision": "mark_evolution",
+                        "winning_record_ids": [],
+                        "superseded_record_ids": [previous_edge["triple_id"]],
+                        "reason": "The user's preference appears to have evolved over time.",
+                    }
+                ),
+            ]
+
+            await store.ingest_event(
+                {
+                    "id": "evt-evolution-2",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-new",
+                        "content": "I hate Shanghai these days.",
+                    },
+                }
+            )
+
+            for _ in range(80):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["snapshot_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            snapshot = await store.l2.get_tom_snapshot(entity_id="user:u1", entity_type="user")
+            stats = store.get_l2_pipeline_stats()
+
+            assert snapshot is not None
+            assert snapshot["preferences"]["place:shanghai"] == "dislike"
+            assert snapshot["preferences_history"][0]["field"] == "place:shanghai"
+            assert snapshot["preferences_history"][0]["from"] == "like"
+            assert snapshot["preferences_history"][0]["to"] == "dislike"
+            assert stats["snapshot_completed"] >= 1
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_chat_response_action_runtime_event_is_skipped_before_llm_extraction():
     adapter = _FakeAdapter(json.dumps({"mentions": [], "graph_candidates": [], "assertion_candidates": []}))
