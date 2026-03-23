@@ -86,7 +86,7 @@ const SourceRow: React.FC<{
     type="button"
     onClick={onClick}
     data-testid={`timeline-source-launch-${source.source_name}`}
-    className="grid w-full gap-3 px-4 py-4 text-left transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1.2fr)_auto_auto]"
+    className="grid w-full gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] px-0 py-4 text-left transition-colors last:border-b-0 hover:bg-transparent sm:grid-cols-[minmax(0,1.2fr)_auto_auto]"
   >
     <div className="min-w-0">
       <div className="flex items-center gap-3">
@@ -100,7 +100,7 @@ const SourceRow: React.FC<{
       <div className="mt-1">{source.last_error || formatTimestamp(source.last_sync_at) || '—'}</div>
     </div>
     <div className="sm:justify-self-end">
-      <Badge variant={source.enabled ? 'default' : 'secondary'} className="rounded-full">
+      <Badge variant={source.enabled ? 'default' : 'secondary'} className="rounded-md">
         {source.enabled ? 'ON' : 'OFF'}
       </Badge>
     </div>
@@ -119,10 +119,10 @@ const SectionBlock: React.FC<{
   description?: string;
   children: React.ReactNode;
 }> = ({ title, description, children }) => (
-  <section className="space-y-4">
+  <section className="space-y-4 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6">
     <div className="space-y-1">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      {description ? <p className="max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
+      {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
     </div>
     {children}
   </section>
@@ -270,44 +270,48 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   if (!selectedSource) {
     return (
       <div className="mx-auto max-w-5xl space-y-8" data-testid="timeline-overview">
-        <header className="space-y-5 pb-6">
+        <header className="space-y-5">
           <div className="space-y-2">
-            <h2 className="text-xl font-semibold text-foreground">{t('settings.timeline.title')}</h2>
+            <h2 className="text-lg font-semibold text-foreground">{t('settings.timeline.title')}</h2>
             <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{t('settings.timeline.workspace.desc')}</p>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="flex items-center justify-between rounded-2xl border border-border/60 bg-background/70 px-4 py-3">
+          <div className="grid gap-6 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6 md:grid-cols-2">
+            <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
               <div>
                 <p className="text-sm font-medium text-foreground">{t('settings.timeline.fields.timelineEnabled')}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{t('settings.timeline.fields.timelineEnabledHint')}</p>
               </div>
-              <Switch
-                checked={value.enabled}
-                onCheckedChange={(checked) =>
-                  onChange((draft) => {
-                    draft.enabled = checked;
-                  })
-                }
-                aria-label={t('settings.timeline.fields.timelineEnabled')}
-              />
+              <div className="flex justify-start sm:justify-end">
+                <Switch
+                  checked={value.enabled}
+                  onCheckedChange={(checked) =>
+                    onChange((draft) => {
+                      draft.enabled = checked;
+                    })
+                  }
+                  aria-label={t('settings.timeline.fields.timelineEnabled')}
+                />
+              </div>
             </label>
 
-            <label className="flex items-center justify-between rounded-2xl border border-border/60 bg-background/70 px-4 py-3">
+            <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
               <div>
                 <p className="text-sm font-medium text-foreground">{t('settings.timeline.fields.edgeOverride')}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{t('settings.timeline.fields.edgeOverrideHint')}</p>
               </div>
-              <Switch
-                checked={value.expert_mode_edge_override}
-                onCheckedChange={(checked) =>
-                  onChange((draft) => {
-                    draft.expert_mode_edge_override = checked;
-                  })
-                }
-                disabled={!expertMode}
-                aria-label={t('settings.timeline.fields.edgeOverride')}
-              />
+              <div className="flex justify-start sm:justify-end">
+                <Switch
+                  checked={value.expert_mode_edge_override}
+                  onCheckedChange={(checked) =>
+                    onChange((draft) => {
+                      draft.expert_mode_edge_override = checked;
+                    })
+                  }
+                  disabled={!expertMode}
+                  aria-label={t('settings.timeline.fields.edgeOverride')}
+                />
+              </div>
             </label>
           </div>
         </header>
@@ -324,13 +328,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             </Button>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border/60 bg-background/75">
+          <div>
             {loadingStatus ? (
-              <div className="px-4 py-8 text-sm text-muted-foreground">{t('settings.timeline.statuses.loading')}</div>
+              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-8 text-sm text-muted-foreground">{t('settings.timeline.statuses.loading')}</div>
             ) : statuses.length === 0 ? (
-              <div className="px-4 py-8 text-sm text-muted-foreground">{t('settings.timeline.workspace.empty')}</div>
+              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-8 text-sm text-muted-foreground">{t('settings.timeline.workspace.empty')}</div>
             ) : (
-              <div className="divide-y divide-border/60">
+              <div>
                 {statuses.map((source) => (
                   <SourceRow key={source.source_name} source={source} onClick={() => onSelectSource(source.source_name)} />
                 ))}
@@ -362,7 +366,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
 
   return (
     <div className="mx-auto max-w-5xl space-y-8" data-testid={`timeline-source-detail-${selectedSource.source_name}`}>
-      <header className="space-y-4 pb-2">
+      <header className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
@@ -403,7 +407,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 </Button>
               </>
             ) : null}
-            <label className="inline-flex items-center gap-3 rounded-full border border-border/60 px-3 py-1.5 text-sm text-foreground">
+            <label className="inline-flex items-center gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] px-0 py-1.5 text-sm text-foreground">
               <span>{t('settings.timeline.fields.enabled')}</span>
               <Switch
                 checked={sourceEnabled}
@@ -416,21 +420,21 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
 
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={sourceEnabled ? 'default' : 'secondary'} className="rounded-full">
+            <Badge variant={sourceEnabled ? 'default' : 'secondary'} className="rounded-md">
               {sourceEnabled ? t('settings.timeline.statuses.enabled') : t('settings.timeline.statuses.disabled')}
             </Badge>
             {selectedSource.last_error ? (
-              <Badge variant="destructive" className="rounded-full">
+              <Badge variant="destructive" className="rounded-md">
                 {t('settings.timeline.statuses.attention')}
               </Badge>
             ) : (
-              <Badge variant="secondary" className="rounded-full">
+              <Badge variant="secondary" className="rounded-md">
                 {t('settings.timeline.statuses.healthy')}
               </Badge>
             )}
             <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{selectedSource.plugin_id}</span>
           </div>
-          <h2 className="text-3xl font-semibold tracking-tight text-foreground">{selectedSource.display_name}</h2>
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">{selectedSource.display_name}</h2>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
             {selectedSource.description || t(`settings.timeline.sourceDesc.${selectedSource.source_name}`)}
           </p>
@@ -439,7 +443,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       </header>
 
       <SectionBlock title={t('settings.timeline.workspace.sourceStatusTitle')}>
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-5 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2 xl:grid-cols-4">
           <StatusMetric
             label={t('settings.timeline.fields.status')}
             value={loadingStatus ? t('settings.timeline.statuses.loading') : getSyncActivityValue(selectedSource, activationRequired)}
