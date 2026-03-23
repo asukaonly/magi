@@ -116,6 +116,7 @@ class LLMEmbeddingModelMetaModel(BaseModel):
     id: str
     label: Optional[str] = Field(default=None)
     dimensions: list[int] = Field(default_factory=list)
+    limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -331,6 +332,7 @@ def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, 
             "core": dict(empty_selection),
             "embedding": embedding_selection,
         },
+        "model_runtime_overrides": {},
         "temperature": 0.7,
         "max_tokens": DEFAULT_MAX_TOKENS,
         "timeout": 60,

@@ -38,6 +38,7 @@ class LLMLimitsSettings(BaseModel):
 
     context_window: Optional[int] = Field(default=None, ge=1)
     max_output_tokens: Optional[int] = Field(default=None, ge=1)
+    max_concurrency: Optional[int] = Field(default=None, ge=1)
 
 
 class MemoryBackend(str, Enum):
@@ -142,6 +143,7 @@ class LLMSettings(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=MIN_MAX_TOKENS)
     timeout: int = Field(default=60, ge=1)
+    model_runtime_overrides: Dict[str, LLMLimitsSettings] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_builtin_provider_uniqueness(self) -> "LLMSettings":

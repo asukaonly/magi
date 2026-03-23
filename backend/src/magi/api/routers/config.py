@@ -88,6 +88,7 @@ class LLMConfigModel(BaseModel):
             ),
         }
     )
+    model_runtime_overrides: Dict[str, LLMLimitsSettings] = Field(default_factory=dict)
 
 
 class LoopConfigModel(BaseModel):
@@ -368,7 +369,11 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
                                 tool_calling=True,
                                 reasoning=True,
                             ),
-                            limits=LLMLimitsSettings(context_window=400000, max_output_tokens=128000),
+                            limits=LLMLimitsSettings(
+                                context_window=400000,
+                                max_output_tokens=128000,
+                                max_concurrency=2,
+                            ),
                         )
                     ],
                     embedding_models=[
@@ -376,6 +381,7 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
                             id="text-embedding-3-small",
                             label="Text Embedding 3 Small",
                             dimensions=[1536, 512],
+                            limits=LLMLimitsSettings(max_concurrency=6),
                         )
                     ],
                     image_generation_models=[LLMImageGenerationModelMetaModel(id="gpt-image-1", label="GPT Image 1")],
@@ -580,7 +586,11 @@ def _build_llm_config_model(
                 embedding_dimension=resolved_dimension,
                 capability_override_enabled=bool(selection.capability_override_enabled),
                 capabilities=capabilities,
-                limits=selection.limits,
+                limits=(
+                    embedding_meta.limits.model_copy(deep=True)
+                    if embedding_meta is not None and not bool(selection.capability_override_enabled)
+                    else selection.limits
+                ),
                 provider_options=provider_options,
             )
             continue
@@ -599,6 +609,7 @@ def _build_llm_config_model(
     return LLMConfigModel(
         providers=providers,
         selections=selections,
+        model_runtime_overrides=dict(getattr(runtime_config.llm, "model_runtime_overrides", {}) or {}),
     )
 
 
@@ -693,7 +704,11 @@ def _apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProvide
                         reasoning=False,
                         embedding=True,
                     ),
-                    limits=selection.limits,
+                    limits=(
+                        embedding_model_meta.limits.model_copy(deep=True)
+                        if embedding_model_meta is not None
+                        else selection.limits
+                    ),
                     provider_options=(
                         dict(embedding_model_meta.provider_options_example)
                         if embedding_model_meta is not None
@@ -784,6 +799,11 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     for provider_id, provider in config.llm.providers.items():
         llm_providers[provider_id] = provider.model_dump()
 
+    model_runtime_overrides = {
+        runtime_key: limits.model_dump()
+        for runtime_key, limits in config.llm.model_runtime_overrides.items()
+    }
+
     updates: Dict[str, Any] = {
         "agent.name": config.agent.name,
         "agent.description": config.agent.description,
@@ -792,6 +812,7 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
             selection_id: selection.model_dump()
             for selection_id, selection in config.llm.selections.items()
         },
+        "llm.model_runtime_overrides": model_runtime_overrides,
         "loop.strategy": config.loop.strategy,
         "loop.interval": config.loop.interval,
         "agent.loop_interval": config.loop.interval,

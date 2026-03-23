@@ -17,6 +17,7 @@ providers:
         limits:
           context_window: 400000
           max_output_tokens: 128000
+          max_concurrency: 3
       - id: gpt-5.2
         label: GPT-5.2
         capabilities:
@@ -27,6 +28,7 @@ providers:
         limits:
           context_window: 400000
           max_output_tokens: 128000
+          max_concurrency: 2
       - id: o3
         label: o3
         capabilities:
@@ -37,13 +39,18 @@ providers:
         limits:
           context_window: 200000
           max_output_tokens: 100000
+          max_concurrency: 2
     embedding_models:
       - id: text-embedding-3-small
         label: Text Embedding 3 Small
         dimensions: [1536, 512]
+        limits:
+          max_concurrency: 6
       - id: text-embedding-3-large
         label: Text Embedding 3 Large
         dimensions: [3072, 1024, 256]
+        limits:
+          max_concurrency: 4
     image_generation_models:
       - id: gpt-image-1
         label: GPT Image 1
@@ -79,6 +86,7 @@ providers:
         limits:
           context_window: 200000
           max_output_tokens: 64000
+          max_concurrency: 3
       - id: claude-opus-4-6
         label: Claude Opus 4.6
         capabilities:
@@ -89,6 +97,7 @@ providers:
         limits:
           context_window: 200000
           max_output_tokens: 64000
+          max_concurrency: 2
       - id: claude-haiku-4-5
         label: Claude Haiku 4.5
         capabilities:
@@ -99,6 +108,7 @@ providers:
         limits:
           context_window: 200000
           max_output_tokens: 32000
+          max_concurrency: 5
     fields:
       model:
         visible: true
@@ -128,6 +138,7 @@ providers:
         limits:
           context_window: 204800
           max_output_tokens: 131072
+          max_concurrency: 4
         provider_options_example:
           thinking:
             type: disabled
@@ -141,6 +152,7 @@ providers:
         limits:
           context_window: 128000
           max_output_tokens: 65536
+          max_concurrency: 4
         provider_options_example:
           thinking:
             type: disabled
@@ -154,6 +166,7 @@ providers:
         limits:
           context_window: 128000
           max_output_tokens: 32768
+          max_concurrency: 6
         provider_options_example:
           thinking:
             type: disabled
@@ -167,6 +180,7 @@ providers:
         limits:
           context_window: 128000
           max_output_tokens: 131072
+          max_concurrency: 4
         provider_options_example:
           thinking:
             type: disabled
@@ -174,6 +188,8 @@ providers:
       - id: embedding-3
         label: Embedding-3
         dimensions: [1024, 2048]
+        limits:
+          max_concurrency: 6
     fields:
       model:
         visible: true
@@ -203,6 +219,7 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 65536
+          max_concurrency: 2
       - id: gemini-2.5-flash
         label: Gemini 2.5 Flash
         capabilities:
@@ -213,6 +230,7 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 65536
+          max_concurrency: 4
       - id: gemini-2.5-flash-lite
         label: Gemini 2.5 Flash Lite
         capabilities:
@@ -223,13 +241,18 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 32768
+          max_concurrency: 6
     embedding_models:
       - id: text-embedding-004
         label: Text Embedding 004
         dimensions: [768]
+        limits:
+          max_concurrency: 6
       - id: gemini-embedding-exp-03-07
         label: Gemini Embedding Exp
         dimensions: [3072, 1536, 768]
+        limits:
+          max_concurrency: 4
     fields:
       model:
         visible: true
@@ -259,6 +282,7 @@ providers:
         limits:
           context_window: 128000
           max_output_tokens: 8192
+          max_concurrency: 6
       - id: deepseek-reasoner
         label: DeepSeek Reasoner
         capabilities:
@@ -269,6 +293,7 @@ providers:
         limits:
           context_window: 128000
           max_output_tokens: 8192
+          max_concurrency: 2
     fields:
       model:
         visible: true
@@ -298,6 +323,7 @@ providers:
         limits:
           context_window: 8192
           max_output_tokens: 8192
+          max_concurrency: 6
       - id: moonshot-v1-32k
         label: Moonshot V1 32K
         capabilities:
@@ -308,6 +334,7 @@ providers:
         limits:
           context_window: 32768
           max_output_tokens: 8192
+          max_concurrency: 4
       - id: moonshot-v1-128k
         label: Moonshot V1 128K
         capabilities:
@@ -318,10 +345,13 @@ providers:
         limits:
           context_window: 128000
           max_output_tokens: 8192
+          max_concurrency: 2
     embedding_models:
       - id: moonshot-v1-8k-embedding
         label: Moonshot Embedding
         dimensions: [1024]
+        limits:
+          max_concurrency: 6
     fields:
       model:
         visible: true
@@ -351,6 +381,7 @@ providers:
         limits:
           context_window: 1000192
           max_output_tokens: 8192
+          max_concurrency: 3
       - id: MiniMax-M2.5-highspeed
         label: MiniMax M2.5 Highspeed
         capabilities:
@@ -361,6 +392,7 @@ providers:
         limits:
           context_window: 1000192
           max_output_tokens: 8192
+          max_concurrency: 5
       - id: MiniMax-M2.1
         label: MiniMax M2.1
         capabilities:
@@ -371,10 +403,13 @@ providers:
         limits:
           context_window: 262144
           max_output_tokens: 8192
+          max_concurrency: 4
     embedding_models:
       - id: abab-6.5e-001
         label: MiniMax Embedding
         dimensions: [1536]
+        limits:
+          max_concurrency: 6
     fields:
       model:
         visible: true

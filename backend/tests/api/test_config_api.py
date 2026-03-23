@@ -15,7 +15,7 @@ from magi.api.routers.config import (
     config_router,
 )
 from magi.config.loader import get_config
-from magi.config.models import LLMProviderSettings, LLMSelectionSettings, LLMSettings
+from magi.config.models import LLMLimitsSettings, LLMProviderSettings, LLMSelectionSettings, LLMSettings
 from magi.config.llm_registry import (
     build_runtime_llm_defaults,
     resolve_llm_profile,
@@ -29,6 +29,8 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
     assert hasattr(config.llm, "selections")
     assert "context_decider" in config.llm.selections
     assert "core" in config.llm.selections
+    assert hasattr(config.llm, "model_runtime_overrides")
+    assert config.llm.model_runtime_overrides == {}
 
 
 def test_system_config_defaults_include_memory_lifecycle_settings():
@@ -108,6 +110,7 @@ def test_build_update_paths_contains_new_sections():
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.memory.l2.batch_flush_interval_seconds = 90
+    config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMLimitsSettings(max_concurrency=7)
     config.memory.l2.conflict_arbitration_enabled = False
     config.memory.l2.conflict_arbitration_min_confidence = 0.9
     config.memory.l3.temporal_llm_timeout_seconds = 1.5
@@ -118,6 +121,7 @@ def test_build_update_paths_contains_new_sections():
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90
+    assert updates["llm.model_runtime_overrides"]["openai::gpt-5.2::chat"]["max_concurrency"] == 7
     assert updates["agent.memory.l2.conflict_arbitration_enabled"] is False
     assert updates["agent.memory.l2.conflict_arbitration_min_confidence"] == 0.9
     assert updates["agent.memory.l3.temporal_llm_timeout_seconds"] == 1.5
@@ -229,6 +233,14 @@ def test_default_registry_exposes_model_metadata():
     assert registry.providers[0].chat_models[0].limits.max_output_tokens is not None
 
 
+def test_default_registry_exposes_embedding_concurrency_defaults():
+    registry = _default_llm_provider_registry()
+
+    assert registry.providers
+    assert registry.providers[0].chat_models[0].limits.max_concurrency is not None
+    assert registry.providers[0].embedding_models[0].limits.max_concurrency is not None
+
+
 def test_default_registry_includes_extended_builtin_providers():
     registry = _default_llm_provider_registry()
     providers_by_id = {provider.id: provider for provider in registry.providers}
@@ -307,6 +319,8 @@ def test_runtime_llm_defaults_use_scenario_llm_structure():
     assert data["selections"]["context_decider"]["model"] == ""
     assert data["selections"]["core"]["provider_id"] == ""
     assert data["selections"]["core"]["model"] == ""
+    assert "model_runtime_overrides" in data
+    assert data["model_runtime_overrides"] == {}
 
 
 def test_discover_llm_models_returns_models_from_provider_endpoint(monkeypatch: pytest.MonkeyPatch):
