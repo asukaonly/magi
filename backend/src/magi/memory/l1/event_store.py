@@ -305,7 +305,7 @@ class L1EventStore:
         """Search L1 events using sqlite-vec and fall back to keyword matching."""
         semantic_hits = await self._semantic_search_event_hits(query=query, limit=max(limit * 5, 20))
         if semantic_hits:
-            return await self._fetch_ranked_events(
+            ranked_events = await self._fetch_ranked_events(
                 hits=semantic_hits,
                 session_id=session_id,
                 user_id=user_id,
@@ -314,6 +314,8 @@ class L1EventStore:
                 domain_filters=domain_filters,
                 limit=limit,
             )
+            if ranked_events:
+                return ranked_events
 
         events = await self.query_events(
             session_id=session_id,

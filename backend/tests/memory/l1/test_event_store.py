@@ -413,6 +413,53 @@ async def test_l1_event_store_store_is_idempotent_for_existing_event_ids(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_l1_search_events_falls_back_when_semantic_hits_filter_to_empty(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    await store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "I love sushi in tokyo",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-search-fallback",
+            ),
+            event_id="evt-search-fallback",
+        )
+    )
+
+    async def fake_semantic_hits(*, query: str, limit: int):
+        _ = (query, limit)
+        return [object()]
+
+    async def fake_fetch_ranked_events(**kwargs):
+        _ = kwargs
+        return []
+
+    store._semantic_search_event_hits = fake_semantic_hits  # type: ignore[method-assign]
+    store._fetch_ranked_events = fake_fetch_ranked_events  # type: ignore[method-assign]
+
+    results = await store.search_events(
+        query="sushi tokyo",
+        session_id="session-1",
+        user_id="user-1",
+        limit=5,
+    )
+
+    assert [item["event_id"] for item in results] == ["evt-search-fallback"]
+
+
+@pytest.mark.asyncio
 async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
     import sqlite3
 
