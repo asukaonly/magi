@@ -35,8 +35,6 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
     assert hasattr(config.llm, "selections")
     assert "context_decider" in config.llm.selections
     assert "core" in config.llm.selections
-    assert hasattr(config, "loop")
-    assert hasattr(config, "message_bus")
     assert hasattr(config.llm, "model_runtime_overrides")
     assert config.llm.model_runtime_overrides == {}
     assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
@@ -59,12 +57,13 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l3.vectors_enabled is True
 
 
-def test_system_config_defaults_include_loop_and_message_bus():
+def test_system_config_does_not_expose_internal_runtime_fields():
     config = SystemConfigModel()
+    payload = config.model_dump(mode="json")
 
-    assert config.loop.strategy == "continuous"
-    assert config.loop.interval == 1.0
-    assert config.message_bus.max_size == 1000
+    assert "loop" not in payload
+    assert "message_bus" not in payload
+    assert "websocket" not in payload
 
 
 def test_memory_config_rejects_l2_batch_flush_interval_below_minimum():
@@ -125,9 +124,6 @@ def test_custom_provider_default_model_must_be_in_model_list():
 def test_build_update_paths_contains_new_sections():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
-    config.loop.strategy = "interval"
-    config.loop.interval = 2.5
-    config.message_bus.max_size = 2048
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.memory.l2.batch_flush_interval_seconds = 90
     config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMConcurrencyOverrideSettings(max_concurrency=7)
@@ -143,10 +139,6 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90
     assert updates["llm.model_runtime_overrides"]["openai::gpt-5.2::chat"]["max_concurrency"] == 7
     assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
-    assert updates["loop.strategy"] == config.loop.strategy
-    assert updates["loop.interval"] == config.loop.interval
-    assert updates["agent.loop_interval"] == config.loop.interval
-    assert updates["agent.message_bus.max_queue_size"] == config.message_bus.max_size
     assert updates["agent.memory.l2.conflict_arbitration_enabled"] is False
     assert updates["agent.memory.l2.conflict_arbitration_min_confidence"] == 0.9
     assert updates["agent.memory.l3.temporal_llm_timeout_seconds"] == 1.5

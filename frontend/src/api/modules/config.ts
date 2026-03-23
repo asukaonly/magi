@@ -290,10 +290,6 @@ export interface SystemConfig {
   };
   llm: LLMConfig;
   memory: MemoryConfig;
-  websocket: {
-    enabled: boolean;
-    port?: number;
-  };
   log: {
     level: 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
     path?: string;
@@ -398,7 +394,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       skill_extraction_enabled: true,
     },
   },
-  websocket: { enabled: true, port: 8000 },
   log: { level: 'INFO' },
   preferences: { onboarding_completed: false, user_mode: null, language: 'zh' },
   personality: DEFAULT_PERSONALITY_CONFIG,

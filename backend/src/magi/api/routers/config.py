@@ -96,15 +96,6 @@ class LLMConfigModel(BaseModel):
     model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
 
 
-class LoopConfigModel(BaseModel):
-    strategy: str = Field(default="continuous")
-    interval: float = Field(default=1.0)
-
-
-class MessageBusConfigModel(BaseModel):
-    max_size: Optional[int] = Field(default=1000)
-
-
 class MemoryEmbeddingConfigModel(BaseModel):
     backend: str = Field(default="sqlite_vec")
 
@@ -155,11 +146,6 @@ class MemoryConfigModel(BaseModel):
     l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)
     l3: MemoryL3ConfigModel = Field(default_factory=MemoryL3ConfigModel)
     l4: MemoryL4ConfigModel = Field(default_factory=MemoryL4ConfigModel)
-
-
-class WebSocketConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-    port: Optional[int] = Field(default=8000)
 
 
 class LogConfigModel(BaseModel):
@@ -262,10 +248,7 @@ class TimelineConfigModel(BaseModel):
 class SystemConfigModel(BaseModel):
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
-    loop: LoopConfigModel = Field(default_factory=LoopConfigModel)
-    message_bus: MessageBusConfigModel = Field(default_factory=MessageBusConfigModel)
     memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)
-    websocket: WebSocketConfigModel = Field(default_factory=WebSocketConfigModel)
     log: LogConfigModel = Field(default_factory=LogConfigModel)
     preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
@@ -645,18 +628,7 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             registry=registry,
             mask_api_key=mask_api_key,
         ),
-        loop=LoopConfigModel(
-            strategy=raw.get("loop", {}).get("strategy", "continuous"),
-            interval=float(raw.get("loop", {}).get("interval", runtime_config.agent.loop_interval)),
-        ),
-        message_bus=MessageBusConfigModel(
-            max_size=runtime_config.agent.message_bus.max_queue_size,
-        ),
         memory=_build_memory_config(raw, runtime_config),
-        websocket=WebSocketConfigModel(
-            enabled=runtime_config.features.enable_websocket,
-            port=runtime_config.server.port,
-        ),
         log=LogConfigModel(
             level=runtime_config.log_level,
             path=raw.get("log", {}).get("path"),
@@ -827,10 +799,6 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
             for selection_id, selection in config.llm.selections.items()
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
-        "loop.strategy": config.loop.strategy,
-        "loop.interval": config.loop.interval,
-        "agent.loop_interval": config.loop.interval,
-        "agent.message_bus.max_queue_size": config.message_bus.max_size,
         "agent.memory.db_path": config.memory.db_path,
         "agent.memory.async_embeddings": config.memory.async_embeddings,
         "agent.memory.embedding.backend": config.memory.embedding.backend,
@@ -856,8 +824,6 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l4.enabled": config.memory.l4.enabled,
         "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
         "agent.memory.l4.skill_extraction_enabled": config.memory.l4.skill_extraction_enabled,
-        "features.enable_websocket": config.websocket.enabled,
-        "server.port": config.websocket.port,
         "log_level": config.log.level,
         "log.path": config.log.path,
         "preferences": config.preferences.model_dump(),
