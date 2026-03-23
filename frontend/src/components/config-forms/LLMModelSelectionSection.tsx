@@ -288,9 +288,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
               {scenario === 'core' && !selection.capabilities.vision ? (
                 <div
+                  role="alert"
                   className={cn(
-                    'mt-3 flex items-start gap-2 rounded-lg border border-amber-300/35 bg-transparent px-3 py-2 text-xs text-amber-800 dark:text-amber-200',
-                    isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] px-0 pb-0 pt-4 text-muted-foreground dark:text-muted-foreground'
+                    'mt-3 flex items-start gap-2 rounded-lg border border-amber-300/45 bg-amber-50/80 px-3 py-2.5 text-xs text-amber-900 shadow-[0_1px_2px_rgba(120,53,15,0.06)] dark:border-amber-300/30 dark:bg-amber-500/10 dark:text-amber-100',
+                    isSettingsSurface && 'rounded-md border border-amber-300/40 bg-amber-50/72 px-3 py-2.5 text-amber-900 shadow-none dark:border-amber-300/25 dark:bg-amber-500/10 dark:text-amber-100'
                   )}
                 >
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

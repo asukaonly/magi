@@ -515,6 +515,7 @@ describe('config forms', () => {
       expect(within(coreCard).getByLabelText('llm.fields.model')).toHaveTextContent('GLM-5');
     });
     expect(screen.getByText('llm.warnings.coreVisionMissing')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('llm.warnings.coreVisionMissing');
   });
 
   it('uses custom select controls and flat cards for model selection on the settings surface', async () => {
