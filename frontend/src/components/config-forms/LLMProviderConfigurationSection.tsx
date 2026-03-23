@@ -169,7 +169,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           'md:h-[clamp(440px,56vh,680px)] xl:items-stretch',
           isSettingsSurface &&
             cn(
-              'h-full gap-4 rounded-none bg-transparent p-0 sm:p-0 md:h-full',
+              'h-full gap-0 rounded-none bg-transparent p-0 sm:p-0 md:h-full',
               settingsWorkbenchColumnsClassName
             )
         )}
@@ -179,10 +179,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           className={cn(
             'min-h-0 space-y-1.5 overflow-y-auto rounded-[24px] bg-background/55 p-2 sm:p-3',
             isSettingsSurface &&
-              'flex min-h-0 flex-col rounded-2xl border border-border/70 bg-transparent p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
+              'flex min-h-0 flex-col border-r border-[hsl(var(--settings-subnav-border)/0.72)] bg-transparent p-0 pr-5'
           )}
         >
-          <div className={cn('space-y-1.5', isSettingsSurface && 'flex-1 space-y-3 overflow-y-auto pr-1')}>
+          <div className={cn('space-y-1.5', isSettingsSurface && 'flex-1 space-y-1 overflow-y-auto pr-1')}>
             {providerItems.map(({ providerId, provider }) => {
               const providerMeta =
                 provider.provider_type === 'custom'
@@ -201,8 +201,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       : 'text-muted-foreground ring-transparent hover:bg-background/70 hover:text-foreground hover:ring-border/50',
                     isSettingsSurface &&
                       (providerId === activeProviderId
-                        ? 'rounded-xl bg-primary/12 shadow-sm ring-primary/60'
-                        : 'rounded-xl bg-transparent shadow-[0_1px_2px_rgba(15,23,42,0.03)] ring-1 ring-inset ring-border/60')
+                        ? 'rounded-md bg-[hsl(var(--settings-shell-elevated)/0.68)] ring-0 shadow-none'
+                        : 'rounded-md bg-transparent ring-0 shadow-none hover:bg-[hsl(var(--settings-shell-elevated)/0.4)]')
                   )}
                 >
                   <ProviderIcon
@@ -230,11 +230,11 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           </div>
 
           {isSettingsSurface ? (
-            <div className="mt-4 border-t border-border/60 pt-4">
+            <div className="mt-4 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-4 pr-1">
               <button
                 type="button"
                 onClick={onAddCustomProvider}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-transparent px-3.5 py-3 text-sm font-medium text-foreground transition hover:bg-accent/40"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-[hsl(var(--settings-subnav-border)/0.9)] bg-transparent px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.4)]"
               >
                 <Plus className="h-4 w-4" />
                 <span>{t('llm.actions.addCustomProvider')}</span>
@@ -249,11 +249,11 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             className={cn(
               'min-h-0 overflow-y-auto rounded-[24px] bg-background/72 p-5 sm:p-6',
               isSettingsSurface &&
-                'rounded-2xl border border-border/70 bg-transparent p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
+                'bg-transparent p-0 pl-6'
             )}
           >
             <div className={cn('space-y-6', isSettingsSurface && 'space-y-5')}>
-              <div className={cn('space-y-3', isSettingsSurface && 'space-y-4')}>
+              <div className={cn('space-y-3', isSettingsSurface && 'space-y-4 border-b border-[hsl(var(--settings-subnav-border)/0.72)] pb-5')}>
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-2">
                     <div className="flex items-start gap-3">
@@ -289,13 +289,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <button
                         type="button"
                         onClick={() => onRemoveCustomProvider(activeProviderId)}
-                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted/70 px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent/60"
+                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]"
                       >
                         <Trash2 className="h-4 w-4" />
                         <span>{t('llm.actions.removeProvider')}</span>
                       </button>
                     ) : null}
-                    <div className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-full bg-muted/70 px-3 py-2">
+                    <div className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 py-2">
                       <span className="whitespace-nowrap text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
                       <Switch
                         aria-label={t('llm.fields.enabled')}
@@ -312,7 +312,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       type="button"
                       onClick={() => onTestProviderConnection(activeProviderId)}
                       disabled={activeTestState.loading}
-                      className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted/70 px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-[hsl(var(--settings-shell-elevated)/0.42)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
                       <span>
@@ -413,7 +413,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         'space-y-4 rounded-[20px] bg-muted/40 p-4',
                         !isSettingsSurface && 'lg:col-span-2',
                         isSettingsSurface &&
-                          'rounded-xl border border-border/65 bg-transparent p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+                          'space-y-5 rounded-none border-t border-[hsl(var(--settings-subnav-border)/0.72)] bg-transparent p-0 pt-5 shadow-none'
                       )}
                     >
                       <div className="space-y-2">
@@ -456,7 +456,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             onAddProviderModel(activeProviderId, modelDraft);
                             setModelDraft('');
                           }}
-                          className="inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent"
+                          className={cn(
+                            'inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent',
+                            isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
+                          )}
                         >
                           {t('llm.actions.addModel')}
                         </button>
@@ -464,7 +467,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           type="button"
                           onClick={() => onDiscoverProviderModels(activeProviderId)}
                           disabled={activeDiscoveryState.loading}
-                          className="inline-flex h-11 min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                          className={cn(
+                            'inline-flex h-11 min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60',
+                            isSettingsSurface && 'rounded-md border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
+                          )}
                         >
                           {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                           <span>{t('llm.actions.fetchModels')}</span>
@@ -475,7 +481,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         {(activeProvider.custom_models || []).map((model) => (
                           <span
                             key={model}
-                            className="inline-flex items-center gap-1 rounded-full bg-background px-3 py-1 text-xs text-foreground"
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-full bg-background px-3 py-1 text-xs text-foreground',
+                              isSettingsSurface && 'bg-[hsl(var(--settings-shell-elevated)/0.58)]'
+                            )}
                           >
                             <span>{model}</span>
                             <button
@@ -517,7 +526,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 )}
 
                 {activeProviderMeta?.chat_models?.length ? (
-                  <div className={cn('space-y-2 pt-1', !isSettingsSurface && 'lg:col-span-2')}>
+                  <div className={cn('space-y-2 pt-1', !isSettingsSurface && 'lg:col-span-2', isSettingsSurface && 'border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-5')}>
                     <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
                     <div className="flex flex-wrap gap-2">
                       {activeProviderMeta.chat_models.map((model) => (

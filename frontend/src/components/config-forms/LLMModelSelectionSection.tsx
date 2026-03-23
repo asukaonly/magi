@@ -85,7 +85,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.modelSelection.desc')}</p>
           </div>
         ) : null}
-        <div className="rounded-xl border border-border/65 p-4 text-sm text-muted-foreground">
+        <div className={cn(
+          'rounded-xl border border-border/65 p-4 text-sm text-muted-foreground',
+          isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] px-0 pb-0 pt-6'
+        )}>
           {t('llm.modelSelection.empty')}
         </div>
       </section>
@@ -127,7 +130,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               <article
                 key={scenario}
                 data-testid={`llm-scenario-${scenario}`}
-                className="rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                className={cn(
+                  'rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
+                  isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] px-0 pb-0 pt-6 shadow-none'
+                )}
               >
                 <div className="space-y-1 mb-4">
                   <div className="flex items-center justify-between gap-3">
@@ -211,11 +217,14 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             : registry.providers.find((item) => item.id === provider?.provider_type)?.chat_models || [];
 
           return (
-            <article
-              key={scenario}
-              data-testid={`llm-scenario-${scenario}`}
-              className="rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-            >
+          <article
+            key={scenario}
+            data-testid={`llm-scenario-${scenario}`}
+            className={cn(
+              'rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
+              isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] px-0 pb-0 pt-6 shadow-none'
+            )}
+          >
               <div className="space-y-1 mb-4">
                 <div className="flex items-center justify-between gap-3">
                   <h4 className="text-sm font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>

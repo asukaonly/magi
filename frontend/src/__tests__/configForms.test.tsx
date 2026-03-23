@@ -834,9 +834,10 @@ describe('config forms', () => {
     await user.click(await screen.findByText('llm.actions.addCustomProvider'));
 
     const customDefaultModelField = screen.getByLabelText('llm.fields.defaultModel');
-    const customModelSection = customDefaultModelField.closest('div.space-y-4');
+    const detailPane = screen.getByTestId('llm-provider-detail-pane');
 
-    expect(customModelSection?.className).not.toContain('lg:col-span-2');
+    expect(detailPane.className).not.toContain('lg:col-span-2');
+    expect(customDefaultModelField).toBeInTheDocument();
   });
 
   it('uses custom select controls for custom provider fields on the settings surface', async () => {
