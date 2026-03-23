@@ -40,6 +40,7 @@ class AnthropicAdapter(LLMAdapter):
 
         # Prefer base_url; fall back to api_base (backward compatible with legacy configuration)
         api_endpoint = base_url or api_base
+        self._base_url = api_endpoint
 
         client_kwargs = {"api_key": api_key, "timeout": timeout}
         if api_endpoint:
@@ -182,3 +183,8 @@ class AnthropicAdapter(LLMAdapter):
     def provider_name(self) -> str:
         """Get provider name"""
         return "anthropic"
+
+    @property
+    def base_url(self) -> Optional[str]:
+        """Get the configured API base URL."""
+        return self._base_url

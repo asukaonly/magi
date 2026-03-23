@@ -111,3 +111,48 @@ async def test_run_with_limit_releases_waiter_on_cancellation() -> None:
     assert await first_task == "first"
     assert limiter.get_stats(key).active == 0
     assert limiter.get_stats(key).waiting == 0
+
+
+@pytest.mark.asyncio
+async def test_run_with_limit_updates_existing_key_limit_for_later_refresh() -> None:
+    limiter = LLMConcurrencyLimiter(default_limit=1)
+    key = limiter.build_key(
+        provider_name="openai",
+        model_name="gpt-5.2",
+        request_family="chat",
+        base_url="https://api.openai.com/v1",
+    )
+
+    release_first = asyncio.Event()
+    first_has_entered = asyncio.Event()
+    second_has_entered = asyncio.Event()
+    release_second = asyncio.Event()
+
+    async def first_operation() -> str:
+        first_has_entered.set()
+        await release_first.wait()
+        return "first"
+
+    async def second_operation() -> str:
+        second_has_entered.set()
+        await release_second.wait()
+        return "second"
+
+    first_task = asyncio.create_task(limiter.run_with_limit(key, first_operation, limit=1))
+    await first_has_entered.wait()
+
+    second_task = asyncio.create_task(limiter.run_with_limit(key, second_operation, limit=2))
+    await asyncio.wait_for(second_has_entered.wait(), timeout=1.0)
+
+    stats = limiter.get_stats(key)
+    assert stats.limit == 2
+    assert stats.active == 2
+
+    release_second.set()
+
+    release_first.set()
+
+    assert await first_task == "first"
+    assert await second_task == "second"
+    assert limiter.get_stats(key).active == 0
+    assert limiter.get_stats(key).waiting == 0

@@ -21,7 +21,7 @@ class LLMConcurrencyStats:
 
 @dataclass(slots=True)
 class _LimiterState:
-    semaphore: asyncio.Semaphore
+    condition: asyncio.Condition
     limit: int
     active: int = 0
     waiting: int = 0
@@ -83,21 +83,33 @@ class LLMConcurrencyLimiter:
     ) -> T:
         """Run an awaitable factory while holding one permit for the key."""
         state = self._state_for(key, limit=limit)
-        state.waiting += 1
-        acquired = False
-        try:
-            await state.semaphore.acquire()
-            acquired = True
-            state.waiting -= 1
-            state.active += 1
+        async with state.condition:
+            self._maybe_update_limit(state, limit)
+            state.waiting += 1
+            acquired = False
             try:
-                return await operation()
-            finally:
-                state.active -= 1
-                state.semaphore.release()
-        finally:
-            if not acquired:
+                while state.active >= state.limit:
+                    await state.condition.wait()
                 state.waiting -= 1
+                state.active += 1
+                acquired = True
+            except asyncio.CancelledError:
+                if not acquired:
+                    state.waiting -= 1
+                state.condition.notify_all()
+                raise
+            except Exception:
+                if not acquired:
+                    state.waiting -= 1
+                state.condition.notify_all()
+                raise
+
+        try:
+            return await operation()
+        finally:
+            async with state.condition:
+                state.active -= 1
+                state.condition.notify_all()
 
     def _state_for(self, key: str, *, limit: int | None = None) -> _LimiterState:
         effective_limit = int(limit) if limit is not None else self._default_limit
@@ -109,11 +121,25 @@ class LLMConcurrencyLimiter:
             return state
 
         state = _LimiterState(
-            semaphore=asyncio.Semaphore(effective_limit),
+            condition=asyncio.Condition(),
             limit=effective_limit,
         )
         self._states[key] = state
         return state
+
+    def _maybe_update_limit(self, state: _LimiterState, new_limit: int | None) -> None:
+        if new_limit is None:
+            return
+
+        effective_limit = int(new_limit)
+        if effective_limit < 1:
+            raise ValueError("limit must be at least 1")
+
+        if effective_limit == state.limit:
+            return
+
+        state.limit = effective_limit
+        state.condition.notify_all()
 
 
 _DEFAULT_LLM_CONCURRENCY_LIMITER: LLMConcurrencyLimiter | None = None

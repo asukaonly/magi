@@ -6,7 +6,15 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 import pytest
 
+from magi.config.models import (
+    LLMConcurrencyOverrideSettings,
+    LLMProviderSettings,
+    LLMSelectionSettings,
+    LLMSettings,
+)
 from magi.llm.base import LLMAdapter
+from magi.llm.anthropic import AnthropicAdapter
+from magi.llm.openai import OpenAIAdapter
 from magi.llm.provider_bridge import LLMProviderBridge
 
 
@@ -18,10 +26,12 @@ class DummyLLMAdapter(LLMAdapter):
         model: str = "test-model",
         provider: str = "openai",
         client: Any = None,
+        base_url: Optional[str] = None,
     ):
         self._model = model
         self._provider = provider
         self._client = client
+        self._base_url = base_url
         self.chat_kwargs: Dict[str, Any] = {}
 
     async def generate(
@@ -76,6 +86,10 @@ class DummyLLMAdapter(LLMAdapter):
     def provider_name(self) -> str:
         return self._provider
 
+    @property
+    def base_url(self) -> Optional[str]:
+        return self._base_url
+
 
 class DummyOpenAIClient:
     def __init__(self, response: Any):
@@ -107,6 +121,30 @@ class RecordingConcurrencyLimiter:
     async def run_with_limit(self, key: str, operation, *, limit: int | None = None):  # type: ignore[no-untyped-def]
         self.calls.append({"key": key, "limit": limit})
         return await operation()
+
+
+def _build_test_llm_config(*, override_limit: int | None = None):
+    llm_settings = LLMSettings(
+        providers={
+            "openai": LLMProviderSettings(
+                enabled=True,
+                provider_type="openai",
+                display_name="OpenAI",
+                api_key="sk-test",
+                base_url="https://api.openai.com/v1",
+            )
+        },
+        selections={
+            "context_decider": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
+            "core": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
+            "embedding": LLMSelectionSettings(provider_id="openai", model="text-embedding-3-small"),
+        },
+    )
+    if override_limit is not None:
+        llm_settings.model_runtime_overrides["openai::api.openai.com::gpt-5.2::chat"] = (
+            LLMConcurrencyOverrideSettings(max_concurrency=override_limit)
+        )
+    return SimpleNamespace(llm=SimpleNamespace(model_runtime_overrides=llm_settings.model_runtime_overrides))
 
 
 @pytest.mark.asyncio
@@ -244,8 +282,12 @@ async def test_chat_response_uses_shared_concurrency_limiter() -> None:
     message = SimpleNamespace(content="ok", tool_calls=[], role="assistant")
     response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
     client = DummyOpenAIClient(response=response)
-    llm = DummyLLMAdapter(provider="openai", client=client)
-    llm.base_url = "https://api.openai.com/v1"
+    llm = DummyLLMAdapter(
+        model="gpt-5.2",
+        provider="openai",
+        client=client,
+        base_url="https://api.openai.com/v1",
+    )
     limiter = RecordingConcurrencyLimiter()
     bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
 
@@ -258,10 +300,64 @@ async def test_chat_response_uses_shared_concurrency_limiter() -> None:
     assert result.content == "ok"
     assert limiter.calls == [
         {
-            "key": "openai::api.openai.com::test-model::chat",
-            "limit": None,
+            "key": "openai::api.openai.com::gpt-5.2::chat",
+            "limit": 2,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_chat_response_passes_shared_override_before_registry_default_before_fallback(monkeypatch) -> None:
+    message = SimpleNamespace(content="ok", tool_calls=[], role="assistant")
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(
+        model="gpt-5.2",
+        provider="openai",
+        client=client,
+        base_url="https://api.openai.com/v1",
+    )
+    limiter = RecordingConcurrencyLimiter()
+    bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
+
+    override_config = _build_test_llm_config(override_limit=7)
+    default_config = _build_test_llm_config()
+
+    monkeypatch.setattr("magi.llm.provider_bridge.get_config", lambda: override_config, raising=False)
+
+    await bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert limiter.calls[-1]["limit"] == 7
+
+    monkeypatch.setattr("magi.llm.provider_bridge.get_config", lambda: default_config, raising=False)
+
+    await bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert limiter.calls[-1]["limit"] == 2
+
+    fallback_client = DummyOpenAIClient(response=response)
+    fallback_llm = DummyLLMAdapter(
+        model="test-model",
+        provider="custom",
+        client=fallback_client,
+        base_url="https://gateway.example.com/v1",
+    )
+    fallback_bridge = LLMProviderBridge(fallback_llm, concurrency_limiter=limiter)
+
+    monkeypatch.setattr("magi.llm.provider_bridge.get_config", lambda: _build_test_llm_config(), raising=False)
+
+    await fallback_bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert limiter.calls[-1]["limit"] == 4
 
 
 @pytest.mark.asyncio
@@ -280,6 +376,22 @@ async def test_chat_with_tools_passes_timeout_to_openai_compatible_clients() -> 
     )
 
     assert client.kwargs["timeout"] == 180.0
+
+
+def test_real_adapters_expose_base_url_for_host_aware_keying() -> None:
+    openai_adapter = OpenAIAdapter(
+        api_key="sk-test",
+        model="gpt-5.2",
+        base_url="https://gateway.example.com/v1",
+    )
+    anthropic_adapter = AnthropicAdapter(
+        api_key="sk-test",
+        model="claude-sonnet-4-6",
+        api_base="https://proxy.example.com/v1",
+    )
+
+    assert openai_adapter.base_url == "https://gateway.example.com/v1"
+    assert anthropic_adapter.base_url == "https://proxy.example.com/v1"
 
 
 @pytest.mark.asyncio

@@ -48,6 +48,7 @@ class OpenAIAdapter(LLMAdapter):
 
         # Prefer base_url, fallback to api_base (compatible with old config)
         api_endpoint = base_url or api_base
+        self._base_url = api_endpoint
 
         client_kwargs = {"api_key": api_key, "timeout": timeout}
         if api_endpoint:
@@ -234,6 +235,11 @@ class OpenAIAdapter(LLMAdapter):
     def provider_name(self) -> str:
         """Get provider name"""
         return self._provider
+
+    @property
+    def base_url(self) -> Optional[str]:
+        """Get the configured API base URL."""
+        return self._base_url
 
     def set_embedding_model(self, model: str):
         """

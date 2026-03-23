@@ -7,6 +7,7 @@ This module centralizes API differences between OpenAI-compatible models
 import json
 import time
 import uuid
+from functools import lru_cache
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -15,6 +16,13 @@ from .anthropic import AnthropicAdapter
 from .concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
 from .parsers import parse_legacy_tool_calls, sanitize_llm_text
 from .usage_events import LLMCallEventPayload, LLMUsageEventPublisher, publish_llm_call_event
+from ..config import get_config
+from ..config.loader import get_llm_provider_registry_file
+from ..config.llm_registry import (
+    LLMProviderRegistryModel,
+    find_chat_model_meta,
+    load_llm_provider_registry,
+)
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 
 
@@ -52,6 +60,18 @@ class ProviderUsage:
     reasoning_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+
+
+DEFAULT_CHAT_CONCURRENCY_FALLBACK = 4
+
+
+@lru_cache(maxsize=1)
+def _load_provider_registry() -> LLMProviderRegistryModel:
+    """Load the packaged LLM provider registry once per process."""
+    return load_llm_provider_registry(
+        get_llm_provider_registry_file(),
+        fallback=LLMProviderRegistryModel(),
+    )
 
 
 class LLMProviderBridge:
@@ -97,14 +117,36 @@ class LLMProviderBridge:
             base_url=base_url,
         )
 
+    def _resolve_chat_concurrency_limit(self) -> int:
+        """Resolve the effective concurrency cap for chat requests."""
+        key = self._build_concurrency_key("chat")
+        runtime_config = get_config()
+        runtime_override = getattr(runtime_config.llm, "model_runtime_overrides", {}) or {}
+        override = runtime_override.get(key)
+        if override is not None:
+            override_limit = getattr(override, "max_concurrency", None)
+            if override_limit is not None:
+                return int(override_limit)
+
+        model_meta = find_chat_model_meta(
+            _load_provider_registry(),
+            self._provider_name(),
+            str(getattr(self.llm, "model_name", "unknown")),
+        )
+        if model_meta is not None and model_meta.limits.max_concurrency is not None:
+            return int(model_meta.limits.max_concurrency)
+
+        return DEFAULT_CHAT_CONCURRENCY_FALLBACK
+
     async def _run_with_concurrency_limit(
         self,
         *,
         request_family: str,
         operation: Callable[[], Awaitable[ProviderResponse]],
+        limit: int | None = None,
     ) -> ProviderResponse:
         key = self._build_concurrency_key(request_family)
-        return await self._concurrency_limiter.run_with_limit(key, operation)
+        return await self._concurrency_limiter.run_with_limit(key, operation, limit=limit)
 
     async def chat(
         self,
@@ -150,6 +192,7 @@ class LLMProviderBridge:
         try:
             provider_response = await self._run_with_concurrency_limit(
                 request_family="chat",
+                limit=self._resolve_chat_concurrency_limit(),
                 operation=lambda: self._chat_response_impl(
                     system_prompt=system_prompt,
                     messages=messages,
@@ -215,6 +258,7 @@ class LLMProviderBridge:
 
             provider_response = await self._run_with_concurrency_limit(
                 request_family="chat",
+                limit=self._resolve_chat_concurrency_limit(),
                 operation=lambda: self._chat_with_tools_impl(
                     system_prompt=system_prompt,
                     messages=messages,

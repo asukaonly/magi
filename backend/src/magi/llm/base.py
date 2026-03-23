@@ -110,6 +110,11 @@ class LLMAdapter(ABC):
         pass
 
     @property
+    def base_url(self) -> Optional[str]:
+        """Get the adapter base URL, if one was configured."""
+        return None
+
+    @property
     def provider_name(self) -> str:
         """Get provider name (defaults to inferring from class name)"""
         return self.__class__.__name__.replace("Adapter", "").lower()
