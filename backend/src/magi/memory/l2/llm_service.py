@@ -17,6 +17,7 @@ from .models import (
     L2CandidateSet,
     L2ConflictArbitrationResult,
     L2ExistingRecord,
+    L2SourceEvent,
     L2EventWindow,
     L2GraphCandidate,
     L2UnifiedExtractionResult,
@@ -235,7 +236,7 @@ class L2LLMService:
         new_candidates: L2CandidateSet,
         contradiction_hints: list[ContradictionHint],
         existing_records: list[L2ExistingRecord],
-        source_events: list[dict[str, Any]],
+        source_events: list[L2SourceEvent],
     ) -> L2ConflictArbitrationResult | None:
         event_ids = list(new_event_window.event_ids)
         contradiction_hint_payload = [hint.to_dict() for hint in contradiction_hints]

@@ -27,6 +27,7 @@ from .models import (
     L2FocalEntityRef,
     L2GraphCandidate,
     L2PendingBatchBucket,
+    L2SourceEvent,
     ResolvedEntityMention,
     build_l2_batch_bucket_key,
 )
@@ -1765,14 +1766,25 @@ class L2Pipeline:
         *,
         batch_events: list[MemoryEvent],
         existing_records: list[L2ExistingRecord],
-    ) -> list[dict[str, Any]]:
-        source_events: list[dict[str, Any]] = []
+    ) -> list[L2SourceEvent]:
+        source_events: list[L2SourceEvent] = []
         seen_event_ids: set[str] = set()
         for event in batch_events:
             if event.event_id in seen_event_ids:
                 continue
             seen_event_ids.add(event.event_id)
-            source_events.append(self._serialize_event_for_batch(event))
+            source_events.append(
+                L2SourceEvent(
+                    event_id=event.event_id,
+                    timestamp=event.timestamp,
+                    session_id=event.session_id,
+                    user_id=event.user_id,
+                    source=event.source,
+                    event_type=event.event_type,
+                    content=event.content,
+                    author_type=event.author_type,
+                )
+            )
         if self._l1_store is None:
             return source_events
         evidence_event_ids = {
@@ -1789,16 +1801,16 @@ class L2Pipeline:
                 continue
             seen_event_ids.add(event_id)
             source_events.append(
-                {
-                    "event_id": str(row.get("event_id") or event_id),
-                    "timestamp": float(row.get("timestamp", 0.0) or 0.0),
-                    "session_id": self._non_empty_text(row.get("session_id")),
-                    "user_id": self._non_empty_text(row.get("user_id")),
-                    "source": str(row.get("source") or "unknown"),
-                    "event_type": str(row.get("event_type") or ""),
-                    "content": str(row.get("content") or ""),
-                    "author_type": str(row.get("author_type") or "user"),
-                }
+                L2SourceEvent(
+                    event_id=str(row.get("event_id") or event_id),
+                    timestamp=float(row.get("timestamp", 0.0) or 0.0),
+                    session_id=self._non_empty_text(row.get("session_id")),
+                    user_id=self._non_empty_text(row.get("user_id")),
+                    source=str(row.get("source") or "unknown"),
+                    event_type=str(row.get("event_type") or ""),
+                    content=str(row.get("content") or ""),
+                    author_type=str(row.get("author_type") or "user"),
+                )
             )
         return source_events
 

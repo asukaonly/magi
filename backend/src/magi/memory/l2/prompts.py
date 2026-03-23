@@ -7,7 +7,7 @@ from typing import Any
 
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
-from .models import L2CandidateSet, L2EventWindow, L2ExistingRecord
+from .models import L2CandidateSet, L2EventWindow, L2ExistingRecord, L2SourceEvent
 
 
 UNIFIED_EXTRACTION_SYSTEM_PROMPT = """You are a structured extraction engine for a memory system.
@@ -181,7 +181,7 @@ def render_conflict_arbitration_prompt(
     new_candidates: L2CandidateSet,
     contradiction_hints: list[dict[str, Any]],
     existing_records: list[L2ExistingRecord],
-    source_events: list[dict[str, Any]],
+    source_events: list[L2SourceEvent],
 ) -> str:
     return (
         "Arbitrate the conflict between new evidence and existing memory records.\n\n"
@@ -189,7 +189,7 @@ def render_conflict_arbitration_prompt(
         f"New candidates:\n{json.dumps(new_candidates.to_dict(), ensure_ascii=False, indent=2)}\n\n"
         f"Contradiction hints:\n{json.dumps(contradiction_hints, ensure_ascii=False, indent=2)}\n\n"
         f"Existing records:\n{json.dumps([item.to_dict() for item in existing_records], ensure_ascii=False, indent=2)}\n\n"
-        f"Supporting source events:\n{json.dumps(source_events, ensure_ascii=False, indent=2)}\n\n"
+        f"Supporting source events:\n{json.dumps([item.to_dict() for item in source_events], ensure_ascii=False, indent=2)}\n\n"
         "Return JSON with this schema:\n"
         '{\n  "decision": "keep_new|keep_existing|mark_evolution",\n'
         '  "winning_record_ids": ["string"],\n'

@@ -477,6 +477,46 @@ class L2ExistingRecord:
 
 
 @dataclass(slots=True)
+class L2SourceEvent:
+    """Normalized evidence event payload used during conflict arbitration."""
+
+    event_id: str
+    timestamp: float
+    source: str
+    event_type: str
+    content: str
+    author_type: str = "user"
+    session_id: str | None = None
+    user_id: str | None = None
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "L2SourceEvent":
+        return cls(
+            event_id=payload.get("event_id", ""),
+            timestamp=payload.get("timestamp", 0.0),
+            source=payload.get("source", "unknown"),
+            event_type=payload.get("event_type", ""),
+            content=payload.get("content", ""),
+            author_type=payload.get("author_type", "user"),
+            session_id=payload.get("session_id"),
+            user_id=payload.get("user_id"),
+        )
+
+    def __post_init__(self) -> None:
+        self.event_id = _non_empty_text(self.event_id, field_name="event_id")
+        self.timestamp = float(self.timestamp or 0.0)
+        self.source = _optional_text(self.source) or "unknown"
+        self.event_type = _optional_text(self.event_type) or ""
+        self.content = str(self.content or "")
+        self.author_type = _optional_text(self.author_type) or "user"
+        self.session_id = _optional_text(self.session_id)
+        self.user_id = _optional_text(self.user_id)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -730,6 +770,7 @@ __all__ = [
     "L2KnowledgeEdgeWrite",
     "L2PendingBatchBucket",
     "L2SnapshotRefreshJob",
+    "L2SourceEvent",
     "L2TomAssertionWrite",
     "L2UnifiedExtractionResult",
     "ManualL2EventRequest",

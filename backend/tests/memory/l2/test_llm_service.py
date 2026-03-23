@@ -225,6 +225,7 @@ def test_conflict_arbitration_uses_core_scenario_adapter():
         L2ExistingRecord,
         L2EventWindow,
         L2EventWindowSummary,
+        L2SourceEvent,
     )
 
     fast_adapter = _FakeAdapter("{}")
@@ -267,7 +268,16 @@ def test_conflict_arbitration_uses_core_scenario_adapter():
                 )
             ],
             existing_records=[L2ExistingRecord(record_id="triple-1", record_type="knowledge_graph")],
-            source_events=[],
+            source_events=[
+                L2SourceEvent(
+                    event_id="evt-1",
+                    timestamp=1710000000.0,
+                    source="chat",
+                    event_type="UserMessage",
+                    content="I do not like sushi anymore.",
+                    author_type="user",
+                )
+            ],
         )
     )
 
