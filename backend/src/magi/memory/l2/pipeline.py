@@ -51,6 +51,9 @@ DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS = 0.2
 DEFAULT_L2_MAX_EVENTS_PER_BATCH = 12
 DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH = 2400
 DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS = 2.0
+DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT = 3
+DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3
+DEFAULT_L2_HISTORY_SEARCH_LIMIT = 4
 
 
 @dataclass(slots=True)
@@ -572,15 +575,33 @@ class L2Pipeline:
             if policy.allow_entity_extraction or policy.allow_assertion_write or policy.allow_graph_write
             else []
         )
+        history_contexts = (
+            await self._load_history_contexts(
+                anchor_event=stored_event,
+                batch_events=[item[0] for item in eligible_events],
+                exclude_event_ids=batch_event_ids,
+            )
+            if policy.allow_entity_extraction or policy.allow_assertion_write or policy.allow_graph_write
+            else []
+        )
         extraction_profile = resolve_extraction_profile(stored_event)
         self_entity_id = self._resolve_self_entity_id(stored_event)
-        context_bundle = await self._collect_context_bundle(stored_event, context_texts=context_texts)
+        context_bundle = await self._collect_context_bundle(
+            stored_event,
+            context_texts=context_texts,
+            source_event_ids=[
+                str(item.get("event_id"))
+                for item in history_contexts
+                if self._non_empty_text(item.get("event_id"))
+            ],
+        )
         direct_context_refs = resolve_direct_context_refs(event=stored_event, bundle=context_bundle)
         logger.info(
             "L2 unified extraction stage started",
             event_id=stored_event.event_id,
             profile_id=extraction_profile.profile_id,
             context_count=len(context_texts),
+            history_context_count=len(history_contexts),
             structured_entity_hint_count=0,
             structured_graph_hint_count=0,
             direct_context_ref_count=len(direct_context_refs),
@@ -592,10 +613,12 @@ class L2Pipeline:
                 "events": [self._serialize_event_for_batch(item[0]) for item in eligible_events],
                 "texts": [item[0].content for item in eligible_events],
                 "context_texts": context_texts,
+                "history_contexts": history_contexts,
                 "summary": {
                     "event_count": len(eligible_events),
                     "session_id": stored_event.session_id,
                     "user_id": stored_event.user_id,
+                    "history_context_count": len(history_contexts),
                 },
             },
             profile=extraction_profile,
@@ -793,6 +816,77 @@ class L2Pipeline:
         context_rows = [row for row in rows if row["event_id"] not in excluded]
         context_texts = [str(row["content"]) for row in reversed(context_rows) if str(row["content"]).strip()]
         return context_texts[:3]
+
+    async def _load_history_contexts(
+        self,
+        *,
+        anchor_event: MemoryEvent,
+        batch_events: list[MemoryEvent],
+        exclude_event_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        if self._l1_store is None or self._entity_catalog is None or not anchor_event.user_id:
+            return []
+
+        query_text = " ".join(
+            text
+            for event in batch_events
+            if (text := self._non_empty_text(event.content))
+        ).strip()
+        if not query_text:
+            return []
+
+        entity_matches = await self._entity_catalog.resolve_query_entities(
+            query_text,
+            limit=DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT,
+        )
+        if not entity_matches:
+            return []
+
+        seen_event_ids = set(exclude_event_ids or [])
+        seen_terms: set[str] = set()
+        history_contexts: list[dict[str, Any]] = []
+        for match in entity_matches:
+            candidate_terms = [
+                self._non_empty_text(match.get("matched_text")),
+                self._non_empty_text(match.get("canonical_name")),
+            ]
+            for term in candidate_terms:
+                if term is None:
+                    continue
+                normalized_term = term.casefold()
+                if normalized_term in seen_terms:
+                    continue
+                seen_terms.add(normalized_term)
+                rows = await self._l1_store.search_events(
+                    query=term,
+                    user_id=anchor_event.user_id,
+                    limit=DEFAULT_L2_HISTORY_SEARCH_LIMIT,
+                )
+                for row in rows:
+                    event_id = self._non_empty_text(row.get("event_id"))
+                    content = self._non_empty_text(row.get("content"))
+                    if not event_id or not content or event_id in seen_event_ids:
+                        continue
+                    if not bool(row.get("cognition_eligible", True)):
+                        continue
+                    if anchor_event.session_id and str(row.get("session_id") or "") == anchor_event.session_id:
+                        continue
+                    history_contexts.append(
+                        {
+                            "event_id": event_id,
+                            "session_id": self._non_empty_text(row.get("session_id")),
+                            "timestamp": float(row.get("timestamp", 0.0) or 0.0),
+                            "content": content,
+                            "matched_entity_id": self._non_empty_text(match.get("entity_id")),
+                            "matched_text": term,
+                            "canonical_name": self._non_empty_text(match.get("canonical_name")),
+                            "match_source": self._non_empty_text(match.get("match_source")),
+                        }
+                    )
+                    seen_event_ids.add(event_id)
+                    if len(history_contexts) >= DEFAULT_L2_HISTORY_CONTEXT_LIMIT:
+                        return history_contexts
+        return history_contexts
 
     async def _resolve_mentions(
         self,
@@ -1177,7 +1271,13 @@ class L2Pipeline:
             "expires_at": expires_at,
         }
 
-    async def _collect_context_bundle(self, event: MemoryEvent, *, context_texts: list[str]) -> ContextBundle:
+    async def _collect_context_bundle(
+        self,
+        event: MemoryEvent,
+        *,
+        context_texts: list[str],
+        source_event_ids: list[str] | None = None,
+    ) -> ContextBundle:
         recent_entities: list[dict[str, Any]] = []
         if self._entity_catalog is not None:
             recent_entities = await self._entity_catalog.list_mentions(limit=20)
@@ -1186,7 +1286,7 @@ class L2Pipeline:
             recent_messages=[{"text": text} for text in context_texts if text],
             recent_entities=recent_entities,
             live_context_entities=self._parse_live_context_entities(event),
-            source_event_ids=self._load_source_event_ids(event),
+            source_event_ids=list(source_event_ids or []) + self._load_source_event_ids(event),
         )
 
     def _merge_resolved_context_refs(

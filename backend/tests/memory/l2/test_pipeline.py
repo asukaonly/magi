@@ -932,6 +932,84 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
 
 
 @pytest.mark.asyncio
+async def test_extract_worker_uses_related_cross_session_history_in_unified_prompt():
+    from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
+
+    adapter = _FakeAdapter(
+        [
+            json.dumps(
+                {
+                    "mentions": [],
+                    "graph_candidates": [],
+                    "assertion_candidates": [],
+                    "diagnostics": {"entity_status": "none"},
+                }
+            ),
+        ]
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l1 is not None
+            assert store.l2_entity_catalog is not None
+            await store.l1.store(
+                _make_memory_event(
+                    event_id="evt-history-1",
+                    session_id="s-old",
+                    user_id="u1",
+                    timestamp=time.time() - 60,
+                    content="I call Shanghai Modu sometimes.",
+                )
+            )
+            await store.l2_entity_catalog.upsert_entity(
+                canonical_name="Shanghai",
+                entity_type="place",
+                entity_id="place:shanghai",
+            )
+            await store.l2_entity_catalog.add_alias(entity_id="place:shanghai", alias_text="Modu")
+
+            await store.ingest_event(
+                {
+                    "id": "evt-history-2",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-new",
+                        "content": "I still like Modu.",
+                    },
+                }
+            )
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            unified_prompts = [
+                str(call["prompt"])
+                for call in adapter.calls
+                if call.get("system_prompt") == UNIFIED_EXTRACTION_SYSTEM_PROMPT
+            ]
+
+            assert len(unified_prompts) == 1
+            assert "I still like Modu." in unified_prompts[0]
+            assert "I call Shanghai Modu sometimes." in unified_prompts[0]
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_extract_worker_persists_llm_tom_assertions():
     responses = [
         json.dumps(
