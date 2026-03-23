@@ -630,7 +630,7 @@ Expected: PASS
 Run:
 
 ```bash
-cd /Users/asuka/code/magi && ./scripts/dev-hot.sh
+cd /Users/asuka/code/magi && ./scripts/dev-tauri-hot.sh
 ```
 
 Verify:

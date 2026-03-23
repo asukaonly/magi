@@ -119,7 +119,7 @@ def log_llm_request(
     model: str,
     system_prompt: str,
     messages: list,
-    truncate: bool = True,
+    truncate: bool = False,
     system_prompt_max_length: int = 2000,
     message_max_length: int = 1000,
     **kwargs

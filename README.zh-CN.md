@@ -86,13 +86,7 @@ Magi 当前将运行数据存放在：
 
 ### 快速启动（源码开发）
 
-#### 方案 A：Web + Backend 热更新
-
-```bash
-./scripts/dev-hot.sh
-```
-
-#### 方案 B：Desktop（Tauri）+ Backend 热更新
+#### Desktop（Tauri）+ Backend 热更新
 
 ```bash
 ./scripts/dev-tauri-hot.sh

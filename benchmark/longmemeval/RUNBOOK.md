@@ -12,11 +12,11 @@ pip install -r requirements.txt
 python run_server.py
 ```
 
-If you also want the frontend during development, you can start both from the repository root:
+If you want the desktop shell during development, start it from the repository root:
 
 ```bash
 cd /Users/asuka/code/magi
-./scripts/dev-hot.sh
+./scripts/dev-tauri-hot.sh
 ```
 
 ## 2. Confirm the Backend Is Reachable

@@ -103,7 +103,7 @@ magi/
 ├── scripts/
 │   ├── build-sidecar.sh        # Build Python sidecar binary for macOS/Linux
 │   ├── build-sidecar.ps1       # Build Python sidecar binary for Windows
-│   └── dev-hot.sh              # Start backend+frontend with hot reload
+│   └── dev-tauri-hot.sh        # Start Tauri + backend with hot reload
 ├── configs/
 ├── docs/
 │   ├── project-overview.md
@@ -218,9 +218,6 @@ pytest
 # sidecar build
 cd ..
 ./scripts/build-sidecar.sh
-
-# fullstack hot reload
-./scripts/dev-hot.sh
 
 # tauri desktop + backend hot reload
 ./scripts/dev-tauri-hot.sh

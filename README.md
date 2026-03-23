@@ -86,13 +86,7 @@ Magi stores runtime/app data at:
 
 ### Quick Start (Source Development)
 
-#### Option A: Web + Backend hot reload
-
-```bash
-./scripts/dev-hot.sh
-```
-
-#### Option B: Desktop (Tauri) + Backend hot reload
+#### Desktop (Tauri) + Backend hot reload
 
 ```bash
 ./scripts/dev-tauri-hot.sh

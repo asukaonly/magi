@@ -260,11 +260,8 @@ fn spawn_sidecar(
         .shell()
         .sidecar("magi-backend")
         .map_err(|err| format!("Failed to prepare backend sidecar: {err}"))?
-        .args(["--host", BACKEND_HOST, "--port", &port_text, "--no-reload"])
+        .args(["--role", "combined", "--host", BACKEND_HOST, "--port", &port_text, "--no-reload"])
         .env("MAGI_DESKTOP_MODE", "1")
-        .env("MAGI_BACKEND_HOST", BACKEND_HOST)
-        .env("MAGI_BACKEND_PORT", &port_text)
-        .env("MAGI_BACKEND_RELOAD", "0")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .spawn()
         .map_err(|err| format!("Failed to spawn backend sidecar: {err}"))?;
@@ -331,15 +328,14 @@ fn spawn_dev_backend(port: u16, session_token: &str) -> Result<(BackendProcess, 
     let mut command = Command::new("python");
     command
         .arg("run_server.py")
+        .arg("--role")
+        .arg("combined")
         .arg("--host")
         .arg(BACKEND_HOST)
         .arg("--port")
         .arg(&port_text)
         .arg("--no-reload")
         .env("MAGI_DESKTOP_MODE", "1")
-        .env("MAGI_BACKEND_HOST", BACKEND_HOST)
-        .env("MAGI_BACKEND_PORT", &port_text)
-        .env("MAGI_BACKEND_RELOAD", "0")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .current_dir(backend_dir)
         .stdout(Stdio::null())

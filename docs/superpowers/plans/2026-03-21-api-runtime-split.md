@@ -184,7 +184,7 @@
 **Files:**
 - Modify: `scripts/build-sidecar.sh`
 - Modify: `scripts/build-sidecar.ps1`
-- Modify: `scripts/dev-hot.sh`
+- Modify: `scripts/dev-tauri-hot.sh`
 - Modify: `README.md`
 
 - [ ] Decide whether desktop package bundles:

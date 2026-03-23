@@ -282,7 +282,7 @@ If stronger replay is needed later, add per-client notification cursors separate
 
 ### Local development
 
-`dev-hot.sh` or a new dedicated script should:
+`dev-tauri-hot.sh` or a new dedicated script should:
 
 - start `python backend/run_server.py --role runtime_worker`
 - wait for runtime heartbeat
