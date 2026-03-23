@@ -16,6 +16,7 @@ from .models import (
     L2AssertionCandidate,
     L2CandidateSet,
     L2ConflictArbitrationResult,
+    L2ExistingRecord,
     L2EventWindow,
     L2GraphCandidate,
     L2UnifiedExtractionResult,
@@ -193,7 +194,7 @@ class L2LLMService:
         self,
         *,
         new_event: dict[str, Any],
-        existing_records: list[dict[str, Any]],
+        existing_records: list[L2ExistingRecord],
     ) -> list[ContradictionHint]:
         payload = await self._generate_json(
             system_prompt=CONTRADICTION_HINT_SYSTEM_PROMPT,
@@ -233,7 +234,7 @@ class L2LLMService:
         new_event_window: L2EventWindow,
         new_candidates: L2CandidateSet,
         contradiction_hints: list[ContradictionHint],
-        existing_records: list[dict[str, Any]],
+        existing_records: list[L2ExistingRecord],
         source_events: list[dict[str, Any]],
     ) -> L2ConflictArbitrationResult | None:
         event_ids = list(new_event_window.event_ids)

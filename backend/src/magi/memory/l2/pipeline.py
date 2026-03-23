@@ -21,6 +21,7 @@ from .models import (
     L2BatchJob,
     L2CandidateSet,
     L2ConflictArbitrationResult,
+    L2ExistingRecord,
     L2EventWindow,
     L2EventWindowSummary,
     L2FocalEntityRef,
@@ -1660,11 +1661,11 @@ class L2Pipeline:
             rewritten_hints.append(next_hint)
         return rewritten_hints
 
-    async def _load_existing_records(self, focal_entities: list[L2FocalEntityRef]) -> list[dict[str, Any]]:
+    async def _load_existing_records(self, focal_entities: list[L2FocalEntityRef]) -> list[L2ExistingRecord]:
         if self._cognition_store is None:
             return []
 
-        records: list[dict[str, Any]] = []
+        records: list[L2ExistingRecord] = []
         seen_record_ids: set[str] = set()
         for entity in focal_entities:
             entity_id = entity.entity_id
@@ -1680,16 +1681,16 @@ class L2Pipeline:
                     continue
                 seen_record_ids.add(record_id)
                 records.append(
-                    {
-                        "record_id": record_id,
-                        "record_type": "tom_trait_assertion",
-                        "entity_id": assertion["entity_id"],
-                        "entity_type": assertion["entity_type"],
-                        "trait_name": assertion["trait_name"],
-                        "trait_value": assertion["trait_value"],
-                        "validation_state": assertion["validation_state"],
-                        "confidence": assertion["confidence_score"],
-                    }
+                    L2ExistingRecord(
+                        record_id=record_id,
+                        record_type="tom_trait_assertion",
+                        entity_id=assertion["entity_id"],
+                        entity_type=assertion["entity_type"],
+                        trait_name=assertion["trait_name"],
+                        trait_value=assertion["trait_value"],
+                        validation_state=assertion["validation_state"],
+                        confidence=assertion["confidence_score"],
+                    )
                 )
 
             relations = await self._cognition_store.get_relationships(subject_id=entity_id, limit=50)
@@ -1700,22 +1701,22 @@ class L2Pipeline:
                     continue
                 seen_record_ids.add(record_id)
                 records.append(
-                    {
-                        "record_id": record_id,
-                        "record_type": "knowledge_graph",
-                        "subject_id": relation["subject_id"],
-                        "predicate": relation["predicate"],
-                        "object_id": relation["object_id"],
-                        "status": relation["status"],
-                        "confidence": relation["confidence"],
-                    }
+                    L2ExistingRecord(
+                        record_id=record_id,
+                        record_type="knowledge_graph",
+                        subject_id=relation["subject_id"],
+                        predicate=relation["predicate"],
+                        object_id=relation["object_id"],
+                        status=relation["status"],
+                        confidence=relation["confidence"],
+                    )
                 )
         return records
 
-    async def _load_target_records_for_hints(self, hints: list[ContradictionHint]) -> list[dict[str, Any]]:
+    async def _load_target_records_for_hints(self, hints: list[ContradictionHint]) -> list[L2ExistingRecord]:
         if self._cognition_store is None:
             return []
-        records: list[dict[str, Any]] = []
+        records: list[L2ExistingRecord] = []
         seen: set[str] = set()
         for hint in hints:
             target_record_id = self._non_empty_text(hint.target_record_id)
@@ -1728,17 +1729,17 @@ class L2Pipeline:
                 if assertion is None:
                     continue
                 records.append(
-                    {
-                        "record_id": target_record_id,
-                        "record_type": target_record_type,
-                        "entity_id": assertion["entity_id"],
-                        "entity_type": assertion["entity_type"],
-                        "trait_name": assertion["trait_name"],
-                        "trait_value": assertion["trait_value"],
-                        "validation_state": assertion["validation_state"],
-                        "confidence": assertion["confidence_score"],
-                        "evidence_event_ids": list(assertion.get("evidence_events", [])),
-                    }
+                    L2ExistingRecord(
+                        record_id=target_record_id,
+                        record_type=target_record_type,
+                        entity_id=assertion["entity_id"],
+                        entity_type=assertion["entity_type"],
+                        trait_name=assertion["trait_name"],
+                        trait_value=assertion["trait_value"],
+                        validation_state=assertion["validation_state"],
+                        confidence=assertion["confidence_score"],
+                        evidence_event_ids=list(assertion.get("evidence_events", [])),
+                    )
                 )
                 continue
             if target_record_type == "knowledge_graph":
@@ -1746,16 +1747,16 @@ class L2Pipeline:
                 if relation is None:
                     continue
                 records.append(
-                    {
-                        "record_id": target_record_id,
-                        "record_type": target_record_type,
-                        "subject_id": relation["subject_id"],
-                        "predicate": relation["predicate"],
-                        "object_id": relation["object_id"],
-                        "status": relation["status"],
-                        "confidence": relation["confidence"],
-                        "evidence_event_ids": list(relation.get("evidence_event_ids", [])),
-                    }
+                    L2ExistingRecord(
+                        record_id=target_record_id,
+                        record_type=target_record_type,
+                        subject_id=relation["subject_id"],
+                        predicate=relation["predicate"],
+                        object_id=relation["object_id"],
+                        status=relation["status"],
+                        confidence=relation["confidence"],
+                        evidence_event_ids=list(relation.get("evidence_event_ids", [])),
+                    )
                 )
         return records
 
@@ -1763,7 +1764,7 @@ class L2Pipeline:
         self,
         *,
         batch_events: list[MemoryEvent],
-        existing_records: list[dict[str, Any]],
+        existing_records: list[L2ExistingRecord],
     ) -> list[dict[str, Any]]:
         source_events: list[dict[str, Any]] = []
         seen_event_ids: set[str] = set()
@@ -1777,7 +1778,7 @@ class L2Pipeline:
         evidence_event_ids = {
             str(event_id)
             for record in existing_records
-            for event_id in record.get("evidence_event_ids", [])
+            for event_id in record.evidence_event_ids
             if str(event_id).strip()
         }
         for event_id in sorted(evidence_event_ids):

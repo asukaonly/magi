@@ -422,6 +422,61 @@ class L2TomAssertionWrite:
 
 
 @dataclass(slots=True)
+class L2ExistingRecord:
+    """Normalized existing record payload used for contradiction checks."""
+
+    record_id: str
+    record_type: str
+    entity_id: str = ""
+    entity_type: str = ""
+    trait_name: str = ""
+    trait_value: str = ""
+    validation_state: str = ""
+    subject_id: str = ""
+    predicate: str = ""
+    object_id: str = ""
+    status: str = ""
+    confidence: float = 0.0
+    evidence_event_ids: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "L2ExistingRecord":
+        return cls(
+            record_id=payload.get("record_id", ""),
+            record_type=payload.get("record_type", ""),
+            entity_id=payload.get("entity_id", ""),
+            entity_type=payload.get("entity_type", ""),
+            trait_name=payload.get("trait_name", ""),
+            trait_value=payload.get("trait_value", ""),
+            validation_state=payload.get("validation_state", ""),
+            subject_id=payload.get("subject_id", ""),
+            predicate=payload.get("predicate", ""),
+            object_id=payload.get("object_id", ""),
+            status=payload.get("status", ""),
+            confidence=payload.get("confidence", 0.0),
+            evidence_event_ids=payload.get("evidence_event_ids", []),
+        )
+
+    def __post_init__(self) -> None:
+        self.record_id = _non_empty_text(self.record_id, field_name="record_id")
+        self.record_type = _non_empty_text(self.record_type, field_name="record_type")
+        self.entity_id = _optional_text(self.entity_id) or ""
+        self.entity_type = _optional_text(self.entity_type) or ""
+        self.trait_name = _optional_text(self.trait_name) or ""
+        self.trait_value = _optional_text(self.trait_value) or ""
+        self.validation_state = _optional_text(self.validation_state) or ""
+        self.subject_id = _optional_text(self.subject_id) or ""
+        self.predicate = _optional_text(self.predicate) or ""
+        self.object_id = _optional_text(self.object_id) or ""
+        self.status = _optional_text(self.status) or ""
+        self.confidence = float(self.confidence or 0.0)
+        self.evidence_event_ids = [str(item).strip() for item in self.evidence_event_ids if str(item).strip()]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -667,6 +722,7 @@ __all__ = [
     "L2CandidateSet",
     "L2ConflictArbitrationResult",
     "L2EntityReconcileJob",
+    "L2ExistingRecord",
     "L2EventWindow",
     "L2EventWindowSummary",
     "L2FocalEntityRef",

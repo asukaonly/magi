@@ -7,7 +7,7 @@ from typing import Any
 
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
-from .models import L2CandidateSet, L2EventWindow
+from .models import L2CandidateSet, L2EventWindow, L2ExistingRecord
 
 
 UNIFIED_EXTRACTION_SYSTEM_PROMPT = """You are a structured extraction engine for a memory system.
@@ -162,11 +162,11 @@ def render_entity_resolution_prompt(*, mention: dict[str, Any], candidate_entiti
     )
 
 
-def render_contradiction_hint_prompt(*, new_event: dict[str, Any], existing_records: list[dict[str, Any]]) -> str:
+def render_contradiction_hint_prompt(*, new_event: dict[str, Any], existing_records: list[L2ExistingRecord]) -> str:
     return (
         "Compare the new event against existing memory records and identify possible contradiction hints.\n\n"
         f"New event:\n{json.dumps(new_event, ensure_ascii=False, indent=2)}\n\n"
-        f"Existing records:\n{json.dumps(existing_records, ensure_ascii=False, indent=2)}\n\n"
+        f"Existing records:\n{json.dumps([item.to_dict() for item in existing_records], ensure_ascii=False, indent=2)}\n\n"
         "Return JSON with this schema:\n"
         '{\n  "contradiction_hints": [\n    {\n      "target_record_id": "string",\n      "target_record_type": "knowledge_graph|tom_trait_assertion",\n'
         '      "contradiction_kind": "direct_negation|state_reversal|temporal_expiration|exclusive_role_conflict|preference_reversal|weak_tension",\n'
@@ -180,7 +180,7 @@ def render_conflict_arbitration_prompt(
     new_event_window: L2EventWindow,
     new_candidates: L2CandidateSet,
     contradiction_hints: list[dict[str, Any]],
-    existing_records: list[dict[str, Any]],
+    existing_records: list[L2ExistingRecord],
     source_events: list[dict[str, Any]],
 ) -> str:
     return (
@@ -188,7 +188,7 @@ def render_conflict_arbitration_prompt(
         f"New event window:\n{json.dumps(new_event_window.to_dict(), ensure_ascii=False, indent=2)}\n\n"
         f"New candidates:\n{json.dumps(new_candidates.to_dict(), ensure_ascii=False, indent=2)}\n\n"
         f"Contradiction hints:\n{json.dumps(contradiction_hints, ensure_ascii=False, indent=2)}\n\n"
-        f"Existing records:\n{json.dumps(existing_records, ensure_ascii=False, indent=2)}\n\n"
+        f"Existing records:\n{json.dumps([item.to_dict() for item in existing_records], ensure_ascii=False, indent=2)}\n\n"
         f"Supporting source events:\n{json.dumps(source_events, ensure_ascii=False, indent=2)}\n\n"
         "Return JSON with this schema:\n"
         '{\n  "decision": "keep_new|keep_existing|mark_evolution",\n'

@@ -222,6 +222,7 @@ def test_conflict_arbitration_uses_core_scenario_adapter():
         ContradictionHint,
         L2CandidateSet,
         L2ConflictArbitrationResult,
+        L2ExistingRecord,
         L2EventWindow,
         L2EventWindowSummary,
     )
@@ -265,7 +266,7 @@ def test_conflict_arbitration_uses_core_scenario_adapter():
                     recommended_action="mark_deprecated",
                 )
             ],
-            existing_records=[{"record_id": "triple-1"}],
+            existing_records=[L2ExistingRecord(record_id="triple-1", record_type="knowledge_graph")],
             source_events=[],
         )
     )
@@ -374,7 +375,7 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
 
 def test_contradiction_hint_detection_returns_typed_hints():
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import ContradictionHint
+    from magi.memory.l2.models import ContradictionHint, L2ExistingRecord
 
     response = json.dumps(
         {
@@ -395,7 +396,7 @@ def test_contradiction_hint_detection_returns_typed_hints():
     hints = asyncio.run(
         service.detect_contradiction_hints(
             new_event={"event_id": "evt-1", "content": "I do not like sushi anymore."},
-            existing_records=[{"record_id": "triple-1", "record_type": "knowledge_graph"}],
+            existing_records=[L2ExistingRecord(record_id="triple-1", record_type="knowledge_graph")],
         )
     )
 
