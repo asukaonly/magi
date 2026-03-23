@@ -307,7 +307,7 @@ class L2Pipeline:
             return None
         if self._batch_flush_interval_seconds <= 0:
             return "interval_elapsed"
-        oldest_age_seconds = max(0.0, time.time() - bucket.oldest_event_timestamp)
+        oldest_age_seconds = max(0.0, time.time() - bucket.created_at)
         if oldest_age_seconds >= float(self._batch_flush_interval_seconds):
             return "interval_elapsed"
         return None

@@ -570,6 +570,7 @@ async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
             bucket.add_event(
                 {"event_id": "evt-flush-1", "timestamp": time.time() - 61, "session_id": "s-flush", "user_id": "u1"},
                 estimated_tokens=8,
+                queued_at=time.time() - 61,
             )
             pipeline._staging_buckets[bucket.bucket_key] = bucket
             pipeline._refresh_staging_stats_locked()
@@ -611,6 +612,32 @@ async def test_enqueue_event_flushes_when_bucket_hits_event_cap():
             assert job is not None
             assert job.flush_reason == "max_events"
             assert len(job.event_ids) == DEFAULT_L2_MAX_EVENTS_PER_BATCH
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_event_does_not_flush_immediately_for_historical_business_timestamp():
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        try:
+            await pipeline.enqueue_event(
+                _make_memory_event(
+                    event_id="evt-historical-1",
+                    session_id="s-historical",
+                    timestamp=1.0,
+                )
+            )
+
+            assert pipeline._extract_queue.qsize() == 0
+            assert "session:s-historical" in pipeline._staging_buckets
+            stats = pipeline.get_statistics()
+            assert stats["pending_staged_event_count"] == 1
         finally:
             await pipeline.shutdown()
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
@@ -124,17 +125,18 @@ class L2PendingBatchBucket:
             raise ValueError("session_id or user_id is required")
         return cls(bucket_key=bucket_key, session_id=session_id, user_id=user_id)
 
-    def add_event(self, event: dict[str, Any], *, estimated_tokens: int) -> None:
+    def add_event(self, event: dict[str, Any], *, estimated_tokens: int, queued_at: float | None = None) -> None:
         payload = dict(event)
         event_id = _non_empty_text(str(payload.get("event_id", "")), field_name="event_id")
         timestamp = float(payload.get("timestamp", 0.0) or 0.0)
+        enqueued_at = float(time.time() if queued_at is None else queued_at)
         payload["event_id"] = event_id
         payload["timestamp"] = timestamp
         self.events.append(payload)
         self.estimated_tokens += max(0, int(estimated_tokens))
         if not self.created_at:
-            self.created_at = timestamp
-        self.last_event_at = timestamp
+            self.created_at = enqueued_at
+        self.last_event_at = enqueued_at
         if not self.oldest_event_timestamp or timestamp < self.oldest_event_timestamp:
             self.oldest_event_timestamp = timestamp
         if timestamp > self.newest_event_timestamp:
