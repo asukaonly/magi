@@ -397,7 +397,7 @@ export function MemoryReflectionSettingsSection({
       ) : null}
 
       <MemoryGroup
-        title={t('settings.memory.fields.enable_l3.label')}
+        title={t('settings.tabs.memoryReflection')}
         description={t('settings.memory.fields.enable_l3.description')}
       >
         <MemorySwitchRow
@@ -453,7 +453,7 @@ export function MemorySkillsSettingsSection({
       ) : null}
 
       <MemoryGroup
-        title={t('settings.memory.fields.enable_l4.label')}
+        title={t('settings.tabs.memorySkills')}
         description={t('settings.memory.fields.enable_l4.description')}
       >
         <MemorySwitchRow
