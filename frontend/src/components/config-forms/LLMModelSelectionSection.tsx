@@ -40,6 +40,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
     isSettingsSurface && 'rounded-lg'
   );
+  const providerBadgeClassName = cn(
+    'rounded-full border border-border/60 bg-transparent px-2 py-0.5 text-xs text-muted-foreground',
+    isSettingsSurface && 'border-0 bg-[hsl(var(--settings-shell-elevated)/0.58)] px-2.5 py-1 text-[11px] text-[hsl(var(--settings-nav-foreground))]'
+  );
 
   // Collect all embedding models from all enabled providers
   const allEmbeddingModels = useMemo(() => {
@@ -139,7 +143,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   <div className="flex items-center justify-between gap-3">
                     <h4 className="text-sm font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
                     {activeEmbeddingModel && (
-                      <span className="rounded-full border border-border/60 bg-transparent px-2 py-0.5 text-xs text-muted-foreground">
+                      <span className={providerBadgeClassName}>
                         {activeEmbeddingModel.providerName}
                       </span>
                     )}
@@ -177,7 +181,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                     />
                   </label>
                 ) : (
-                  <div className="flex items-start gap-2 rounded-lg border border-info/40 bg-info/5 px-3 py-2.5 text-sm text-info-foreground">
+                  <div
+                    className={cn(
+                      'flex items-start gap-2 rounded-lg border border-info/40 bg-info/5 px-3 py-2.5 text-sm text-info-foreground',
+                      isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] bg-transparent px-0 pb-0 pt-4 text-muted-foreground'
+                    )}
+                  >
                     <Info className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{t('llm.modelSelection.noEmbeddingModels')}</span>
                   </div>
@@ -228,7 +237,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               <div className="space-y-1 mb-4">
                 <div className="flex items-center justify-between gap-3">
                   <h4 className="text-sm font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
-                  <span className="rounded-full border border-border/60 bg-transparent px-2 py-0.5 text-xs text-muted-foreground">
+                  <span className={providerBadgeClassName}>
                     {provider?.display_name || selection.provider_id}
                   </span>
                 </div>
@@ -278,7 +287,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               </div>
 
               {scenario === 'core' && !selection.capabilities.vision ? (
-                <div className="flex items-start gap-2 rounded-lg border border-amber-300/35 bg-transparent px-3 py-2 text-xs text-amber-800 dark:text-amber-200 mt-3">
+                <div
+                  className={cn(
+                    'mt-3 flex items-start gap-2 rounded-lg border border-amber-300/35 bg-transparent px-3 py-2 text-xs text-amber-800 dark:text-amber-200',
+                    isSettingsSurface && 'rounded-none border-x-0 border-b-0 border-t border-[hsl(var(--settings-subnav-border)/0.72)] px-0 pb-0 pt-4 text-muted-foreground dark:text-muted-foreground'
+                  )}
+                >
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{t('llm.warnings.coreVisionMissing')}</span>
                 </div>
