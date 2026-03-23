@@ -323,6 +323,7 @@
     "systemDesc": "Advanced system configuration parameters",
     "llmSaveHint": "LLM settings require manual saving. Other settings apply automatically.",
     "saveLLM": "Save LLM settings",
+    "activeState": "ACTIVE",
     "fields": {
       "language": "Interface Language",
       "theme": "Interface Theme",

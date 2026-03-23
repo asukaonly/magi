@@ -323,6 +323,7 @@
     "systemDesc": "高级系统配置参数",
     "llmSaveHint": "LLM 配置需要手动保存，其他设置会自动生效。",
     "saveLLM": "保存 LLM 配置",
+    "activeState": "当前",
     "fields": {
       "language": "界面语言",
       "theme": "界面主题",

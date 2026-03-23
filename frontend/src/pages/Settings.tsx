@@ -40,6 +40,41 @@ import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { toast } from 'sonner';
 
+function SettingsSectionShell({
+  description,
+  children,
+}: {
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-8">
+      {description ? <p className="max-w-3xl text-sm leading-7 text-muted-foreground">{description}</p> : null}
+      <div className="space-y-8">{children}</div>
+    </div>
+  );
+}
+
+function SettingsGroup({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-4 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6">
+      <div className="space-y-1.5">
+        <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">{title}</h3>
+        {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
   const { t } = useTranslation('app');
   const [skills, setSkills] = useState<SkillItem[]>([]);
@@ -148,22 +183,26 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     switch (activeSection) {
       case 'preferences':
         return (
-          <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <LabeledSelectField
-                label={t('settings.fields.language')}
-                value={draftConfig.preferences.language}
-                options={[
-                  { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
-                  { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
-                ]}
-                onChange={handleLanguagePreviewChange}
-              />
-            </div>
+          <SettingsSectionShell description={t('settings.preferencesDesc')}>
+            <SettingsGroup title={t('settings.fields.language')}>
+              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <LabeledSelectField
+                  label={t('settings.fields.language')}
+                  value={draftConfig.preferences.language}
+                  options={[
+                    { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
+                    { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
+                  ]}
+                  onChange={handleLanguagePreviewChange}
+                />
+              </div>
+            </SettingsGroup>
 
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium">{t('settings.fields.theme')}</h3>
-              <div className="flex gap-3">
+            <SettingsGroup
+              title={t('settings.fields.theme')}
+              description={t('settings.themeDesc')}
+            >
+              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)]">
                 {([
                   { value: 'light', icon: Sun, label: t('settings.theme.light') },
                   { value: 'dark', icon: Moon, label: t('settings.theme.dark') },
@@ -179,21 +218,30 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                       aria-pressed={isActive}
                       aria-label={option.label}
                       className={cn(
-                        'flex flex-1 flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                        'flex w-full items-center justify-between border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 text-left transition-colors last:border-b-0',
                         isActive
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border hover:border-border/80 hover:bg-muted/50'
+                          ? 'text-foreground'
+                          : 'text-[hsl(var(--settings-nav-foreground))] hover:text-foreground'
                       )}
                     >
-                      <Icon className="h-5 w-5" />
-                      <span className="text-sm font-medium">{option.label}</span>
+                      <div className="flex items-center gap-3">
+                        <Icon className="h-4 w-4" />
+                        <span className="text-sm font-medium">{option.label}</span>
+                      </div>
+                      <span
+                        className={cn(
+                          'text-[11px] tracking-[0.08em] transition-opacity',
+                          isActive ? 'opacity-100 text-[hsl(var(--settings-nav-active-foreground))]' : 'opacity-0'
+                        )}
+                      >
+                        {t('settings.activeState')}
+                      </span>
                     </button>
                   );
                 })}
               </div>
-              <p className="text-xs text-muted-foreground">{t('settings.themeDesc')}</p>
-            </div>
-          </div>
+            </SettingsGroup>
+          </SettingsSectionShell>
         );
 
       case 'llmProviders':
@@ -315,7 +363,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         const selectedSkills = draftConfig.tools.skills || [];
         const skillsEnabled = selectedSkills.length > 0;
         return (
-          <div className="space-y-6">
+          <div className="space-y-8">
             <DynamicToolsConfig
               tools={tools}
               loading={toolsLoading}
@@ -325,37 +373,39 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               onUpdateEnabled={handleToolEnabledChange}
             />
 
-            <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/80">
-              <div className="border-b border-border/60 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">{t('tools.skills.label', { ns: 'onboarding' })}</h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {skills.length > 0
-                        ? t('tools.skills.desc', { ns: 'onboarding', count: skills.length })
-                        : t('tools.skills.empty', { ns: 'onboarding' })}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{t('tools.skills.enable', { ns: 'onboarding' })}</span>
-                    <Switch
-                      checked={skillsEnabled}
-                      disabled={skills.length === 0}
-                      onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                        draft.tools.skills = checked ? skills.map((skill) => skill.name) : [];
-                      })}
-                    />
+            <SettingsGroup
+              title={t('tools.skills.label', { ns: 'onboarding' })}
+              description={
+                skills.length > 0
+                  ? t('tools.skills.desc', { ns: 'onboarding', count: skills.length })
+                  : t('tools.skills.empty', { ns: 'onboarding' })
+              }
+            >
+              <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-foreground">{t('tools.skills.enable', { ns: 'onboarding' })}</div>
+                  <div className="text-xs leading-6 text-muted-foreground">
+                    {t('tools.skills.emptyHint', { ns: 'onboarding' })}
                   </div>
                 </div>
-              </div>
+                <div className="flex justify-start sm:justify-end">
+                  <Switch
+                    checked={skillsEnabled}
+                    disabled={skills.length === 0}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.tools.skills = checked ? skills.map((skill) => skill.name) : [];
+                    })}
+                  />
+                </div>
+              </label>
 
-              <div className="max-h-64 space-y-2 overflow-auto p-4">
+              <div className="max-h-64 overflow-auto">
                 {skillsLoading ? (
-                  <div className="text-xs text-muted-foreground">{t('settings.loadingTools')}</div>
+                  <div className="py-3 text-xs text-muted-foreground">{t('settings.loadingTools')}</div>
                 ) : null}
 
                 {!skillsLoading && skillsError ? (
-                  <div className="text-xs text-destructive">{skillsError}</div>
+                  <div className="py-3 text-xs text-destructive">{skillsError}</div>
                 ) : null}
 
                 {!skillsLoading && !skillsError && skills.length > 0
@@ -364,7 +414,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                       return (
                         <label
                           key={skill.name}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/60 px-3 py-2"
+                          className="flex items-center justify-between gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 last:border-b-0"
                         >
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium">{skill.name}</div>
@@ -388,10 +438,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   : null}
 
                 {!skillsLoading && !skillsError && skills.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">{t('tools.skills.emptyHint', { ns: 'onboarding' })}</div>
+                  <div className="py-3 text-xs text-muted-foreground">{t('tools.skills.emptyHint', { ns: 'onboarding' })}</div>
                 ) : null}
               </div>
-            </div>
+            </SettingsGroup>
           </div>
         );
 
@@ -426,73 +476,87 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'system':
         return (
-          <div className="grid gap-4 md:grid-cols-2">
-            <LabeledSelectField
-              label={t('settings.fields.loopStrategy')}
-              value={draftConfig.loop.strategy}
-              options={[
-                { label: 'STEP', value: 'step' },
-                { label: 'WAVE', value: 'wave' },
-                { label: 'CONTINUOUS', value: 'continuous' },
-              ]}
-              onChange={(value) => patchDraftConfig((draft) => {
-                draft.loop.strategy = value as SystemConfig['loop']['strategy'];
-              })}
-            />
-            <NumberField
-              label={t('settings.fields.loopInterval')}
-              value={draftConfig.loop.interval}
-              min={0.1}
-              max={60}
-              step={0.1}
-              onChange={(value) => patchDraftConfig((draft) => {
-                draft.loop.interval = value;
-              })}
-            />
-            <LabeledSelectField
-              label={t('settings.fields.busBackend')}
-              value={draftConfig.message_bus.backend}
-              options={[
-                { label: 'memory', value: 'memory' },
-                { label: 'sqlite', value: 'sqlite' },
-                { label: 'redis', value: 'redis' },
-              ]}
-              onChange={(value) => patchDraftConfig((draft) => {
-                draft.message_bus.backend = value as SystemConfig['message_bus']['backend'];
-              })}
-            />
-            <NumberField
-              label={t('settings.fields.busQueueSize')}
-              value={draftConfig.message_bus.max_size}
-              min={100}
-              max={50000}
-              onChange={(value) => patchDraftConfig((draft) => {
-                draft.message_bus.max_size = value;
-              })}
-            />
-            <NumberField
-              label={t('settings.fields.wsPort')}
-              value={draftConfig.websocket.port}
-              min={1024}
-              max={65535}
-              onChange={(value) => patchDraftConfig((draft) => {
-                draft.websocket.port = value;
-              })}
-            />
-            <LabeledSelectField
-              label={t('settings.fields.logLevel')}
-              value={draftConfig.log.level}
-              options={[
-                { label: 'DEBUG', value: 'DEBUG' },
-                { label: 'INFO', value: 'INFO' },
-                { label: 'WARNING', value: 'WARNING' },
-                { label: 'ERROR', value: 'ERROR' },
-              ]}
-              onChange={(value) => patchDraftConfig((draft) => {
-                draft.log.level = value as SystemConfig['log']['level'];
-              })}
-            />
-          </div>
+          <SettingsSectionShell description={t('settings.systemDesc')}>
+            <SettingsGroup title={t('settings.fields.loopStrategy')}>
+              <div className="grid gap-6 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2">
+                <LabeledSelectField
+                  label={t('settings.fields.loopStrategy')}
+                  value={draftConfig.loop.strategy}
+                  options={[
+                    { label: 'STEP', value: 'step' },
+                    { label: 'WAVE', value: 'wave' },
+                    { label: 'CONTINUOUS', value: 'continuous' },
+                  ]}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.loop.strategy = value as SystemConfig['loop']['strategy'];
+                  })}
+                />
+                <NumberField
+                  label={t('settings.fields.loopInterval')}
+                  value={draftConfig.loop.interval}
+                  min={0.1}
+                  max={60}
+                  step={0.1}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.loop.interval = value;
+                  })}
+                />
+              </div>
+            </SettingsGroup>
+
+            <SettingsGroup title={t('settings.fields.busBackend')}>
+              <div className="grid gap-6 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2">
+                <LabeledSelectField
+                  label={t('settings.fields.busBackend')}
+                  value={draftConfig.message_bus.backend}
+                  options={[
+                    { label: 'memory', value: 'memory' },
+                    { label: 'sqlite', value: 'sqlite' },
+                    { label: 'redis', value: 'redis' },
+                  ]}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.message_bus.backend = value as SystemConfig['message_bus']['backend'];
+                  })}
+                />
+                <NumberField
+                  label={t('settings.fields.busQueueSize')}
+                  value={draftConfig.message_bus.max_size}
+                  min={100}
+                  max={50000}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.message_bus.max_size = value;
+                  })}
+                />
+              </div>
+            </SettingsGroup>
+
+            <SettingsGroup title={t('settings.fields.wsPort')}>
+              <div className="grid gap-6 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2">
+                <NumberField
+                  label={t('settings.fields.wsPort')}
+                  value={draftConfig.websocket.port}
+                  min={1024}
+                  max={65535}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.websocket.port = value;
+                  })}
+                />
+                <LabeledSelectField
+                  label={t('settings.fields.logLevel')}
+                  value={draftConfig.log.level}
+                  options={[
+                    { label: 'DEBUG', value: 'DEBUG' },
+                    { label: 'INFO', value: 'INFO' },
+                    { label: 'WARNING', value: 'WARNING' },
+                    { label: 'ERROR', value: 'ERROR' },
+                  ]}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.log.level = value as SystemConfig['log']['level'];
+                  })}
+                />
+              </div>
+            </SettingsGroup>
+          </SettingsSectionShell>
         );
 
       default:
