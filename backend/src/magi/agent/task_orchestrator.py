@@ -23,7 +23,7 @@ from .orchestration import (
 )
 logger = get_logger(__name__)
 
-WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str], Awaitable[SubtaskPlan]]
+WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str, str | None, int], Awaitable[SubtaskPlan]]
 AggregateCallback = Callable[[TaskOrchestrationState], Awaitable[str]]
 HistoryCallback = Callable[[str, str], None]
 
@@ -65,6 +65,8 @@ class TaskOrchestrator:
         user_id: str,
         session_id: str,
         user_message: str,
+        run_id: str | None = None,
+        run_revision: int = 0,
         turn_id: Optional[str],
         history: list[dict[str, Any]],
         history_key: str,
@@ -77,6 +79,8 @@ class TaskOrchestrator:
             orchestration_strategy,
             user_id,
             session_id,
+            run_id,
+            run_revision,
         )
         if not plan_payload.subtasks:
             return OrchestrationExecutionResult(
@@ -126,11 +130,19 @@ class TaskOrchestrator:
             created_at=now,
             updated_at=now,
             correlation_id=correlation_id,
+            metadata={
+                "run_id": run_id,
+                "run_revision": run_revision,
+            },
             subtasks=subtasks,
         )
         await self._orchestration_store.save_orchestration(state)
 
-        launch_error = await self._launch_workers(state)
+        launch_error = await self._launch_workers(
+            state,
+            run_id=run_id,
+            run_revision=run_revision,
+        )
         if launch_error:
             state.status = "failed"
             state.updated_at = time.time()
@@ -282,8 +294,20 @@ class TaskOrchestrator:
             turn_id=first.turn_id,
         )
 
-    async def _launch_workers(self, state: TaskOrchestrationState) -> Optional[str]:
-        context = self._build_agent_tool_context(state.user_id, state.session_id, state.workspace_root)
+    async def _launch_workers(
+        self,
+        state: TaskOrchestrationState,
+        *,
+        run_id: str | None = None,
+        run_revision: int = 0,
+    ) -> Optional[str]:
+        context = self._build_agent_tool_context(
+            state.user_id,
+            state.session_id,
+            state.workspace_root,
+            run_id=run_id,
+            run_revision=run_revision,
+        )
         parent_task_agent_id = self._resolve_parent_task_agent_id(state.user_id, state.session_id)
         worker_payloads = [
             {
@@ -297,6 +321,8 @@ class TaskOrchestrator:
                 "target_task_agent_type": self._parent_task_agent_type,
                 "target_task_agent_id": parent_task_agent_id,
                 "retry_count": max(item.attempt_count, 0),
+                "run_id": run_id,
+                "run_revision": run_revision,
                 "turn_id": state.turn_id,
             }
             for item in state.subtasks
@@ -310,6 +336,8 @@ class TaskOrchestrator:
                 "run_in_background": True,
                 "target_task_agent_type": self._parent_task_agent_type,
                 "target_task_agent_id": parent_task_agent_id,
+                "run_id": run_id,
+                "run_revision": run_revision,
             },
             context,
         )
@@ -341,7 +369,15 @@ class TaskOrchestrator:
         if subtask.attempt_count > retry_budget:
             return False
 
-        context = self._build_agent_tool_context(state.user_id, state.session_id, state.workspace_root)
+        run_id = self._extract_run_id(state)
+        run_revision = self._extract_run_revision(state)
+        context = self._build_agent_tool_context(
+            state.user_id,
+            state.session_id,
+            state.workspace_root,
+            run_id=run_id,
+            run_revision=run_revision,
+        )
         parent_task_agent_id = self._resolve_parent_task_agent_id(state.user_id, state.session_id)
         next_attempt = subtask.attempt_count + 1
         delay_seconds = self._retry_delay_seconds(failure_reason, subtask.attempt_count)
@@ -371,6 +407,8 @@ class TaskOrchestrator:
                 "target_task_agent_type": self._parent_task_agent_type,
                 "target_task_agent_id": parent_task_agent_id,
                 "retry_count": next_attempt - 1,
+                "run_id": run_id,
+                "run_revision": run_revision,
                 "turn_id": state.turn_id,
             },
             context,
@@ -415,6 +453,9 @@ class TaskOrchestrator:
         user_id: str,
         session_id: str,
         workspace_root: Optional[str] = None,
+        *,
+        run_id: str | None = None,
+        run_revision: int = 0,
     ) -> ToolExecutionContext:
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         return ToolExecutionContext(
@@ -427,6 +468,8 @@ class TaskOrchestrator:
                 "target_task_agent_id": parent_task_agent_id,
                 "parent_task_agent_type": self._parent_task_agent_type,
                 "parent_task_agent_id": parent_task_agent_id,
+                "run_id": run_id or "",
+                "run_revision": str(run_revision),
             },
             permissions=["authenticated"],
         )
@@ -435,6 +478,24 @@ class TaskOrchestrator:
         if self._parent_task_agent_type == "chat" and str(session_id).strip():
             return session_id
         return user_id
+
+    @staticmethod
+    def _extract_run_id(state: TaskOrchestrationState) -> str | None:
+        metadata = getattr(state, "metadata", None)
+        if isinstance(metadata, dict):
+            run_id = str(metadata.get("run_id") or "").strip()
+            return run_id or None
+        return None
+
+    @staticmethod
+    def _extract_run_revision(state: TaskOrchestrationState) -> int:
+        metadata = getattr(state, "metadata", None)
+        if not isinstance(metadata, dict):
+            return 0
+        try:
+            return int(metadata.get("run_revision") or 0)
+        except (TypeError, ValueError):
+            return 0
 
     def _resolve_workspace_root(self, user_message: str) -> str:
         default_root = self._default_workspace_root()

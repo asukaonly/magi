@@ -230,6 +230,7 @@ class TaskOrchestrationState:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     correlation_id: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
     subtasks: List[SubtaskDefinition] = field(default_factory=list)
     final_response: Optional[str] = None
     aggregated_markdown: Optional[str] = None
@@ -263,6 +264,7 @@ class TaskOrchestrationState:
             created_at=_safe_float(payload.get("created_at"), default=time.time()),
             updated_at=_safe_float(payload.get("updated_at"), default=time.time()),
             correlation_id=_optional_string(payload.get("correlation_id")),
+            metadata=dict(payload.get("metadata")) if isinstance(payload.get("metadata"), dict) else {},
             subtasks=subtasks,
             final_response=_optional_string(payload.get("final_response")),
             aggregated_markdown=_optional_string(payload.get("aggregated_markdown")),

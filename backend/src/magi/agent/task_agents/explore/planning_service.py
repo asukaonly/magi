@@ -27,8 +27,10 @@ class ExplorePlanningService:
         orchestration_plan: OrchestrationPlan | dict[str, Any],
         user_id: str,
         session_id: str,
+        run_id: str | None = None,
+        run_revision: int = 0,
     ) -> SubtaskPlan:
-        _ = (user_id, session_id)
+        _ = (user_id, session_id, run_id, run_revision)
         if isinstance(orchestration_plan, dict):
             orchestration_plan = OrchestrationPlan(
                 mode=str(orchestration_plan.get("mode", "decompose") or "decompose"),

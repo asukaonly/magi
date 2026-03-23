@@ -14,7 +14,7 @@ from .interruption_classifier import (
     InterruptionDisposition,
     StepState,
 )
-from .run_contracts import ActiveRun, PendingTurn, RunResult
+from .run_contracts import ActiveRun, PendingTurn, RunResult, RunResultDisposition
 from .run_store import SessionRunStore
 
 _CHECKPOINT_EVENT_TYPES = {"CHAT_TOOL_LOOP_STEP"}
@@ -69,6 +69,26 @@ class SessionRunCoordinator:
             return self.handle_user_turn(
                 classified_fact.latest_user_payload,
                 source_fact=classified_fact.latest_user_fact,
+            )
+
+        result_record = self._record_classified_result(
+            classified_fact=classified_fact,
+            active_run=active_run,
+        )
+        if result_record is not None and result_record.disposition == RunResultDisposition.STALE:
+            refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
+            return SessionFactDecision(
+                active_run=refreshed_run,
+                planner_fact=classified_fact.latest_result_fact,
+                planner_fact_kind=IncomingFactKind.OTHER_FACT,
+                planner_user_message=(
+                    refreshed_run.root_user_message
+                    if refreshed_run is not None
+                    else classified_fact.user_message
+                ),
+                latest_payload=classified_fact.latest_payload,
+                user_id=classified_fact.user_id,
+                session_id=classified_fact.session_id,
             )
 
         if (
@@ -210,6 +230,33 @@ class SessionRunCoordinator:
             result_id=result_id,
             revision=revision,
             payload=payload,
+        )
+
+    def _record_classified_result(
+        self,
+        *,
+        classified_fact: ClassifiedFact,
+        active_run: ActiveRun | None,
+    ) -> RunResult | None:
+        result_fact = classified_fact.latest_result_fact
+        if active_run is None or not isinstance(result_fact, FactRecord):
+            return None
+        if not isinstance(result_fact.payload, dict):
+            return None
+        run_id = str(result_fact.payload.get("run_id") or "").strip()
+        if not run_id:
+            return None
+        try:
+            revision = int(result_fact.payload.get("run_revision"))
+        except (TypeError, ValueError):
+            return None
+        result_id = str(result_fact.correlation_id or result_fact.event_id or uuid4().hex)
+        return self.record_result(
+            session_id=classified_fact.session_id,
+            run_id=run_id,
+            result_id=result_id,
+            revision=revision,
+            payload=dict(result_fact.payload),
         )
 
     def _resolve_turn_id(

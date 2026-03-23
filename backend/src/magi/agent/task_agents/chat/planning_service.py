@@ -51,6 +51,8 @@ class ChatPlanningService:
         orchestration_plan: OrchestrationPlan | dict[str, Any],
         user_id: str,
         session_id: str,
+        run_id: str | None = None,
+        run_revision: int = 0,
     ) -> SubtaskPlan:
         if isinstance(orchestration_plan, dict):
             orchestration_plan = OrchestrationPlan(
@@ -69,6 +71,8 @@ class ChatPlanningService:
                 user_message=user_message,
                 user_id=user_id,
                 session_id=session_id,
+                run_id=run_id,
+                run_revision=run_revision,
             )
         if raw_plan is None:
             raw_plan = await self._plan_with_task_agent(
@@ -226,8 +230,15 @@ class ChatPlanningService:
         user_message: str,
         user_id: str,
         session_id: str,
+        run_id: str | None = None,
+        run_revision: int = 0,
     ) -> Optional[SubtaskPlan]:
-        context = self._build_agent_tool_context(user_id, session_id)
+        context = self._build_agent_tool_context(
+            user_id,
+            session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+        )
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         result = await self._tool_registry.execute(
             "agent",
@@ -245,6 +256,8 @@ class ChatPlanningService:
                 "target_task_agent_id": parent_task_agent_id,
                 "parent_task_agent_type": self._parent_task_agent_type,
                 "parent_task_agent_id": parent_task_agent_id,
+                "run_id": run_id,
+                "run_revision": run_revision,
             },
             context,
         )
@@ -595,7 +608,14 @@ class ChatPlanningService:
 
         return None
 
-    def _build_agent_tool_context(self, user_id: str, session_id: str) -> ToolExecutionContext:
+    def _build_agent_tool_context(
+        self,
+        user_id: str,
+        session_id: str,
+        *,
+        run_id: str | None = None,
+        run_revision: int = 0,
+    ) -> ToolExecutionContext:
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         return ToolExecutionContext(
             agent_id=self._runtime_key,
@@ -607,6 +627,8 @@ class ChatPlanningService:
                 "target_task_agent_id": parent_task_agent_id,
                 "parent_task_agent_type": self._parent_task_agent_type,
                 "parent_task_agent_id": parent_task_agent_id,
+                "run_id": run_id or "",
+                "run_revision": str(run_revision),
             },
             permissions=["authenticated"],
         )

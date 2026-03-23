@@ -20,6 +20,8 @@ class TraceTurnRecord:
     user_message_preview: str | None = None
     response_preview: str | None = None
     error_summary: str | None = None
+    run_id: str | None = None
+    run_revision: int = 0
     created_at_ms: int = 0
     updated_at_ms: int = 0
 
@@ -39,6 +41,8 @@ class TraceSpanRecord:
     execution_agent_id: str | None = None
     result_preview: str | None = None
     error_text: str | None = None
+    run_id: str | None = None
+    run_revision: int = 0
     started_at_ms: int = 0
     ended_at_ms: int | None = None
     duration_ms: int | None = None
@@ -97,6 +101,8 @@ class RuntimeNotificationRecord:
     user_id: str
     session_id: str
     turn_id: str | None = None
+    run_id: str | None = None
+    run_revision: int = 0
     payload_json: str = "{}"
     created_at_ms: int = 0
 
