@@ -38,6 +38,8 @@ class ExplorePostProcessService:
                 session_id=context.session_id,
                 root_user_message=result.root_user_message or context.latest_user_message,
                 markdown_dossier=response_text,
+                run_id=getattr(context.latest_payload, "run_id", None),
+                run_revision=int(getattr(context.latest_payload, "run_revision", 0) or 0),
                 orchestration_id=result.orchestration_id,
                 message_started_at=result.message_started_at,
                 turn_id=result.turn_id or getattr(context.latest_payload, "turn_id", None),
@@ -65,6 +67,8 @@ class ExplorePostProcessService:
             payload={
                 "user_id": payload.user_id,
                 "session_id": payload.session_id,
+                "target_task_agent_type": upstream_task_agent_type,
+                "target_task_agent_id": upstream_task_agent_id,
                 "upstream_task_agent_type": upstream_task_agent_type,
                 "upstream_task_agent_id": upstream_task_agent_id,
                 **payload.to_dict(),

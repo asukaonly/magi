@@ -52,7 +52,10 @@ CREATE TABLE IF NOT EXISTS {CHAT_TURNS_TABLE} (
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
     completed_at_ms INTEGER,
-    error_text TEXT
+    error_text TEXT,
+    run_id TEXT,
+    run_revision INTEGER NOT NULL DEFAULT 0,
+    run_disposition TEXT
 );
 CREATE TABLE IF NOT EXISTS {CHAT_MESSAGES_TABLE} (
     message_id TEXT PRIMARY KEY,
@@ -658,6 +661,18 @@ class ChatReadService:
 
     def _ensure_chat_store_schema(self, conn: sqlite3.Connection) -> None:
         conn.executescript(CHAT_STORE_SCHEMA_SQL)
+        column_names = {
+            str(row[1])
+            for row in conn.execute(f"PRAGMA table_info({CHAT_TURNS_TABLE})").fetchall()
+        }
+        if "run_id" not in column_names:
+            conn.execute(f"ALTER TABLE {CHAT_TURNS_TABLE} ADD COLUMN run_id TEXT")
+        if "run_revision" not in column_names:
+            conn.execute(
+                f"ALTER TABLE {CHAT_TURNS_TABLE} ADD COLUMN run_revision INTEGER NOT NULL DEFAULT 0"
+            )
+        if "run_disposition" not in column_names:
+            conn.execute(f"ALTER TABLE {CHAT_TURNS_TABLE} ADD COLUMN run_disposition TEXT")
 
     @staticmethod
     def _parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:

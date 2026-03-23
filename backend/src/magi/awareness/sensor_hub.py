@@ -61,9 +61,7 @@ class SensorHub:
         if not content:
             return
 
-        session_id = str(data.get("session_id") or "")
-        if not session_id:
-            session_id = "default-session"
+        session_id = str(data.get("session_id") or "").strip()
 
         sensor_event = SensorEvent(
             sensor_name="user_input_sensor",

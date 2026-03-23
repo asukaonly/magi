@@ -87,7 +87,7 @@ async def test_runtime_chat_dispatch_from_message_bus():
     sensor_hub = SensorHub(message_bus=message_bus)
     action_emitter = ActionEmitter(message_bus=message_bus)
     manager = TaskAgentManager(
-        create_chat_agent=lambda agent_id: fake_chat if agent_id == "u-chat" else _FakeChatTaskAgent(),
+        create_chat_agent=lambda agent_id: fake_chat if agent_id == "s-chat" else _FakeChatTaskAgent(),
     )
     router_agent = RouterAgent(sensor_hub=sensor_hub, task_agent_manager=manager)
     orchestrator = AgentRuntime(

@@ -61,6 +61,8 @@ class WorkerRunState:
     session_id: str
     turn_id: Optional[str]
     created_at: float
+    run_id: str | None = None
+    run_revision: int = 0
     status: str = "running"
     updated_at: float = 0.0
     completed_at: Optional[float] = None
@@ -448,6 +450,11 @@ class WorkerAgentManager(Tool):
         worker_id = f"worker_{uuid.uuid4().hex[:10]}"
         created_at = time.time()
         started_at_ms = int(created_at * 1000)
+        run_id = str(parameters.get("run_id") or context.env_vars.get("run_id") or "").strip() or None
+        try:
+            run_revision = int(parameters.get("run_revision") or context.env_vars.get("run_revision") or 0)
+        except (TypeError, ValueError):
+            run_revision = 0
         run_state = WorkerRunState(
             worker_id=worker_id,
             subagent_type=subagent_type,
@@ -462,6 +469,8 @@ class WorkerAgentManager(Tool):
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
+            run_id=run_id,
+            run_revision=run_revision,
             created_at=created_at,
             updated_at=created_at,
             retry_count=retry_count,
@@ -1145,9 +1154,13 @@ class WorkerAgentManager(Tool):
             "subtask_id": run_state.subtask_id,
             "parent_task_agent_type": run_state.parent_task_agent_type,
             "parent_task_agent_id": run_state.parent_task_agent_id,
+            "target_task_agent_type": run_state.target_task_agent_type,
+            "target_task_agent_id": run_state.target_task_agent_id,
             "user_id": run_state.user_id,
             "session_id": run_state.session_id,
             "turn_id": run_state.turn_id,
+            "run_id": run_state.run_id,
+            "run_revision": run_state.run_revision,
             "timestamp": now,
             **internal_payload,
         }
@@ -1169,9 +1182,13 @@ class WorkerAgentManager(Tool):
             "failure_reason": run_state.failure_reason,
             "orchestration_id": run_state.orchestration_id,
             "subtask_id": run_state.subtask_id,
+            "target_task_agent_type": run_state.target_task_agent_type,
+            "target_task_agent_id": run_state.target_task_agent_id,
             "user_id": run_state.user_id,
             "session_id": run_state.session_id,
             "turn_id": run_state.turn_id,
+            "run_id": run_state.run_id,
+            "run_revision": run_state.run_revision,
             "timestamp": now,
             **(public_payload or internal_payload),
         }

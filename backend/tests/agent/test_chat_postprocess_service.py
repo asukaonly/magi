@@ -105,6 +105,15 @@ class _FakeRuntime:
         return self.sensor_hub
 
 
+class _RecordingTaskAgentManager:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, object, object]] = []
+
+    async def add_fact_to_agent(self, agent_type, agent_id, fact):  # type: ignore[no-untyped-def]
+        self.calls.append((agent_type, agent_id, fact))
+        return True
+
+
 class _FakeIntentDecision:
     def __init__(self) -> None:
         self.intent = "chat"
@@ -692,6 +701,39 @@ async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
 
     assert llm_span is None
     assert llm_call is None
+
+
+@pytest.mark.asyncio
+async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat_fact() -> None:
+    action_emitter = _FakeActionEmitter()
+    manager = _RecordingTaskAgentManager()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: manager,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+    )
+
+    await service.record_tool_loop_fact(
+        {
+            "stage": "tool_executed",
+            "iteration": 1,
+            "tool_name": "file_read",
+            "tool_call_id": "call-1",
+            "success": True,
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        }
+    )
+
+    assert manager.calls == []
+    assert service._local_fact_memory == []
+    assert len(action_emitter.runtime_events) == 1
+    assert action_emitter.runtime_events[0]["event_type"] == "CHAT_TOOL_LOOP_STEP"
+    assert action_emitter.runtime_events[0]["payload"]["tool_name"] == "file_read"
 
 
 @pytest.mark.asyncio

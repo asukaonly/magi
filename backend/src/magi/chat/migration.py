@@ -135,6 +135,9 @@ async def backfill_chat_store_from_legacy(*, chat_store: ChatStore, legacy_l1_db
                 updated_at_ms=int(state["updated_at_ms"]),
                 completed_at_ms=int(state["updated_at_ms"]) if bool(state["has_final"]) else None,
                 error_text=None,
+                run_id=None,
+                run_revision=0,
+                run_disposition=None,
             )
         )
 
