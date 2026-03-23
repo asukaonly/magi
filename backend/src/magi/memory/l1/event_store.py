@@ -215,9 +215,9 @@ class L1EventStore:
                 event.correlation_id,
             )
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await db.execute(
+            cursor = await db.execute(
                 f"""
-                INSERT OR REPLACE INTO {FACT_EVENTS_TABLE}(
+                INSERT OR IGNORE INTO {FACT_EVENTS_TABLE}(
                     event_id, correlation_id, timestamp, created_at,
                     event_type, source, source_item_id, memory_domain, ingest_target,
                     cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
@@ -253,6 +253,16 @@ class L1EventStore:
                     None,
                 ),
             )
+            inserted = cursor.rowcount > 0
+            if not inserted:
+                await db.rollback()
+                if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
+                    logger.info(
+                        "L1EventStore skipped duplicate event | event_id=%s type=%s",
+                        event.event_id,
+                        event.event_type,
+                    )
+                return event.event_id
             # Sync FTS5 index
             tokenized = tokenize_for_fts(self.get_search_text(event))
             await db.execute(

@@ -367,6 +367,52 @@ async def test_l1_event_store_projects_ai_response_into_existing_chat_session_ro
 
 
 @pytest.mark.asyncio
+async def test_l1_event_store_store_is_idempotent_for_existing_event_ids(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+
+    memory_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={
+                "user_id": "user-1",
+                "session_id": "session-1",
+                "content": "Repeated message",
+                "author_type": "user",
+                "content_type": "text",
+            },
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="corr-idempotent",
+        ),
+        event_id="evt-idempotent",
+    )
+
+    await store.store(memory_event)
+    await store.store(memory_event)
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute(
+        f"""
+        SELECT message_count, last_message_preview
+        FROM {CHAT_SESSIONS_TABLE}
+        WHERE session_id = ?
+        """,
+        ("session-1",),
+    ).fetchone()
+    event_count = conn.execute("SELECT COUNT(*) FROM fact_events WHERE event_id = ?", ("evt-idempotent",)).fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == 1
+    assert row[1] == "Repeated message"
+    assert event_count == (1,)
+
+
+@pytest.mark.asyncio
 async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
     import sqlite3
 
