@@ -62,9 +62,6 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">{t('settings.tabs.extensions')}</h2>
-        </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="rounded-md px-3 py-1">
             {t('settings.extensions.summary', { count: pluginCount })}

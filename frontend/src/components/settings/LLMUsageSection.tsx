@@ -47,10 +47,6 @@ export const LLMUsageSection: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">{t('settings.tabs.usage')}</h2>
-          <p className="text-sm text-muted-foreground">{t('settings.usageDesc')}</p>
-        </div>
         <div className="flex items-center gap-2">
           {WINDOW_OPTIONS.map((days) => (
             <Button

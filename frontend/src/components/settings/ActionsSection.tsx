@@ -44,10 +44,6 @@ export const ActionsSection: React.FC<ActionsSectionProps> = ({
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-lg font-semibold">{t('settings.tabs.actions')}</h2>
-      </div>
-
       <div className="grid gap-4">
         {actionEntries.map(({ plugin, contribution }) => (
           <section

@@ -271,10 +271,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     return (
       <div className="mx-auto max-w-5xl space-y-8" data-testid="timeline-overview">
         <header className="space-y-5">
-          <div className="space-y-2">
-            <h2 className="text-lg font-semibold text-foreground">{t('settings.timeline.title')}</h2>
-          </div>
-
           <div className="grid gap-6 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6 md:grid-cols-2">
             <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
               <div>
