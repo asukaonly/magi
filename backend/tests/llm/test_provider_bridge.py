@@ -100,6 +100,15 @@ class DummyAnthropicMessagesClient:
         return self.response
 
 
+class RecordingConcurrencyLimiter:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def run_with_limit(self, key: str, operation, *, limit: int | None = None):  # type: ignore[no-untyped-def]
+        self.calls.append({"key": key, "limit": limit})
+        return await operation()
+
+
 @pytest.mark.asyncio
 async def test_openai_tool_call_parsing_and_assistant_message():
     message = SimpleNamespace(
@@ -228,6 +237,31 @@ async def test_chat_response_passes_json_mode_and_timeout_to_openai_compatible_c
     assert result.content == '{"summary":"ok"}'
     assert client.kwargs["response_format"] == {"type": "json_object"}
     assert client.kwargs["timeout"] == 180.0
+
+
+@pytest.mark.asyncio
+async def test_chat_response_uses_shared_concurrency_limiter() -> None:
+    message = SimpleNamespace(content="ok", tool_calls=[], role="assistant")
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="openai", client=client)
+    llm.base_url = "https://api.openai.com/v1"
+    limiter = RecordingConcurrencyLimiter()
+    bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
+
+    result = await bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        timeout_seconds=180.0,
+    )
+
+    assert result.content == "ok"
+    assert limiter.calls == [
+        {
+            "key": "openai::api.openai.com::test-model::chat",
+            "limit": None,
+        }
+    ]
 
 
 @pytest.mark.asyncio

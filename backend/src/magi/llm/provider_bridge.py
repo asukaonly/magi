@@ -8,10 +8,11 @@ import json
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
+from .concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
 from .parsers import parse_legacy_tool_calls, sanitize_llm_text
 from .usage_events import LLMCallEventPayload, LLMUsageEventPublisher, publish_llm_call_event
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
@@ -60,6 +61,7 @@ class LLMProviderBridge:
         self,
         llm_adapter: LLMAdapter,
         usage_event_publisher: LLMUsageEventPublisher | None = None,
+        concurrency_limiter: LLMConcurrencyLimiter | None = None,
     ):
         self.llm = llm_adapter
         self._usage_event_publisher = usage_event_publisher or getattr(
@@ -67,6 +69,7 @@ class LLMProviderBridge:
             "_llm_usage_event_publisher",
             None,
         )
+        self._concurrency_limiter = concurrency_limiter or get_llm_concurrency_limiter()
 
     def _provider_name(self) -> str:
         return (getattr(self.llm, "provider_name", "") or "").lower()
@@ -84,6 +87,24 @@ class LLMProviderBridge:
         if disable_thinking is not True:
             return None
         return {"thinking": {"type": "disabled"}}
+
+    def _build_concurrency_key(self, request_family: str) -> str:
+        base_url = getattr(self.llm, "base_url", None)
+        return LLMConcurrencyLimiter.build_key(
+            provider_name=self._provider_name(),
+            model_name=str(getattr(self.llm, "model_name", "unknown")),
+            request_family=request_family,
+            base_url=base_url,
+        )
+
+    async def _run_with_concurrency_limit(
+        self,
+        *,
+        request_family: str,
+        operation: Callable[[], Awaitable[ProviderResponse]],
+    ) -> ProviderResponse:
+        key = self._build_concurrency_key(request_family)
+        return await self._concurrency_limiter.run_with_limit(key, operation)
 
     async def chat(
         self,
@@ -127,44 +148,18 @@ class LLMProviderBridge:
         """
         started_at = time.time()
         try:
-            if self.is_anthropic():
-                anthropic_kwargs: Dict[str, Any] = {
-                    "model": self.llm.model_name,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "system": system_prompt,
-                    "messages": messages,
-                }
-                if timeout_seconds is not None:
-                    anthropic_kwargs["timeout"] = timeout_seconds
-                response = await self.llm._client.messages.create(**anthropic_kwargs)
-                if hasattr(response, "content"):
-                    provider_response = self._parse_anthropic_response(response)
-                else:
-                    provider_response = self._build_content_response("")
-            else:
-                full_messages = [{"role": "system", "content": system_prompt}] + messages
-                chat_kwargs: Dict[str, Any] = {
-                    "messages": full_messages,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                }
-                if json_mode:
-                    chat_kwargs["response_format"] = {"type": "json_object"}
-                if timeout_seconds is not None:
-                    chat_kwargs["timeout"] = timeout_seconds
-                if self.is_glm():
-                    extra_body = self._disabled_thinking_extra_body(disable_thinking)
-                    if extra_body:
-                        chat_kwargs["extra_body"] = extra_body
-
-                if getattr(self.llm, "_client", None) is not None:
-                    chat_kwargs["model"] = self.llm.model_name
-                    response = await self.llm._client.chat.completions.create(**chat_kwargs)
-                    provider_response = self._parse_openai_response(response)
-                else:
-                    content = await self.llm.chat(**chat_kwargs)
-                    provider_response = self._build_content_response(content)
+            provider_response = await self._run_with_concurrency_limit(
+                request_family="chat",
+                operation=lambda: self._chat_response_impl(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    disable_thinking=disable_thinking,
+                    json_mode=json_mode,
+                    timeout_seconds=timeout_seconds,
+                ),
+            )
 
             latency_ms = int((time.time() - started_at) * 1000)
             self._attach_trace_metrics(
@@ -206,38 +201,7 @@ class LLMProviderBridge:
         """
         started_at = time.time()
         try:
-            if self.is_anthropic():
-                api_messages = self._convert_messages_to_anthropic(messages)
-                response = await self.llm._client.messages.create(
-                    model=self.llm.model_name,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system=system_prompt,
-                    messages=api_messages,
-                    tools=tools if tools else None,
-                    timeout=timeout_seconds,
-                )
-                provider_response = self._parse_anthropic_response(response)
-            elif hasattr(self.llm, "_client"):
-                full_messages = [{"role": "system", "content": system_prompt}] + messages
-                kwargs: Dict[str, Any] = {
-                    "model": self.llm.model_name,
-                    "messages": full_messages,
-                    "tools": tools if tools else None,
-                    "tool_choice": "auto" if tools else None,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                }
-                if timeout_seconds is not None:
-                    kwargs["timeout"] = timeout_seconds
-                if self.is_glm():
-                    extra_body = self._disabled_thinking_extra_body(disable_thinking)
-                    if extra_body:
-                        kwargs["extra_body"] = extra_body
-
-                response = await self.llm._client.chat.completions.create(**kwargs)
-                provider_response = self._parse_openai_response(response)
-            else:
+            if getattr(self.llm, "_client", None) is None and not self.is_anthropic():
                 provider_response = await self.chat_response(
                     system_prompt=system_prompt,
                     messages=messages,
@@ -248,6 +212,19 @@ class LLMProviderBridge:
                     event_context=event_context,
                 )
                 return provider_response
+
+            provider_response = await self._run_with_concurrency_limit(
+                request_family="chat",
+                operation=lambda: self._chat_with_tools_impl(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    disable_thinking=disable_thinking,
+                    timeout_seconds=timeout_seconds,
+                ),
+            )
 
             latency_ms = int((time.time() - started_at) * 1000)
             self._attach_trace_metrics(
@@ -272,6 +249,98 @@ class LLMProviderBridge:
                 error=str(exc),
             )
             raise
+
+    async def _chat_response_impl(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        disable_thinking: Optional[bool],
+        json_mode: bool,
+        timeout_seconds: Optional[float],
+    ) -> ProviderResponse:
+        if self.is_anthropic():
+            anthropic_kwargs: Dict[str, Any] = {
+                "model": self.llm.model_name,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_prompt,
+                "messages": messages,
+            }
+            if timeout_seconds is not None:
+                anthropic_kwargs["timeout"] = timeout_seconds
+            response = await self.llm._client.messages.create(**anthropic_kwargs)
+            if hasattr(response, "content"):
+                return self._parse_anthropic_response(response)
+            return self._build_content_response("")
+
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        chat_kwargs: Dict[str, Any] = {
+            "messages": full_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if json_mode:
+            chat_kwargs["response_format"] = {"type": "json_object"}
+        if timeout_seconds is not None:
+            chat_kwargs["timeout"] = timeout_seconds
+        if self.is_glm():
+            extra_body = self._disabled_thinking_extra_body(disable_thinking)
+            if extra_body:
+                chat_kwargs["extra_body"] = extra_body
+
+        if getattr(self.llm, "_client", None) is not None:
+            chat_kwargs["model"] = self.llm.model_name
+            response = await self.llm._client.chat.completions.create(**chat_kwargs)
+            return self._parse_openai_response(response)
+
+        content = await self.llm.chat(**chat_kwargs)
+        return self._build_content_response(content)
+
+    async def _chat_with_tools_impl(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        disable_thinking: Optional[bool],
+        timeout_seconds: Optional[float],
+    ) -> ProviderResponse:
+        if self.is_anthropic():
+            api_messages = self._convert_messages_to_anthropic(messages)
+            response = await self.llm._client.messages.create(
+                model=self.llm.model_name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system_prompt,
+                messages=api_messages,
+                tools=tools if tools else None,
+                timeout=timeout_seconds,
+            )
+            return self._parse_anthropic_response(response)
+
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        kwargs: Dict[str, Any] = {
+            "model": self.llm.model_name,
+            "messages": full_messages,
+            "tools": tools if tools else None,
+            "tool_choice": "auto" if tools else None,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if timeout_seconds is not None:
+            kwargs["timeout"] = timeout_seconds
+        if self.is_glm():
+            extra_body = self._disabled_thinking_extra_body(disable_thinking)
+            if extra_body:
+                kwargs["extra_body"] = extra_body
+
+        response = await self.llm._client.chat.completions.create(**kwargs)
+        return self._parse_openai_response(response)
 
     def _convert_messages_to_anthropic(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         converted = []
