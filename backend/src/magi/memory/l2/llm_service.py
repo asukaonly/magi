@@ -11,7 +11,13 @@ from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, LLMScenario, ProviderResponse, ScenarioLLMPool
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
-from .models import L2CandidateSet, L2ConflictArbitrationResult, L2EventWindow, L2UnifiedExtractionResult
+from .models import (
+    ContradictionHint,
+    L2CandidateSet,
+    L2ConflictArbitrationResult,
+    L2EventWindow,
+    L2UnifiedExtractionResult,
+)
 from .prompts import (
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
     CONTRADICTION_HINT_SYSTEM_PROMPT,
@@ -183,7 +189,7 @@ class L2LLMService:
         *,
         new_event: dict[str, Any],
         existing_records: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+    ) -> list[ContradictionHint]:
         payload = await self._generate_json(
             system_prompt=CONTRADICTION_HINT_SYSTEM_PROMPT,
             prompt=render_contradiction_hint_prompt(new_event=new_event, existing_records=existing_records),
@@ -191,24 +197,48 @@ class L2LLMService:
             turn_id=str(new_event.get("event_id") or "") or None,
         )
         hints = payload.get("contradiction_hints")
-        return hints if isinstance(hints, list) else []
+        if not isinstance(hints, list):
+            return []
+        normalized_hints: list[ContradictionHint] = []
+        for hint in hints:
+            if not isinstance(hint, dict):
+                continue
+            target_record_id = str(hint.get("target_record_id") or "").strip()
+            target_record_type = str(hint.get("target_record_type") or "").strip()
+            contradiction_kind = str(hint.get("contradiction_kind") or "").strip()
+            evidence_text = str(hint.get("evidence_text") or "").strip()
+            recommended_action = str(hint.get("recommended_action") or "").strip()
+            if not all((target_record_id, target_record_type, contradiction_kind, recommended_action)):
+                continue
+            normalized_hints.append(
+                ContradictionHint(
+                    target_record_id=target_record_id,
+                    target_record_type=target_record_type,
+                    contradiction_kind=contradiction_kind,
+                    confidence=float(hint.get("confidence", 0.0) or 0.0),
+                    evidence_text=evidence_text,
+                    recommended_action=recommended_action,
+                )
+            )
+        return normalized_hints
 
     async def arbitrate_conflict(
         self,
         *,
         new_event_window: L2EventWindow,
         new_candidates: L2CandidateSet,
-        contradiction_hints: list[dict[str, Any]],
+        contradiction_hints: list[ContradictionHint],
         existing_records: list[dict[str, Any]],
         source_events: list[dict[str, Any]],
     ) -> L2ConflictArbitrationResult | None:
         event_ids = list(new_event_window.event_ids)
+        contradiction_hint_payload = [hint.to_dict() for hint in contradiction_hints]
         payload = await self._generate_json(
             system_prompt=CONFLICT_ARBITRATION_SYSTEM_PROMPT,
             prompt=render_conflict_arbitration_prompt(
                 new_event_window=new_event_window,
                 new_candidates=new_candidates,
-                contradiction_hints=contradiction_hints,
+                contradiction_hints=contradiction_hint_payload,
                 existing_records=existing_records,
                 source_events=source_events,
             ),
@@ -217,7 +247,7 @@ class L2LLMService:
             session_id=self._non_empty_text(new_event_window.summary.session_id),
             log_context={
                 "event_ids": event_ids if isinstance(event_ids, list) else [],
-                "contradiction_hint_count": len(contradiction_hints),
+                "contradiction_hint_count": len(contradiction_hint_payload),
                 "existing_record_count": len(existing_records),
             },
             scenario=LLMScenario.CORE,

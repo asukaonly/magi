@@ -16,6 +16,7 @@ from ..l1.event_store import L1EventStore
 from .context_bundle import ContextBundle
 from .context_collector import collect_context_bundle, resolve_direct_context_refs
 from .models import (
+    ContradictionHint,
     L2BatchJob,
     L2CandidateSet,
     L2ConflictArbitrationResult,
@@ -714,7 +715,7 @@ class L2Pipeline:
             rejected_assertion_candidate_count=rejected_assertion_candidate_count,
         )
 
-        contradiction_hints = []
+        contradiction_hints: list[ContradictionHint] = []
         if policy.count_as_new_evidence and (graph_candidates or assertion_candidates):
             contradiction_hints = await self._detect_contradiction_hints(
                 event=stored_event,
@@ -1520,7 +1521,7 @@ class L2Pipeline:
         *,
         event: MemoryEvent,
         focal_entities: list[dict[str, str]],
-    ) -> list[dict[str, Any]]:
+    ) -> list[ContradictionHint]:
         if self._cognition_store is None or self._llm_service is None:
             return []
 
@@ -1539,18 +1540,14 @@ class L2Pipeline:
             existing_records=existing_records,
         )
 
-    def _severe_contradiction_hints(self, hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        severe: list[dict[str, Any]] = []
+    def _severe_contradiction_hints(self, hints: list[ContradictionHint]) -> list[ContradictionHint]:
+        severe: list[ContradictionHint] = []
         for hint in hints:
-            if not isinstance(hint, dict):
+            if hint.contradiction_kind not in SEVERE_CONTRADICTION_KINDS:
                 continue
-            contradiction_kind = str(hint.get("contradiction_kind") or "").strip()
-            confidence = float(hint.get("confidence", 0.0) or 0.0)
-            if contradiction_kind not in SEVERE_CONTRADICTION_KINDS:
+            if float(hint.confidence) < self._conflict_arbitration_min_confidence:
                 continue
-            if confidence < self._conflict_arbitration_min_confidence:
-                continue
-            severe.append(dict(hint))
+            severe.append(hint)
         return severe
 
     async def _arbitrate_conflicting_candidates(
@@ -1560,7 +1557,7 @@ class L2Pipeline:
         batch_events: list[MemoryEvent],
         graph_candidates: list[dict[str, Any]],
         assertion_candidates: list[dict[str, Any]],
-        contradiction_hints: list[dict[str, Any]],
+        contradiction_hints: list[ContradictionHint],
     ) -> L2ConflictArbitrationResult | None:
         if not self._enable_conflict_arbitration or self._llm_service is None or self._cognition_store is None:
             return None
@@ -1613,9 +1610,9 @@ class L2Pipeline:
     def _rewrite_hints_for_evolution(
         self,
         *,
-        contradiction_hints: list[dict[str, Any]],
+        contradiction_hints: list[ContradictionHint],
         conflict_arbitration: L2ConflictArbitrationResult,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ContradictionHint]:
         superseded_record_ids = {
             record_id
             for record_id in (
@@ -1625,34 +1622,25 @@ class L2Pipeline:
             if record_id
         }
         evolved_target_ids = superseded_record_ids or {
-            target_record_id
-            for target_record_id in (
-                self._non_empty_text(hint.get("target_record_id"))
-                for hint in self._severe_contradiction_hints(contradiction_hints)
-            )
-            if target_record_id
+            hint.target_record_id for hint in self._severe_contradiction_hints(contradiction_hints) if hint.target_record_id
         }
-        rewritten_hints: list[dict[str, Any]] = []
+        rewritten_hints: list[ContradictionHint] = []
         for hint in contradiction_hints:
-            if not isinstance(hint, dict):
-                continue
-            next_hint = dict(hint)
-            target_record_id = self._non_empty_text(next_hint.get("target_record_id"))
-            target_record_type = self._non_empty_text(next_hint.get("target_record_type"))
-            if target_record_id in evolved_target_ids:
-                if target_record_type == "knowledge_graph":
-                    next_hint["recommended_action"] = "mark_deprecated"
-                elif target_record_type == "tom_trait_assertion":
-                    next_hint["recommended_action"] = "mark_conflicted"
+            next_hint = ContradictionHint(**hint.to_dict())
+            if next_hint.target_record_id in evolved_target_ids:
+                if next_hint.target_record_type == "knowledge_graph":
+                    next_hint.recommended_action = "mark_deprecated"
+                elif next_hint.target_record_type == "tom_trait_assertion":
+                    next_hint.recommended_action = "mark_conflicted"
             rewritten_hints.append(next_hint)
         return rewritten_hints
 
     def _rewrite_hints_for_keep_existing(
         self,
         *,
-        contradiction_hints: list[dict[str, Any]],
+        contradiction_hints: list[ContradictionHint],
         conflict_arbitration: L2ConflictArbitrationResult,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ContradictionHint]:
         winning_record_ids = {
             record_id
             for record_id in (
@@ -1661,14 +1649,11 @@ class L2Pipeline:
             )
             if record_id
         }
-        rewritten_hints: list[dict[str, Any]] = []
+        rewritten_hints: list[ContradictionHint] = []
         for hint in contradiction_hints:
-            if not isinstance(hint, dict):
-                continue
-            next_hint = dict(hint)
-            target_record_id = self._non_empty_text(next_hint.get("target_record_id"))
-            if not winning_record_ids or target_record_id in winning_record_ids:
-                next_hint["recommended_action"] = "revalidate_only"
+            next_hint = ContradictionHint(**hint.to_dict())
+            if not winning_record_ids or next_hint.target_record_id in winning_record_ids:
+                next_hint.recommended_action = "revalidate_only"
             rewritten_hints.append(next_hint)
         return rewritten_hints
 
@@ -1724,14 +1709,14 @@ class L2Pipeline:
                 )
         return records
 
-    async def _load_target_records_for_hints(self, hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    async def _load_target_records_for_hints(self, hints: list[ContradictionHint]) -> list[dict[str, Any]]:
         if self._cognition_store is None:
             return []
         records: list[dict[str, Any]] = []
         seen: set[str] = set()
         for hint in hints:
-            target_record_id = self._non_empty_text(hint.get("target_record_id"))
-            target_record_type = self._non_empty_text(hint.get("target_record_type"))
+            target_record_id = self._non_empty_text(hint.target_record_id)
+            target_record_type = self._non_empty_text(hint.target_record_type)
             if not target_record_id or not target_record_type or target_record_id in seen:
                 continue
             seen.add(target_record_id)

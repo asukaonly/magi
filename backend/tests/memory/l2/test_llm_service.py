@@ -219,6 +219,7 @@ def test_conflict_arbitration_uses_core_scenario_adapter():
     from magi.config.models import LLMScenario
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import (
+        ContradictionHint,
         L2CandidateSet,
         L2ConflictArbitrationResult,
         L2EventWindow,
@@ -254,7 +255,16 @@ def test_conflict_arbitration_uses_core_scenario_adapter():
                 summary=L2EventWindowSummary(event_count=1, session_id="s1"),
             ),
             new_candidates=L2CandidateSet(graph_candidates=[], assertion_candidates=[]),
-            contradiction_hints=[{"target_record_id": "triple-1", "confidence": 0.9}],
+            contradiction_hints=[
+                ContradictionHint(
+                    target_record_id="triple-1",
+                    target_record_type="knowledge_graph",
+                    contradiction_kind="preference_reversal",
+                    confidence=0.9,
+                    evidence_text="I do not like sushi anymore.",
+                    recommended_action="mark_deprecated",
+                )
+            ],
             existing_records=[{"record_id": "triple-1"}],
             source_events=[],
         )
@@ -334,6 +344,39 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
     assert result.assertion_candidates[0]["trait_family"] == "taste_profile"
     assert result.assertion_candidates[0]["confidence"] == 0.3
     assert result.diagnostics == {"entity_status": "found"}
+
+
+def test_contradiction_hint_detection_returns_typed_hints():
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import ContradictionHint
+
+    response = json.dumps(
+        {
+            "contradiction_hints": [
+                {
+                    "target_record_id": "triple-1",
+                    "target_record_type": "knowledge_graph",
+                    "contradiction_kind": "preference_reversal",
+                    "confidence": 0.91,
+                    "evidence_text": "I do not like sushi anymore.",
+                    "recommended_action": "mark_deprecated",
+                }
+            ]
+        }
+    )
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
+
+    hints = asyncio.run(
+        service.detect_contradiction_hints(
+            new_event={"event_id": "evt-1", "content": "I do not like sushi anymore."},
+            existing_records=[{"record_id": "triple-1", "record_type": "knowledge_graph"}],
+        )
+    )
+
+    assert len(hints) == 1
+    assert isinstance(hints[0], ContradictionHint)
+    assert hints[0].target_record_id == "triple-1"
+    assert hints[0].recommended_action == "mark_deprecated"
 
 
 def test_unified_extraction_fails_closed_on_invalid_json():
