@@ -118,3 +118,11 @@ async def test_run_dual_process_supervisor_stops_api_when_runtime_exits(
     assert readiness_checks == ["runtime", "api"]
     assert api_process.terminated is True
     assert exit_code == 1
+
+
+def test_resolve_api_port_prefers_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    from magi.backend_supervisor import _resolve_api_port
+
+    monkeypatch.setenv("MAGI_API_PORT_OVERRIDE", "9321")
+
+    assert _resolve_api_port() == 9321

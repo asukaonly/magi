@@ -71,6 +71,41 @@ cleanup_stale_backend_log_holders() {
   done <<< "${holder_pids}"
 }
 
+pick_backend_port() {
+  local host="$1"
+  local preferred_port="$2"
+  python - "${host}" "${preferred_port}" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1] or "0.0.0.0"
+preferred = int(sys.argv[2] or "0")
+
+def try_bind(port: int):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+    except OSError:
+        sock.close()
+        return None
+    actual = sock.getsockname()[1]
+    sock.close()
+    return actual
+
+if preferred > 0:
+    picked = try_bind(preferred)
+    if picked is not None:
+        print(picked)
+        raise SystemExit(0)
+
+picked = try_bind(0)
+if picked is None:
+    raise SystemExit(1)
+print(picked)
+PY
+}
+
 kill_listeners_on_port() {
   local port="$1"
   local pids
@@ -237,8 +272,13 @@ PY
 
 ensure_sidecar_placeholder
 cleanup_stale_backend_log_holders
-kill_listeners_on_port "${BACKEND_PORT}"
 kill_listeners_on_port "${FRONTEND_PORT}"
+
+SELECTED_BACKEND_PORT="$(pick_backend_port "${BACKEND_HOST}" "${BACKEND_PORT}")"
+if [[ "${SELECTED_BACKEND_PORT}" != "${BACKEND_PORT}" ]]; then
+  echo "Backend port ${BACKEND_PORT} is unavailable, switching to ${SELECTED_BACKEND_PORT}."
+fi
+BACKEND_PORT="${SELECTED_BACKEND_PORT}"
 
 mkdir -p "$(dirname "${BACKEND_LOG_FILE}")"
 touch "${BACKEND_LOG_FILE}"
@@ -246,7 +286,7 @@ touch "${BACKEND_LOG_FILE}"
 echo "Starting dual-process backend supervisor for Tauri..."
 (
   cd "${BACKEND_DIR}"
-  python run_supervisor.py
+  MAGI_API_PORT_OVERRIDE="${BACKEND_PORT}" python run_supervisor.py
 ) >"${BACKEND_LOG_FILE}" 2>&1 &
 BACKEND_PID=$!
 echo "Backend logs: ${BACKEND_LOG_FILE}"

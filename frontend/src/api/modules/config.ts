@@ -294,7 +294,6 @@ export interface SystemConfig {
     interval: number;
   };
   message_bus: {
-    backend: 'memory' | 'sqlite' | 'redis';
     max_size?: number;
   };
   memory: MemoryConfig;
@@ -368,7 +367,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
   },
   loop: { strategy: 'continuous', interval: 1 },
-  message_bus: { backend: 'sqlite', max_size: 1000 },
+  message_bus: { max_size: 1000 },
   memory: {
     db_path: '~/.magi/data/memories',
     async_embeddings: true,

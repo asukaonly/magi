@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 30.0
 DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 DEFAULT_READINESS_POLL_INTERVAL_SECONDS = 0.25
+API_PORT_OVERRIDE_ENV_VAR = "MAGI_API_PORT_OVERRIDE"
 
 
 def _install_signal_handlers(stop_event: asyncio.Event) -> None:
@@ -79,6 +80,7 @@ async def run_dual_process_supervisor(
     shutdown_timeout_seconds: float = DEFAULT_SHUTDOWN_TIMEOUT_SECONDS,
     python_executable: str = sys.executable,
     child_env: dict[str, str] | None = None,
+    api_port: int | None = None,
 ) -> int:
     """Run runtime worker and API as one supervised topology."""
     stop_event = asyncio.Event()
@@ -108,6 +110,7 @@ async def run_dual_process_supervisor(
             role="api",
             python_executable=python_executable,
             env=env,
+            port=api_port,
         )
         await wait_for_api_ready(
             api_ready_url=api_ready_url,
@@ -148,13 +151,19 @@ async def _start_backend_role(
     role: str,
     python_executable: str,
     env: dict[str, str],
+    port: int | None = None,
 ):
     logger.info("Starting backend role", role=role)
-    return await asyncio.create_subprocess_exec(
+    command = [
         python_executable,
         "run_server.py",
         "--role",
         role,
+    ]
+    if port is not None and role == "api":
+        command.extend(["--port", str(port)])
+    return await asyncio.create_subprocess_exec(
+        *command,
         cwd=backend_dir,
         env=env,
     )
@@ -183,12 +192,23 @@ def _load_ready_payload(url: str) -> dict[str, object]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _resolve_api_port(env: dict[str, str] | None = None) -> int:
+    override = str((env or os.environ).get(API_PORT_OVERRIDE_ENV_VAR, "")).strip()
+    if override:
+        try:
+            return int(override)
+        except ValueError:
+            logger.warning("Ignoring invalid API port override", value=override)
+    config = get_config()
+    return int(config.server.port or 8000)
+
+
 def _resolve_api_ready_url() -> str:
     config = get_config()
     host = str(config.server.host or "127.0.0.1").strip() or "127.0.0.1"
     if host in {"0.0.0.0", "::", "[::]"}:
         host = "127.0.0.1"
-    port = int(config.server.port or 8000)
+    port = _resolve_api_port()
     return f"http://{host}:{port}/api/ready"
 
 
@@ -200,6 +220,7 @@ async def async_main() -> int:
         backend_dir=str(backend_dir),
         runtime_trace_db_path=str(runtime_paths.runtime_trace_db_path),
         api_ready_url=_resolve_api_ready_url(),
+        api_port=_resolve_api_port(),
     )
 
 

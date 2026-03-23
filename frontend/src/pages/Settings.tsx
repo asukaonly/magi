@@ -16,7 +16,6 @@ import { NAV_ITEMS, isNavGroup } from '@/constants/settings';
 import type { NavItem, SettingsPageHandle, SettingsPageProps } from '@/types/settings';
 import {
   LabeledSelectField,
-  NumberField,
   MemoryEventsSettingsSection,
   MemoryGeneralSettingsSection,
   MemoryKnowledgeSettingsSection,
@@ -470,70 +469,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       case 'system':
         return (
           <SettingsSectionShell>
-            <SettingsGroup title={t('settings.fields.loopStrategy')}>
-              <div className="grid gap-6 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2">
-                <LabeledSelectField
-                  label={t('settings.fields.loopStrategy')}
-                  value={draftConfig.loop.strategy}
-                  options={[
-                    { label: 'STEP', value: 'step' },
-                    { label: 'WAVE', value: 'wave' },
-                    { label: 'CONTINUOUS', value: 'continuous' },
-                  ]}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.loop.strategy = value as SystemConfig['loop']['strategy'];
-                  })}
-                />
-                <NumberField
-                  label={t('settings.fields.loopInterval')}
-                  value={draftConfig.loop.interval}
-                  min={0.1}
-                  max={60}
-                  step={0.1}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.loop.interval = value;
-                  })}
-                />
-              </div>
-            </SettingsGroup>
-
-            <SettingsGroup title={t('settings.fields.busBackend')}>
-              <div className="grid gap-6 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2">
-                <LabeledSelectField
-                  label={t('settings.fields.busBackend')}
-                  value={draftConfig.message_bus.backend}
-                  options={[
-                    { label: 'memory', value: 'memory' },
-                    { label: 'sqlite', value: 'sqlite' },
-                    { label: 'redis', value: 'redis' },
-                  ]}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.message_bus.backend = value as SystemConfig['message_bus']['backend'];
-                  })}
-                />
-                <NumberField
-                  label={t('settings.fields.busQueueSize')}
-                  value={draftConfig.message_bus.max_size}
-                  min={100}
-                  max={50000}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.message_bus.max_size = value;
-                  })}
-                />
-              </div>
-            </SettingsGroup>
-
-            <SettingsGroup title={t('settings.fields.wsPort')}>
-              <div className="grid gap-6 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2">
-                <NumberField
-                  label={t('settings.fields.wsPort')}
-                  value={draftConfig.websocket.port}
-                  min={1024}
-                  max={65535}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.websocket.port = value;
-                  })}
-                />
+            <SettingsGroup title={t('settings.fields.logLevel')}>
+              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
                 <LabeledSelectField
                   label={t('settings.fields.logLevel')}
                   value={draftConfig.log.level}

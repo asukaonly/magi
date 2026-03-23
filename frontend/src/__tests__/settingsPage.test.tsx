@@ -495,8 +495,8 @@ describe('settings page draft saving', () => {
     await screen.findByRole('button', { name: 'settings.tabs.system' });
     await user.click(screen.getByRole('button', { name: 'settings.tabs.system' }));
 
-    const loopIntervalInput = screen.getAllByRole('spinbutton')[0];
-    fireEvent.change(loopIntervalInput, { target: { value: '2' } });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.logLevel' }));
+    await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
 
     expect(configApi.update).not.toHaveBeenCalled();
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
@@ -506,7 +506,7 @@ describe('settings page draft saving', () => {
     await waitFor(() =>
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          loop: expect.objectContaining({ interval: 2 }),
+          log: expect.objectContaining({ level: 'DEBUG' }),
         })
       )
     );
@@ -674,14 +674,14 @@ describe('settings page draft saving', () => {
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
 
-    const loopIntervalInput = screen.getAllByRole('spinbutton')[0];
-    fireEvent.change(loopIntervalInput, { target: { value: '2' } });
-    expect(loopIntervalInput).toHaveValue(2);
+    await user.click(screen.getByRole('button', { name: 'settings.fields.logLevel' }));
+    await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.discard' }));
 
     expect(configApi.update).not.toHaveBeenCalled();
-    expect(loopIntervalInput).toHaveValue(DEFAULT_SYSTEM_CONFIG.loop.interval);
+    expect(screen.getByText('settings.allChangesSaved')).toBeInTheDocument();
   });
 
   it('hides sync controls for inactive timeline sources', async () => {
@@ -707,7 +707,8 @@ describe('settings page draft saving', () => {
     render(<SettingsCenterDialog open onOpenChange={onOpenChange} />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
-    fireEvent.change(screen.getAllByRole('spinbutton')[0], { target: { value: '2' } });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.logLevel' }));
+    await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.close' }));
 
