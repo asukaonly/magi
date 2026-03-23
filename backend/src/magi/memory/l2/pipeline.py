@@ -28,6 +28,7 @@ from .models import (
     L2EventWindowSummary,
     L2FocalEntityRef,
     L2GraphCandidate,
+    L2HistoryContext,
     L2PendingBatchBucket,
     L2SourceEvent,
     ReconciledTraitOutcome,
@@ -617,9 +618,9 @@ class L2Pipeline:
             stored_event,
             context_texts=context_texts,
             source_event_ids=[
-                str(item.get("event_id"))
+                str(item.event_id)
                 for item in history_contexts
-                if self._non_empty_text(item.get("event_id"))
+                if self._non_empty_text(item.event_id)
             ],
         )
         direct_context_refs = resolve_direct_context_refs(event=stored_event, bundle=context_bundle)
@@ -893,7 +894,7 @@ class L2Pipeline:
         anchor_event: MemoryEvent,
         batch_events: list[MemoryEvent],
         exclude_event_ids: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[L2HistoryContext]:
         if self._l1_store is None or self._entity_catalog is None or not anchor_event.user_id:
             return []
 
@@ -914,7 +915,7 @@ class L2Pipeline:
 
         seen_event_ids = set(exclude_event_ids or [])
         seen_terms: set[str] = set()
-        matches_by_event_id: dict[str, dict[str, Any]] = {}
+        matches_by_event_id: dict[str, L2HistoryContext] = {}
         for match in entity_matches:
             candidate_terms = [
                 self._non_empty_text(match.get("matched_text")),
@@ -941,29 +942,29 @@ class L2Pipeline:
                         continue
                     if anchor_event.session_id and str(row.get("session_id") or "") == anchor_event.session_id:
                         continue
-                    history_context = {
-                        "event_id": event_id,
-                        "session_id": self._non_empty_text(row.get("session_id")),
-                        "timestamp": float(row.get("timestamp", 0.0) or 0.0),
-                        "content": content,
-                        "matched_entity_id": self._non_empty_text(match.get("entity_id")),
-                        "matched_text": term,
-                        "canonical_name": self._non_empty_text(match.get("canonical_name")),
-                        "match_source": self._non_empty_text(match.get("match_source")),
-                    }
+                    history_context = L2HistoryContext(
+                        event_id=event_id,
+                        session_id=self._non_empty_text(row.get("session_id")),
+                        timestamp=float(row.get("timestamp", 0.0) or 0.0),
+                        content=content,
+                        matched_entity_id=self._non_empty_text(match.get("entity_id")),
+                        matched_text=term,
+                        canonical_name=self._non_empty_text(match.get("canonical_name")),
+                        match_source=self._non_empty_text(match.get("match_source")),
+                    )
                     existing_context = matches_by_event_id.get(event_id)
-                    if existing_context is None or history_context["timestamp"] > float(existing_context["timestamp"]):
+                    if existing_context is None or history_context.timestamp > existing_context.timestamp:
                         matches_by_event_id[event_id] = history_context
                     seen_event_ids.add(event_id)
         ranked_contexts = sorted(
             matches_by_event_id.values(),
-            key=lambda item: (float(item["timestamp"]), str(item["event_id"])),
+            key=lambda item: (float(item.timestamp), str(item.event_id)),
             reverse=True,
         )
         selected_contexts = ranked_contexts[:DEFAULT_L2_HISTORY_CONTEXT_LIMIT]
         return sorted(
             selected_contexts,
-            key=lambda item: (float(item["timestamp"]), str(item["event_id"])),
+            key=lambda item: (float(item.timestamp), str(item.event_id)),
         )
 
     async def _resolve_mentions(

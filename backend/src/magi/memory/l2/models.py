@@ -53,31 +53,116 @@ class L2EventWindowSummary:
 
 
 @dataclass(slots=True)
+class L2BatchEvent:
+    """Typed event payload used inside L2 prompt windows."""
+
+    event_id: str
+    content: str
+    timestamp: float = 0.0
+    session_id: str | None = None
+    user_id: str | None = None
+    source: str = "unknown"
+    event_type: str = ""
+    author_type: str = "user"
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "L2BatchEvent":
+        return cls(
+            event_id=payload.get("event_id", ""),
+            content=payload.get("content", ""),
+            timestamp=payload.get("timestamp", 0.0),
+            session_id=payload.get("session_id"),
+            user_id=payload.get("user_id"),
+            source=payload.get("source", "unknown"),
+            event_type=payload.get("event_type", ""),
+            author_type=payload.get("author_type", "user"),
+        )
+
+    def __post_init__(self) -> None:
+        self.event_id = _non_empty_text(self.event_id, field_name="event_id")
+        self.content = str(self.content or "")
+        self.timestamp = float(self.timestamp or 0.0)
+        self.session_id = _optional_text(self.session_id)
+        self.user_id = _optional_text(self.user_id)
+        self.source = _optional_text(self.source) or "unknown"
+        self.event_type = _optional_text(self.event_type) or ""
+        self.author_type = _optional_text(self.author_type) or "user"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class L2HistoryContext:
+    """Typed recalled history context included in L2 extraction prompts."""
+
+    event_id: str
+    content: str
+    timestamp: float = 0.0
+    session_id: str | None = None
+    matched_entity_id: str | None = None
+    matched_text: str | None = None
+    canonical_name: str | None = None
+    match_source: str | None = None
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "L2HistoryContext":
+        return cls(
+            event_id=payload.get("event_id", ""),
+            content=payload.get("content", ""),
+            timestamp=payload.get("timestamp", 0.0),
+            session_id=payload.get("session_id"),
+            matched_entity_id=payload.get("matched_entity_id"),
+            matched_text=payload.get("matched_text"),
+            canonical_name=payload.get("canonical_name"),
+            match_source=payload.get("match_source"),
+        )
+
+    def __post_init__(self) -> None:
+        self.event_id = _non_empty_text(self.event_id, field_name="event_id")
+        self.content = _non_empty_text(self.content, field_name="content")
+        self.timestamp = float(self.timestamp or 0.0)
+        self.session_id = _optional_text(self.session_id)
+        self.matched_entity_id = _optional_text(self.matched_entity_id)
+        self.matched_text = _optional_text(self.matched_text)
+        self.canonical_name = _optional_text(self.canonical_name)
+        self.match_source = _optional_text(self.match_source)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class L2EventWindow:
     """Typed extraction window passed through the L2 pipeline."""
 
     event_ids: list[str] = field(default_factory=list)
-    events: list[dict[str, Any]] = field(default_factory=list)
+    events: list[L2BatchEvent] = field(default_factory=list)
     texts: list[str] = field(default_factory=list)
     context_texts: list[str] = field(default_factory=list)
-    history_contexts: list[dict[str, Any]] = field(default_factory=list)
+    history_contexts: list[L2HistoryContext] = field(default_factory=list)
     summary: L2EventWindowSummary = field(default_factory=L2EventWindowSummary)
 
     def __post_init__(self) -> None:
-        normalized_events = [dict(item) for item in self.events if isinstance(item, dict)]
+        normalized_events: list[L2BatchEvent] = []
+        for item in self.events:
+            if isinstance(item, L2BatchEvent):
+                normalized_events.append(item)
+            elif isinstance(item, dict):
+                normalized_events.append(L2BatchEvent.from_dict(item))
         normalized_event_ids = [str(item).strip() for item in self.event_ids if str(item).strip()]
         if not normalized_event_ids:
             normalized_event_ids = [
-                str(item.get("event_id", "")).strip()
+                str(item.event_id).strip()
                 for item in normalized_events
-                if str(item.get("event_id", "")).strip()
+                if str(item.event_id).strip()
             ]
         normalized_texts = [str(item) for item in self.texts if str(item).strip()]
         if not normalized_texts:
             normalized_texts = [
-                str(item.get("content", "")).strip()
+                str(item.content).strip()
                 for item in normalized_events
-                if str(item.get("content", "")).strip()
+                if str(item.content).strip()
             ]
         if not isinstance(self.summary, L2EventWindowSummary):
             self.summary = L2EventWindowSummary(**dict(self.summary))
@@ -90,10 +175,18 @@ class L2EventWindow:
         self.events = normalized_events
         self.texts = normalized_texts
         self.context_texts = [str(item) for item in self.context_texts if str(item).strip()]
-        self.history_contexts = [dict(item) for item in self.history_contexts if isinstance(item, dict)]
+        normalized_history_contexts: list[L2HistoryContext] = []
+        for item in self.history_contexts:
+            if isinstance(item, L2HistoryContext):
+                normalized_history_contexts.append(item)
+            elif isinstance(item, dict):
+                normalized_history_contexts.append(L2HistoryContext.from_dict(item))
+        self.history_contexts = normalized_history_contexts
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["events"] = [item.to_dict() for item in self.events]
+        payload["history_contexts"] = [item.to_dict() for item in self.history_contexts]
         payload["summary"] = self.summary.to_dict()
         return payload
 
@@ -882,6 +975,7 @@ __all__ = [
     "build_l2_batch_bucket_key",
     "ContradictionHint",
     "L2AssertionCandidate",
+    "L2BatchEvent",
     "L2BatchJob",
     "L2CandidateSet",
     "L2ConflictArbitrationResult",
@@ -897,6 +991,7 @@ __all__ = [
     "L2EventWindowSummary",
     "L2FocalEntityRef",
     "L2GraphCandidate",
+    "L2HistoryContext",
     "L2KnowledgeEdgeWrite",
     "L2PendingBatchBucket",
     "L2SnapshotRefreshJob",

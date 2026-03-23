@@ -189,7 +189,7 @@ def test_unified_prompt_includes_context_bundle_and_resolved_ref_schema():
 def test_unified_prompt_includes_batch_window_rules_and_summary():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow, L2EventWindowSummary
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
     profile = ExtractionProfile(profile_id="chat.user_message")
@@ -198,8 +198,8 @@ def test_unified_prompt_includes_batch_window_rules_and_summary():
         event_window=L2EventWindow(
             event_ids=["evt-1", "evt-2"],
             events=[
-                {"event_id": "evt-1", "content": "Alice likes ramen"},
-                {"event_id": "evt-2", "content": "She eats it every week"},
+                L2BatchEvent(event_id="evt-1", content="Alice likes ramen"),
+                L2BatchEvent(event_id="evt-2", content="She eats it every week"),
             ],
             texts=["Alice likes ramen", "She eats it every week"],
             summary=L2EventWindowSummary(event_count=2, session_id="s-1", user_id="u-1"),
