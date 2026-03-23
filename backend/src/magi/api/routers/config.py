@@ -96,6 +96,15 @@ class LLMConfigModel(BaseModel):
     model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
 
 
+class LoopConfigModel(BaseModel):
+    strategy: str = Field(default="continuous")
+    interval: float = Field(default=1.0)
+
+
+class MessageBusConfigModel(BaseModel):
+    max_size: Optional[int] = Field(default=1000)
+
+
 class MemoryEmbeddingConfigModel(BaseModel):
     backend: str = Field(default="sqlite_vec")
 
@@ -253,6 +262,8 @@ class TimelineConfigModel(BaseModel):
 class SystemConfigModel(BaseModel):
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
+    loop: LoopConfigModel = Field(default_factory=LoopConfigModel)
+    message_bus: MessageBusConfigModel = Field(default_factory=MessageBusConfigModel)
     memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)
     websocket: WebSocketConfigModel = Field(default_factory=WebSocketConfigModel)
     log: LogConfigModel = Field(default_factory=LogConfigModel)
@@ -634,6 +645,13 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             registry=registry,
             mask_api_key=mask_api_key,
         ),
+        loop=LoopConfigModel(
+            strategy=raw.get("loop", {}).get("strategy", "continuous"),
+            interval=float(raw.get("loop", {}).get("interval", runtime_config.agent.loop_interval)),
+        ),
+        message_bus=MessageBusConfigModel(
+            max_size=runtime_config.agent.message_bus.max_queue_size,
+        ),
         memory=_build_memory_config(raw, runtime_config),
         websocket=WebSocketConfigModel(
             enabled=runtime_config.features.enable_websocket,
@@ -809,6 +827,10 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
             for selection_id, selection in config.llm.selections.items()
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
+        "loop.strategy": config.loop.strategy,
+        "loop.interval": config.loop.interval,
+        "agent.loop_interval": config.loop.interval,
+        "agent.message_bus.max_queue_size": config.message_bus.max_size,
         "agent.memory.db_path": config.memory.db_path,
         "agent.memory.async_embeddings": config.memory.async_embeddings,
         "agent.memory.embedding.backend": config.memory.embedding.backend,
