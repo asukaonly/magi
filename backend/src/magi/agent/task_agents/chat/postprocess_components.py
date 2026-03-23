@@ -136,7 +136,7 @@ class ChatOutcomeWriter:
                 supersession_reason=existing_turn.supersession_reason,
             )
         )
-        if response_mode == "reaction_only":
+        if response_mode in {"reaction_only", "none"}:
             return
         existing_final = await self._chat_store.get_latest_message_for_turn(
             normalized_turn_id,

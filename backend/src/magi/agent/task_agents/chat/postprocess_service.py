@@ -98,8 +98,6 @@ class ChatPostProcessService:
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
         action_emitter = self._get_action_emitter()
-        if action_emitter is None or result.skip_emit:
-            return ChatParseOutcome(False, False, False, False)
         latest_fact = context.latest_fact
         if not isinstance(latest_fact, FactRecord):
             return ChatParseOutcome(False, False, False, False)
@@ -108,6 +106,19 @@ class ChatPostProcessService:
             IncomingFactKind.WORKER_UPDATE,
             IncomingFactKind.EXPLORE_TASK_COMPLETED,
         }:
+            return ChatParseOutcome(False, False, False, False)
+        ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}
+
+        if result.skip_emit:
+            if await self._complete_turn_without_visible_response(
+                context=context,
+                result=result,
+                latest_fact=latest_fact,
+                ux_plan=ux_plan,
+            ):
+                return ChatParseOutcome(False, False, False, False)
+            return ChatParseOutcome(False, False, False, False)
+        if action_emitter is None:
             return ChatParseOutcome(False, False, False, False)
 
         response_text = str(result.response_text or "").strip()
@@ -121,6 +132,13 @@ class ChatPostProcessService:
                 failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
                 response_text = f"Execution failed: {failure_reason}"
         if not response_text:
+            if await self._complete_turn_without_visible_response(
+                context=context,
+                result=result,
+                latest_fact=latest_fact,
+                ux_plan=ux_plan,
+            ):
+                return ChatParseOutcome(False, False, False, False)
             return ChatParseOutcome(False, False, False, False)
 
         history_stored = False
@@ -194,14 +212,14 @@ class ChatPostProcessService:
             completed_at_ms=now_ms,
             orchestration_id=result.orchestration_id,
             execution_mode=self._normalize_mode(result.mode),
-            ux_plan=result.ux_plan if isinstance(result.ux_plan, dict) else {},
+            ux_plan=ux_plan,
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
         )
         notification_message = await self._get_notification_chat_message(
             turn_id=turn_id,
-            ux_plan=result.ux_plan if isinstance(result.ux_plan, dict) else {},
+            ux_plan=ux_plan,
         )
         final_message = notification_message if notification_message and notification_message.message_kind == "assistant_final" else None
         await self._project_final_chat_message(context=context, final_message=final_message)
@@ -259,6 +277,37 @@ class ChatPostProcessService:
             error=None,
         )
         return ChatParseOutcome(True, history_stored, memory_updated, False)
+
+    async def _complete_turn_without_visible_response(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        latest_fact: FactRecord,
+        ux_plan: dict[str, Any],
+    ) -> bool:
+        response_mode = str(ux_plan.get("assistant_surface_mode") or "").strip()
+        if response_mode not in {"none", "reaction_only"}:
+            return False
+        turn_id = result.turn_id or self._resolve_turn_id(
+            context,
+            latest_fact.payload if isinstance(latest_fact.payload, dict) else {},
+        )
+        now_ms = now_wall_ms()
+        started_at_ms = self._resolve_started_at_ms(result, latest_fact)
+        await self._persist_final_chat_outcome(
+            turn_id=turn_id,
+            response_text="",
+            started_at_ms=started_at_ms,
+            completed_at_ms=now_ms,
+            orchestration_id=result.orchestration_id,
+            execution_mode=self._normalize_mode(result.mode),
+            ux_plan=ux_plan,
+            run_id=context.session_run_id,
+            run_revision=context.session_run_revision,
+            run_disposition=context.session_run_disposition,
+        )
+        return True
 
     async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
         latest_fact = context.latest_fact

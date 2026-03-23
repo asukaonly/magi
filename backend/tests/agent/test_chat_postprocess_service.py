@@ -1191,6 +1191,195 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
 
 
 @pytest.mark.asyncio
+async def test_handle_completes_none_surface_turn_without_final_message(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "嗯",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-none",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-none",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="嗯",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="嗯",
+            turn_id="turn-none",
+        ),
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-none",
+        message_text="嗯",
+        created_at_ms=1710000000000,
+    )
+
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="",
+        skip_emit=True,
+        correlation_id="corr-none",
+        turn_id="turn-none",
+        ux_plan={
+            "assistant_surface_mode": "none",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+        },
+    )
+
+    await service.handle(context, result)
+
+    turn = await chat_store.get_turn("turn-none")
+    messages = await chat_store.list_messages(session_id="session-1")
+
+    assert turn is not None
+    assert turn.status == "completed"
+    assert [message.message_kind for message in messages] == ["user_text"]
+
+
+@pytest.mark.asyncio
+async def test_handle_completes_reaction_only_turn_without_final_text(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "嗯",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-react-empty",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-react-empty",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="嗯",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="嗯",
+            turn_id="turn-react-empty",
+        ),
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-react-empty",
+        message_text="嗯",
+        created_at_ms=1710000000000,
+    )
+    reaction_decision = _FakeIntentDecision()
+    reaction_decision.execution_mode = ExecutionMode.DIRECT_LLM
+    reaction_decision.ux_plan = type(
+        "_UxPlan",
+        (),
+        {
+            "to_dict": staticmethod(
+                lambda: {
+                    "assistant_surface_mode": "reaction_only",
+                    "thinking_indicator": "hidden",
+                    "trace_display_mode": "none",
+                    "allow_trace_collapse": False,
+                    "reaction_style": "acknowledge",
+                }
+            )
+        },
+    )()
+    await service.record_intent_resolution(context, reaction_decision)
+
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="",
+        skip_emit=True,
+        correlation_id="corr-react-empty",
+        turn_id="turn-react-empty",
+        ux_plan={
+            "assistant_surface_mode": "reaction_only",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+            "reaction_style": "acknowledge",
+        },
+    )
+
+    await service.handle(context, result)
+
+    turn = await chat_store.get_turn("turn-react-empty")
+    messages = await chat_store.list_messages(session_id="session-1")
+
+    assert turn is not None
+    assert turn.status == "completed"
+    assert [message.message_kind for message in messages] == ["user_text", "assistant_reaction"]
+
+
+@pytest.mark.asyncio
 async def test_handle_records_task_reflection_for_explore_completion() -> None:
     action_emitter = _FakeActionEmitter()
     unified_memory = _FakeUnifiedMemory(
