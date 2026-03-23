@@ -40,7 +40,6 @@ class InterruptionClassifier:
         "change goal",
         "new goal",
         "new plan",
-        "instead",
         "switch to",
         "don't do that",
         "dont do that",
@@ -55,6 +54,14 @@ class InterruptionClassifier:
         "more context",
         "more detail",
         "in addition",
+        "instead of",
+        "only happens after",
+        "only happens when",
+        "happens after",
+        "happens when",
+        "staging endpoint",
+        "staging environment",
+        "staging env",
     )
 
     def classify(self, context: InterruptionContext) -> InterruptionDisposition:

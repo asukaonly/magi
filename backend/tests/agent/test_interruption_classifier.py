@@ -32,6 +32,42 @@ def test_additive_context_text_augment_when_step_is_idle() -> None:
     assert disposition == InterruptionDisposition.AUGMENT
 
 
+def test_additive_context_with_causal_detail_augment_when_step_is_idle() -> None:
+    classifier = InterruptionClassifier()
+
+    disposition = classifier.classify(
+        InterruptionContext(
+            user_text="The error only happens after refresh.",
+        )
+    )
+
+    assert disposition == InterruptionDisposition.AUGMENT
+
+
+def test_additive_context_with_targeting_detail_augment_when_step_is_idle() -> None:
+    classifier = InterruptionClassifier()
+
+    disposition = classifier.classify(
+        InterruptionContext(
+            user_text="Use the staging endpoint.",
+        )
+    )
+
+    assert disposition == InterruptionDisposition.AUGMENT
+
+
+def test_additive_refinement_with_instead_does_not_interrupt() -> None:
+    classifier = InterruptionClassifier()
+
+    disposition = classifier.classify(
+        InterruptionContext(
+            user_text="Also, return JSON instead of YAML.",
+        )
+    )
+
+    assert disposition == InterruptionDisposition.AUGMENT
+
+
 def test_atomic_or_side_effecting_step_state_defers_interrupting_text() -> None:
     classifier = InterruptionClassifier()
 
