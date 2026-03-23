@@ -315,7 +315,12 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
     from magi.memory.l2.context_bundle import ResolvedContextRef
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EventWindow, L2UnifiedExtractionResult
+    from magi.memory.l2.models import (
+        L2AssertionCandidate,
+        L2EventWindow,
+        L2GraphCandidate,
+        L2UnifiedExtractionResult,
+    )
 
     response = json.dumps(
         {
@@ -349,9 +354,21 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
         "confidence": 0.0,
         "evidence_text": "",
     }
-    assert result.graph_candidates == [{"predicate": "DISLIKES", "object_type": "dish"}]
-    assert result.assertion_candidates[0]["trait_family"] == "taste_profile"
-    assert result.assertion_candidates[0]["confidence"] == 0.3
+    assert isinstance(result.graph_candidates[0], L2GraphCandidate)
+    assert result.graph_candidates[0].to_dict() == {
+        "subject_ref": "",
+        "subject_type": "user",
+        "predicate": "DISLIKES",
+        "object_ref": "",
+        "object_type": "dish",
+        "fact_kind": "",
+        "polarity": "",
+        "evidence_text": "",
+        "confidence": 0.0,
+    }
+    assert isinstance(result.assertion_candidates[0], L2AssertionCandidate)
+    assert result.assertion_candidates[0].trait_family == "taste_profile"
+    assert result.assertion_candidates[0].confidence == 0.3
     assert result.diagnostics == {"entity_status": "found"}
 
 

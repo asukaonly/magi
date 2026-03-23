@@ -13,9 +13,11 @@ from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
 from .models import (
     ContradictionHint,
+    L2AssertionCandidate,
     L2CandidateSet,
     L2ConflictArbitrationResult,
     L2EventWindow,
+    L2GraphCandidate,
     L2UnifiedExtractionResult,
 )
 from .prompts import (
@@ -110,10 +112,13 @@ class L2LLMService:
             if isinstance(resolved_context_refs, list)
             else []
         )
-        normalized_graph_candidates = (
-            [item for item in graph_candidates if isinstance(item, dict)] if isinstance(graph_candidates, list) else []
-        )
-        normalized_assertions: list[dict[str, Any]] = []
+        normalized_graph_candidates: list[L2GraphCandidate] = []
+        if isinstance(graph_candidates, list):
+            for item in graph_candidates:
+                if not isinstance(item, dict):
+                    continue
+                normalized_graph_candidates.append(L2GraphCandidate.from_dict(item))
+        normalized_assertions: list[L2AssertionCandidate] = []
         is_single_event = len(event_window.event_ids) <= 1
         if isinstance(assertion_candidates, list):
             for item in assertion_candidates:
@@ -124,7 +129,7 @@ class L2LLMService:
                 if is_single_event:
                     confidence = min(confidence, 0.3)
                 candidate["confidence"] = round(confidence, 4)
-                normalized_assertions.append(candidate)
+                normalized_assertions.append(L2AssertionCandidate.from_dict(candidate))
 
         result = L2UnifiedExtractionResult(
             mentions=normalized_mentions,

@@ -17,11 +17,13 @@ from .context_bundle import ContextBundle, ResolvedContextRef
 from .context_collector import collect_context_bundle, resolve_direct_context_refs
 from .models import (
     ContradictionHint,
+    L2AssertionCandidate,
     L2BatchJob,
     L2CandidateSet,
     L2ConflictArbitrationResult,
     L2EventWindow,
     L2EventWindowSummary,
+    L2GraphCandidate,
     L2PendingBatchBucket,
     ResolvedEntityMention,
     build_l2_batch_bucket_key,
@@ -1139,7 +1141,7 @@ class L2Pipeline:
         resolved_mentions: list[ResolvedEntityMention],
         resolved_context_refs: list[ResolvedContextRef],
         evidence_event_ids: list[str],
-        raw_candidates: list[dict[str, Any]],
+        raw_candidates: list[L2GraphCandidate],
     ) -> tuple[list[dict[str, Any]], int]:
         if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
             return [], 0
@@ -1147,11 +1149,8 @@ class L2Pipeline:
         prepared: list[dict[str, Any]] = []
         rejected_count = 0
         for raw_candidate in raw_candidates:
-            if not isinstance(raw_candidate, dict):
-                rejected_count += 1
-                continue
-            object_type = self._normalize_entity_type(raw_candidate.get("object_type"))
-            predicate = self._normalize_predicate(raw_candidate.get("predicate"))
+            object_type = self._normalize_entity_type(raw_candidate.object_type)
+            predicate = self._normalize_predicate(raw_candidate.predicate)
             if object_type not in profile.allowed_entity_types:
                 rejected_count += 1
                 continue
@@ -1173,7 +1172,7 @@ class L2Pipeline:
                 rejected_count += 1
                 continue
             object_id = self._resolve_graph_object_id(
-                raw_object_ref=raw_candidate.get("object_ref"),
+                raw_object_ref=raw_candidate.object_ref,
                 object_type=object_type,
                 resolved_mentions=resolved_mentions,
                 resolved_context_refs=resolved_context_refs,
@@ -1184,12 +1183,12 @@ class L2Pipeline:
             prepared.append(
                 {
                     "subject_id": subject_id,
-                    "subject_type": str(raw_candidate.get("subject_type", "user")).strip() or "user",
+                    "subject_type": raw_candidate.subject_type or "user",
                     "predicate": predicate,
                     "object_id": object_id,
                     "object_type": object_type,
                     "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
-                    "confidence": float(raw_candidate.get("confidence", 0.0) or 0.0),
+                    "confidence": raw_candidate.confidence,
                     "observed_at": event.timestamp,
                     "source_type": event.source,
                     "extraction_method": "llm_unified_extraction",
@@ -1206,7 +1205,7 @@ class L2Pipeline:
         graph_candidates: list[dict[str, Any]],
         resolved_context_refs: list[ResolvedContextRef],
         default_event_ids: list[str],
-        raw_candidates: list[dict[str, Any]],
+        raw_candidates: list[L2AssertionCandidate],
     ) -> tuple[list[dict[str, Any]], int]:
         if not policy.allow_assertion_write or not profile.allow_assertion:
             return [], 0
@@ -1225,17 +1224,14 @@ class L2Pipeline:
             for candidate in graph_candidates
         ]
         for raw_candidate in scoped_assertions:
-            if not isinstance(raw_candidate, dict):
+            if raw_candidate.trait_family.casefold() not in profile.allowed_assertion_families:
                 rejected_count += 1
                 continue
-            if str(raw_candidate.get("trait_family", "")).strip().lower() not in profile.allowed_assertion_families:
-                rejected_count += 1
-                continue
-            is_valid, _ = validate_assertion_candidate(raw_candidate)
+            is_valid, _ = validate_assertion_candidate(raw_candidate.to_dict())
             if not is_valid:
                 rejected_count += 1
                 continue
-            if is_leaf_fact_duplicate(duplicate_check_candidates, raw_candidate):
+            if is_leaf_fact_duplicate(duplicate_check_candidates, raw_candidate.to_dict()):
                 rejected_count += 1
                 continue
             prepared.append(
@@ -1248,8 +1244,8 @@ class L2Pipeline:
             )
         return prepared, rejected_count
 
-    def _resolve_subject_id(self, *, event: MemoryEvent, raw_candidate: dict[str, Any]) -> str | None:
-        subject_ref = self._non_empty_text(raw_candidate.get("subject_ref"))
+    def _resolve_subject_id(self, *, event: MemoryEvent, raw_candidate: L2GraphCandidate) -> str | None:
+        subject_ref = self._non_empty_text(raw_candidate.subject_ref)
         if subject_ref:
             if subject_ref.startswith("user:"):
                 return self._resolve_self_entity_id(event) or subject_ref
@@ -1286,18 +1282,18 @@ class L2Pipeline:
     def _normalize_assertion_candidate(
         self,
         event: MemoryEvent,
-        candidate: dict[str, Any],
+        candidate: L2AssertionCandidate,
         resolved_context_refs: list[ResolvedContextRef],
         *,
         default_event_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        trait_value = candidate.get("trait_value")
+        trait_value = candidate.trait_value
         if isinstance(trait_value, (dict, list)):
             trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
         elif trait_value is None:
             trait_value = ""
         self_entity_id = self._resolve_self_entity_id(event)
-        entity_ref = self._non_empty_text(candidate.get("entity_ref"))
+        entity_ref = self._non_empty_text(candidate.entity_ref)
         if entity_ref and entity_ref.startswith("user:") and self_entity_id:
             entity_ref = self_entity_id
         target_entity_id, target_entity_type, context_ref_id = self._resolve_assertion_target(
@@ -1311,18 +1307,16 @@ class L2Pipeline:
         )
         return {
             "entity_id": entity_ref or self_entity_id or "",
-            "entity_type": str(candidate.get("entity_type", "user")),
-            "trait_family": str(candidate.get("trait_family", "")).strip().lower(),
-            "trait_name": str(candidate.get("trait_name", "")).strip(),
+            "entity_type": candidate.entity_type or "user",
+            "trait_family": candidate.trait_family.casefold(),
+            "trait_name": candidate.trait_name,
             "trait_value": str(trait_value),
-            "confidence_score": float(candidate.get("confidence", 0.0) or 0.0),
-            "evidence_events": [
-                str(item) for item in candidate.get("supporting_event_ids", default_event_ids or [event.event_id])
-            ],
-            "volatility_index": float(candidate.get("volatility_index", 0.5) or 0.5),
+            "confidence_score": candidate.confidence,
+            "evidence_events": list(candidate.supporting_event_ids or default_event_ids or [event.event_id]),
+            "volatility_index": candidate.volatility_index,
             "source_domain": event.memory_domain.label,
-            "inference_depth": str(candidate.get("inference_depth", event.tom_depth.label)),
-            "validation_state": str(candidate.get("validation_state", "tentative")),
+            "inference_depth": candidate.inference_depth or event.tom_depth.label,
+            "validation_state": candidate.validation_state or "tentative",
             "first_inferred_at": event.timestamp,
             "last_validated_at": event.timestamp,
             "target_entity_id": target_entity_id or "",
@@ -1393,12 +1387,12 @@ class L2Pipeline:
     def _resolve_assertion_target(
         self,
         *,
-        candidate: dict[str, Any],
+        candidate: L2AssertionCandidate,
         resolved_context_refs: list[ResolvedContextRef],
     ) -> tuple[str | None, str | None, str | None]:
-        target_ref = self._non_empty_text(candidate.get("target_ref"))
-        explicit_target_entity_id = self._non_empty_text(candidate.get("target_entity_id"))
-        explicit_target_entity_type = self._normalize_entity_type(candidate.get("target_entity_type"))
+        target_ref = self._non_empty_text(candidate.target_ref)
+        explicit_target_entity_id = self._non_empty_text(candidate.target_entity_id)
+        explicit_target_entity_type = self._normalize_entity_type(candidate.target_entity_type)
         if explicit_target_entity_id:
             return explicit_target_entity_id, explicit_target_entity_type, explicit_target_entity_id
         if not target_ref:
@@ -1416,17 +1410,17 @@ class L2Pipeline:
         self,
         *,
         event: MemoryEvent,
-        candidate: dict[str, Any],
+        candidate: L2AssertionCandidate,
         target_entity_id: str | None,
     ) -> tuple[str, str, float | None]:
-        temporal_scope = self._non_empty_text(candidate.get("temporal_scope"))
-        decay_policy = self._non_empty_text(candidate.get("decay_policy"))
-        expires_at = candidate.get("expires_at")
+        temporal_scope = self._non_empty_text(candidate.temporal_scope)
+        decay_policy = self._non_empty_text(candidate.decay_policy)
+        expires_at = candidate.expires_at
         if temporal_scope and decay_policy:
             return temporal_scope, decay_policy, float(expires_at) if expires_at is not None else None
 
-        trait_family = str(candidate.get("trait_family", "")).strip().lower()
-        trait_name = str(candidate.get("trait_name", "")).strip().lower()
+        trait_family = candidate.trait_family.casefold()
+        trait_name = candidate.trait_name.casefold()
         if target_entity_id and trait_name in {"annoyance", "irritation", "frustration"}:
             return "momentary", "fast_decay", event.timestamp + 2 * 60 * 60
         if trait_family == "mood":
@@ -1466,19 +1460,18 @@ class L2Pipeline:
     def _apply_assertion_scope(
         self,
         *,
-        raw_candidates: list[dict[str, Any]],
+        raw_candidates: list[L2AssertionCandidate],
         assertion_scope: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[L2AssertionCandidate]:
         if assertion_scope == "none":
             return []
         if assertion_scope == "full":
-            return [candidate for candidate in raw_candidates if isinstance(candidate, dict)]
+            return list(raw_candidates)
         if assertion_scope == "topology_only":
             return [
                 candidate
                 for candidate in raw_candidates
-                if isinstance(candidate, dict)
-                and str(candidate.get("trait_family", "")).strip().casefold() in _TOPOLOGY_ONLY_TRAIT_FAMILIES
+                if candidate.trait_family.casefold() in _TOPOLOGY_ONLY_TRAIT_FAMILIES
             ]
         return []
 
