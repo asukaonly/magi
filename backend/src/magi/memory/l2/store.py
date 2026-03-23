@@ -766,7 +766,7 @@ class L2CognitionStore:
         entity_id: str,
         entity_type: Optional[str] = None,
         evidence_timestamps: Optional[Dict[str, float]] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[ReconciledTraitOutcome]:
         """Re-evaluate assertion confidence and stability for one entity."""
         assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
         if not assertions:
@@ -774,7 +774,7 @@ class L2CognitionStore:
 
         normalized_entity_type = entity_type or assertions[0]["entity_type"]
         now = time.time()
-        outcomes: list[dict[str, Any]] = []
+        outcomes: list[ReconciledTraitOutcome] = []
 
         async with sqlite_connection_async(self.db_path) as db:
             for assertion in assertions:
@@ -827,12 +827,12 @@ class L2CognitionStore:
                         time_span_hours=round(time_span_hours, 2),
                         stability_kind=stability_kind,
                         recommended_snapshot_field=snapshot_field,
-                    ).to_dict()
+                    )
                 )
             await db.commit()
         status_counts: dict[str, int] = {}
         for item in outcomes:
-            status = str(item.get("status", "unknown"))
+            status = str(item.status or "unknown")
             status_counts[status] = status_counts.get(status, 0) + 1
         logger.info(
             "L2 reconcile entity completed",

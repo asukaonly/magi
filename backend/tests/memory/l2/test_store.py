@@ -143,6 +143,32 @@ async def test_repeated_evidence_promotes_snapshot_to_stable(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_reconcile_entity_returns_typed_outcomes(tmp_path):
+    from magi.memory.l2.models import ReconciledTraitOutcome
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    event = await _build_user_message(
+        "I feel stressed about work.",
+        correlation_id="evt-1",
+        timestamp=1710000000.0,
+    )
+    await _apply_rule_candidates(store, event)
+
+    outcomes = await store.reconcile_entity(
+        entity_id="user:u1",
+        entity_type="user",
+        evidence_timestamps={"evt-1": 1710000000.0},
+    )
+
+    assert len(outcomes) == 1
+    assert isinstance(outcomes[0], ReconciledTraitOutcome)
+    assert outcomes[0].trait_name == "stress_level"
+
+
+@pytest.mark.asyncio
 async def test_contradiction_downgrades_existing_assertion(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 

@@ -28,6 +28,7 @@ from .models import (
     L2GraphCandidate,
     L2PendingBatchBucket,
     L2SourceEvent,
+    ReconciledTraitOutcome,
     ResolvedEntityMention,
     build_l2_batch_bucket_key,
 )
@@ -468,12 +469,12 @@ class L2Pipeline:
         *,
         entity_id: str,
         entity_type: str,
-        outcomes: list[dict[str, Any]],
+        outcomes: list[ReconciledTraitOutcome],
     ) -> None:
         if self._state_change_callback is None or not outcomes:
             return
         try:
-            await self._state_change_callback(entity_id, entity_type, outcomes)
+            await self._state_change_callback(entity_id, entity_type, [item.to_dict() for item in outcomes])
         except Exception:
             logger.exception(
                 "L2 state change insight callback failed",
