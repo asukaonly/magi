@@ -22,6 +22,23 @@
     --border: 20 12% 86%;
     --input: 20 12% 86%;
     --ring: 18 90% 52%;
+    --sidebar-background-start: 34 18% 93%;
+    --sidebar-background-end: 31 16% 91%;
+    --sidebar-border: 31 11% 82%;
+    --sidebar-foreground: 24 16% 27%;
+    --sidebar-muted: 26 10% 48%;
+    --sidebar-hover: 33 17% 88%;
+    --sidebar-active: 31 23% 84%;
+    --sidebar-active-foreground: 24 18% 24%;
+    --sidebar-subactive: 31 18% 86%;
+    --sidebar-tool: 34 14% 88%;
+    --sidebar-tool-hover: 33 18% 84%;
+    --sidebar-menu: 34 18% 92%;
+    --sidebar-shadow: 25 25% 20%;
+    --sidebar-badge: 20 45% 42%;
+    --sidebar-badge-foreground: 34 38% 96%;
+    --sidebar-divider: 30 15% 80%;
+    --sidebar-ring: 22 45% 54%;
     --radius: 0.9rem;
   }
 
@@ -43,6 +60,23 @@
     --border: 220 18% 22%;
     --input: 220 18% 22%;
     --ring: 175 70% 45%;
+    --sidebar-background-start: 222 18% 12%;
+    --sidebar-background-end: 220 16% 10%;
+    --sidebar-border: 220 12% 22%;
+    --sidebar-foreground: 28 22% 88%;
+    --sidebar-muted: 28 10% 66%;
+    --sidebar-hover: 220 14% 16%;
+    --sidebar-active: 24 24% 24%;
+    --sidebar-active-foreground: 30 32% 92%;
+    --sidebar-subactive: 24 18% 19%;
+    --sidebar-tool: 220 15% 17%;
+    --sidebar-tool-hover: 220 14% 21%;
+    --sidebar-menu: 222 18% 14%;
+    --sidebar-shadow: 0 0% 0%;
+    --sidebar-badge: 24 60% 52%;
+    --sidebar-badge-foreground: 30 35% 96%;
+    --sidebar-divider: 220 13% 24%;
+    --sidebar-ring: 28 88% 58%;
     --radius: 0.9rem;
   }
 

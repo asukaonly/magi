@@ -166,10 +166,59 @@ describe('sidebar navigation', () => {
 
     const conversationAction = await screen.findByRole('button', { name: 'shell.conversation' });
     const sessionAction = await screen.findByRole('button', { name: '杭州天气' });
+    const sessionRow = sessionAction.parentElement;
 
     expect(conversationAction.className).toContain('rounded-none');
     expect(conversationAction.className).not.toContain(' border ');
     expect(sessionAction.className).toContain('rounded-none');
+  });
+
+  it('binds sidebar surfaces and active states to theme tokens instead of hardcoded palette values', async () => {
+    vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
+      sessions: [
+        {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+      ],
+      user_id: 'web_user',
+      count: 1,
+    });
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a'],
+      sessionsById: {
+        'session-a': {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+      },
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    const sidebar = container.querySelector('aside');
+    const conversationAction = await screen.findByRole('button', { name: 'shell.conversation' });
+    const sessionAction = await screen.findByRole('button', { name: '杭州天气' });
+    const sessionRow = sessionAction.parentElement;
+
+    expect(sidebar?.className).toContain('var(--sidebar-background-start)');
+    expect(sidebar?.className).toContain('var(--sidebar-background-end)');
+    expect(conversationAction.className).toContain('var(--sidebar-active)');
+    expect(conversationAction.className).toContain('var(--sidebar-active-foreground)');
+    expect(sessionRow?.className).toContain('var(--sidebar-active)');
   });
 
   it('keeps the currently selected session when it still exists in the refreshed list', async () => {
