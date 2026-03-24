@@ -250,6 +250,20 @@ describe('ChatPage', () => {
     expect(screen.getByText('notes.md')).toBeInTheDocument();
   });
 
+  it('renders a quieter editor-style composer shell', async () => {
+    render(<ChatPage />);
+
+    const composerInput = await screen.findByTestId('chat-composer-input');
+    const composerRoot = composerInput.parentElement;
+    const toolbar = screen.getByTestId('chat-composer-toolbar');
+    const sendButton = screen.getByRole('button', { name: 'chat.send' });
+
+    expect(composerRoot).toHaveClass('rounded-2xl');
+    expect(composerRoot).not.toHaveClass('rounded-[28px]');
+    expect(toolbar).not.toHaveClass('border-t');
+    expect(sendButton).toHaveClass('h-10', 'w-10');
+  });
+
   it('disables image attachments when the core model does not support vision', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue(buildConfigWithVision(false) as any);

@@ -1078,26 +1078,26 @@ export const ChatPage: React.FC = () => {
       <div className="mt-2 shrink-0">
         <div
           ref={composerRef}
-          className="rounded-[28px] border border-border/60 bg-background/85 shadow-sm backdrop-blur"
+          className="overflow-hidden rounded-2xl border border-border/45 bg-background shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
         >
           {draftAttachments.length > 0 && (
             <div
               data-testid="chat-composer-attachments"
-              className="flex flex-wrap gap-2 border-b border-border/50 px-4 py-3"
+              className="flex flex-wrap gap-2 px-5 pt-4"
             >
               {draftAttachments.map((attachment) => (
                 <div
                   key={attachment.id}
-                  className="flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-border/60 bg-background/80 px-3 py-2 shadow-sm"
+                  className="flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-border/55 bg-muted/30 px-3 py-2"
                 >
                   {attachment.kind === 'image' && attachment.previewUrl ? (
                     <img
                       src={attachment.previewUrl}
                       alt={attachment.name}
-                      className="h-12 w-12 shrink-0 rounded-xl object-cover"
+                      className="h-11 w-11 shrink-0 rounded-lg object-cover"
                     />
                   ) : (
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                       <FileText className="h-5 w-5" />
                     </div>
                   )}
@@ -1118,7 +1118,10 @@ export const ChatPage: React.FC = () => {
             </div>
           )}
 
-          <div data-testid="chat-composer-input" className="px-4 py-3">
+          <div
+            data-testid="chat-composer-input"
+            className={draftAttachments.length > 0 ? 'px-5 pb-1 pt-3' : 'px-5 pb-1 pt-4'}
+          >
             <AutoResizeTextarea
               value={inputValue}
               onChange={(event) => setInputValue(event.target.value)}
@@ -1132,13 +1135,13 @@ export const ChatPage: React.FC = () => {
               onKeyDown={handleKeyPress}
               onPaste={handleComposerPaste}
               disabled={!connected}
-              minHeight={120}
-              className="max-h-72 resize-none border-0 bg-transparent p-0 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+              minHeight={112}
+              className="max-h-72 resize-none border-0 bg-transparent p-0 text-sm leading-7 shadow-none placeholder:text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
             />
           </div>
           <div
             data-testid="chat-composer-toolbar"
-            className="flex items-center justify-between border-t border-border/50 px-3 py-3"
+            className="flex items-center justify-between px-4 pb-4 pt-2"
           >
             <div className="relative">
               <button
@@ -1146,18 +1149,18 @@ export const ChatPage: React.FC = () => {
                 onClick={() => setAttachmentMenuOpen((open) => !open)}
                 aria-label={t('chat.attachments.add')}
                 title={t('chat.attachments.add')}
-                className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
               >
                 <Paperclip className="h-4 w-4" />
               </button>
 
               {attachmentMenuOpen && (
-                <div className="absolute bottom-full left-0 mb-2 flex w-44 flex-col gap-1 rounded-2xl border border-border/60 bg-background/95 p-2 shadow-lg backdrop-blur">
+                <div className="absolute bottom-full left-0 mb-2 flex w-44 flex-col gap-1 rounded-xl border border-border/60 bg-background p-2 shadow-lg">
                   <button
                     type="button"
                     onClick={() => imageInputRef.current?.click()}
                     disabled={!coreModelSupportsVision}
-                    className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:text-muted-foreground"
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted/55 disabled:cursor-not-allowed disabled:text-muted-foreground"
                   >
                     <ImagePlus className="h-4 w-4" />
                     {t('chat.attachments.addImage')}
@@ -1165,7 +1168,7 @@ export const ChatPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted/55"
                   >
                     <FileText className="h-4 w-4" />
                     {t('chat.attachments.addFile')}
@@ -1179,11 +1182,11 @@ export const ChatPage: React.FC = () => {
                 void handleSendMessage();
               }}
               disabled={!connected || sendingMessage}
-              className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground text-background transition-colors hover:bg-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               aria-label={t('chat.send')}
               title={t('chat.send')}
             >
-              {sendingMessage ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+              {sendingMessage ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
             </button>
           </div>
           <input
