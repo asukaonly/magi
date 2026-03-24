@@ -322,6 +322,29 @@ describe('chat trace state helpers', () => {
     expect(normalized[0].traceAvailable).toBe(true);
   });
 
+  it('attaches a terminal trace summary back onto the user turn when no assistant row exists', () => {
+    const initial = createPendingTurn('Analyze this repo', 'turn_user_only', 1000, 'Thinking');
+    const next = upsertTraceSummary(
+      initial,
+      'turn_user_only',
+      normalizeTraceSummary({
+        turn_id: 'turn_user_only',
+        mode: 'function_calling',
+        status: 'interrupted',
+        headline: 'Interrupted by a newer turn',
+        active_steps: 0,
+        completed_steps: 1,
+        failed_steps: 0,
+        duration_seconds: 0.8,
+        trace_available: true,
+      })
+    );
+
+    const userMessage = next.find((message) => message.role === 'user');
+    expect(userMessage?.traceSummary?.status).toBe('interrupted');
+    expect(userMessage?.traceAvailable).toBe(true);
+  });
+
   it('normalizes second-based history timestamps into millisecond timestamps', () => {
     const normalized = normalizeHistoryMessages([
       {

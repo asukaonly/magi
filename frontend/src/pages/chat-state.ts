@@ -368,6 +368,20 @@ export const upsertTraceSummary = (
 
   if (updated) return nextMessages;
   if (traceDisplayMode === 'none') return messages;
+  if (
+    nextSummary &&
+    ['interrupted', 'merged'].includes(String(nextSummary.status || '').trim())
+  ) {
+    return messages.map((message) => (
+      message.turnId === turnId && message.role === 'user'
+        ? {
+          ...message,
+          traceSummary: nextSummary,
+          traceAvailable: Boolean(nextSummary.traceAvailable),
+        }
+        : message
+    ));
+  }
 
   return [
     ...messages,
