@@ -12,6 +12,7 @@ import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
+from .contracts import L0ExecutionSummary, L0PromptWorkbenchProjection
 
 
 MAX_CONCURRENT_SESSIONS = 64
@@ -527,25 +528,30 @@ class L0WorkingMemoryStore:
             ],
         }
 
-    async def get_prompt_workbench_projection(self, session_id: str) -> dict[str, Any]:
+    async def get_prompt_workbench_projection(self, session_id: str) -> L0PromptWorkbenchProjection:
         """Return the prompt-facing L0 projection with execution state summarized."""
         workbench = await self.get_workbench(session_id)
         execution_state = self.get_execution_state_sync(session_id)
         run = execution_state.get("run")
         pending_turns = execution_state.get("pending_turns", [])
 
-        projection = dict(workbench)
+        projection = L0PromptWorkbenchProjection(
+            session=workbench.get("session"),
+            goal_stack=list(workbench.get("goal_stack", [])),
+            active_entities=list(workbench.get("active_entities", [])),
+            temporary_tactics=list(workbench.get("temporary_tactics", [])),
+        )
         if isinstance(run, dict):
             latest_pending_turn = pending_turns[-1] if pending_turns else None
-            projection["execution_summary"] = {
-                "active_run_summary": str(run.get("root_user_message") or "").strip(),
-                "awaiting_external_result": str(run.get("status") or "").strip() == "running",
-                "latest_user_augmentation_summary": (
+            projection.execution_summary = L0ExecutionSummary(
+                active_run_summary=str(run.get("root_user_message") or "").strip(),
+                awaiting_external_result=str(run.get("status") or "").strip() == "running",
+                latest_user_augmentation_summary=(
                     str(latest_pending_turn.get("content") or "").strip()
                     if isinstance(latest_pending_turn, dict)
                     else None
                 ),
-            }
+            )
         return projection
 
     async def checkpoint_session(self, session_id: str) -> None:

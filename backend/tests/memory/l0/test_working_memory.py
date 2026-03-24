@@ -181,6 +181,7 @@ async def test_l0_workbench_excludes_execution_lane_state(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l0_prompt_projection_summarizes_execution_lane(tmp_path):
+    from magi.memory.l0.contracts import L0ExecutionSummary, L0PromptWorkbenchProjection
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     checkpoint_path = tmp_path / "l0_prompt_projection.db"
@@ -220,14 +221,16 @@ async def test_l0_prompt_projection_summarizes_execution_lane(tmp_path):
 
     projection = await store.get_prompt_workbench_projection("session-1")
 
-    assert projection["execution_summary"] == {
-        "active_run_summary": "Investigate the login issue",
-        "awaiting_external_result": True,
-        "latest_user_augmentation_summary": "补充一下，是 macOS",
-    }
-    assert "response_anchor_turn_id" not in str(projection)
-    assert "run_id" not in str(projection)
-    assert "raw tool output" not in str(projection)
+    assert isinstance(projection, L0PromptWorkbenchProjection)
+    assert projection.execution_summary == L0ExecutionSummary(
+        active_run_summary="Investigate the login issue",
+        awaiting_external_result=True,
+        latest_user_augmentation_summary="补充一下，是 macOS",
+    )
+    payload = projection.to_payload()
+    assert "response_anchor_turn_id" not in str(payload)
+    assert "run_id" not in str(payload)
+    assert "raw tool output" not in str(payload)
 
 
 @pytest.mark.asyncio
