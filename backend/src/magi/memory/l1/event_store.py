@@ -31,6 +31,7 @@ EMBEDDING_STATUS_SKIPPED = "skipped"
 EMBEDDING_STATUS_DISABLED = "disabled"
 EMBEDDING_STATUS_STALE = "stale"
 EMBEDDING_QUEUE_MAXSIZE = 1
+DEFAULT_EMBEDDING_WORKER_COUNT = 2
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,14 @@ class L1EventStore:
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
+        embedding_worker_count: int = DEFAULT_EMBEDDING_WORKER_COUNT,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
         self._memory_config_getter = memory_config_getter
         self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
         self._default_async_embeddings = bool(async_embeddings)
+        self._embedding_worker_count = max(1, int(embedding_worker_count))
         self._vector_index = (
             SqliteVecIndex(
                 db_path=self.db_path,
@@ -69,9 +72,11 @@ class L1EventStore:
             else None
         )
         self._embedding_queue: asyncio.Queue[MemoryEvent | None] | None = (
-            asyncio.Queue(maxsize=EMBEDDING_QUEUE_MAXSIZE) if embedding_service is not None else None
+            asyncio.Queue(maxsize=max(EMBEDDING_QUEUE_MAXSIZE, self._embedding_worker_count))
+            if embedding_service is not None
+            else None
         )
-        self._embedding_worker: asyncio.Task[None] | None = None
+        self._embedding_workers: list[asyncio.Task[None]] = []
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
         self._initialized = False
@@ -164,15 +169,19 @@ class L1EventStore:
                 await self._vector_index.initialize()
             await db.commit()
 
-        if self._embedding_queue is not None and self._embedding_worker is None:
-            self._embedding_worker = asyncio.create_task(self._run_embedding_worker())
+        if self._embedding_queue is not None and not self._embedding_workers:
+            self._embedding_workers = [
+                asyncio.create_task(self._run_embedding_worker())
+                for _ in range(self._embedding_worker_count)
+            ]
         self._initialized = True
 
     async def shutdown(self) -> None:
-        if self._embedding_queue is not None and self._embedding_worker is not None:
-            await self._embedding_queue.put(None)
-            await self._embedding_worker
-            self._embedding_worker = None
+        if self._embedding_queue is not None and self._embedding_workers:
+            for _ in self._embedding_workers:
+                await self._embedding_queue.put(None)
+            await asyncio.gather(*self._embedding_workers)
+            self._embedding_workers = []
         if self._vector_index is not None:
             await self._vector_index.close()
 
@@ -491,7 +500,8 @@ class L1EventStore:
             "async_embeddings": self._async_embeddings_enabled(),
             "active_embedding_profile_id": self.get_active_embedding_profile_id(),
             "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
-            "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
+            "embedding_worker_running": any(not worker.done() for worker in self._embedding_workers),
+            "embedding_worker_count": self._embedding_worker_count,
         }
 
     async def list_compressible_event_ids(

@@ -94,11 +94,16 @@ class _BlockingBatchEmbeddingService(_BatchTrackingEmbeddingService):
         super().__init__()
         self.started = asyncio.Event()
         self.release = asyncio.Event()
+        self.active_calls = 0
+        self.max_active_calls = 0
 
     async def embed_texts(self, texts: list[str]):
         self.batch_calls.append(list(texts))
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
         self.started.set()
         await self.release.wait()
+        self.active_calls -= 1
         return [self._make_result(text) for text in texts]
 
 
@@ -571,6 +576,7 @@ async def test_l1_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=True,
+        embedding_worker_count=1,
     )
     store._embedding_batch_wait_seconds = 5.0
     await store.initialize()
@@ -615,6 +621,7 @@ async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=True,
+        embedding_worker_count=1,
     )
     store._embedding_batch_wait_seconds = 0.05
     await store.initialize()
@@ -663,6 +670,7 @@ async def test_l1_embedding_queue_waits_when_full(tmp_path):
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=True,
+        embedding_worker_count=1,
     )
     store._embedding_batch_size = 1
     store._embedding_batch_wait_seconds = 5.0
@@ -741,6 +749,73 @@ async def test_l1_embedding_queue_waits_when_full(tmp_path):
 
         embedding_service.release.set()
         await asyncio.wait_for(third_task, timeout=1.0)
+    finally:
+        embedding_service.release.set()
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_async_embeddings_can_use_multiple_workers(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _BlockingBatchEmbeddingService()
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=True,
+        embedding_worker_count=2,
+    )
+    store._embedding_batch_size = 1
+    store._embedding_batch_wait_seconds = 5.0
+    await store.initialize()
+
+    try:
+        await store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "career note a",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-worker-a",
+                ),
+                event_id="evt-worker-a",
+            )
+        )
+        await store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "career note b",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-worker-b",
+                ),
+                event_id="evt-worker-b",
+            )
+        )
+
+        async def wait_for_parallel_workers() -> None:
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                if embedding_service.max_active_calls >= 2:
+                    return
+                await asyncio.sleep(0.01)
+            raise AssertionError("expected at least two embedding workers to run concurrently")
+
+        await wait_for_parallel_workers()
     finally:
         embedding_service.release.set()
         await store.shutdown()
