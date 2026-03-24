@@ -43,6 +43,8 @@ class LLMUsageStore:
                     total_tokens INTEGER NOT NULL DEFAULT 0,
                     usage_available INTEGER NOT NULL DEFAULT 0,
                     latency_ms INTEGER NOT NULL DEFAULT 0,
+                    ttft_ms INTEGER NOT NULL DEFAULT 0,
+                    cost_usd REAL NOT NULL DEFAULT 0,
                     success INTEGER NOT NULL DEFAULT 1,
                     error TEXT,
                     correlation_id TEXT,
@@ -52,6 +54,7 @@ class LLMUsageStore:
                     created_at REAL NOT NULL
                 )
             """)
+            await self._ensure_optional_columns(db)
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at)"
             )
@@ -62,6 +65,21 @@ class LLMUsageStore:
                 "CREATE INDEX IF NOT EXISTS idx_llm_usage_request_kind ON llm_usage(request_kind)"
             )
             await db.commit()
+
+    async def _ensure_optional_columns(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(llm_usage)")
+        rows = await cursor.fetchall()
+        existing_columns = {str(row[1]) for row in rows}
+
+        if "ttft_ms" not in existing_columns:
+            await db.execute(
+                "ALTER TABLE llm_usage ADD COLUMN ttft_ms INTEGER NOT NULL DEFAULT 0"
+            )
+
+        if "cost_usd" not in existing_columns:
+            await db.execute(
+                "ALTER TABLE llm_usage ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0"
+            )
 
     async def start(self, message_bus: MessageBusBackend) -> None:
         """Initialize storage and subscribe to LLM usage events."""
@@ -111,6 +129,8 @@ class LLMUsageStore:
                     total_tokens,
                     usage_available,
                     latency_ms,
+                    ttft_ms,
+                    cost_usd,
                     success,
                     error,
                     correlation_id,
@@ -118,7 +138,7 @@ class LLMUsageStore:
                     turn_id,
                     agent_id,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(payload.get("request_id") or ""),
@@ -130,6 +150,8 @@ class LLMUsageStore:
                     int(payload.get("total_tokens") or 0),
                     1 if payload.get("usage_available") else 0,
                     int(payload.get("latency_ms") or 0),
+                    int(payload.get("ttft_ms") or 0),
+                    float(payload.get("cost_usd") or 0),
                     1 if payload.get("success", True) else 0,
                     payload.get("error"),
                     payload.get("correlation_id"),
@@ -153,11 +175,14 @@ class LLMUsageStore:
                 SELECT
                     COUNT(*) AS total_calls,
                     SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
                     SUM(CASE WHEN usage_available = 1 THEN 1 ELSE 0 END) AS calls_with_usage,
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
                     COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms
+                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+                    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
+                    COALESCE(SUM(cost_usd), 0) AS total_cost_usd
                 FROM llm_usage
                 WHERE created_at >= ?
                 """,
@@ -171,9 +196,14 @@ class LLMUsageStore:
                 SELECT
                     provider,
                     COUNT(*) AS calls,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                    COALESCE(SUM(total_tokens), 0) AS total_tokens
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+                    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd
                 FROM llm_usage
                 WHERE created_at >= ?
                 GROUP BY provider
@@ -189,9 +219,14 @@ class LLMUsageStore:
                     provider,
                     model,
                     COUNT(*) AS calls,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                    COALESCE(SUM(total_tokens), 0) AS total_tokens
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+                    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd
                 FROM llm_usage
                 WHERE created_at >= ?
                 GROUP BY provider, model
@@ -207,9 +242,14 @@ class LLMUsageStore:
                 SELECT
                     request_kind,
                     COUNT(*) AS calls,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                    COALESCE(SUM(total_tokens), 0) AS total_tokens
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+                    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd
                 FROM llm_usage
                 WHERE created_at >= ?
                 GROUP BY request_kind
@@ -220,17 +260,20 @@ class LLMUsageStore:
 
         total_calls = int(totals["total_calls"] or 0)
         successful_calls = int(totals["successful_calls"] or 0)
+        failed_calls = int(totals["failed_calls"] or 0)
         return {
             "window_days": days,
             "totals": {
                 "total_calls": total_calls,
                 "successful_calls": successful_calls,
-                "failed_calls": max(total_calls - successful_calls, 0),
+                "failed_calls": failed_calls if failed_calls >= 0 else max(total_calls - successful_calls, 0),
                 "calls_with_usage": int(totals["calls_with_usage"] or 0),
                 "prompt_tokens": int(totals["prompt_tokens"] or 0),
                 "completion_tokens": int(totals["completion_tokens"] or 0),
                 "total_tokens": int(totals["total_tokens"] or 0),
                 "avg_latency_ms": round(float(totals["avg_latency_ms"] or 0), 2),
+                "avg_ttft_ms": round(float(totals["avg_ttft_ms"] or 0), 2) if float(totals["avg_ttft_ms"] or 0) > 0 else None,
+                "total_cost_usd": round(float(totals["total_cost_usd"] or 0), 4),
             },
             "providers": providers,
             "models": models,
@@ -250,7 +293,8 @@ class LLMUsageStore:
                     COUNT(*) AS calls,
                     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                    COALESCE(SUM(total_tokens), 0) AS total_tokens
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(cost_usd), 0) AS cost_usd
                 FROM llm_usage
                 WHERE created_at >= ?
                 GROUP BY day
@@ -267,6 +311,7 @@ class LLMUsageStore:
                 "prompt_tokens": int(row["prompt_tokens"] or 0),
                 "completion_tokens": int(row["completion_tokens"] or 0),
                 "total_tokens": int(row["total_tokens"] or 0),
+                "cost_usd": round(float(row["cost_usd"] or 0), 4),
             }
             for row in rows
         ]
