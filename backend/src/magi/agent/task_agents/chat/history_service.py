@@ -3,16 +3,27 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ....core.logger import get_logger
 from ....core.sqlite import connect_sqlite
 from ....utils.runtime import get_runtime_paths
+from ....chat import ChatStore
 
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
+
+
+@dataclass(slots=True)
+class CachedConversationHistory:
+    """In-memory conversation history paired with the durable transcript version."""
+
+    version: int
+    messages: list[dict[str, Any]]
+    loaded_at_ms: int = 0
 
 
 class ChatHistoryService:
@@ -25,32 +36,41 @@ class ChatHistoryService:
         runtime_trace_db_path: Optional[Path] = None,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 200,
+        chat_store: ChatStore | None = None,
+        chat_read_service_factory: Callable[[], Any] | None = None,
     ) -> None:
         runtime_paths = get_runtime_paths()
         self._l1_db_path = l1_db_path
         self._runtime_trace_db_path = runtime_trace_db_path or runtime_paths.runtime_trace_db_path
         self._history_cache_max_sessions = history_cache_max_sessions
         self._history_fetch_limit = history_fetch_limit
-        self._conversation_history: dict[str, list[dict[str, Any]]] = {}
+        self._conversation_history: dict[str, CachedConversationHistory] = {}
         self._tool_interactions: dict[str, list[dict[str, Any]]] = {}
         self._history_cache_order: list[str] = []
+        self._chat_store = chat_store
+        self._chat_read_service_factory = chat_read_service_factory
 
     async def get_or_load_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
         history_key = self.history_key(user_id, session_id)
-        if history_key in self._conversation_history:
-            return self._conversation_history[history_key]
+        durable_version = 0
+        if self._chat_store is not None:
+            durable_version = await self._chat_store.get_history_version(session_id)
+        cached_entry = self._conversation_history.get(history_key)
+        if cached_entry is not None and cached_entry.version == durable_version:
+            return cached_entry.messages
         try:
-            from ....chat.read_service import get_chat_read_service
-
-            read_service = get_chat_read_service()
+            read_service = self._get_chat_read_service()
             history = read_service.get_conversation_history(
                 user_id=user_id,
                 session_id=session_id,
                 limit=self._history_fetch_limit,
             )
-            self._conversation_history[history_key] = [item.to_prompt_message() for item in history]
+            self._conversation_history[history_key] = CachedConversationHistory(
+                version=durable_version,
+                messages=[item.to_prompt_message() for item in history],
+            )
             self._update_lru_cache(history_key)
-            return self._conversation_history[history_key]
+            return self._conversation_history[history_key].messages
         except Exception as exc:
             logger.warning(
                 "Failed to lazy load history | user=%s session=%s error=%s",
@@ -58,8 +78,9 @@ class ChatHistoryService:
                 session_id,
                 exc,
             )
-            self._conversation_history.setdefault(history_key, [])
-            return self._conversation_history[history_key]
+            if cached_entry is not None:
+                return cached_entry.messages
+            return []
 
     def require_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
         _ = user_id
@@ -72,12 +93,20 @@ class ChatHistoryService:
         return f"{user_id}::{session_id}"
 
     def get_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
-        return self._conversation_history.setdefault(self.history_key(user_id, session_id), [])
+        cached = self._conversation_history.setdefault(
+            self.history_key(user_id, session_id),
+            CachedConversationHistory(version=0, messages=[]),
+        )
+        return cached.messages
 
     def append_user_message(self, history_key: str, user_message: str) -> None:
         if not user_message:
             return
-        history = self._conversation_history.setdefault(history_key, [])
+        cached = self._conversation_history.setdefault(
+            history_key,
+            CachedConversationHistory(version=0, messages=[]),
+        )
+        history = cached.messages
         if history and history[-1].get("role") == "user" and history[-1].get("content") == user_message:
             return
         history.append({"role": "user", "content": user_message})
@@ -86,8 +115,11 @@ class ChatHistoryService:
     def append_assistant_message(self, history_key: str, response_text: str) -> None:
         if not response_text:
             return
-        history = self._conversation_history.setdefault(history_key, [])
-        history.append({"role": "assistant", "content": response_text})
+        cached = self._conversation_history.setdefault(
+            history_key,
+            CachedConversationHistory(version=0, messages=[]),
+        )
+        cached.messages.append({"role": "assistant", "content": response_text})
         self._update_lru_cache(history_key)
 
     def store_tool_interaction(self, history_key: str, record: dict[str, Any]) -> None:
@@ -128,12 +160,16 @@ class ChatHistoryService:
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
         active_session = self.require_session_id(user_id, session_id)
-        return self._conversation_history.get(self.history_key(user_id, active_session), [])
+        cached = self._conversation_history.get(self.history_key(user_id, active_session))
+        if cached is None:
+            return []
+        return cached.messages
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         active_session = self.require_session_id(user_id, session_id)
         key = self.history_key(user_id, active_session)
-        self._conversation_history[key] = []
+        current_version = self._conversation_history.get(key).version if key in self._conversation_history else 0
+        self._conversation_history[key] = CachedConversationHistory(version=current_version, messages=[])
         self._tool_interactions[key] = []
 
     def _update_lru_cache(self, history_key: str) -> None:
@@ -145,6 +181,23 @@ class ChatHistoryService:
             self._conversation_history.pop(oldest_key, None)
             self._tool_interactions.pop(oldest_key, None)
             logger.debug("Evicted history cache | key=%s", oldest_key)
+
+    def _get_chat_read_service(self):  # type: ignore[no-untyped-def]
+        if self._chat_read_service_factory is not None:
+            read_service = self._chat_read_service_factory()
+        else:
+            from ....chat.read_service import get_chat_read_service
+
+            read_service = get_chat_read_service()
+        if self._chat_store is not None and hasattr(read_service, "_chat_db_path"):
+            current_path = Path(getattr(read_service, "_chat_db_path"))
+            target_path = Path(self._chat_store.db_path)
+            if current_path != target_path:
+                close = getattr(read_service, "close", None)
+                if callable(close):
+                    close()
+                setattr(read_service, "_chat_db_path", target_path)
+        return read_service
 
     def restore_conversation_from_events(self) -> None:
         fact_rows: list[tuple[Any, ...]] = []
@@ -176,7 +229,11 @@ class ChatHistoryService:
             if not session_id:
                 continue
             key = self.history_key(user_id, session_id)
-            history = self._conversation_history.setdefault(key, [])
+            cached = self._conversation_history.setdefault(
+                key,
+                CachedConversationHistory(version=0, messages=[]),
+            )
+            history = cached.messages
             if event_type == "UserMessage":
                 content = str(raw_content or "").strip()
                 if content:

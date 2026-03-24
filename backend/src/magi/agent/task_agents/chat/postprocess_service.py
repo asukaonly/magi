@@ -32,6 +32,7 @@ from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
 from .history_service import ChatHistoryService
 from .postprocess_components import ChatOutcomeWriter, ChatRuntimeNotifier
+from .session_run_coordinator import TurnSupersession
 
 if TYPE_CHECKING:
     from ....api.services.chat_trace_read_service import ChatTraceReadService
@@ -68,6 +69,7 @@ class ChatPostProcessService:
         self._memory = memory
         self._other_memory = other_memory
         self._unified_memory = unified_memory
+        self._chat_store = chat_store
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
         self._trace_read_service = trace_read_service
@@ -80,10 +82,29 @@ class ChatPostProcessService:
         self._runtime_notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
         self._started_turn_traces: set[str] = set()
 
+    async def persist_turn_supersessions(
+        self,
+        *,
+        superseded_turns: list[TurnSupersession],
+        updated_at_ms: int,
+    ) -> None:
+        """Persist merged/interrupted turn states before new execution continues."""
+        for superseded_turn in superseded_turns:
+            await self._chat_outcome_writer.persist_turn_supersession(
+                turn_id=superseded_turn.turn_id,
+                anchor_turn_id=superseded_turn.anchor_turn_id,
+                reason=superseded_turn.reason,
+                updated_at_ms=updated_at_ms,
+            )
+            await self._persist_trace_supersession(
+                turn_id=superseded_turn.turn_id,
+                anchor_turn_id=superseded_turn.anchor_turn_id,
+                reason=superseded_turn.reason,
+                updated_at_ms=updated_at_ms,
+            )
+
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
         action_emitter = self._get_action_emitter()
-        if action_emitter is None or result.skip_emit:
-            return ChatParseOutcome(False, False, False, False)
         latest_fact = context.latest_fact
         if not isinstance(latest_fact, FactRecord):
             return ChatParseOutcome(False, False, False, False)
@@ -92,6 +113,19 @@ class ChatPostProcessService:
             IncomingFactKind.WORKER_UPDATE,
             IncomingFactKind.EXPLORE_TASK_COMPLETED,
         }:
+            return ChatParseOutcome(False, False, False, False)
+        ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}
+
+        if result.skip_emit:
+            if await self._complete_turn_without_visible_response(
+                context=context,
+                result=result,
+                latest_fact=latest_fact,
+                ux_plan=ux_plan,
+            ):
+                return ChatParseOutcome(False, False, False, False)
+            return ChatParseOutcome(False, False, False, False)
+        if action_emitter is None:
             return ChatParseOutcome(False, False, False, False)
 
         response_text = str(result.response_text or "").strip()
@@ -105,6 +139,13 @@ class ChatPostProcessService:
                 failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
                 response_text = f"Execution failed: {failure_reason}"
         if not response_text:
+            if await self._complete_turn_without_visible_response(
+                context=context,
+                result=result,
+                latest_fact=latest_fact,
+                ux_plan=ux_plan,
+            ):
+                return ChatParseOutcome(False, False, False, False)
             return ChatParseOutcome(False, False, False, False)
 
         history_stored = False
@@ -178,14 +219,14 @@ class ChatPostProcessService:
             completed_at_ms=now_ms,
             orchestration_id=result.orchestration_id,
             execution_mode=self._normalize_mode(result.mode),
-            ux_plan=result.ux_plan if isinstance(result.ux_plan, dict) else {},
+            ux_plan=ux_plan,
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
         )
         notification_message = await self._get_notification_chat_message(
             turn_id=turn_id,
-            ux_plan=result.ux_plan if isinstance(result.ux_plan, dict) else {},
+            ux_plan=ux_plan,
         )
         final_message = notification_message if notification_message and notification_message.message_kind == "assistant_final" else None
         await self._project_final_chat_message(context=context, final_message=final_message)
@@ -243,6 +284,37 @@ class ChatPostProcessService:
             error=None,
         )
         return ChatParseOutcome(True, history_stored, memory_updated, False)
+
+    async def _complete_turn_without_visible_response(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        latest_fact: FactRecord,
+        ux_plan: dict[str, Any],
+    ) -> bool:
+        response_mode = str(ux_plan.get("assistant_surface_mode") or "").strip()
+        if response_mode not in {"none", "reaction_only"}:
+            return False
+        turn_id = result.turn_id or self._resolve_turn_id(
+            context,
+            latest_fact.payload if isinstance(latest_fact.payload, dict) else {},
+        )
+        now_ms = now_wall_ms()
+        started_at_ms = self._resolve_started_at_ms(result, latest_fact)
+        await self._persist_final_chat_outcome(
+            turn_id=turn_id,
+            response_text="",
+            started_at_ms=started_at_ms,
+            completed_at_ms=now_ms,
+            orchestration_id=result.orchestration_id,
+            execution_mode=self._normalize_mode(result.mode),
+            ux_plan=ux_plan,
+            run_id=context.session_run_id,
+            run_revision=context.session_run_revision,
+            run_disposition=context.session_run_disposition,
+        )
+        return True
 
     async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
         latest_fact = context.latest_fact
@@ -756,6 +828,9 @@ class ChatPostProcessService:
     ) -> None:
         if self._runtime_trace_store is None or turn_id in self._started_turn_traces:
             return
+        continued_from_turn_id, continued_from_trace_id = await self._resolve_trace_continuation(
+            anchor_turn_id=turn_id
+        )
         await self._runtime_trace_store.upsert_turn(
             TraceTurnRecord(
                 trace_id=trace_id,
@@ -766,6 +841,8 @@ class ChatPostProcessService:
                 mode=mode,
                 started_at_ms=started_at_ms,
                 user_message_preview=user_message[:240] or None,
+                continued_from_turn_id=continued_from_turn_id,
+                continued_from_trace_id=continued_from_trace_id,
                 created_at_ms=started_at_ms,
                 updated_at_ms=started_at_ms,
             )
@@ -785,6 +862,88 @@ class ChatPostProcessService:
             )
         )
         self._started_turn_traces.add(turn_id)
+
+    async def _resolve_trace_continuation(
+        self,
+        *,
+        anchor_turn_id: str,
+    ) -> tuple[str | None, str | None]:
+        if self._chat_store is None:
+            return (None, None)
+        previous_turn = await self._chat_store.get_latest_superseded_turn(anchor_turn_id=anchor_turn_id)
+        if previous_turn is None:
+            return (None, None)
+        trace_id = str(previous_turn.trace_id or self._build_trace_id(previous_turn.turn_id)).strip() or None
+        return (previous_turn.turn_id, trace_id)
+
+    async def _persist_trace_supersession(
+        self,
+        *,
+        turn_id: str,
+        anchor_turn_id: str,
+        reason: str,
+        updated_at_ms: int,
+    ) -> None:
+        if self._runtime_trace_store is None:
+            return
+        existing_turn = await self._runtime_trace_store.get_turn(turn_id)
+        if existing_turn is None:
+            return
+        status = "merged" if reason == "augment" else "interrupted"
+        started_at_ms = int(existing_turn.started_at_ms or updated_at_ms)
+        ended_at_ms = max(updated_at_ms, started_at_ms)
+        await self._runtime_trace_store.upsert_turn(
+            TraceTurnRecord(
+                trace_id=existing_turn.trace_id,
+                turn_id=existing_turn.turn_id,
+                session_id=existing_turn.session_id,
+                user_id=existing_turn.user_id,
+                status=status,
+                mode=existing_turn.mode,
+                orchestration_id=existing_turn.orchestration_id,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=max(0, ended_at_ms - started_at_ms),
+                user_message_preview=existing_turn.user_message_preview,
+                response_preview=existing_turn.response_preview,
+                error_summary=existing_turn.error_summary,
+                run_id=existing_turn.run_id,
+                run_revision=existing_turn.run_revision,
+                continued_from_turn_id=existing_turn.continued_from_turn_id,
+                continued_from_trace_id=existing_turn.continued_from_trace_id,
+                superseded_by_turn_id=anchor_turn_id,
+                supersession_reason=status,
+                created_at_ms=int(existing_turn.created_at_ms or started_at_ms),
+                updated_at_ms=ended_at_ms,
+            )
+        )
+        root_span = await self._runtime_trace_store.get_span(self._build_root_span_id(turn_id))
+        if root_span is None:
+            return
+        await self._runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=root_span.span_id,
+                trace_id=root_span.trace_id,
+                turn_id=root_span.turn_id,
+                parent_span_id=root_span.parent_span_id,
+                node_type=root_span.node_type,
+                name=root_span.name,
+                status=status,
+                attempt_index=root_span.attempt_index,
+                retry_count=root_span.retry_count,
+                iteration=root_span.iteration,
+                execution_agent_id=root_span.execution_agent_id,
+                result_preview=root_span.result_preview,
+                error_text=root_span.error_text,
+                run_id=root_span.run_id,
+                run_revision=root_span.run_revision,
+                started_at_ms=int(root_span.started_at_ms or started_at_ms),
+                ended_at_ms=ended_at_ms,
+                duration_ms=max(0, ended_at_ms - int(root_span.started_at_ms or started_at_ms)),
+                created_at_ms=int(root_span.created_at_ms or started_at_ms),
+                updated_at_ms=ended_at_ms,
+            )
+        )
 
     async def _emit_agent_response_notification(
         self,

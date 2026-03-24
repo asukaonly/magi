@@ -22,6 +22,7 @@ from .planning_service import ChatPlanningService
 from .postprocess_service import ChatPostProcessService
 from .prompt_service import ChatPromptService
 from .history_service import ChatHistoryService
+from .run_store import SessionRunStore
 from .session_run_coordinator import CheckpointDecision, SessionFactDecision, SessionRunCoordinator
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "OrchestrationPlan",
     "SessionFactDecision",
     "SessionRunCoordinator",
+    "SessionRunStore",
     "ToolSelection",
     "UserMessagePayload",
 ]

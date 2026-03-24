@@ -153,6 +153,7 @@ async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
     result = await handler.execute(_make_request(context))
 
     assert result.response_text == "final after augment"
+    assert result.turn_id == "turn-2"
     assert orchestrator.build_step_state_calls == [
         "Inspect the login flow.",
         "Inspect the login flow.\n\nAlso, use the staging endpoint.",
@@ -199,6 +200,7 @@ async def test_interrupt_turn_stops_continuation_and_replans() -> None:
     result = await handler.execute(_make_request(context))
 
     assert result.response_text == "final after interrupt"
+    assert result.turn_id == "turn-2"
     assert orchestrator.build_step_state_calls == [
         "Inspect the login flow.",
         "Stop and change the goal to the checkout flow.",

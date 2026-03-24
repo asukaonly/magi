@@ -5,6 +5,7 @@ from typing import Optional
 
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
+from ...agent.trace import now_wall_ms
 from ...chat import ChatProjector, ChatStore
 from ...config import get_config
 from ...core.logger import get_logger
@@ -30,6 +31,7 @@ from .chat import (
     ExecutionRequest,
     ExecutionResult,
     SessionRunCoordinator,
+    SessionRunStore,
     ToolSelection,
 )
 from .chat.handlers import (
@@ -101,13 +103,18 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             l1_db_path=runtime_paths.l1_memory_db_path,
             history_cache_max_sessions=history_cache_max_sessions,
             history_fetch_limit=history_fetch_limit,
+            chat_store=chat_store,
         )
         self._fact_classifier = ChatFactClassifier()
         self._prompt_service = ChatPromptService(
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
         )
-        self._session_run_coordinator = SessionRunCoordinator()
+        self._session_run_coordinator = SessionRunCoordinator(
+            run_store=SessionRunStore(
+                l0_store=(unified_memory.l0 if unified_memory is not None else None),
+            )
+        )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
             runtime_key=self.runtime_key,
@@ -208,6 +215,12 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             batch_facts=batch_facts,
         )
         run_decision = self._session_run_coordinator.route(classified)
+        if run_decision.superseded_turns:
+            updated_at_ms = int(latest_fact.timestamp * 1000) if isinstance(latest_fact, FactRecord) else now_wall_ms()
+            await self._postprocess_service.persist_turn_supersessions(
+                superseded_turns=run_decision.superseded_turns,
+                updated_at_ms=updated_at_ms,
+            )
         session_id = self._history_service.require_session_id(classified.user_id, classified.session_id)
         history = await self._history_service.get_or_load_history(classified.user_id, session_id)
         recent_tool_errors = self._history_service.get_recent_tool_errors(

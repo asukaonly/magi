@@ -88,6 +88,12 @@ const DetailBlock = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
+const ContinuationNotice = ({ children }: { children: React.ReactNode }) => (
+  <div className="rounded-2xl border border-amber-300/40 bg-amber-50/80 px-4 py-3 text-sm text-amber-950 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+    {children}
+  </div>
+);
+
 const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
   open,
   onOpenChange,
@@ -191,6 +197,30 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
           )}
           {!loading && snapshot && (
             <>
+              {(snapshot.continuedFromTurnId || snapshot.supersededByTurnId) && (
+                <div className="border-b border-border/40 bg-muted/20 px-8 py-3">
+                  <div className="space-y-2">
+                    {snapshot.continuedFromTurnId && (
+                      <ContinuationNotice>
+                        <span className="font-medium">{t('chat.trace.continuedFromTurn')}</span>{' '}
+                        <span>{snapshot.continuedFromTurnId}</span>
+                      </ContinuationNotice>
+                    )}
+                    {snapshot.supersededByTurnId && snapshot.supersessionReason === 'interrupted' && (
+                      <ContinuationNotice>
+                        <span className="font-medium">{t('chat.trace.interruptedIntoTurn')}</span>{' '}
+                        <span>{snapshot.supersededByTurnId}</span>
+                      </ContinuationNotice>
+                    )}
+                    {snapshot.supersededByTurnId && snapshot.supersessionReason === 'merged' && (
+                      <ContinuationNotice>
+                        <span className="font-medium">{t('chat.trace.mergedIntoTurn')}</span>{' '}
+                        <span>{snapshot.supersededByTurnId}</span>
+                      </ContinuationNotice>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border/40 bg-muted/30 px-8 py-3 xl:grid-cols-4">
                 <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryStatus')}</div>

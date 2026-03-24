@@ -461,6 +461,47 @@ describe('ChatPage', () => {
     });
   });
 
+  it('shows a trace status row on the user turn when a turn is interrupted without assistant output', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      useConversationStore.getState().appendPendingTurn({
+        sessionId: 'session-1',
+        input: '先帮我看登录流程',
+        turnId: 'turn-interrupted',
+        timestamp: Date.now(),
+        pendingLabel: 'thinking',
+      });
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-interrupted',
+          trace_summary: {
+            turn_id: 'turn-interrupted',
+            mode: 'function_calling',
+            status: 'interrupted',
+            headline: 'Interrupted by a newer turn',
+            active_steps: 0,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 0.8,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Interrupted by a newer turn')).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByRole('button', { name: 'chat.trace.view' }).length).toBeGreaterThan(0);
+  });
+
   it('does not ask the backend for a current session after websocket subscribe', () => {
     useConversationStore.getState().setCurrentSessionId(null);
     sendMock.mockClear();

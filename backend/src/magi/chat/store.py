@@ -40,6 +40,7 @@ class ChatStore:
                     last_message_preview TEXT NOT NULL DEFAULT '',
                     last_user_message_preview TEXT NOT NULL DEFAULT '',
                     message_count INTEGER NOT NULL DEFAULT 0,
+                    history_version INTEGER NOT NULL DEFAULT 0,
                     archived_at_ms INTEGER,
                     deleted_at_ms INTEGER
                 );
@@ -62,7 +63,10 @@ class ChatStore:
                     error_text TEXT,
                     run_id TEXT,
                     run_revision INTEGER NOT NULL DEFAULT 0,
-                    run_disposition TEXT
+                    run_disposition TEXT,
+                    response_anchor_turn_id TEXT,
+                    superseded_by_turn_id TEXT,
+                    supersession_reason TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_chat_turns_session_created
                     ON chat_turns(session_id, created_at_ms ASC);
@@ -91,6 +95,7 @@ class ChatStore:
                     ON chat_messages(turn_id, sequence_no ASC);
                 """
             )
+            await self._ensure_chat_session_columns(db)
             await self._ensure_chat_turn_columns(db)
             await db.commit()
         self._initialized = True
@@ -116,6 +121,35 @@ class ChatStore:
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await self._upsert_session_with_connection(db, record)
             await db.commit()
+
+    async def get_history_version(self, session_id: str) -> int:
+        """Return the durable prompt-history version for one session."""
+        row = await self._fetchone(
+            """
+            SELECT history_version
+            FROM chat_sessions
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+        if row is None:
+            return 0
+        return int(row["history_version"] or 0)
+
+    async def bump_history_version(self, session_id: str) -> int:
+        """Increment and return the durable prompt-history version for one session."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            await db.execute(
+                """
+                UPDATE chat_sessions
+                SET history_version = history_version + 1
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            await db.commit()
+        return await self.get_history_version(session_id)
 
     async def create_user_turn(
         self,
@@ -167,6 +201,7 @@ class ChatStore:
                     last_message_preview=session_preview,
                     last_user_message_preview=session_preview,
                     message_count=next_message_count,
+                    history_version=int(existing_session["history_version"] or 0) + 1 if existing_session is not None else 1,
                     archived_at_ms=int(existing_session["archived_at_ms"]) if existing_session is not None and existing_session["archived_at_ms"] is not None else None,
                     deleted_at_ms=int(existing_session["deleted_at_ms"]) if existing_session is not None and existing_session["deleted_at_ms"] is not None else None,
                 ),
@@ -189,9 +224,12 @@ class ChatStore:
                     error_text,
                     run_id,
                     run_revision,
-                    run_disposition
+                    run_disposition,
+                    response_anchor_turn_id,
+                    superseded_by_turn_id,
+                    supersession_reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(turn_id) DO NOTHING
                 """,
                 (
@@ -211,6 +249,9 @@ class ChatStore:
                     run_id,
                     run_revision,
                     run_disposition,
+                    turn_id,
+                    None,
+                    None,
                 ),
             )
             await db.execute(
@@ -275,9 +316,12 @@ class ChatStore:
                     error_text,
                     run_id,
                     run_revision,
-                    run_disposition
+                    run_disposition,
+                    response_anchor_turn_id,
+                    superseded_by_turn_id,
+                    supersession_reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(turn_id) DO UPDATE SET
                     session_id = excluded.session_id,
                     user_id = excluded.user_id,
@@ -292,7 +336,10 @@ class ChatStore:
                     error_text = excluded.error_text,
                     run_id = excluded.run_id,
                     run_revision = excluded.run_revision,
-                    run_disposition = excluded.run_disposition
+                    run_disposition = excluded.run_disposition,
+                    response_anchor_turn_id = excluded.response_anchor_turn_id,
+                    superseded_by_turn_id = excluded.superseded_by_turn_id,
+                    supersession_reason = excluded.supersession_reason
                 """,
                 (
                     record.turn_id,
@@ -311,6 +358,9 @@ class ChatStore:
                     record.run_id,
                     record.run_revision,
                     record.run_disposition,
+                    record.response_anchor_turn_id,
+                    record.superseded_by_turn_id,
+                    record.supersession_reason,
                 ),
             )
             await db.commit()
@@ -419,7 +469,8 @@ class ChatStore:
             SELECT turn_id, session_id, user_id, trace_id, orchestration_id, status,
                    response_mode, execution_mode, ux_plan_json, created_at_ms,
                    updated_at_ms, completed_at_ms, error_text, run_id,
-                   run_revision, run_disposition
+                   run_revision, run_disposition, response_anchor_turn_id,
+                   superseded_by_turn_id, supersession_reason
             FROM chat_turns
             WHERE turn_id = ?
             """,
@@ -444,6 +495,49 @@ class ChatStore:
             run_id=row["run_id"],
             run_revision=int(row["run_revision"] or 0),
             run_disposition=row["run_disposition"],
+            response_anchor_turn_id=row["response_anchor_turn_id"],
+            superseded_by_turn_id=row["superseded_by_turn_id"],
+            supersession_reason=row["supersession_reason"],
+        )
+
+    async def get_latest_superseded_turn(self, *, anchor_turn_id: str) -> ChatTurnRecord | None:
+        """Return the most recent turn superseded by one anchor turn."""
+        row = await self._fetchone(
+            """
+            SELECT turn_id, session_id, user_id, trace_id, orchestration_id, status,
+                   response_mode, execution_mode, ux_plan_json, created_at_ms,
+                   updated_at_ms, completed_at_ms, error_text, run_id,
+                   run_revision, run_disposition, response_anchor_turn_id,
+                   superseded_by_turn_id, supersession_reason
+            FROM chat_turns
+            WHERE superseded_by_turn_id = ?
+            ORDER BY updated_at_ms DESC, created_at_ms DESC
+            LIMIT 1
+            """,
+            (anchor_turn_id,),
+        )
+        if row is None:
+            return None
+        return ChatTurnRecord(
+            turn_id=str(row["turn_id"]),
+            session_id=str(row["session_id"]),
+            user_id=str(row["user_id"]),
+            trace_id=row["trace_id"],
+            orchestration_id=row["orchestration_id"],
+            status=str(row["status"]),
+            response_mode=str(row["response_mode"]),
+            execution_mode=row["execution_mode"],
+            ux_plan_json=str(row["ux_plan_json"]),
+            created_at_ms=int(row["created_at_ms"]),
+            updated_at_ms=int(row["updated_at_ms"]),
+            completed_at_ms=int(row["completed_at_ms"]) if row["completed_at_ms"] is not None else None,
+            error_text=row["error_text"],
+            run_id=row["run_id"],
+            run_revision=int(row["run_revision"] or 0),
+            run_disposition=row["run_disposition"],
+            response_anchor_turn_id=row["response_anchor_turn_id"],
+            superseded_by_turn_id=row["superseded_by_turn_id"],
+            supersession_reason=row["supersession_reason"],
         )
 
     async def _ensure_chat_turn_columns(self, db: aiosqlite.Connection) -> None:
@@ -456,6 +550,21 @@ class ChatStore:
             await db.execute("ALTER TABLE chat_turns ADD COLUMN run_revision INTEGER NOT NULL DEFAULT 0")
         if "run_disposition" not in column_names:
             await db.execute("ALTER TABLE chat_turns ADD COLUMN run_disposition TEXT")
+        if "response_anchor_turn_id" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN response_anchor_turn_id TEXT")
+        if "superseded_by_turn_id" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN superseded_by_turn_id TEXT")
+        if "supersession_reason" not in column_names:
+            await db.execute("ALTER TABLE chat_turns ADD COLUMN supersession_reason TEXT")
+
+    async def _ensure_chat_session_columns(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(chat_sessions)")
+        rows = await cursor.fetchall()
+        column_names = {str(row[1]) for row in rows}
+        if "history_version" not in column_names:
+            await db.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN history_version INTEGER NOT NULL DEFAULT 0"
+            )
 
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""
@@ -505,6 +614,7 @@ class ChatStore:
             SELECT session_id, user_id, title, title_overridden, summary, created_at_ms,
                    updated_at_ms, last_message_at_ms, last_user_message_at_ms,
                    last_message_preview, last_user_message_preview, message_count,
+                   history_version,
                    archived_at_ms, deleted_at_ms
             FROM chat_sessions
             WHERE session_id = ?
@@ -529,10 +639,11 @@ class ChatStore:
                 last_message_preview,
                 last_user_message_preview,
                 message_count,
+                history_version,
                 archived_at_ms,
                 deleted_at_ms
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 user_id = excluded.user_id,
                 title = excluded.title,
@@ -544,6 +655,7 @@ class ChatStore:
                 last_message_preview = excluded.last_message_preview,
                 last_user_message_preview = excluded.last_user_message_preview,
                 message_count = excluded.message_count,
+                history_version = excluded.history_version,
                 archived_at_ms = excluded.archived_at_ms,
                 deleted_at_ms = excluded.deleted_at_ms
             """,
@@ -560,6 +672,7 @@ class ChatStore:
                 record.last_message_preview,
                 record.last_user_message_preview,
                 record.message_count,
+                record.history_version,
                 record.archived_at_ms,
                 record.deleted_at_ms,
             ),

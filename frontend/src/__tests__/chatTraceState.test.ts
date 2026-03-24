@@ -5,6 +5,7 @@ import {
   createPendingTurn,
   flattenPlanningNodeForDisplay,
   normalizeHistoryMessages,
+  normalizeTraceSnapshot,
   normalizeTraceSummary,
   shouldShowTraceEntry,
   upsertTraceSummary,
@@ -143,6 +144,50 @@ describe('chat trace state helpers', () => {
     expect(shouldShowTraceEntry(prominentMessage)).toBe(true);
   });
 
+  it('preserves trace continuation metadata when normalizing a snapshot', () => {
+    const snapshot = normalizeTraceSnapshot({
+      turn_id: 'turn-2',
+      user_id: 'user-1',
+      session_id: 'session-1',
+      status: 'interrupted',
+      mode: 'function_calling',
+      started_at: 1000,
+      ended_at: 2000,
+      continued_from_turn_id: 'turn-1',
+      continued_from_trace_id: 'trace:turn-1',
+      superseded_by_turn_id: 'turn-3',
+      supersession_reason: 'interrupted',
+      summary: {
+        turn_id: 'turn-2',
+        mode: 'function_calling',
+        status: 'interrupted',
+        headline: 'Interrupted by a newer turn',
+        active_steps: 0,
+        completed_steps: 1,
+        failed_steps: 0,
+        duration_seconds: 1,
+        trace_available: true,
+        continued_from_turn_id: 'turn-1',
+        superseded_by_turn_id: 'turn-3',
+      },
+      root: {
+        id: 'turn-2:root',
+        kind: 'root',
+        label: 'Tool chain',
+        status: 'interrupted',
+        metadata: {},
+        children: [],
+      },
+    } as any);
+
+    expect(snapshot?.continuedFromTurnId).toBe('turn-1');
+    expect(snapshot?.continuedFromTraceId).toBe('trace:turn-1');
+    expect(snapshot?.supersededByTurnId).toBe('turn-3');
+    expect(snapshot?.supersessionReason).toBe('interrupted');
+    expect(snapshot?.summary.continuedFromTurnId).toBe('turn-1');
+    expect(snapshot?.summary.supersededByTurnId).toBe('turn-3');
+  });
+
   it('adds an interim assistant message for interim-then-final turns', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
     const next = applyTurnUxPlan(initial, 'turn_1', {
@@ -275,6 +320,29 @@ describe('chat trace state helpers', () => {
     expect(normalized[0].kind).toBe('status');
     expect(normalized[0].traceSummary?.turnId).toBe('turn_2');
     expect(normalized[0].traceAvailable).toBe(true);
+  });
+
+  it('attaches a terminal trace summary back onto the user turn when no assistant row exists', () => {
+    const initial = createPendingTurn('Analyze this repo', 'turn_user_only', 1000, 'Thinking');
+    const next = upsertTraceSummary(
+      initial,
+      'turn_user_only',
+      normalizeTraceSummary({
+        turn_id: 'turn_user_only',
+        mode: 'function_calling',
+        status: 'interrupted',
+        headline: 'Interrupted by a newer turn',
+        active_steps: 0,
+        completed_steps: 1,
+        failed_steps: 0,
+        duration_seconds: 0.8,
+        trace_available: true,
+      })
+    );
+
+    const userMessage = next.find((message) => message.role === 'user');
+    expect(userMessage?.traceSummary?.status).toBe('interrupted');
+    expect(userMessage?.traceAvailable).toBe(true);
   });
 
   it('normalizes second-based history timestamps into millisecond timestamps', () => {

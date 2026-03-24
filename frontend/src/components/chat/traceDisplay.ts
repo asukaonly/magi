@@ -5,6 +5,8 @@ const ROUND_LABEL_PATTERN = /^Round\s+(\d+)$/i;
 export const formatTraceStatus = (status: string, t: TFunction<'app'>): string => {
   if (status === 'completed') return t('chat.trace.statusCompleted');
   if (status === 'failed') return t('chat.trace.statusError');
+  if (status === 'interrupted') return t('chat.trace.statusInterrupted');
+  if (status === 'merged') return t('chat.trace.statusMerged');
   return t('chat.trace.statusRunning');
 };
 

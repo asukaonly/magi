@@ -64,6 +64,9 @@ class ChatOutcomeWriter:
                 run_id=run_id or existing_turn.run_id,
                 run_revision=run_revision if run_id is not None else existing_turn.run_revision,
                 run_disposition=run_disposition or existing_turn.run_disposition,
+                response_anchor_turn_id=existing_turn.response_anchor_turn_id,
+                superseded_by_turn_id=existing_turn.superseded_by_turn_id,
+                supersession_reason=existing_turn.supersession_reason,
             )
         )
         if response_mode == "interim_then_final":
@@ -128,9 +131,12 @@ class ChatOutcomeWriter:
                 run_id=run_id or existing_turn.run_id,
                 run_revision=run_revision if run_id is not None else existing_turn.run_revision,
                 run_disposition=run_disposition or existing_turn.run_disposition,
+                response_anchor_turn_id=existing_turn.response_anchor_turn_id,
+                superseded_by_turn_id=existing_turn.superseded_by_turn_id,
+                supersession_reason=existing_turn.supersession_reason,
             )
         )
-        if response_mode == "reaction_only":
+        if response_mode in {"reaction_only", "none"}:
             return
         existing_final = await self._chat_store.get_latest_message_for_turn(
             normalized_turn_id,
@@ -159,11 +165,51 @@ class ChatOutcomeWriter:
             replaced_by_message_id=None,
         )
         await self._chat_store.append_message(final_message)
+        await self._chat_store.bump_history_version(existing_turn.session_id)
         if interim_message is not None:
             await self._chat_store.mark_message_replaced(
                 message_id=interim_message.message_id,
                 replaced_by_message_id=final_message.message_id,
             )
+
+    async def persist_turn_supersession(
+        self,
+        *,
+        turn_id: str,
+        anchor_turn_id: str,
+        reason: str,
+        updated_at_ms: int,
+    ) -> None:
+        """Mark one turn as absorbed or interrupted by a newer turn."""
+        if self._chat_store is None:
+            return
+        existing_turn = await self._chat_store.get_turn(turn_id)
+        if existing_turn is None:
+            return
+        status = "merged" if reason == "augment" else "interrupted"
+        await self._chat_store.upsert_turn(
+            ChatTurnRecord(
+                turn_id=existing_turn.turn_id,
+                session_id=existing_turn.session_id,
+                user_id=existing_turn.user_id,
+                trace_id=existing_turn.trace_id or self._trace_id_factory(turn_id),
+                orchestration_id=existing_turn.orchestration_id,
+                status=status,
+                response_mode=existing_turn.response_mode,
+                execution_mode=existing_turn.execution_mode,
+                ux_plan_json=existing_turn.ux_plan_json,
+                created_at_ms=existing_turn.created_at_ms,
+                updated_at_ms=updated_at_ms,
+                completed_at_ms=updated_at_ms,
+                error_text=existing_turn.error_text,
+                run_id=existing_turn.run_id,
+                run_revision=existing_turn.run_revision,
+                run_disposition=existing_turn.run_disposition,
+                response_anchor_turn_id=anchor_turn_id,
+                superseded_by_turn_id=anchor_turn_id,
+                supersession_reason=status,
+            )
+        )
 
     async def get_notification_chat_message(
         self,

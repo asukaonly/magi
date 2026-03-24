@@ -34,6 +34,16 @@ class SessionFactDecision:
     run_disposition: str | None = None
     interruption_disposition: InterruptionDisposition | None = None
     checkpoint_pending_turns: list[PendingTurn] = field(default_factory=list)
+    superseded_turns: list["TurnSupersession"] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class TurnSupersession:
+    """A turn that was superseded by a newer visible turn."""
+
+    turn_id: str
+    anchor_turn_id: str
+    reason: str
 
 
 @dataclass(slots=True)
@@ -98,12 +108,16 @@ class SessionRunCoordinator:
             and classified_fact.latest_result_fact.event_type in _CHECKPOINT_EVENT_TYPES
             and self._current_revision_pending_turns(active_run)
         ):
-            checkpoint_pending_turns = self._run_store.consume_pending_turns(classified_fact.session_id)
+            checkpoint_pending_turns = self._run_store.consume_pending_turns(
+                classified_fact.session_id,
+                revision=active_run.revision,
+            )
             refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
             planner_user_message = self._merge_visible_user_message(
                 root_user_message=active_run.root_user_message,
                 pending_turns=checkpoint_pending_turns,
             )
+            anchor_turn_id = checkpoint_pending_turns[-1].turn_id if checkpoint_pending_turns else active_run.root_turn_id
             return SessionFactDecision(
                 active_run=refreshed_run,
                 planner_fact=classified_fact.latest_result_fact,
@@ -113,12 +127,17 @@ class SessionRunCoordinator:
                     user_id=classified_fact.user_id,
                     session_id=classified_fact.session_id,
                     content=planner_user_message,
-                    turn_id=checkpoint_pending_turns[-1].turn_id if checkpoint_pending_turns else active_run.root_turn_id,
+                    turn_id=anchor_turn_id,
                 ),
                 user_id=classified_fact.user_id,
                 session_id=classified_fact.session_id,
                 run_disposition=InterruptionDisposition.AUGMENT.value,
                 checkpoint_pending_turns=checkpoint_pending_turns,
+                superseded_turns=self._build_augment_supersessions(
+                    root_turn_id=active_run.root_turn_id,
+                    pending_turns=checkpoint_pending_turns,
+                    anchor_turn_id=anchor_turn_id,
+                ),
             )
 
         return SessionFactDecision(
@@ -140,10 +159,11 @@ class SessionRunCoordinator:
     ) -> SessionFactDecision:
         """Apply a user turn to the session run and return the visible decision."""
         active_run = self._run_store.get_active_run(payload.session_id)
+        turn_id = self._resolve_turn_id(payload=payload, source_fact=source_fact)
         if active_run is None:
             active_run = self._run_store.create_active_run(
                 payload.session_id,
-                root_turn_id=self._resolve_turn_id(payload=payload, source_fact=source_fact),
+                root_turn_id=turn_id,
                 root_user_message=payload.content,
             )
             return SessionFactDecision(
@@ -164,24 +184,26 @@ class SessionRunCoordinator:
             )
         )
         if disposition == InterruptionDisposition.INTERRUPT:
+            superseded_turns = self._build_interrupt_supersessions(active_run=active_run, anchor_turn_id=turn_id)
             active_run = self._run_store.bump_revision(
                 payload.session_id,
                 clear_pending_turns=True,
             )
             active_run = self._run_store.set_root_turn(
                 payload.session_id,
-                turn_id=self._resolve_turn_id(payload=payload, source_fact=source_fact),
+                turn_id=turn_id,
                 content=payload.content,
             )
             planner_fact_kind = IncomingFactKind.USER_MESSAGE
         else:
             self._run_store.append_pending_turn(
                 payload.session_id,
-                self._resolve_turn_id(payload=payload, source_fact=source_fact),
+                turn_id,
                 payload.content,
             )
             active_run = self._run_store.get_active_run(payload.session_id)
             planner_fact_kind = IncomingFactKind.OTHER_FACT
+            superseded_turns = []
         return SessionFactDecision(
             active_run=active_run,
             planner_fact=source_fact,
@@ -195,6 +217,7 @@ class SessionRunCoordinator:
             ),
             interruption_disposition=disposition,
             checkpoint_pending_turns=self._current_revision_pending_turns(active_run),
+            superseded_turns=superseded_turns,
         )
 
     def consume_checkpoint(self, session_id: str) -> CheckpointDecision:
@@ -202,7 +225,10 @@ class SessionRunCoordinator:
         active_run = self._run_store.get_active_run(session_id)
         if active_run is None:
             return CheckpointDecision(session_id=session_id, run_id="", revision=0)
-        pending_turns = self._run_store.consume_pending_turns(session_id)
+        pending_turns = self._run_store.consume_pending_turns(
+            session_id,
+            revision=active_run.revision,
+        )
         visible_user_message = self._merge_visible_user_message(
             root_user_message=active_run.root_user_message,
             pending_turns=pending_turns,
@@ -296,3 +322,74 @@ class SessionRunCoordinator:
             for pending_turn in active_run.pending_turns
             if pending_turn.revision == active_run.revision
         ]
+
+    @staticmethod
+    def _build_augment_supersessions(
+        *,
+        root_turn_id: str | None,
+        pending_turns: list[PendingTurn],
+        anchor_turn_id: str | None,
+    ) -> list[TurnSupersession]:
+        normalized_anchor_turn_id = str(anchor_turn_id or "").strip()
+        if not normalized_anchor_turn_id:
+            return []
+        superseded: list[TurnSupersession] = []
+        seen_turn_ids: set[str] = set()
+        normalized_root_turn_id = str(root_turn_id or "").strip()
+        if normalized_root_turn_id and normalized_root_turn_id != normalized_anchor_turn_id:
+            superseded.append(
+                TurnSupersession(
+                    turn_id=normalized_root_turn_id,
+                    anchor_turn_id=normalized_anchor_turn_id,
+                    reason=InterruptionDisposition.AUGMENT.value,
+                )
+            )
+            seen_turn_ids.add(normalized_root_turn_id)
+        for pending_turn in pending_turns[:-1]:
+            turn_id = str(pending_turn.turn_id or "").strip()
+            if not turn_id or turn_id == normalized_anchor_turn_id or turn_id in seen_turn_ids:
+                continue
+            superseded.append(
+                TurnSupersession(
+                    turn_id=turn_id,
+                    anchor_turn_id=normalized_anchor_turn_id,
+                    reason=InterruptionDisposition.AUGMENT.value,
+                )
+            )
+            seen_turn_ids.add(turn_id)
+        return superseded
+
+    @staticmethod
+    def _build_interrupt_supersessions(
+        *,
+        active_run: ActiveRun,
+        anchor_turn_id: str | None,
+    ) -> list[TurnSupersession]:
+        normalized_anchor_turn_id = str(anchor_turn_id or "").strip()
+        if not normalized_anchor_turn_id:
+            return []
+        superseded: list[TurnSupersession] = []
+        seen_turn_ids: set[str] = set()
+        normalized_root_turn_id = str(active_run.root_turn_id or "").strip()
+        if normalized_root_turn_id and normalized_root_turn_id != normalized_anchor_turn_id:
+            superseded.append(
+                TurnSupersession(
+                    turn_id=normalized_root_turn_id,
+                    anchor_turn_id=normalized_anchor_turn_id,
+                    reason=InterruptionDisposition.INTERRUPT.value,
+                )
+            )
+            seen_turn_ids.add(normalized_root_turn_id)
+        for pending_turn in active_run.pending_turns:
+            turn_id = str(pending_turn.turn_id or "").strip()
+            if not turn_id or turn_id == normalized_anchor_turn_id or turn_id in seen_turn_ids:
+                continue
+            superseded.append(
+                TurnSupersession(
+                    turn_id=turn_id,
+                    anchor_turn_id=normalized_anchor_turn_id,
+                    reason=InterruptionDisposition.INTERRUPT.value,
+                )
+            )
+            seen_turn_ids.add(turn_id)
+        return superseded

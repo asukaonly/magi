@@ -11,6 +11,7 @@ from magi.agent.task_agents.chat.postprocess_components import (
     ChatRuntimeNotifier,
 )
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
+from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
 from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
@@ -230,6 +231,41 @@ async def test_outcome_writer_persists_interim_then_final_messages(chat_store: C
     ]
     assert messages[-1].replaces_message_id == messages[-2].message_id
     assert projector.assistant_messages[0]["message_id"] == messages[-1].message_id
+
+
+@pytest.mark.asyncio
+async def test_outcome_writer_bumps_history_version_for_assistant_final(chat_store: ChatStore) -> None:
+    writer = ChatOutcomeWriter(
+        chat_store=chat_store,
+        chat_projector=None,
+        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-1",
+        message_text="hello",
+        created_at_ms=1710000000000,
+    )
+
+    before_version = await chat_store.get_history_version("session-1")
+
+    await writer.persist_final_chat_outcome(
+        turn_id="turn-1",
+        orchestration_id=None,
+        execution_mode="direct_llm",
+        ux_plan={
+            "assistant_surface_mode": "final_only",
+        },
+        response_text="final answer",
+        started_at_ms=1710000000000,
+        completed_at_ms=1710000000200,
+    )
+
+    after_version = await chat_store.get_history_version("session-1")
+
+    assert before_version == 1
+    assert after_version == 2
 
 
 @pytest.mark.asyncio
@@ -737,6 +773,134 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
 
 
 @pytest.mark.asyncio
+async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-1",
+        message_text="Inspect login flow",
+        created_at_ms=1710000000000,
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-2",
+        message_text="Switch to checkout flow",
+        created_at_ms=1710000001000,
+    )
+    first_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "Inspect login flow",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    second_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "Switch to checkout flow",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-2",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000001.0,
+        correlation_id="corr-2",
+    )
+    first_context = ChatRuntimeContext(
+        latest_fact=first_fact,
+        recent_facts=[first_fact],
+        batch_facts=[first_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Inspect login flow",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="Inspect login flow",
+            turn_id="turn-1",
+        ),
+    )
+    second_context = ChatRuntimeContext(
+        latest_fact=second_fact,
+        recent_facts=[second_fact],
+        batch_facts=[second_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Switch to checkout flow",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="Switch to checkout flow",
+            turn_id="turn-2",
+        ),
+    )
+    decision = _FakeIntentDecision()
+    decision.execution_mode = ExecutionMode.FUNCTION_CALLING
+
+    await service.record_intent_resolution(first_context, decision)
+    await service.persist_turn_supersessions(
+        superseded_turns=[
+            TurnSupersession(turn_id="turn-1", anchor_turn_id="turn-2", reason="interrupt"),
+        ],
+        updated_at_ms=1710000001000,
+    )
+    await service.record_intent_resolution(second_context, decision)
+
+    first_trace = await runtime_trace_store.get_turn("turn-1")
+    second_trace = await runtime_trace_store.get_turn("turn-2")
+
+    assert first_trace is not None
+    assert first_trace.status == "interrupted"
+    assert first_trace.superseded_by_turn_id == "turn-2"
+    assert first_trace.supersession_reason == "interrupted"
+    assert second_trace is not None
+    assert second_trace.continued_from_turn_id == "turn-1"
+    assert second_trace.continued_from_trace_id == "trace:turn-1"
+
+
+@pytest.mark.asyncio
 async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.MonkeyPatch) -> None:
     action_emitter = _FakeActionEmitter()
     runtime = _FakeRuntime()
@@ -1188,6 +1352,195 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
     assert chat_projector.assistant_messages == []
     payload = json.loads(notifications[-1].payload_json)
     assert payload["message_kind"] == "assistant_reaction"
+
+
+@pytest.mark.asyncio
+async def test_handle_completes_none_surface_turn_without_final_message(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "嗯",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-none",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-none",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="嗯",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="嗯",
+            turn_id="turn-none",
+        ),
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-none",
+        message_text="嗯",
+        created_at_ms=1710000000000,
+    )
+
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="",
+        skip_emit=True,
+        correlation_id="corr-none",
+        turn_id="turn-none",
+        ux_plan={
+            "assistant_surface_mode": "none",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+        },
+    )
+
+    await service.handle(context, result)
+
+    turn = await chat_store.get_turn("turn-none")
+    messages = await chat_store.list_messages(session_id="session-1")
+
+    assert turn is not None
+    assert turn.status == "completed"
+    assert [message.message_kind for message in messages] == ["user_text"]
+
+
+@pytest.mark.asyncio
+async def test_handle_completes_reaction_only_turn_without_final_text(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "嗯",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-react-empty",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-react-empty",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="嗯",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="嗯",
+            turn_id="turn-react-empty",
+        ),
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-react-empty",
+        message_text="嗯",
+        created_at_ms=1710000000000,
+    )
+    reaction_decision = _FakeIntentDecision()
+    reaction_decision.execution_mode = ExecutionMode.DIRECT_LLM
+    reaction_decision.ux_plan = type(
+        "_UxPlan",
+        (),
+        {
+            "to_dict": staticmethod(
+                lambda: {
+                    "assistant_surface_mode": "reaction_only",
+                    "thinking_indicator": "hidden",
+                    "trace_display_mode": "none",
+                    "allow_trace_collapse": False,
+                    "reaction_style": "acknowledge",
+                }
+            )
+        },
+    )()
+    await service.record_intent_resolution(context, reaction_decision)
+
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="",
+        skip_emit=True,
+        correlation_id="corr-react-empty",
+        turn_id="turn-react-empty",
+        ux_plan={
+            "assistant_surface_mode": "reaction_only",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+            "reaction_style": "acknowledge",
+        },
+    )
+
+    await service.handle(context, result)
+
+    turn = await chat_store.get_turn("turn-react-empty")
+    messages = await chat_store.list_messages(session_id="session-1")
+
+    assert turn is not None
+    assert turn.status == "completed"
+    assert [message.message_kind for message in messages] == ["user_text", "assistant_reaction"]
 
 
 @pytest.mark.asyncio

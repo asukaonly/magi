@@ -66,6 +66,10 @@ export interface ExecutionTraceSummary {
   duration_seconds: number;
   trace_available: boolean;
   orchestration_id?: string | null;
+  continued_from_turn_id?: string | null;
+  continued_from_trace_id?: string | null;
+  superseded_by_turn_id?: string | null;
+  supersession_reason?: string | null;
 }
 
 export interface ExecutionTraceNode {
@@ -90,6 +94,10 @@ export interface ExecutionTraceSnapshot {
   orchestration_id?: string | null;
   started_at?: number | null;
   ended_at?: number | null;
+  continued_from_turn_id?: string | null;
+  continued_from_trace_id?: string | null;
+  superseded_by_turn_id?: string | null;
+  supersession_reason?: string | null;
   summary: ExecutionTraceSummary;
   root: ExecutionTraceNode;
 }

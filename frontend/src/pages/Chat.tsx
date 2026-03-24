@@ -498,6 +498,22 @@ export const ChatPage: React.FC = () => {
     </motion.div>
   );
 
+  const renderUserTurnTraceStatus = (message: ChatTimelineMessage) => {
+    if (message.role !== 'user' || !message.traceSummary) return null;
+    if (!['interrupted', 'merged'].includes(String(message.traceSummary.status || '').trim())) {
+      return null;
+    }
+
+    return (
+      <div className="mt-2 flex justify-end">
+        <div className="flex max-w-[75%] items-center gap-3 rounded-2xl border border-border/40 bg-background/90 px-3 py-2 shadow-sm">
+          <span className="text-xs text-muted-foreground">{message.traceSummary.headline}</span>
+          {renderTraceEntry(message)}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -552,6 +568,7 @@ export const ChatPage: React.FC = () => {
                       </span>
                     </div>
                   )}
+                  {msg.role === 'user' && renderUserTurnTraceStatus(msg)}
                 </div>
               </div>
             </motion.div>

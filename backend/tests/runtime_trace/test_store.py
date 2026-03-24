@@ -88,6 +88,42 @@ async def test_runtime_trace_store_persists_notifications(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_runtime_trace_store_round_trips_turn_continuation_metadata(tmp_path: Path) -> None:
+    from magi.runtime_trace import RuntimeTraceStore, TraceTurnRecord
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        await store.upsert_turn(
+            TraceTurnRecord(
+                trace_id="trace-turn-2",
+                turn_id="turn-2",
+                session_id="session-1",
+                user_id="user-1",
+                status="running",
+                mode="function_calling",
+                continued_from_turn_id="turn-1",
+                continued_from_trace_id="trace-turn-1",
+                superseded_by_turn_id=None,
+                supersession_reason=None,
+                started_at_ms=100,
+                created_at_ms=100,
+                updated_at_ms=100,
+            )
+        )
+
+        turn = await store.get_turn("turn-2")
+
+        assert turn is not None
+        assert turn.continued_from_turn_id == "turn-1"
+        assert turn.continued_from_trace_id == "trace-turn-1"
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_runtime_trace_store_persists_runtime_heartbeat(tmp_path: Path) -> None:
     from magi.runtime_trace import RuntimeHeartbeatRecord, RuntimeTraceStore
 

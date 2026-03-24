@@ -56,7 +56,13 @@ class ResultFusion:
         # 2. Token budget truncation
         budget = max_tokens or self._config.default_max_tokens
         cpt = self._config.char_per_token_ratio
-        payload = self._apply_budget(payload, budget, cpt)
+        payload = self._apply_budget(
+            payload,
+            budget,
+            cpt,
+            self._config.l0_max_tokens,
+            self._config.l0_budget_ratio,
+        )
 
         return payload
 
@@ -101,11 +107,15 @@ class ResultFusion:
         payload: RetrievalPayload,
         budget: int,
         char_per_token: float,
+        l0_max_tokens: int,
+        l0_budget_ratio: float,
     ) -> RetrievalPayload:
         """Apply token budget in priority order: L0 > L2 > L4 > L3 > L1."""
         remaining = float(budget)
 
-        # L0: full (usually small)
+        # L0: preserve priority, but cap its share so other layers still surface.
+        l0_budget = min(float(max(l0_max_tokens, 0)), remaining * max(l0_budget_ratio, 0.0))
+        payload.l0_workbench = truncate_to_budget(payload.l0_workbench, l0_budget, char_per_token)
         remaining -= estimate_tokens(payload.l0_workbench, char_per_token)
 
         # L2: full

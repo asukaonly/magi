@@ -9,6 +9,7 @@ from magi.agent.task_agents.chat.postprocess_service import CHAT_TOOL_LOOP_STEP_
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
 from magi.events.events import EventTypes
+from magi.memory import UnifiedMemoryStore
 
 
 class _FakeLLMAdapter:
@@ -141,3 +142,64 @@ async def test_interruptible_chat_sessions_do_not_cross_streams_and_merge_at_own
         ("session-a", "Inspect the login flow.\n\nAlso, use the staging endpoint."),
         ("session-b", "Inspect the billing flow.\n\nAlso, include receipts."),
     ]
+
+
+@pytest.mark.asyncio
+async def test_interruptible_chat_recovers_pending_turns_from_l0_checkpoint(
+    tmp_path,
+) -> None:
+    memory = UnifiedMemoryStore(
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        enable_l0=True,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    await memory.initialize()
+
+    agent = ChatTaskAgent(
+        agent_id="session-a",
+        llm_adapter=_FakeLLMAdapter(),
+        unified_memory=memory,
+    )
+    first_fact = _user_fact(session_id="session-a", content="Inspect the login flow.", turn_id="turn-a1")
+    augment_fact = _user_fact(
+        session_id="session-a",
+        content="Also, use the staging endpoint.",
+        turn_id="turn-a2",
+    )
+
+    first_context = await agent.build_context(await agent.merge_facts([first_fact]))
+    assert first_context.latest_user_message == "Inspect the login flow."
+
+    augment_context = await agent.build_context(await agent.merge_facts([augment_fact]))
+    assert augment_context.planner_fact_kind == IncomingFactKind.OTHER_FACT
+
+    await memory.l0.checkpoint_all()  # type: ignore[union-attr]
+
+    restored_memory = UnifiedMemoryStore(
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        enable_l0=True,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    await restored_memory.initialize()
+    restored_agent = ChatTaskAgent(
+        agent_id="session-a",
+        llm_adapter=_FakeLLMAdapter(),
+        unified_memory=restored_memory,
+    )
+
+    checkpoint_context = await restored_agent.build_context(
+        await restored_agent.merge_facts([_tool_loop_fact(session_id="session-a")])
+    )
+
+    assert checkpoint_context.planner_fact_kind == IncomingFactKind.USER_MESSAGE
+    assert checkpoint_context.latest_user_message == (
+        "Inspect the login flow.\n\nAlso, use the staging endpoint."
+    )

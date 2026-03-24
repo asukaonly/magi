@@ -52,6 +52,10 @@ class RuntimeTraceStore:
                     user_message_preview TEXT,
                     response_preview TEXT,
                     error_summary TEXT,
+                    continued_from_turn_id TEXT,
+                    continued_from_trace_id TEXT,
+                    superseded_by_turn_id TEXT,
+                    supersession_reason TEXT,
                     created_at_ms INTEGER NOT NULL,
                     updated_at_ms INTEGER NOT NULL
                 );
@@ -160,6 +164,7 @@ class RuntimeTraceStore:
                 );
                 """
             )
+            await self._ensure_trace_turn_columns(db)
             await db.commit()
         self._initialized = True
 
@@ -186,10 +191,14 @@ class RuntimeTraceStore:
                     user_message_preview,
                     response_preview,
                     error_summary,
+                    continued_from_turn_id,
+                    continued_from_trace_id,
+                    superseded_by_turn_id,
+                    supersession_reason,
                     created_at_ms,
                     updated_at_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(trace_id) DO UPDATE SET
                     status = excluded.status,
                     mode = excluded.mode,
@@ -200,6 +209,10 @@ class RuntimeTraceStore:
                     user_message_preview = COALESCE(excluded.user_message_preview, trace_turns.user_message_preview),
                     response_preview = COALESCE(excluded.response_preview, trace_turns.response_preview),
                     error_summary = COALESCE(excluded.error_summary, trace_turns.error_summary),
+                    continued_from_turn_id = COALESCE(excluded.continued_from_turn_id, trace_turns.continued_from_turn_id),
+                    continued_from_trace_id = COALESCE(excluded.continued_from_trace_id, trace_turns.continued_from_trace_id),
+                    superseded_by_turn_id = COALESCE(excluded.superseded_by_turn_id, trace_turns.superseded_by_turn_id),
+                    supersession_reason = COALESCE(excluded.supersession_reason, trace_turns.supersession_reason),
                     updated_at_ms = excluded.updated_at_ms
                 """,
                 (
@@ -216,6 +229,10 @@ class RuntimeTraceStore:
                     record.user_message_preview,
                     record.response_preview,
                     record.error_summary,
+                    record.continued_from_turn_id,
+                    record.continued_from_trace_id,
+                    record.superseded_by_turn_id,
+                    record.supersession_reason,
                     created_at_ms,
                     now_ms,
                 ),
@@ -415,6 +432,19 @@ class RuntimeTraceStore:
             (turn_id,),
         )
         return self._row_to_record(TraceTurnRecord, row)
+
+    async def _ensure_trace_turn_columns(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(trace_turns)")
+        rows = await cursor.fetchall()
+        column_names = {str(row[1]) for row in rows}
+        if "continued_from_turn_id" not in column_names:
+            await db.execute("ALTER TABLE trace_turns ADD COLUMN continued_from_turn_id TEXT")
+        if "continued_from_trace_id" not in column_names:
+            await db.execute("ALTER TABLE trace_turns ADD COLUMN continued_from_trace_id TEXT")
+        if "superseded_by_turn_id" not in column_names:
+            await db.execute("ALTER TABLE trace_turns ADD COLUMN superseded_by_turn_id TEXT")
+        if "supersession_reason" not in column_names:
+            await db.execute("ALTER TABLE trace_turns ADD COLUMN supersession_reason TEXT")
 
     async def get_span(self, span_id: str) -> TraceSpanRecord | None:
         row = await self._fetchone(

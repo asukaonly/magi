@@ -39,6 +39,10 @@ export interface NormalizedTraceSummary {
   durationSeconds: number;
   traceAvailable: boolean;
   orchestrationId?: string | null;
+  continuedFromTurnId?: string | null;
+  continuedFromTraceId?: string | null;
+  supersededByTurnId?: string | null;
+  supersessionReason?: string | null;
 }
 
 export interface NormalizedTraceNode {
@@ -63,6 +67,10 @@ export interface NormalizedTraceSnapshot {
   orchestrationId?: string | null;
   startedAt?: number | null;
   endedAt?: number | null;
+  continuedFromTurnId?: string | null;
+  continuedFromTraceId?: string | null;
+  supersededByTurnId?: string | null;
+  supersessionReason?: string | null;
   summary: NormalizedTraceSummary;
   root: NormalizedTraceNode;
 }
@@ -150,6 +158,10 @@ export interface ExecutionTraceSnapshotRaw {
   orchestration_id?: string | null;
   started_at?: number | null;
   ended_at?: number | null;
+  continued_from_turn_id?: string | null;
+  continued_from_trace_id?: string | null;
+  superseded_by_turn_id?: string | null;
+  supersession_reason?: string | null;
   summary: TraceSummaryData;
   root: ExecutionTraceNodeRaw;
 }

@@ -30,6 +30,10 @@ export interface NormalizedExecutionTraceSummary {
   durationSeconds: number;
   traceAvailable: boolean;
   orchestrationId?: string | null;
+  continuedFromTurnId?: string | null;
+  continuedFromTraceId?: string | null;
+  supersededByTurnId?: string | null;
+  supersessionReason?: string | null;
 }
 
 export interface NormalizedExecutionTraceNode {
@@ -54,6 +58,10 @@ export interface NormalizedExecutionTraceSnapshot {
   orchestrationId?: string | null;
   startedAt?: number | null;
   endedAt?: number | null;
+  continuedFromTurnId?: string | null;
+  continuedFromTraceId?: string | null;
+  supersededByTurnId?: string | null;
+  supersessionReason?: string | null;
   summary: NormalizedExecutionTraceSummary;
   root: NormalizedExecutionTraceNode;
 }
@@ -105,6 +113,10 @@ export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSum
     durationSeconds: Number(summary.duration_seconds || 0),
     traceAvailable: Boolean(summary.trace_available),
     orchestrationId: summary.orchestration_id || null,
+    continuedFromTurnId: summary.continued_from_turn_id || null,
+    continuedFromTraceId: summary.continued_from_trace_id || null,
+    supersededByTurnId: summary.superseded_by_turn_id || null,
+    supersessionReason: summary.supersession_reason || null,
   };
 };
 
@@ -149,6 +161,10 @@ export const normalizeTraceSnapshot = (raw: ExecutionTraceSnapshot | null | unde
     orchestrationId: raw.orchestration_id || null,
     startedAt: raw.started_at ?? null,
     endedAt: raw.ended_at ?? null,
+    continuedFromTurnId: raw.continued_from_turn_id || null,
+    continuedFromTraceId: raw.continued_from_trace_id || null,
+    supersededByTurnId: raw.superseded_by_turn_id || null,
+    supersessionReason: raw.supersession_reason || null,
     summary,
     root: normalizeTraceNode(raw.root),
   };
@@ -352,6 +368,20 @@ export const upsertTraceSummary = (
 
   if (updated) return nextMessages;
   if (traceDisplayMode === 'none') return messages;
+  if (
+    nextSummary &&
+    ['interrupted', 'merged'].includes(String(nextSummary.status || '').trim())
+  ) {
+    return messages.map((message) => (
+      message.turnId === turnId && message.role === 'user'
+        ? {
+          ...message,
+          traceSummary: nextSummary,
+          traceAvailable: Boolean(nextSummary.traceAvailable),
+        }
+        : message
+    ));
+  }
 
   return [
     ...messages,

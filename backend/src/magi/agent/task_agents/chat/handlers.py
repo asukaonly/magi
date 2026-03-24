@@ -208,6 +208,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         session_run_coordinator = self._deps.session_run_coordinator
         current_user_message = request.context.latest_user_message
         current_revision = int(getattr(request.context, "session_run_revision", 0) or 0)
+        current_turn_id = getattr(request.context.latest_payload, "turn_id", None)
         step_state = orchestrator.build_step_state(
             user_message=current_user_message,
             system_prompt=request.system_prompt,
@@ -225,7 +226,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 session_id=request.context.session_id,
                 session_run_id=request.context.session_run_id,
                 session_run_revision=current_revision,
-                turn_id=getattr(request.context.latest_payload, "turn_id", None),
+                turn_id=current_turn_id,
                 intent=request.intent.intent,
                 execution_agent_id=request.context.runtime_key,
                 orchestration_strategy=(
@@ -247,7 +248,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     response_text=step_outcome.content,
                     root_user_message=current_user_message,
                     execution_outcome=execution_outcome,
-                    turn_id=getattr(request.context.latest_payload, "turn_id", None),
+                    turn_id=current_turn_id,
                     ux_plan=_serialize_ux_plan(request.intent),
                 )
             if step_outcome.status == "failed":
@@ -263,7 +264,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     response_text="",
                     root_user_message=current_user_message,
                     execution_outcome=execution_outcome,
-                    turn_id=getattr(request.context.latest_payload, "turn_id", None),
+                    turn_id=current_turn_id,
                     ux_plan=_serialize_ux_plan(request.intent),
                 )
 
@@ -271,6 +272,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             if active_run is not None and active_run.revision != current_revision:
                 current_revision = active_run.revision
                 current_user_message = str(active_run.root_user_message or current_user_message)
+                current_turn_id = active_run.root_turn_id or current_turn_id
                 step_state = orchestrator.build_step_state(
                     user_message=current_user_message,
                     system_prompt=request.system_prompt,
@@ -282,6 +284,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             checkpoint = session_run_coordinator.consume_checkpoint(request.context.session_id)
             if checkpoint.pending_turns:
                 current_user_message = str(checkpoint.visible_user_message or current_user_message)
+                current_turn_id = checkpoint.pending_turns[-1].turn_id or current_turn_id
                 step_state = orchestrator.build_step_state(
                     user_message=current_user_message,
                     system_prompt=request.system_prompt,
@@ -295,7 +298,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             disable_thinking=request.disable_thinking,
             user_id=request.context.user_id,
             session_id=request.context.session_id,
-            turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            turn_id=current_turn_id,
             intent=request.intent.intent,
             execution_agent_id=request.context.runtime_key,
             execution_workspace=None,
@@ -312,7 +315,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             response_text=execution_outcome.content,
             root_user_message=current_user_message,
             execution_outcome=execution_outcome.to_dict(),
-            turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            turn_id=current_turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
 

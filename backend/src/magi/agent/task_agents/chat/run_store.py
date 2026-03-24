@@ -1,20 +1,20 @@
-"""In-memory session run store for chat task-agent coordination."""
+"""L0-backed session run store for chat task-agent coordination."""
 from __future__ import annotations
 
 from copy import deepcopy
 from threading import RLock
-from time import time
 from typing import Any
 from uuid import uuid4
 
+from ....memory.l0.working_memory import L0WorkingMemoryStore
 from .run_contracts import ActiveRun, PendingTurn, RunResult, RunResultDisposition
 
 
 class SessionRunStore:
     """Store one active run per session_id and track revisioned results."""
 
-    def __init__(self) -> None:
-        self._runs: dict[str, ActiveRun] = {}
+    def __init__(self, *, l0_store: L0WorkingMemoryStore | None = None) -> None:
+        self._l0_store = l0_store or L0WorkingMemoryStore(restore_on_restart=False)
         self._lock = RLock()
 
     def create_active_run(
@@ -26,32 +26,39 @@ class SessionRunStore:
         run_id: str | None = None,
     ) -> ActiveRun:
         """Create or replace the active run for a session."""
-        active_run = ActiveRun(
-            session_id=session_id,
-            run_id=run_id or uuid4().hex,
-            root_turn_id=root_turn_id,
-            root_user_message=root_user_message,
-        )
-        self._set_run(active_run)
-        return deepcopy(active_run)
+        with self._lock:
+            self._l0_store.clear_execution_state_sync(session_id)
+            run_identifier = run_id or uuid4().hex
+            self._l0_store.upsert_execution_run_sync(
+                session_id=session_id,
+                run_id=run_identifier,
+                status="running",
+                revision=0,
+                root_turn_id=root_turn_id,
+                root_user_message=root_user_message,
+                response_anchor_turn_id=root_turn_id,
+            )
+            active_run = self._require_run(session_id)
+            return deepcopy(active_run)
 
     def get_active_run(self, session_id: str) -> ActiveRun | None:
         """Return the current active run for a session."""
         with self._lock:
-            active_run = self._runs.get(session_id)
+            active_run = self._get_run(session_id)
             return deepcopy(active_run) if active_run is not None else None
 
     def append_pending_turn(self, session_id: str, turn_id: str, content: str) -> PendingTurn:
         """Attach a pending turn to the active run for the session."""
         with self._lock:
             active_run = self._require_run(session_id)
-            pending_turn = PendingTurn(
+            pending_payload = self._l0_store.append_execution_pending_turn_sync(
+                session_id=session_id,
+                run_id=active_run.run_id,
                 turn_id=turn_id,
                 content=content,
                 revision=active_run.revision,
             )
-            active_run.pending_turns.append(pending_turn)
-            active_run.updated_at = time()
+            pending_turn = self._to_pending_turn(pending_payload)
             return deepcopy(pending_turn)
 
     def set_root_turn(
@@ -64,18 +71,29 @@ class SessionRunStore:
         """Set or replace the root user turn for the active run."""
         with self._lock:
             active_run = self._require_run(session_id)
-            active_run.root_turn_id = turn_id
-            active_run.root_user_message = content
-            active_run.updated_at = time()
+            self._l0_store.upsert_execution_run_sync(
+                session_id=session_id,
+                run_id=active_run.run_id,
+                status="running",
+                revision=active_run.revision,
+                root_turn_id=turn_id,
+                root_user_message=content,
+                response_anchor_turn_id=turn_id,
+            )
+            active_run = self._require_run(session_id)
             return deepcopy(active_run)
 
-    def consume_pending_turns(self, session_id: str) -> list[PendingTurn]:
+    def consume_pending_turns(self, session_id: str, *, revision: int | None = None) -> list[PendingTurn]:
         """Return and clear pending turns for the active run."""
         with self._lock:
-            active_run = self._require_run(session_id)
-            pending_turns = deepcopy(active_run.pending_turns)
-            active_run.pending_turns.clear()
-            active_run.updated_at = time()
+            self._require_run(session_id)
+            pending_turns = [
+                self._to_pending_turn(item)
+                for item in self._l0_store.consume_execution_pending_turns_sync(
+                    session_id,
+                    revision=revision,
+                )
+            ]
             return pending_turns
 
     def bump_revision(
@@ -88,12 +106,20 @@ class SessionRunStore:
         """Advance the active revision for a session run."""
         with self._lock:
             active_run = self._require_run(session_id)
-            active_run.revision += 1
-            if root_user_message is not None:
-                active_run.root_user_message = root_user_message
             if clear_pending_turns:
-                active_run.pending_turns.clear()
-            active_run.updated_at = time()
+                self._l0_store.consume_execution_pending_turns_sync(session_id)
+            self._l0_store.upsert_execution_run_sync(
+                session_id=session_id,
+                run_id=active_run.run_id,
+                status="running",
+                revision=active_run.revision + 1,
+                root_turn_id=active_run.root_turn_id,
+                root_user_message=(
+                    root_user_message if root_user_message is not None else active_run.root_user_message
+                ),
+                response_anchor_turn_id=active_run.root_turn_id,
+            )
+            active_run = self._require_run(session_id)
             return deepcopy(active_run)
 
     def mark_stale_result(
@@ -107,16 +133,16 @@ class SessionRunStore:
     ) -> RunResult:
         """Record a stale result separately from accepted results."""
         with self._lock:
-            active_run = self._require_run(session_id)
-            stale_result = RunResult(
-                result_id=result_id,
+            self._require_run(session_id)
+            stale_payload = self._l0_store.record_execution_result_sync(
+                session_id=session_id,
                 run_id=run_id,
+                result_id=result_id,
                 revision=revision,
-                payload=deepcopy(payload),
-                disposition=RunResultDisposition.STALE,
+                disposition=RunResultDisposition.STALE.value,
+                payload=payload,
             )
-            active_run.stale_results.append(stale_result)
-            active_run.updated_at = time()
+            stale_result = self._to_run_result(stale_payload)
             return deepcopy(stale_result)
 
     def mark_accepted_result(
@@ -130,16 +156,16 @@ class SessionRunStore:
     ) -> RunResult:
         """Record an accepted result for the current run revision."""
         with self._lock:
-            active_run = self._require_run(session_id)
-            accepted_result = RunResult(
-                result_id=result_id,
+            self._require_run(session_id)
+            accepted_payload = self._l0_store.record_execution_result_sync(
+                session_id=session_id,
                 run_id=run_id,
+                result_id=result_id,
                 revision=revision,
-                payload=deepcopy(payload),
-                disposition=RunResultDisposition.ACCEPTED,
+                disposition=RunResultDisposition.ACCEPTED.value,
+                payload=payload,
             )
-            active_run.accepted_results.append(accepted_result)
-            active_run.updated_at = time()
+            accepted_result = self._to_run_result(accepted_payload)
             return deepcopy(accepted_result)
 
     def record_result(
@@ -170,12 +196,46 @@ class SessionRunStore:
                 payload=payload,
             )
 
-    def _set_run(self, active_run: ActiveRun) -> None:
-        with self._lock:
-            self._runs[active_run.session_id] = active_run
+    def _get_run(self, session_id: str) -> ActiveRun | None:
+        state = self._l0_store.get_execution_state_sync(session_id)
+        run = state.get("run")
+        if not isinstance(run, dict):
+            return None
+        return ActiveRun(
+            session_id=str(run["session_id"]),
+            run_id=str(run["run_id"]),
+            root_turn_id=str(run["root_turn_id"]) if run.get("root_turn_id") is not None else None,
+            root_user_message=str(run.get("root_user_message") or ""),
+            revision=int(run.get("revision") or 0),
+            pending_turns=[self._to_pending_turn(item) for item in state.get("pending_turns", [])],
+            accepted_results=[self._to_run_result(item) for item in state.get("accepted_results", [])],
+            stale_results=[self._to_run_result(item) for item in state.get("stale_results", [])],
+            created_at=float(run.get("created_at") or 0.0),
+            updated_at=float(run.get("updated_at") or 0.0),
+        )
 
     def _require_run(self, session_id: str) -> ActiveRun:
-        active_run = self._runs.get(session_id)
+        active_run = self._get_run(session_id)
         if active_run is None:
             raise ValueError(f"No active run for session_id={session_id!r}")
         return active_run
+
+    @staticmethod
+    def _to_pending_turn(payload: dict[str, Any]) -> PendingTurn:
+        return PendingTurn(
+            turn_id=str(payload["turn_id"]),
+            content=str(payload["content"]),
+            revision=int(payload["revision"]),
+            created_at=float(payload.get("created_at") or 0.0),
+        )
+
+    @staticmethod
+    def _to_run_result(payload: dict[str, Any]) -> RunResult:
+        return RunResult(
+            result_id=str(payload["result_id"]),
+            run_id=str(payload["run_id"]),
+            revision=int(payload["revision"]),
+            payload=deepcopy(payload.get("payload") or {}),
+            disposition=RunResultDisposition(str(payload["disposition"])),
+            created_at=float(payload.get("created_at") or 0.0),
+        )
