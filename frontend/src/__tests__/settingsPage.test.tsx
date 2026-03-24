@@ -9,8 +9,9 @@ import { pluginsApi } from '@/api/modules/plugins';
 import { timelineApi } from '@/api/modules/timeline';
 import { toolsApi } from '@/api/modules/tools';
 
-const { syncCloseToTrayPreferenceMock } = vi.hoisted(() => ({
+const { syncCloseToTrayPreferenceMock, pickDirectoryMock } = vi.hoisted(() => ({
   syncCloseToTrayPreferenceMock: vi.fn(),
+  pickDirectoryMock: vi.fn(),
 }));
 
 const llmFormMock = vi.fn();
@@ -84,6 +85,7 @@ vi.mock('@/components/settings/RuntimeStatisticsSection', () => ({
 
 vi.mock('@/runtime/desktop', () => ({
   syncCloseToTrayPreference: syncCloseToTrayPreferenceMock,
+  pickDirectory: pickDirectoryMock,
 }));
 
 vi.mock('@/api/modules/config', async () => {
@@ -473,6 +475,8 @@ describe('settings page draft saving', () => {
     vi.clearAllMocks();
     llmFormMock.mockReset();
     syncCloseToTrayPreferenceMock.mockReset();
+    pickDirectoryMock.mockReset();
+    pickDirectoryMock.mockResolvedValue(undefined);
 
     vi.mocked(configApi.get).mockResolvedValue({
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
@@ -553,6 +557,66 @@ describe('settings page draft saving', () => {
       )
     );
     expect(syncCloseToTrayPreferenceMock).toHaveBeenCalledWith(false);
+  });
+
+  it('saves a picked default chat workspace path in preferences', async () => {
+    const user = userEvent.setup();
+    pickDirectoryMock.mockResolvedValue('/Users/asuka/code/magi');
+    render(<SettingsPage />);
+
+    const workspaceInput = await screen.findByLabelText('settings.fields.defaultChatWorkspace');
+    expect(workspaceInput).toHaveValue('');
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' }));
+
+    await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledTimes(1));
+    expect(workspaceInput).toHaveValue('/Users/asuka/code/magi');
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({
+            default_chat_workspace_path: '/Users/asuka/code/magi',
+          }),
+        })
+      )
+    );
+  });
+
+  it('allows clearing the default chat workspace path before saving', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
+          default_chat_workspace_path: '/Users/asuka/code/magi',
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    const workspaceInput = await screen.findByLabelText('settings.fields.defaultChatWorkspace');
+    expect(workspaceInput).toHaveValue('/Users/asuka/code/magi');
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.clearDirectory' }));
+    expect(workspaceInput).toHaveValue('');
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({
+            default_chat_workspace_path: null,
+          }),
+        })
+      )
+    );
   });
 
   it('shows grouped memory navigation with dedicated sub-sections', async () => {

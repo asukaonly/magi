@@ -6,6 +6,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  FolderOpen,
   X,
   RotateCcw,
   Save,
@@ -33,11 +34,13 @@ import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection
 import PersonalityModern from '@/pages/PersonalityModern';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { toast } from 'sonner';
+import { pickDirectory } from '@/runtime/desktop';
 
 function SettingsSectionShell({
   children,
@@ -72,6 +75,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [pickingWorkspace, setPickingWorkspace] = useState(false);
 
   const {
     loading,
@@ -171,6 +175,25 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const renderSectionContent = () => {
     const embeddingSelection = draftConfig.llm?.selections?.embedding;
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
+    const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
+
+    const handlePickWorkspace = async () => {
+      setPickingWorkspace(true);
+      try {
+        const selectedPath = await pickDirectory(defaultChatWorkspacePath);
+        if (!selectedPath) {
+          return;
+        }
+        patchDraftConfig((draft) => {
+          draft.preferences.default_chat_workspace_path = selectedPath;
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'unknown';
+        toast.error(t('settings.defaultChatWorkspacePickFailed', { message }));
+      } finally {
+        setPickingWorkspace(false);
+      }
+    };
 
     switch (activeSection) {
       case 'preferences':
@@ -255,6 +278,48 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   />
                 </div>
               </label>
+            </SettingsGroup>
+
+            <SettingsGroup
+              title={t('settings.fields.defaultChatWorkspace')}
+              description={t('settings.defaultChatWorkspaceDesc')}
+            >
+              <div className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <label className="space-y-2" htmlFor="default-chat-workspace">
+                  <div className="text-sm font-medium text-foreground">{t('settings.fields.defaultChatWorkspace')}</div>
+                  <Input
+                    id="default-chat-workspace"
+                    aria-label={t('settings.fields.defaultChatWorkspace')}
+                    readOnly
+                    value={defaultChatWorkspacePath ?? ''}
+                    placeholder={t('settings.defaultChatWorkspacePlaceholder')}
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      void handlePickWorkspace();
+                    }}
+                    disabled={pickingWorkspace}
+                  >
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                    {t('settings.actions.chooseDirectory')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => patchDraftConfig((draft) => {
+                      draft.preferences.default_chat_workspace_path = null;
+                    })}
+                    disabled={!defaultChatWorkspacePath}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    {t('settings.actions.clearDirectory')}
+                  </Button>
+                </div>
+              </div>
             </SettingsGroup>
           </SettingsSectionShell>
         );

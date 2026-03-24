@@ -108,6 +108,19 @@ Expected behavior:
 - changes are validated before save
 - save success and validation errors are visible to the user
 - language switching remains available from settings
+- desktop preferences can include a default chat workspace directory used when creating new conversations
+
+## Preferences
+
+The preferences area owns user-facing behavior toggles that are not model-specific.
+
+Current product expectations:
+
+- users can switch interface language at any time
+- desktop users can choose whether closing the main window hides to tray or exits
+- desktop users can set a default chat workspace directory for new conversations
+- clearing the default chat workspace should fall back to provider-independent runtime defaults
+- per-conversation workspace changes should not overwrite the saved global default
 
 ## LLM Configuration
 

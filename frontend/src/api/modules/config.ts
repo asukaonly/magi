@@ -25,6 +25,7 @@ export interface UserPreferences {
   user_mode: UserMode;
   language: LanguageCode;
   close_to_tray_enabled: boolean;
+  default_chat_workspace_path: string | null;
 }
 
 export interface LLMProviderConfig {
@@ -402,7 +403,13 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       skill_extraction_enabled: true,
     },
   },
-  preferences: { onboarding_completed: false, user_mode: null, language: 'zh', close_to_tray_enabled: true },
+  preferences: {
+    onboarding_completed: false,
+    user_mode: null,
+    language: 'zh',
+    close_to_tray_enabled: true,
+    default_chat_workspace_path: null,
+  },
   personality: DEFAULT_PERSONALITY_CONFIG,
   tools: {
     builtIn: {
