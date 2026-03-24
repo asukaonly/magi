@@ -70,6 +70,14 @@ vi.mock('@/components/settings/LLMUsageSection', () => ({
   LLMUsageSection: () => <div>usage-section</div>,
 }));
 
+vi.mock('@/components/settings/LLMStatisticsSection', () => ({
+  LLMStatisticsSection: () => <div data-testid="llm-statistics-section">llm-statistics-section</div>,
+}));
+
+vi.mock('@/components/settings/RuntimeStatisticsSection', () => ({
+  RuntimeStatisticsSection: () => <div data-testid="runtime-statistics-section">runtime-statistics-section</div>,
+}));
+
 vi.mock('@/api/modules/config', async () => {
   const actual = await vi.importActual<typeof import('@/api/modules/config')>('@/api/modules/config');
   return {

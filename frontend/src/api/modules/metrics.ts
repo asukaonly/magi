@@ -9,6 +9,8 @@ export interface LLMUsageTotals {
   completion_tokens: number;
   total_tokens: number;
   avg_latency_ms: number;
+  total_cost_usd?: number | null;
+  avg_ttft_ms?: number | null;
 }
 
 export interface LLMUsageBreakdownItem {
@@ -19,6 +21,11 @@ export interface LLMUsageBreakdownItem {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  successful_calls?: number | null;
+  failed_calls?: number | null;
+  avg_latency_ms?: number | null;
+  avg_ttft_ms?: number | null;
+  cost_usd?: number | null;
 }
 
 export interface LLMUsageSummary {
@@ -35,6 +42,7 @@ export interface LLMUsageTimeseriesPoint {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cost_usd?: number | null;
 }
 
 export interface LLMUsageTimeseries {
