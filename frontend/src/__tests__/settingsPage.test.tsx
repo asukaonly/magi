@@ -819,6 +819,12 @@ describe('settings page draft saving', () => {
     expect(screen.getByRole('button', { name: 'settings.tabs.statisticsLlm' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'settings.tabs.statisticsRuntime' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'settings.tabs.statisticsLlm' })).toBeInTheDocument();
+    expect(screen.getByTestId('llm-statistics-section')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.statisticsRuntime' }));
+
+    expect(screen.getByRole('heading', { name: 'settings.tabs.statisticsRuntime' })).toBeInTheDocument();
+    expect(screen.getByTestId('runtime-statistics-section')).toBeInTheDocument();
   });
 
   it('renders the top-level settings navigation in the user-facing order with sensors renamed', async () => {

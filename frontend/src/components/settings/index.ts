@@ -16,6 +16,8 @@ export {
 
 // Existing section components
 export { LLMUsageSection } from './LLMUsageSection';
+export { LLMStatisticsSection } from './LLMStatisticsSection';
+export { RuntimeStatisticsSection } from './RuntimeStatisticsSection';
 export { TimelineSourcesSection } from './TimelineSourcesSection';
 export { ExtensionsSection } from './ExtensionsSection';
 export { ActionsSection } from './ActionsSection';

@@ -22,10 +22,11 @@ import {
   MemoryReflectionSettingsSection,
   MemorySkillsSettingsSection,
   MemoryWorkbenchSettingsSection,
+  LLMStatisticsSection,
+  RuntimeStatisticsSection,
 } from '@/components/settings';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
-import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
 import ActionsSection from '@/components/settings/ActionsSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
@@ -270,8 +271,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       case 'personality':
         return <PersonalityModern embedded />;
 
-      case 'usage':
-        return <LLMUsageSection />;
+      case 'statisticsLlm':
+        return <LLMStatisticsSection />;
+
+      case 'statisticsRuntime':
+        return <RuntimeStatisticsSection />;
 
       case 'memoryGeneral':
         return (
