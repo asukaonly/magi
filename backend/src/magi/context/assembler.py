@@ -62,6 +62,7 @@ class PromptContextAssembler:
         retrieved_memory_payload: Optional[Dict[str, Any]] = None,
         state_transition_override: Optional[str] = None,
         persona_name: str = "default",
+        workspace_path: str | None = None,
     ) -> PromptAssemblyContext:
         identity = self._build_identity_constraints()
         self_mem = await self._build_self_memory_context(
@@ -82,6 +83,7 @@ class PromptContextAssembler:
         runtime = self._build_runtime_system_context(
             agent_id=agent_id,
             agent_type=agent_type,
+            workspace_path=workspace_path,
         )
         tools = self._build_tool_catalog_context(tool_result=tool_result)
 
@@ -214,14 +216,21 @@ class PromptContextAssembler:
             },
         )
 
-    def _build_runtime_system_context(self, *, agent_id: str, agent_type: str) -> RuntimeSystemContext:
+    def _build_runtime_system_context(
+        self,
+        *,
+        agent_id: str,
+        agent_type: str,
+        workspace_path: str | None = None,
+    ) -> RuntimeSystemContext:
         now = datetime.now().astimezone()
+        normalized_workspace_path = str(workspace_path or "").strip()
         return RuntimeSystemContext(
             current_time_iso=now.isoformat(),
             timezone=str(now.tzinfo or "unknown"),
             os_name=platform.system(),
             os_version=platform.release(),
-            cwd=os.getcwd(),
+            cwd=normalized_workspace_path or os.getcwd(),
             agent_id=agent_id,
             agent_type=agent_type,
         )

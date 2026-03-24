@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from .assembler import PromptContextAssembler, PromptContextRenderer
@@ -23,6 +24,7 @@ class ContextAssemblyService:
         retrieval_memory_provider,
         memory=None,
         other_memory=None,
+        session_workspace_provider=None,
         policy: ContextPolicy | None = None,
     ) -> None:
         self._agent_id = agent_id
@@ -32,6 +34,7 @@ class ContextAssemblyService:
         self._retrieval_memory_provider = retrieval_memory_provider
         self._memory = memory
         self._other_memory = other_memory
+        self._session_workspace_provider = session_workspace_provider
         self._policy = policy or ContextPolicy()
 
     async def build_prompt_package(
@@ -44,6 +47,7 @@ class ContextAssemblyService:
         tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
+        workspace_path: str | None = None,
     ) -> PromptPackage:
         policy = self._policy.decide(
             user_message=user_message,
@@ -59,6 +63,11 @@ class ContextAssemblyService:
                 allowed_layers=policy.allowed_layers,
             )
 
+        resolved_workspace_path = await self._resolve_workspace_path(
+            user_id=user_id,
+            session_id=session_id,
+            workspace_path=workspace_path,
+        )
         prompt_context = await self._prompt_context_assembler.assemble(
             agent_id=self._agent_id,
             agent_type=self._agent_type,
@@ -71,6 +80,7 @@ class ContextAssemblyService:
             retrieved_memory_payload=retrieved_memory_payload,
             state_transition_override=None,
             persona_name=self._memory.personality_name if self._memory else "default",
+            workspace_path=resolved_workspace_path,
         )
         system_prompt = self._prompt_context_renderer.render_system_prompt(prompt_context)
         recent_tool_errors_block = self.build_recent_tool_errors_block(recent_tool_errors or [])
@@ -92,6 +102,7 @@ class ContextAssemblyService:
         tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
+        workspace_path: str | None = None,
     ):
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -101,6 +112,7 @@ class ContextAssemblyService:
             tools=tools,
             scenario=scenario,
             recent_tool_errors=recent_tool_errors,
+            workspace_path=workspace_path,
         )
         return package.prompt_context
 
@@ -114,6 +126,7 @@ class ContextAssemblyService:
         tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
+        workspace_path: str | None = None,
     ) -> str:
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -123,8 +136,27 @@ class ContextAssemblyService:
             tools=tools,
             scenario=scenario,
             recent_tool_errors=recent_tool_errors,
+            workspace_path=workspace_path,
         )
         return package.system_prompt
+
+    async def _resolve_workspace_path(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None,
+        workspace_path: str | None,
+    ) -> str | None:
+        normalized_workspace_path = str(workspace_path or "").strip()
+        if normalized_workspace_path:
+            return normalized_workspace_path
+        if self._session_workspace_provider is None or not str(session_id or "").strip():
+            return None
+        resolved = self._session_workspace_provider(user_id=user_id, session_id=str(session_id))
+        if inspect.isawaitable(resolved):
+            resolved = await resolved
+        normalized_resolved_workspace_path = str(resolved or "").strip()
+        return normalized_resolved_workspace_path or None
 
     @staticmethod
     def build_recent_tool_errors_block(recent_tool_errors: list[dict[str, Any]]) -> str:

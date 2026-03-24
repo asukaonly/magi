@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -160,6 +161,30 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
 
     assert first_history == []
     assert second_history == [{"role": "user", "content": "hello"}]
+
+
+@pytest.mark.asyncio
+async def test_chat_task_agent_context_service_resolves_session_workspace_from_read_service() -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    class _FakeReadService:
+        async def aget_session_summary(self, user_id: str, session_id: str):
+            assert user_id == "u-chat"
+            assert session_id == "s-chat"
+            return SimpleNamespace(workspace_path="/Users/asuka/code/magi")
+
+    agent._chat_read_service = _FakeReadService()
+
+    package = await agent._context_service.build_prompt_package(
+        user_id="u-chat",
+        session_id="s-chat",
+        user_message="where am i",
+        task_category="chat",
+        tools=[],
+    )
+
+    assert package.prompt_context.runtime_system.cwd == "/Users/asuka/code/magi"
+    assert "* Working Directory: /Users/asuka/code/magi" in package.system_prompt
 
 
 @pytest.mark.asyncio

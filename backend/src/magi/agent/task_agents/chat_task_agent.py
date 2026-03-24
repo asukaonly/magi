@@ -6,7 +6,7 @@ from typing import Optional
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
-from ...chat import ChatProjector, ChatStore
+from ...chat import ChatProjector, ChatStore, get_chat_read_service
 from ...config import get_config
 from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
@@ -84,6 +84,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             scenario_prompts_store=scenario_prompts_store,
         )
         self.prompt_context_renderer = PromptContextRenderer()
+        self._chat_read_service = get_chat_read_service()
         self._context_retrieval_service = ContextRetrievalService(
             unified_memory=unified_memory,
             retrieval_service=hybrid_retrieval_service,
@@ -96,6 +97,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             retrieval_memory_provider=self._context_retrieval_service.build_retrieved_memory_payload,
             memory=memory,
             other_memory=other_memory,
+            session_workspace_provider=self._resolve_session_workspace_path,
         )
 
         runtime_paths = get_runtime_paths()
@@ -197,6 +199,10 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         # Keep these aliases so existing read paths and tests see the same underlying stores.
         self._conversation_history = self._history_service._conversation_history
         self._tool_interactions = self._history_service._tool_interactions
+
+    async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
+        summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
+        return summary.workspace_path if summary is not None else None
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact

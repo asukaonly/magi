@@ -105,3 +105,39 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         )
         retrieval = package.prompt_context.self_memory.retrieval_memory
         self.assertEqual(retrieval.l4_procedural_memory[0]["skill_name"], "repo_fix_flow")
+
+    async def test_build_prompt_package_uses_session_workspace_path_when_available(self):
+        retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
+        session_workspace_provider = AsyncMock(return_value="/Users/asuka/code/magi")
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            other_memory=None,
+            retrieval_memory_provider=retrieval_memory_provider,
+            session_workspace_provider=session_workspace_provider,
+        )
+
+        package = await service.build_prompt_package(
+            user_id="u1",
+            session_id="s1",
+            user_message="看一下当前项目目录",
+            task_category="chat",
+            tools=[],
+        )
+
+        session_workspace_provider.assert_awaited_once_with(user_id="u1", session_id="s1")
+        self.assertEqual(package.prompt_context.runtime_system.cwd, "/Users/asuka/code/magi")
+        self.assertIn("* Working Directory: /Users/asuka/code/magi", package.system_prompt)
+
+    @staticmethod
+    def _empty_retrieval_payload() -> dict[str, object]:
+        return {
+            "l0_workbench": [],
+            "l2_entity_cards": [],
+            "l3_reflection_memory": [],
+            "l4_procedural_memory": [],
+            "preference_memory": {},
+        }

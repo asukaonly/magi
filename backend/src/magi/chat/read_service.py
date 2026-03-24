@@ -204,6 +204,14 @@ class ChatReadService:
         """Load a worker result without blocking the event loop."""
         return await self._run_threaded("get_worker_result", worker_id)
 
+    async def aget_session_summary(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> ChatSessionSummary | None:
+        """Load one session summary without blocking the event loop."""
+        return await self._run_threaded("get_session_summary", user_id, session_id)
+
     async def alist_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List sessions without blocking the event loop."""
         return await self._run_threaded("list_sessions", user_id, limit)
@@ -295,6 +303,35 @@ class ChatReadService:
         store = get_orchestration_store()
         return store.get_worker_result_sync(worker_id)
 
+    def get_session_summary(self, user_id: str, session_id: str) -> ChatSessionSummary | None:
+        normalized_user_id = str(user_id).strip()
+        normalized_session_id = str(session_id).strip()
+        if not normalized_user_id or not normalized_session_id:
+            raise ValueError("User ID and session ID are required")
+        if not self._chat_db_path.exists():
+            return None
+        row = self._get_conn().execute(
+            f"""
+            SELECT
+                session_id,
+                title,
+                title_overridden,
+                last_message_preview,
+                last_user_message_preview,
+                workspace_path,
+                updated_at_ms,
+                last_message_at_ms,
+                message_count
+            FROM {CHAT_SESSIONS_TABLE}
+            WHERE user_id = ?
+              AND session_id = ?
+              AND deleted_at_ms IS NULL
+              AND archived_at_ms IS NULL
+            """,
+            (normalized_user_id, normalized_session_id),
+        ).fetchone()
+        return self._row_to_session_summary(row) if row is not None else None
+
     def list_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List recent chat sessions for a user."""
         safe_limit = max(1, min(limit, 200))
@@ -327,19 +364,7 @@ class ChatReadService:
             logger.exception(f"Failed to query session list: {exc}")
             return []
 
-        return [
-            ChatSessionSummary(
-                session_id=str(row["session_id"]),
-                title=str(row["title"] or "New Chat"),
-                last_message_preview=str(row["last_message_preview"] or ""),
-                last_user_message_preview=str(row["last_user_message_preview"] or ""),
-                title_overridden=bool(int(row["title_overridden"] or 0)),
-                last_timestamp=int(row["last_message_at_ms"] or row["updated_at_ms"] or 0),
-                message_count=int(row["message_count"] or 0),
-                workspace_path=str(row["workspace_path"]) if row["workspace_path"] is not None else None,
-            )
-            for row in rows
-        ]
+        return [self._row_to_session_summary(row) for row in rows]
 
     def rename_session(self, user_id: str, session_id: str, title: str) -> ChatSessionRenameResult:
         normalized_user_id = str(user_id).strip()
@@ -811,6 +836,19 @@ class ChatReadService:
                 turn_id=str(row["turn_id"] or "").strip() or None,
             )
         return None
+
+    @staticmethod
+    def _row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:
+        return ChatSessionSummary(
+            session_id=str(row["session_id"]),
+            title=str(row["title"] or "New Chat"),
+            last_message_preview=str(row["last_message_preview"] or ""),
+            last_user_message_preview=str(row["last_user_message_preview"] or ""),
+            title_overridden=bool(int(row["title_overridden"] or 0)),
+            last_timestamp=int(row["last_message_at_ms"] or row["updated_at_ms"] or 0),
+            message_count=int(row["message_count"] or 0),
+            workspace_path=str(row["workspace_path"]) if row["workspace_path"] is not None else None,
+        )
 
     @staticmethod
     def _normalize_workspace_path(workspace_path: str | None) -> str | None:
