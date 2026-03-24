@@ -165,6 +165,7 @@ class ChatOutcomeWriter:
             replaced_by_message_id=None,
         )
         await self._chat_store.append_message(final_message)
+        await self._chat_store.bump_history_version(existing_turn.session_id)
         if interim_message is not None:
             await self._chat_store.mark_message_replaced(
                 message_id=interim_message.message_id,

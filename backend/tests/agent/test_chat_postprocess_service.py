@@ -234,6 +234,41 @@ async def test_outcome_writer_persists_interim_then_final_messages(chat_store: C
 
 
 @pytest.mark.asyncio
+async def test_outcome_writer_bumps_history_version_for_assistant_final(chat_store: ChatStore) -> None:
+    writer = ChatOutcomeWriter(
+        chat_store=chat_store,
+        chat_projector=None,
+        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-1",
+        message_text="hello",
+        created_at_ms=1710000000000,
+    )
+
+    before_version = await chat_store.get_history_version("session-1")
+
+    await writer.persist_final_chat_outcome(
+        turn_id="turn-1",
+        orchestration_id=None,
+        execution_mode="direct_llm",
+        ux_plan={
+            "assistant_surface_mode": "final_only",
+        },
+        response_text="final answer",
+        started_at_ms=1710000000000,
+        completed_at_ms=1710000000200,
+    )
+
+    after_version = await chat_store.get_history_version("session-1")
+
+    assert before_version == 1
+    assert after_version == 2
+
+
+@pytest.mark.asyncio
 async def test_runtime_notifier_appends_response_and_trace_notifications(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:

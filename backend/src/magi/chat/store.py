@@ -136,6 +136,21 @@ class ChatStore:
             return 0
         return int(row["history_version"] or 0)
 
+    async def bump_history_version(self, session_id: str) -> int:
+        """Increment and return the durable prompt-history version for one session."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            await db.execute(
+                """
+                UPDATE chat_sessions
+                SET history_version = history_version + 1
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            await db.commit()
+        return await self.get_history_version(session_id)
+
     async def create_user_turn(
         self,
         *,
