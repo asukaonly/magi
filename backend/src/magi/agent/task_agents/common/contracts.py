@@ -71,6 +71,8 @@ class UserMessagePayload:
     user_id: str
     session_id: str
     content: str
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+    workspace_path: Optional[str] = None
     turn_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -78,7 +80,10 @@ class UserMessagePayload:
             "user_id": self.user_id,
             "session_id": self.session_id,
             "content": self.content,
+            "attachments": list(self.attachments),
         }
+        if self.workspace_path is not None:
+            payload["workspace_path"] = self.workspace_path
         if self.turn_id is not None:
             payload["turn_id"] = self.turn_id
         return payload
@@ -89,6 +94,8 @@ class UserMessagePayload:
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
             content=str(payload.get("content") or "").strip(),
+            attachments=payload.get("attachments") if isinstance(payload.get("attachments"), list) else [],
+            workspace_path=_optional_string(payload.get("workspace_path")),
             turn_id=_optional_string(payload.get("turn_id")),
         )
 

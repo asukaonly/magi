@@ -20,6 +20,8 @@ CHAT_STORE_PERSIST_FAILED = "CHAT_STORE_PERSIST_FAILED"
 RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED = "RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED"
 RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED = "RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED"
 SESSION_ID_REQUIRED = "SESSION_ID_REQUIRED"
+EMPTY_TURN = "EMPTY_TURN"
+MALFORMED_ATTACHMENTS = "MALFORMED_ATTACHMENTS"
 
 
 @dataclass(slots=True)
@@ -39,6 +41,8 @@ async def dispatch_user_message(
     user_id: str,
     message: str,
     session_id: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
+    workspace_path: str | None = None,
     client_turn_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     runtime_namespace: str | None = None,
@@ -72,6 +76,26 @@ async def dispatch_user_message(
             error_code=SESSION_ID_REQUIRED,
             error_message="Session ID is required.",
         )
+    try:
+        normalized_attachments = _normalize_attachments(attachments)
+    except ValueError as exc:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            session_id=resolved_session_id,
+            error_code=MALFORMED_ATTACHMENTS,
+            error_message=str(exc),
+        )
+    normalized_message = str(message or "")
+    if not normalized_message.strip() and not normalized_attachments:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            session_id=resolved_session_id,
+            error_code=EMPTY_TURN,
+            error_message="Message text or attachments are required.",
+        )
+    normalized_workspace_path = str(workspace_path or "").strip() or None
     created_at = time.time()
     created_at_ms = int(created_at * 1000)
     turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
@@ -80,7 +104,7 @@ async def dispatch_user_message(
             session_id=resolved_session_id,
             user_id=user_id,
             turn_id=turn_id,
-            message_text=message,
+            message_text=normalized_message,
             created_at_ms=created_at_ms,
         )
     except Exception:
@@ -103,7 +127,7 @@ async def dispatch_user_message(
                 user_id=user_id,
                 session_id=resolved_session_id,
                 turn_id=turn_id,
-                content=message,
+                content=normalized_message,
                 created_at_ms=created_at_ms,
             )
         except Exception as exc:
@@ -115,7 +139,9 @@ async def dispatch_user_message(
                 user_id=user_id,
                 session_id=resolved_session_id,
                 turn_id=turn_id,
-                message=message,
+                message=normalized_message,
+                attachments=normalized_attachments,
+                workspace_path=normalized_workspace_path,
                 runtime_namespace=str(runtime_namespace or "").strip() or DEFAULT_RUNTIME_NAMESPACE,
                 metadata=dict(metadata or {}),
                 created_at=created_at,
@@ -140,3 +166,21 @@ async def dispatch_user_message(
         turn_id=turn_id,
         queue_size=int(queue_size) if isinstance(queue_size, int) else None,
     )
+
+
+def _normalize_attachments(attachments: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if attachments is None:
+        return []
+    if not isinstance(attachments, list):
+        raise ValueError("Attachments must be a list.")
+    normalized: list[dict[str, Any]] = []
+    for item in attachments:
+        if not isinstance(item, dict):
+            raise ValueError("Each attachment must be an object.")
+        normalized_item = dict(item)
+        attachment_kind = str(normalized_item.get("kind") or "").strip()
+        if not attachment_kind:
+            raise ValueError("Each attachment must include a kind.")
+        normalized_item["kind"] = attachment_kind
+        normalized.append(normalized_item)
+    return normalized

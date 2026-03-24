@@ -59,8 +59,10 @@ class SensorHub:
     async def _on_user_message(self, event: Event) -> None:
         data = event.data if isinstance(event.data, dict) else {}
         content = str(data.get("content") or "").strip()
+        attachments = data.get("attachments") if isinstance(data.get("attachments"), list) else []
         if not content:
-            return
+            if not attachments:
+                return
 
         session_id = str(data.get("session_id") or "").strip()
 
@@ -69,6 +71,7 @@ class SensorHub:
             event_type=EventTypes.USER_MESSAGE,
             payload={
                 "content": content,
+                "attachments": list(attachments),
                 "user_id": str(data.get("user_id", DEFAULT_USER_ID)),
                 "runtime_namespace": str(
                     data.get("runtime_namespace")
@@ -77,6 +80,7 @@ class SensorHub:
                 ),
                 "session_id": session_id,
                 "turn_id": str(data.get("turn_id") or "").strip() or None,
+                "workspace_path": str(data.get("workspace_path") or "").strip() or None,
                 "metadata": data.get("metadata") or {},
                 "timestamp": float(data.get("timestamp") or event.timestamp),
             },

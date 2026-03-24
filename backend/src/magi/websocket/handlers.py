@@ -138,9 +138,8 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
         user_id = data.get("user_id", DEFAULT_USER_ID)
         session_id = data.get("session_id")
         message = data.get("message", "")
+        attachments = data.get("attachments") or []
 
-        if not message:
-            return {"type": "error", "message": "Message is required"}
         if not str(session_id or "").strip():
             return {"type": "error", "message": "Session ID is required"}
 
@@ -149,7 +148,10 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
             user_id=user_id,
             message=message,
             session_id=session_id,
+            attachments=attachments if isinstance(attachments, list) else attachments,
+            workspace_path=str(data.get("workspace_path") or "").strip() or None,
             client_turn_id=str(data.get("client_turn_id") or "").strip() or None,
+            metadata=dict(data.get("metadata") or {}),
             runtime_namespace=str(
                 data.get("runtime_namespace")
                 or (data.get("metadata") or {}).get("runtime_namespace")
@@ -169,6 +171,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
                 "user_id": user_id,
                 "session_id": outcome.session_id,
                 "turn_id": outcome.turn_id,
+                "attachment_count": len(attachments) if isinstance(attachments, list) else 0,
                 "timestamp": time.time(),
             },
         }

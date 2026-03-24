@@ -23,9 +23,11 @@ user_messages_router = APIRouter()
 
 class UserMessageRequest(BaseModel):
     """User message request."""
-    message: str = Field(..., description="User message content")
+    message: str = Field(default="", description="User message content")
     user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
     session_id: Optional[str] = Field(None, description="Session ID")
+    attachments: List[Dict[str, Any]] = Field(default_factory=list, description="Structured attachment metadata")
+    workspace_path: Optional[str] = Field(None, description="Effective workspace path for this turn")
     client_turn_id: Optional[str] = Field(None, description="Optional client-generated turn id")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
 
@@ -78,6 +80,8 @@ async def send_user_message(
             user_id=request.user_id,
             message=request.message,
             session_id=request.session_id,
+            attachments=list(request.attachments or []),
+            workspace_path=request.workspace_path,
             client_turn_id=request.client_turn_id,
             metadata=request.metadata or {},
             runtime_namespace=str((request.metadata or {}).get("runtime_namespace") or DEFAULT_RUNTIME_NAMESPACE),
@@ -113,6 +117,7 @@ async def send_user_message(
                 "session_id": outcome.session_id,
                 "turn_id": outcome.turn_id,
                 "message_length": len(request.message),
+                "attachment_count": len(request.attachments or []),
                 "timestamp": time.time(),
             }
         )

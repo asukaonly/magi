@@ -25,6 +25,8 @@ class UserMessageCommand:
     session_id: str
     turn_id: str
     message: str
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+    workspace_path: str | None = None
     runtime_namespace: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)

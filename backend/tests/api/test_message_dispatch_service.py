@@ -151,6 +151,52 @@ async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: p
 
 
 @pytest.mark.asyncio
+async def test_dispatch_user_message_carries_attachments_and_workspace_path_into_runtime_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="",
+        session_id="session-for-u1",
+        attachments=[{"kind": "image", "attachment_id": "att-1"}],
+        workspace_path="/Users/asuka/code/magi",
+    )
+
+    assert outcome.success is True
+    command = queue.commands[0]
+    assert command.attachments == [{"kind": "image", "attachment_id": "att-1"}]
+    assert command.workspace_path == "/Users/asuka/code/magi"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_rejects_empty_turn_without_text_or_attachments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="   ",
+        session_id="session-for-u1",
+        attachments=[],
+    )
+
+    assert outcome.success is False
+    assert outcome.error_message == "Message text or attachments are required."
+    assert queue.commands == []
+
+
+@pytest.mark.asyncio
 async def test_dispatch_user_message_returns_publish_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     class _FailingRuntimeCommandQueue(_FakeRuntimeCommandQueue):
         async def enqueue_user_message(self, command) -> int:

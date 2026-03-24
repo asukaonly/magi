@@ -62,6 +62,35 @@ async def test_send_user_message_defaults_to_desktop_runtime_identity(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_send_user_message_passes_attachments_and_workspace_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+
+    response = await messages_router.send_user_message(
+        messages_router.UserMessageRequest(
+            message="",
+            session_id="session-1",
+            attachments=[{"kind": "image", "attachment_id": "att-1"}],
+            workspace_path="/Users/asuka/code/magi",
+        )
+    )
+
+    assert response.success is True
+    assert captured["attachments"] == [{"kind": "image", "attachment_id": "att-1"}]
+    assert captured["workspace_path"] == "/Users/asuka/code/magi"
+
+
+@pytest.mark.asyncio
 async def test_get_conversation_history_uses_async_read_service(monkeypatch: pytest.MonkeyPatch) -> None:
     class _AsyncOnlyReadService:
         def get_display_history(self, user_id: str, session_id: str):  # type: ignore[no-untyped-def]
