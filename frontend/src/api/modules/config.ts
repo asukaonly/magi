@@ -24,6 +24,7 @@ export interface UserPreferences {
   onboarding_completed: boolean;
   user_mode: UserMode;
   language: LanguageCode;
+  close_to_tray_enabled: boolean;
 }
 
 export interface LLMProviderConfig {
@@ -401,7 +402,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       skill_extraction_enabled: true,
     },
   },
-  preferences: { onboarding_completed: false, user_mode: null, language: 'zh' },
+  preferences: { onboarding_completed: false, user_mode: null, language: 'zh', close_to_tray_enabled: true },
   personality: DEFAULT_PERSONALITY_CONFIG,
   tools: {
     builtIn: {

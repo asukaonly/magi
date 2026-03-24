@@ -524,6 +524,27 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('renders the close-to-tray preference as enabled by default and saves changes', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const closeToTraySwitch = await screen.findByRole('switch', { name: 'settings.fields.closeToTray' });
+    expect(closeToTraySwitch).toHaveAttribute('data-state', 'checked');
+
+    await user.click(closeToTraySwitch);
+    expect(closeToTraySwitch).toHaveAttribute('data-state', 'unchecked');
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: expect.objectContaining({ close_to_tray_enabled: false }),
+        })
+      )
+    );
+  });
+
   it('shows grouped memory navigation with dedicated sub-sections', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);

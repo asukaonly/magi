@@ -233,6 +233,29 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 })}
               </div>
             </SettingsGroup>
+
+            <SettingsGroup
+              title={t('settings.fields.closeToTray')}
+              description={t('settings.closeToTrayDesc')}
+            >
+              <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-foreground">{t('settings.fields.closeToTray')}</div>
+                  <div className="text-xs leading-6 text-muted-foreground">
+                    {t('settings.closeToTrayDesc')}
+                  </div>
+                </div>
+                <div className="flex justify-start sm:justify-end">
+                  <Switch
+                    aria-label={t('settings.fields.closeToTray')}
+                    checked={draftConfig.preferences.close_to_tray_enabled}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.preferences.close_to_tray_enabled = checked;
+                    })}
+                  />
+                </div>
+              </label>
+            </SettingsGroup>
           </SettingsSectionShell>
         );
 

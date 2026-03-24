@@ -317,6 +317,7 @@
       "system": "系统"
     },
     "preferencesDesc": "配置界面语言和用户模式",
+    "closeToTrayDesc": "关闭主窗口时隐藏到托盘或状态栏，并保持本地运行时继续运行。",
     "llmDesc": "管理大模型的供应商和场景模型设置",
     "llmProvidersDesc": "配置模型供应商的连接信息、启用状态和可用模型。",
     "llmModelsDesc": "为不同运行场景分别选择供应商和模型。",
@@ -337,6 +338,7 @@
     "fields": {
       "language": "界面语言",
       "theme": "界面主题",
+      "closeToTray": "关闭窗口时最小化到托盘/状态栏",
       "userMode": "用户模式",
       "provider": "提供商",
       "modelName": "模型名称",

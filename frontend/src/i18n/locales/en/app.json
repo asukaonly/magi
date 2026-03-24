@@ -317,6 +317,7 @@
       "system": "System"
     },
     "preferencesDesc": "Configure interface language and user mode",
+    "closeToTrayDesc": "Hide the main window to the tray or menu bar when closing it, while keeping the local runtime active.",
     "llmDesc": "Manage provider connections and scenario-specific model choices.",
     "llmProvidersDesc": "Configure provider connection details, availability, and model sources.",
     "llmModelsDesc": "Choose providers and models for each runtime scenario.",
@@ -337,6 +338,7 @@
     "fields": {
       "language": "Interface Language",
       "theme": "Interface Theme",
+      "closeToTray": "Close window to tray/menu bar",
       "userMode": "User Mode",
       "provider": "Provider",
       "modelName": "Model Name",
