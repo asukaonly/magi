@@ -21,7 +21,7 @@ async def test_runtime_command_queue_enqueues_and_claims_user_message(tmp_path: 
                 session_id="session-1",
                 turn_id="turn-1",
                 message="hello",
-                runtime_namespace="web",
+                runtime_namespace="desktop",
                 metadata={"origin": "test"},
             )
         )

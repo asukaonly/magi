@@ -40,7 +40,7 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp
                 session_id="session-1",
                 turn_id="turn-1",
                 message="hello runtime",
-                runtime_namespace="web",
+                runtime_namespace="desktop",
                 metadata={"origin": "test"},
             )
         )
@@ -94,7 +94,7 @@ async def test_runtime_command_processor_stops_claiming_commands_while_draining(
                 session_id="session-1",
                 turn_id="turn-1",
                 message="hello drain",
-                runtime_namespace="web",
+                runtime_namespace="desktop",
                 metadata={"origin": "test"},
             )
         )

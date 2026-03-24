@@ -162,7 +162,7 @@ async def test_l1_event_store_restores_final_memory_event_shape(tmp_path):
         event = Event(
             type=EventTypes.USER_MESSAGE,
             data={
-                "user_id": "web_user",
+                "user_id": "local_user",
                 "session_id": "session-1",
                 "turn_id": "turn-identity-1",
                 "content": "Remember me",
@@ -180,10 +180,10 @@ async def test_l1_event_store_restores_final_memory_event_shape(tmp_path):
         restored = await store.get_memory_event("evt-identity-1")
 
         assert fetched is not None
-        assert fetched["user_id"] == "web_user"
+        assert fetched["user_id"] == "local_user"
         assert fetched["turn_id"] == "turn-identity-1"
         assert restored is not None
-        assert restored.user_id == "web_user"
+        assert restored.user_id == "local_user"
         assert restored.content == "Remember me"
         assert restored.author_type == "user"
         assert restored.content_type == "text"

@@ -352,7 +352,7 @@ def test_build_tool_message_payload_compacts_agent_run_state() -> None:
                 "description": "scan auth flow",
                 "created_at": 1.0,
                 "updated_at": 2.0,
-                "target_task_agent_id": "web_user",
+                "target_task_agent_id": "local_user",
                 "result": "Found auth flow entry points in backend/src/...",
             },
             error=None,

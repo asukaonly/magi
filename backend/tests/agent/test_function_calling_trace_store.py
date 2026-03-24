@@ -152,12 +152,12 @@ async def test_execute_with_tools_persists_iteration_llm_and_tool_rows(
         user_message="search Hangzhou news",
         system_prompt="You are helpful.",
         selected_tools=["web-search"],
-        user_id="web_user",
+        user_id="local_user",
         session_id="session-1",
         turn_id="turn-1",
         conversation_history=[],
         intent="news_query",
-        execution_agent_id="chat:web_user",
+        execution_agent_id="chat:local_user",
     )
 
     iteration_one = await runtime_trace_store.get_span("turn-1:iteration:1")

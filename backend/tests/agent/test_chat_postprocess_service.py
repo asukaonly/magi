@@ -185,7 +185,7 @@ async def test_outcome_writer_persists_interim_then_final_messages(chat_store: C
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-1",
         message_text="hello",
         created_at_ms=1710000000000,
@@ -218,7 +218,7 @@ async def test_outcome_writer_persists_interim_then_final_messages(chat_store: C
         ux_plan={"assistant_surface_mode": "interim_then_final"},
     )
     await writer.project_final_chat_message(
-        user_id="web_user",
+        user_id="local_user",
         session_id="session-1",
         final_message=notification_message,
     )
@@ -242,7 +242,7 @@ async def test_outcome_writer_bumps_history_version_for_assistant_final(chat_sto
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-1",
         message_text="hello",
         created_at_ms=1710000000000,
@@ -275,7 +275,7 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
     notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
 
     await notifier.emit_agent_response(
-        user_id="web_user",
+        user_id="local_user",
         session_id="session-1",
         turn_id="turn-1",
         response_text="done",
@@ -287,7 +287,7 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
         message_kind="assistant_final",
     )
     await notifier.emit_trace_update(
-        user_id="web_user",
+        user_id="local_user",
         session_id="session-1",
         turn_id="turn-1",
     )
@@ -323,7 +323,7 @@ async def chat_store(tmp_path):
 async def test_record_tool_interaction_preserves_trace_identity() -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -333,7 +333,7 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
 
     await service.record_tool_interaction(
         {
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
             "orchestration_id": "orch-1",
@@ -371,7 +371,7 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -380,16 +380,16 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "hello",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -397,12 +397,12 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -410,7 +410,7 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="hello",
             turn_id="turn-1",
@@ -428,7 +428,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -437,16 +437,16 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "hello",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -454,12 +454,12 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -467,7 +467,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="hello",
             turn_id="turn-1",
@@ -505,7 +505,7 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -515,16 +515,16 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "hello",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-interim",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -532,12 +532,12 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -545,7 +545,7 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="hello",
             turn_id="turn-interim",
@@ -553,7 +553,7 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-interim",
         message_text="hello",
         created_at_ms=1710000000000,
@@ -609,7 +609,7 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -619,16 +619,16 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "嗯",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-reaction",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -636,12 +636,12 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -649,7 +649,7 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
         latest_user_message="嗯",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="嗯",
             turn_id="turn-reaction",
@@ -657,7 +657,7 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-reaction",
         message_text="嗯",
         created_at_ms=1710000000000,
@@ -701,7 +701,7 @@ async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -716,10 +716,10 @@ async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
             "iteration": 2,
             "tool_names": ["web-search", "file_read"],
             "tool_count": 2,
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
-            "execution_agent_id": "chat:web_user",
+            "execution_agent_id": "chat:local_user",
             "llm_trace": {
                 "provider": "openai",
                 "model": "gpt-test",
@@ -744,7 +744,7 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
     action_emitter = _FakeActionEmitter()
     manager = _RecordingTaskAgentManager()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: manager,
@@ -759,7 +759,7 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
             "tool_name": "file_read",
             "tool_call_id": "call-1",
             "success": True,
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
         }
@@ -779,7 +779,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -790,43 +790,43 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-1",
         message_text="Inspect login flow",
         created_at_ms=1710000000000,
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-2",
         message_text="Switch to checkout flow",
         created_at_ms=1710000001000,
     )
     first_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "Inspect login flow",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
     second_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "Switch to checkout flow",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-2",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000001.0,
         correlation_id="corr-2",
     )
@@ -834,12 +834,12 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         latest_fact=first_fact,
         recent_facts=[first_fact],
         batch_facts=[first_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -847,7 +847,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         latest_user_message="Inspect login flow",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="Inspect login flow",
             turn_id="turn-1",
@@ -857,12 +857,12 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         latest_fact=second_fact,
         recent_facts=[second_fact],
         batch_facts=[second_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -870,7 +870,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         latest_user_message="Switch to checkout flow",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="Switch to checkout flow",
             turn_id="turn-2",
@@ -905,7 +905,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
     action_emitter = _FakeActionEmitter()
     runtime = _FakeRuntime()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -913,16 +913,16 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "I still like Asuka best.",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -930,12 +930,12 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -943,7 +943,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
         latest_user_message="I still like Asuka best.",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="I still like Asuka best.",
             turn_id="turn-1",
@@ -970,7 +970,7 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -979,16 +979,16 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "hello",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -996,12 +996,12 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -1009,7 +1009,7 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="hello",
             turn_id="turn-1",
@@ -1048,7 +1048,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -1057,16 +1057,16 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "hello",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -1074,12 +1074,12 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -1087,7 +1087,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="hello",
             turn_id="turn-1",
@@ -1151,7 +1151,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     action_emitter = _FakeActionEmitter()
     chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -1162,16 +1162,16 @@ async def test_handle_commits_final_chat_message_before_notification(
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "hello",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-final",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -1179,12 +1179,12 @@ async def test_handle_commits_final_chat_message_before_notification(
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -1192,7 +1192,7 @@ async def test_handle_commits_final_chat_message_before_notification(
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="hello",
             turn_id="turn-final",
@@ -1200,7 +1200,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-final",
         message_text="hello",
         created_at_ms=1710000000000,
@@ -1253,7 +1253,7 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
     action_emitter = _FakeActionEmitter()
     chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -1264,16 +1264,16 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "嗯",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-react-final",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -1281,12 +1281,12 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -1294,7 +1294,7 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
         latest_user_message="嗯",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="嗯",
             turn_id="turn-react-final",
@@ -1302,7 +1302,7 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-react-final",
         message_text="嗯",
         created_at_ms=1710000000000,
@@ -1361,7 +1361,7 @@ async def test_handle_completes_none_surface_turn_without_final_message(
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -1371,16 +1371,16 @@ async def test_handle_completes_none_surface_turn_without_final_message(
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "嗯",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-none",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-none",
     )
@@ -1388,12 +1388,12 @@ async def test_handle_completes_none_surface_turn_without_final_message(
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -1401,7 +1401,7 @@ async def test_handle_completes_none_surface_turn_without_final_message(
         latest_user_message="嗯",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="嗯",
             turn_id="turn-none",
@@ -1409,7 +1409,7 @@ async def test_handle_completes_none_surface_turn_without_final_message(
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-none",
         message_text="嗯",
         created_at_ms=1710000000000,
@@ -1446,7 +1446,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
 ) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -1456,16 +1456,16 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "嗯",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-react-empty",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-react-empty",
     )
@@ -1473,12 +1473,12 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -1486,7 +1486,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
         latest_user_message="嗯",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="嗯",
             turn_id="turn-react-empty",
@@ -1494,7 +1494,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
     )
     await chat_store.create_user_turn(
         session_id="session-1",
-        user_id="web_user",
+        user_id="local_user",
         turn_id="turn-react-empty",
         message_text="嗯",
         created_at_ms=1710000000000,
@@ -1553,7 +1553,7 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
         ]
     )
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -1562,10 +1562,10 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type="EXPLORE_TASK_COMPLETED",
         payload={
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "root_user_message": "Analyze the repository architecture",
             "markdown_dossier": "# Request\nAnalyze the repository architecture",
@@ -1573,7 +1573,7 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
             "turn_id": "turn-1",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -1581,12 +1581,12 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -1594,7 +1594,7 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
         latest_user_message="Analyze the repository architecture",
         incoming_fact_kind=IncomingFactKind.EXPLORE_TASK_COMPLETED,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="Analyze the repository architecture",
             turn_id="turn-1",
@@ -1627,7 +1627,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
     action_emitter = _FakeActionEmitter()
     unified_memory = _FakeUnifiedMemory(events=[{"event_id": "evt-1"}])
     service = ChatPostProcessService(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
@@ -1636,16 +1636,16 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
-        agent_id="chat:web_user",
+        agent_id="chat:local_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
             "content": "Hello there",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
         },
         agent_type="chat",
-        agent_instance_id="web_user",
+        agent_instance_id="local_user",
         timestamp=1710000000.0,
         correlation_id="corr-1",
     )
@@ -1653,12 +1653,12 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
         latest_fact=latest_fact,
         recent_facts=[latest_fact],
         batch_facts=[latest_fact],
-        agent_id="web_user",
+        agent_id="local_user",
         agent_type="chat",
-        runtime_key="chat:web_user",
-        user_id="web_user",
+        runtime_key="chat:local_user",
+        user_id="local_user",
         session_id="session-1",
-        history_key="web_user::session-1",
+        history_key="local_user::session-1",
         history=[],
         conversation_history=[],
         active_orchestrations=[],
@@ -1666,7 +1666,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
         latest_user_message="Hello there",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
-            user_id="web_user",
+            user_id="local_user",
             session_id="session-1",
             content="Hello there",
             turn_id="turn-1",

@@ -9,7 +9,7 @@ def _build_user_message(text: str):
         Event(
             type=EventTypes.USER_MESSAGE,
             data={
-                "user_id": "web_user",
+                "user_id": "local_user",
                 "session_id": "s1",
                 "content": text,
                 "author_type": "user",
@@ -87,11 +87,11 @@ def test_collect_context_bundle_binds_self_pronoun():
     bundle = collect_context_bundle(event=event)
     refs = resolve_direct_context_refs(event=event, bundle=bundle)
 
-    assert bundle.pronoun_bindings == [{"surface": "我", "resolved_ref": "web_user", "resolved_kind": "self_actor"}]
+    assert bundle.pronoun_bindings == [{"surface": "我", "resolved_ref": "local_user", "resolved_kind": "self_actor"}]
     assert refs[0].to_dict() == {
         "surface": "我",
         "reference_type": "self_actor",
-        "resolved_ref": "web_user",
+        "resolved_ref": "local_user",
         "resolved_kind": "self_actor",
         "confidence": 1.0,
         "evidence_text": "我真的很烦这种天气耶",

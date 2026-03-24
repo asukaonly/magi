@@ -44,7 +44,7 @@ def test_trace_node_payload_serializes_common_trace_fields() -> None:
         output={"finish_reason": "stop"},
         metrics={"input_tokens": 12, "output_tokens": 8},
         error=None,
-        tags={"user_id": "web_user", "session_id": "session_1"},
+        tags={"user_id": "local_user", "session_id": "session_1"},
     )
 
     serialized = payload.to_event_payload()
@@ -69,7 +69,7 @@ async def test_trace_event_emitter_emits_started_and_completed_runtime_events() 
         parent_span_id=None,
         node_type="turn",
         name="Chat turn",
-        user_id="web_user",
+        user_id="local_user",
         session_id="session_1",
         started_at_ms=1710751000123,
     )
@@ -80,7 +80,7 @@ async def test_trace_event_emitter_emits_started_and_completed_runtime_events() 
         parent_span_id="span_1",
         node_type="intent_resolution",
         name="Intent resolution",
-        user_id="web_user",
+        user_id="local_user",
         session_id="session_1",
         started_at_ms=1710751000123,
         ended_at_ms=1710751000205,

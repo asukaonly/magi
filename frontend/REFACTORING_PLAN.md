@@ -188,7 +188,7 @@ const appendPendingTurn = useConversationStore((state) => state.appendPendingTur
 **具体表现:**
 ```typescript
 // Chat.tsx
-const USER_ID = 'web_user';
+const USER_ID = 'local_user';
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 
 // realtime/client.ts
@@ -300,7 +300,7 @@ export interface UseChatReturn {
 }
 
 export function useChat(options: UseChatOptions = {}): UseChatReturn {
-  const { userId = 'web_user' } = options;
+  const { userId = 'local_user' } = options;
 
   // 从 store 获取状态
   const currentSessionId = useConversationStore(s => s.currentSessionId);

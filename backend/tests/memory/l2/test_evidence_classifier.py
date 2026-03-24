@@ -165,7 +165,7 @@ def _build_chat_response_action_event():
             "author_type": "tool",
             "content_type": "tool_result",
             "action_type": "ChatResponseAction",
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "s1",
             "turn_id": "turn-1",
             "success": True,

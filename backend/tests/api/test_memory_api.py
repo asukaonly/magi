@@ -52,7 +52,7 @@ class _FakeL1Store:
                 retention_class=RetentionClass.COMPRESSIBLE,
                 session_id="session-1",
                 turn_id="turn-1",
-                user_id="web_user",
+                user_id="local_user",
                 task_id=None,
                 content="hello",
                 author_type="user",
@@ -1941,7 +1941,7 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["events"][0]["user_id"] == "web_user"
+    assert body["events"][0]["user_id"] == "local_user"
     assert body["events"][0]["content"] == "hello"
     assert body["events"][0]["memory_domain"] == "interaction"
     assert body["events"][0]["retention_class"] == "compressible"

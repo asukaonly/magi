@@ -295,7 +295,7 @@ def test_normalized_memory_event_uses_canonical_text_fields():
     event = Event(
         type=EventTypes.USER_MESSAGE,
         data={
-            "user_id": "web_user",
+            "user_id": "local_user",
             "session_id": "s1",
             "turn_id": "turn-1",
             "content": "hello",
@@ -309,7 +309,7 @@ def test_normalized_memory_event_uses_canonical_text_fields():
 
     normalized = normalize_runtime_event(event)
 
-    assert normalized.user_id == "web_user"
+    assert normalized.user_id == "local_user"
     assert normalized.session_id == "s1"
     assert normalized.turn_id == "turn-1"
     assert normalized.content == "hello"
@@ -329,7 +329,7 @@ async def test_l1_round_trip_preserves_canonical_text_fields():
                 Event(
                     type=EventTypes.USER_MESSAGE,
                     data={
-                        "user_id": "web_user",
+                        "user_id": "local_user",
                         "session_id": "s1",
                         "turn_id": "turn-1",
                         "content": "hello",
@@ -346,7 +346,7 @@ async def test_l1_round_trip_preserves_canonical_text_fields():
             restored = await store.get_memory_event(normalized.event_id)
 
             assert restored is not None
-            assert restored.user_id == "web_user"
+            assert restored.user_id == "local_user"
             assert restored.turn_id == "turn-1"
             assert restored.content == "hello"
             assert restored.author_type == "user"
@@ -1732,11 +1732,11 @@ async def test_chat_response_action_runtime_event_is_skipped_before_llm_extracti
                 Event(
                     type="ActionExecuted",
                     data={
-                        "agent_id": "chat:web_user",
+                        "agent_id": "chat:local_user",
                         "event_type": "UserMessage",
                         "action_type": "ChatResponseAction",
                         "content": "懂你，这种天气确实烦。",
-                        "user_id": "web_user",
+                        "user_id": "local_user",
                         "session_id": "s1",
                         "turn_id": "turn-1",
                         "success": True,
