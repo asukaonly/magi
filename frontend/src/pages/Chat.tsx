@@ -395,6 +395,7 @@ export const ChatPage: React.FC = () => {
       );
       let droppedForVision = false;
       let droppedForLimit = false;
+      let droppedUnsupportedCount = 0;
 
       files.forEach((file) => {
         if (isSupportedImageFile(file)) {
@@ -428,7 +429,10 @@ export const ChatPage: React.FC = () => {
             size: file.size,
             mimeType: file.type,
           });
+          return;
         }
+
+        droppedUnsupportedCount += 1;
       });
 
       if (droppedForVision) {
@@ -436,6 +440,9 @@ export const ChatPage: React.FC = () => {
       }
       if (droppedForLimit) {
         toast.warning(t('chat.attachments.imageLimit', { count: MAX_IMAGE_ATTACHMENTS }));
+      }
+      if (droppedUnsupportedCount > 0) {
+        toast.warning(t('chat.attachments.unsupportedFiles', { count: droppedUnsupportedCount }));
       }
 
       return nextAttachments;

@@ -11,9 +11,10 @@ import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 const sendMock = vi.fn();
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
 const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-const { pickDirectoryMock, convertFileSrcMock } = vi.hoisted(() => ({
+const { pickDirectoryMock, convertFileSrcMock, toastWarningMock } = vi.hoisted(() => ({
   pickDirectoryMock: vi.fn(),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
+  toastWarningMock: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -21,6 +22,14 @@ vi.mock('react-i18next', () => ({
     t: (key: string) => key,
     i18n: { language: 'zh-CN' },
   }),
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    warning: toastWarningMock,
+    error: vi.fn(),
+    success: vi.fn(),
+  },
 }));
 
 vi.mock('@/realtime/provider', () => ({
@@ -112,6 +121,7 @@ describe('ChatPage', () => {
     consoleErrorSpy.mockClear();
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
+    toastWarningMock.mockReset();
     vi.mocked(configApi.get).mockResolvedValue(buildConfigWithVision(true) as any);
     Element.prototype.scrollIntoView = vi.fn();
     URL.createObjectURL = vi.fn(() => 'blob:chat-attachment');
@@ -305,6 +315,30 @@ describe('ChatPage', () => {
     expect(screen.getByText('clipboard.png')).toBeInTheDocument();
     expect(screen.getByText('report.pdf')).toBeInTheDocument();
     expect(screen.queryByText('archive.zip')).not.toBeInTheDocument();
+    expect(toastWarningMock).toHaveBeenCalledWith('chat.attachments.unsupportedFiles');
+  });
+
+  it('warns when unsupported files are selected from the file picker', async () => {
+    const user = userEvent.setup();
+    render(<ChatPage />);
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('button', { name: 'chat.attachments.add' }));
+
+    const fileInput = screen.getByTestId('chat-attachments-file-input') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: {
+        files: [
+          new File(['notes'], 'notes.md', { type: 'text/markdown' }),
+          new File(['zip'], 'archive.zip', { type: 'application/zip' }),
+        ],
+      },
+    });
+
+    expect(screen.getByText('notes.md')).toBeInTheDocument();
+    expect(screen.queryByText('archive.zip')).not.toBeInTheDocument();
+    expect(toastWarningMock).toHaveBeenCalledWith('chat.attachments.unsupportedFiles');
   });
 
   it('uploads draft attachments before sending the websocket turn payload', async () => {
