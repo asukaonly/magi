@@ -321,6 +321,73 @@ class L0WorkingMemoryStore:
     ) -> dict[str, Any]:
         """Upsert the active execution run for a session."""
         await self.start_session(session_id=session_id)
+        return self.upsert_execution_run_sync(
+            session_id=session_id,
+            run_id=run_id,
+            status=status,
+            revision=revision,
+            root_turn_id=root_turn_id,
+            root_user_message=root_user_message,
+            response_anchor_turn_id=response_anchor_turn_id,
+        )
+
+    async def append_execution_pending_turn(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        turn_id: str,
+        content: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        """Append one pending user turn to the execution lane."""
+        await self.start_session(session_id=session_id)
+        return self.append_execution_pending_turn_sync(
+            session_id=session_id,
+            run_id=run_id,
+            turn_id=turn_id,
+            content=content,
+            revision=revision,
+        )
+
+    async def record_execution_result(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        result_id: str,
+        revision: int,
+        disposition: str,
+        payload: Dict[str, Any],
+    ) -> dict[str, Any]:
+        """Record one accepted or stale execution result."""
+        await self.start_session(session_id=session_id)
+        return self.record_execution_result_sync(
+            session_id=session_id,
+            run_id=run_id,
+            result_id=result_id,
+            revision=revision,
+            disposition=disposition,
+            payload=payload,
+        )
+
+    async def get_execution_state(self, session_id: str) -> dict[str, Any]:
+        """Return the restored execution-lane state for one session."""
+        return self.get_execution_state_sync(session_id)
+
+    def upsert_execution_run_sync(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        status: str,
+        revision: int,
+        root_turn_id: Optional[str] = None,
+        root_user_message: str = "",
+        response_anchor_turn_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Synchronously upsert the active execution run for a session."""
+        self._ensure_session_sync(session_id)
         existing = self._execution_runs.get(session_id)
         now = time.time()
         execution_run = {
@@ -339,7 +406,7 @@ class L0WorkingMemoryStore:
         self._execution_results.setdefault(session_id, [])
         return dict(execution_run)
 
-    async def append_execution_pending_turn(
+    def append_execution_pending_turn_sync(
         self,
         *,
         session_id: str,
@@ -348,8 +415,8 @@ class L0WorkingMemoryStore:
         content: str,
         revision: int,
     ) -> dict[str, Any]:
-        """Append one pending user turn to the execution lane."""
-        await self.start_session(session_id=session_id)
+        """Synchronously append one pending user turn to the execution lane."""
+        self._ensure_session_sync(session_id)
         pending_turn = {
             "session_id": session_id,
             "run_id": run_id,
@@ -361,7 +428,13 @@ class L0WorkingMemoryStore:
         self._execution_pending_turns.setdefault(session_id, []).append(pending_turn)
         return dict(pending_turn)
 
-    async def record_execution_result(
+    def consume_execution_pending_turns_sync(self, session_id: str) -> list[dict[str, Any]]:
+        """Synchronously return and clear pending execution turns for a session."""
+        pending_turns = [dict(item) for item in self._execution_pending_turns.get(session_id, [])]
+        self._execution_pending_turns[session_id] = []
+        return pending_turns
+
+    def record_execution_result_sync(
         self,
         *,
         session_id: str,
@@ -371,8 +444,8 @@ class L0WorkingMemoryStore:
         disposition: str,
         payload: Dict[str, Any],
     ) -> dict[str, Any]:
-        """Record one accepted or stale execution result."""
-        await self.start_session(session_id=session_id)
+        """Synchronously record one accepted or stale execution result."""
+        self._ensure_session_sync(session_id)
         result = {
             "result_id": result_id,
             "session_id": session_id,
@@ -387,8 +460,14 @@ class L0WorkingMemoryStore:
         results.append(result)
         return dict(result)
 
-    async def get_execution_state(self, session_id: str) -> dict[str, Any]:
-        """Return the restored execution-lane state for one session."""
+    def clear_execution_state_sync(self, session_id: str) -> None:
+        """Synchronously clear all execution-lane state for one session."""
+        self._execution_runs.pop(session_id, None)
+        self._execution_pending_turns.pop(session_id, None)
+        self._execution_results.pop(session_id, None)
+
+    def get_execution_state_sync(self, session_id: str) -> dict[str, Any]:
+        """Synchronously return the execution-lane state for one session."""
         run = self._execution_runs.get(session_id)
         pending_turns = [dict(item) for item in self._execution_pending_turns.get(session_id, [])]
         results = [dict(item) for item in self._execution_results.get(session_id, [])]
@@ -398,6 +477,28 @@ class L0WorkingMemoryStore:
             "accepted_results": [item for item in results if str(item.get("disposition")) == "accepted"],
             "stale_results": [item for item in results if str(item.get("disposition")) == "stale"],
         }
+
+    def _ensure_session_sync(self, session_id: str) -> dict[str, Any]:
+        session = self._sessions.get(session_id)
+        now = time.time()
+        if session is not None:
+            session["last_active_at"] = now
+            return session
+        session = {
+            "session_id": session_id,
+            "user_id": None,
+            "runtime_agent_id": None,
+            "status": "active",
+            "started_at": now,
+            "last_active_at": now,
+            "last_checkpoint_at": None,
+            "metadata": {},
+        }
+        self._sessions[session_id] = session
+        self._goal_stack.setdefault(session_id, [])
+        self._active_entities.setdefault(session_id, {})
+        self._temporary_tactics.setdefault(session_id, {})
+        return session
 
     async def get_workbench(self, session_id: str) -> dict[str, Any]:
         """Return the prompt-consumable workbench for a session."""

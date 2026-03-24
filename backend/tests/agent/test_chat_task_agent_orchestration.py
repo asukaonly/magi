@@ -49,9 +49,17 @@ async def test_chat_task_agent_requires_explicit_session_id_for_user_messages() 
 
 @pytest.mark.asyncio
 async def test_chat_history_service_uses_explicit_session_pairs_without_state_file(tmp_path: Path) -> None:
+    from magi.chat.read_service import ChatReadService
+
+    isolated_read_service = ChatReadService()
+    isolated_read_service._chat_db_path = tmp_path / "chat.db"
+    isolated_read_service._l1_db_path = tmp_path / "l1.sqlite3"
+    isolated_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+
     service = ChatHistoryService(
         l1_db_path=tmp_path / "l1.sqlite3",
         runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
+        chat_read_service_factory=lambda: isolated_read_service,
     )
 
     history = await service.get_or_load_history("u-chat", "s-chat")

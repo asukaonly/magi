@@ -31,6 +31,7 @@ from .chat import (
     ExecutionRequest,
     ExecutionResult,
     SessionRunCoordinator,
+    SessionRunStore,
     ToolSelection,
 )
 from .chat.handlers import (
@@ -109,7 +110,11 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
         )
-        self._session_run_coordinator = SessionRunCoordinator()
+        self._session_run_coordinator = SessionRunCoordinator(
+            run_store=SessionRunStore(
+                l0_store=(unified_memory.l0 if unified_memory is not None else None),
+            )
+        )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
             runtime_key=self.runtime_key,
