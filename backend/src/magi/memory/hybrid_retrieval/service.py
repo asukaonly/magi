@@ -296,14 +296,15 @@ class HybridRetrievalService:
     async def _load_l0(self, session_id: str) -> List[Dict[str, Any]]:
         """Load L0 workbench data."""
         try:
-            workbench = await self._memory.l0.get_workbench(session_id)
-            if workbench.get("session") is not None:
+            projection = await self._memory.l0.get_prompt_workbench_projection(session_id)
+            if projection.get("session") is not None:
                 return [
                     {
-                        "session": workbench["session"],
-                        "goals": workbench.get("goal_stack", [])[:3],
-                        "active_entities": workbench.get("active_entities", [])[:5],
-                        "temporary_tactics": workbench.get("temporary_tactics", [])[:5],
+                        "session": projection["session"],
+                        "goals": projection.get("goal_stack", [])[:3],
+                        "active_entities": projection.get("active_entities", [])[:5],
+                        "temporary_tactics": projection.get("temporary_tactics", [])[:5],
+                        "execution_summary": projection.get("execution_summary"),
                     }
                 ]
         except Exception:

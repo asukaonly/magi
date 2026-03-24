@@ -527,6 +527,27 @@ class L0WorkingMemoryStore:
             ],
         }
 
+    async def get_prompt_workbench_projection(self, session_id: str) -> dict[str, Any]:
+        """Return the prompt-facing L0 projection with execution state summarized."""
+        workbench = await self.get_workbench(session_id)
+        execution_state = self.get_execution_state_sync(session_id)
+        run = execution_state.get("run")
+        pending_turns = execution_state.get("pending_turns", [])
+
+        projection = dict(workbench)
+        if isinstance(run, dict):
+            latest_pending_turn = pending_turns[-1] if pending_turns else None
+            projection["execution_summary"] = {
+                "active_run_summary": str(run.get("root_user_message") or "").strip(),
+                "awaiting_external_result": str(run.get("status") or "").strip() == "running",
+                "latest_user_augmentation_summary": (
+                    str(latest_pending_turn.get("content") or "").strip()
+                    if isinstance(latest_pending_turn, dict)
+                    else None
+                ),
+            }
+        return projection
+
     async def checkpoint_session(self, session_id: str) -> None:
         """Persist a single session workbench into the checkpoint database."""
         session = self._sessions.get(session_id)
