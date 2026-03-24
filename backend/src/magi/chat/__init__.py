@@ -7,6 +7,7 @@ from .read_service import (
     ChatReadService,
     ChatSessionRenameResult,
     ChatSessionSummary,
+    SessionWorkspaceUpdateResult,
     get_chat_read_service,
 )
 from .store import ChatStore
@@ -19,6 +20,7 @@ __all__ = [
     "ChatSessionRecord",
     "ChatSessionRenameResult",
     "ChatSessionSummary",
+    "SessionWorkspaceUpdateResult",
     "ChatStore",
     "ChatTurnRecord",
     "get_chat_read_service",

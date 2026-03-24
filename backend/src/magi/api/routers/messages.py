@@ -1,11 +1,15 @@
 """Messages API router."""
+from __future__ import annotations
+
+from dataclasses import asdict
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 
 from ..services import dispatch_user_message, get_chat_trace_read_service
-from ...chat import get_chat_read_service
+from ...chat import SessionWorkspaceUpdateResult, get_chat_read_service
 from ...utils.agent_logger import get_agent_logger
 from ...core.logger import get_logger
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
@@ -39,6 +43,13 @@ class RenameSessionRequest(BaseModel):
     title: str = Field(..., description="New session title")
 
 
+class UpdateSessionWorkspaceRequest(BaseModel):
+    """Session workspace update request."""
+
+    user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
+    workspace_path: Optional[str] = Field(default=None, description="Workspace path for the session")
+
+
 # ============ API Endpoints ============
 
 
@@ -47,6 +58,14 @@ def _require_session_id(session_id: str | None) -> str:
     if not normalized:
         raise HTTPException(status_code=400, detail="Session ID is required")
     return normalized
+
+
+def _get_default_chat_workspace_path() -> str | None:
+    from .config import _build_system_config
+
+    config = _build_system_config()
+    normalized_workspace_path = str(config.preferences.default_chat_workspace_path or "").strip()
+    return normalized_workspace_path or None
 
 
 @user_messages_router.post("/send", response_model=MessageResponse)
@@ -205,10 +224,21 @@ async def create_new_session(user_id: str = DEFAULT_USER_ID):
     """Create a new chat session row for the given user."""
     try:
         read_service = get_chat_read_service()
-        session_id = await read_service.acreate_new_session(user_id)
-        return {"success": True, "user_id": user_id, "session_id": session_id}
+        workspace_path = _get_default_chat_workspace_path()
+        session_id = await read_service.acreate_new_session(user_id, workspace_path)
+        return {
+            "success": True,
+            "user_id": user_id,
+            "session_id": session_id,
+            "workspace_path": workspace_path,
+        }
     except RuntimeError:
-        return {"success": False, "user_id": user_id, "session_id": None}
+        return {
+            "success": False,
+            "user_id": user_id,
+            "session_id": None,
+            "workspace_path": None,
+        }
 
 
 @user_messages_router.patch("/session/{session_id}", response_model=Dict[str, Any])
@@ -221,6 +251,27 @@ async def rename_session(session_id: str, request: RenameSessionRequest):
             "success": True,
             "user_id": request.user_id,
             "session": session.to_dict(),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@user_messages_router.patch("/session/{session_id}/workspace", response_model=Dict[str, Any])
+async def update_session_workspace(session_id: str, request: UpdateSessionWorkspaceRequest):
+    """Update the persisted workspace path for a chat session."""
+    try:
+        read_service = get_chat_read_service()
+        session = await read_service.aupdate_session_workspace(
+            request.user_id,
+            session_id,
+            request.workspace_path,
+        )
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "session": asdict(session),
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

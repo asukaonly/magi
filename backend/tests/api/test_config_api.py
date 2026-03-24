@@ -61,6 +61,7 @@ def test_system_config_defaults_include_close_to_tray_enabled_preference():
     config = SystemConfigModel()
 
     assert config.preferences.close_to_tray_enabled is True
+    assert config.preferences.default_chat_workspace_path is None
 
 
 def test_build_system_config_loads_close_to_tray_enabled_preference_from_raw_yaml(
@@ -74,6 +75,19 @@ def test_build_system_config_loads_close_to_tray_enabled_preference_from_raw_yam
     config = _build_system_config()
 
     assert config.preferences.close_to_tray_enabled is False
+
+
+def test_build_system_config_loads_default_chat_workspace_path_from_raw_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "magi.api.routers.config._read_raw_yaml",
+        lambda: {"preferences": {"default_chat_workspace_path": "/Users/asuka/code/magi"}},
+    )
+
+    config = _build_system_config()
+
+    assert config.preferences.default_chat_workspace_path == "/Users/asuka/code/magi"
 
 
 def test_system_config_does_not_expose_internal_runtime_fields():
@@ -144,6 +158,7 @@ def test_build_update_paths_contains_new_sections():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.memory.l0.enabled = not current.memory.l0.enabled
+    config.preferences.default_chat_workspace_path = "/Users/asuka/code/magi"
     config.memory.l2.batch_flush_interval_seconds = 90
     config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMConcurrencyOverrideSettings(max_concurrency=7)
     config.memory.l2.conflict_arbitration_enabled = False
@@ -164,6 +179,7 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.l3.temporal_llm_min_event_count"] == 3
     assert "timeline" in updates
     assert updates["timeline"]["enabled"] == config.timeline.enabled
+    assert updates["preferences"]["default_chat_workspace_path"] == "/Users/asuka/code/magi"
     assert "agent.memory.l4.enabled" not in updates
     assert "memory_layers" not in updates
     assert "tools.skills" not in updates

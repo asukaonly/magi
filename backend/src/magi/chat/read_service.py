@@ -119,6 +119,20 @@ class ChatSessionRenameResult:
 
 
 @dataclass(slots=True)
+class SessionWorkspaceUpdateResult:
+    """Typed update result for session workspace path changes."""
+
+    session_id: str
+    workspace_path: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "workspace_path": self.workspace_path,
+        }
+
+
+@dataclass(slots=True)
 class ChatDisplayMessage:
     """Typed read model for chat history and display timeline messages."""
 
@@ -182,9 +196,9 @@ class ChatReadService:
                 pass
             self._conn = None
 
-    async def acreate_new_session(self, user_id: str) -> str:
+    async def acreate_new_session(self, user_id: str, workspace_path: str | None = None) -> str:
         """Create a session without blocking the event loop."""
-        return await self._run_threaded("create_new_session", user_id)
+        return await self._run_threaded("create_new_session", user_id, workspace_path)
 
     async def aget_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
         """Load a worker result without blocking the event loop."""
@@ -197,6 +211,15 @@ class ChatReadService:
     async def arename_session(self, user_id: str, session_id: str, title: str) -> ChatSessionRenameResult:
         """Rename a session without blocking the event loop."""
         return await self._run_threaded("rename_session", user_id, session_id, title)
+
+    async def aupdate_session_workspace(
+        self,
+        user_id: str,
+        session_id: str,
+        workspace_path: str | None,
+    ) -> SessionWorkspaceUpdateResult:
+        """Update a session workspace path without blocking the event loop."""
+        return await self._run_threaded("update_session_workspace", user_id, session_id, workspace_path)
 
     async def adelete_session(self, user_id: str, session_id: str) -> None:
         """Delete a session without blocking the event loop."""
@@ -228,11 +251,14 @@ class ChatReadService:
         """Clear all sessions without blocking the event loop."""
         return await self._run_threaded("clear_all_sessions")
 
-    def create_new_session(self, user_id: str) -> str:
+    def create_new_session(self, user_id: str, workspace_path: str | None = None) -> str:
         normalized_user_id = str(user_id).strip()
         if not normalized_user_id:
             raise ValueError("User ID is required")
-        record = create_chat_session_record(user_id=normalized_user_id)
+        record = create_chat_session_record(
+            user_id=normalized_user_id,
+            workspace_path=self._normalize_workspace_path(workspace_path),
+        )
         conn = self._get_conn()
         conn.execute(
             f"""
@@ -338,6 +364,37 @@ class ChatReadService:
         if cur.rowcount <= 0:
             raise ValueError("Session not found")
         return ChatSessionRenameResult(session_id=normalized_session_id, title=normalized_title)
+
+    def update_session_workspace(
+        self,
+        user_id: str,
+        session_id: str,
+        workspace_path: str | None,
+    ) -> SessionWorkspaceUpdateResult:
+        normalized_user_id = str(user_id).strip()
+        normalized_session_id = str(session_id).strip()
+        normalized_workspace_path = self._normalize_workspace_path(workspace_path)
+        if not normalized_user_id or not normalized_session_id:
+            raise ValueError("User ID and session ID are required")
+        conn = self._get_conn()
+        cur = conn.execute(
+            f"""
+            UPDATE {CHAT_SESSIONS_TABLE}
+            SET workspace_path = ?,
+                updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+            WHERE session_id = ?
+              AND user_id = ?
+              AND deleted_at_ms IS NULL
+            """,
+            (normalized_workspace_path, normalized_session_id, normalized_user_id),
+        )
+        conn.commit()
+        if cur.rowcount <= 0:
+            raise ValueError("Session not found")
+        return SessionWorkspaceUpdateResult(
+            session_id=normalized_session_id,
+            workspace_path=normalized_workspace_path,
+        )
 
     def delete_session(self, user_id: str, session_id: str) -> None:
         normalized_user_id = str(user_id).strip()
@@ -754,6 +811,11 @@ class ChatReadService:
                 turn_id=str(row["turn_id"] or "").strip() or None,
             )
         return None
+
+    @staticmethod
+    def _normalize_workspace_path(workspace_path: str | None) -> str | None:
+        normalized_workspace_path = str(workspace_path or "").strip()
+        return normalized_workspace_path or None
 
     async def _run_threaded(self, method_name: str, *args: Any) -> Any:
         return await asyncio.to_thread(self._run_isolated, method_name, *args)

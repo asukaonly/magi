@@ -109,3 +109,50 @@ async def test_get_execution_trace_uses_async_trace_service(monkeypatch: pytest.
 
     assert response["success"] is True
     assert response["trace"]["summary"]["headline"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_create_new_session_uses_default_workspace_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeReadService:
+        async def acreate_new_session(self, user_id: str, workspace_path: str | None = None):
+            captured["user_id"] = user_id
+            captured["workspace_path"] = workspace_path
+            return "session-1"
+
+    monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _FakeReadService())
+    monkeypatch.setattr(messages_router, "_get_default_chat_workspace_path", lambda: "/Users/asuka/code/magi")
+
+    response = await messages_router.create_new_session(user_id="u1")
+
+    assert response["success"] is True
+    assert response["session_id"] == "session-1"
+    assert response["workspace_path"] == "/Users/asuka/code/magi"
+    assert captured["workspace_path"] == "/Users/asuka/code/magi"
+
+
+@pytest.mark.asyncio
+async def test_update_session_workspace_route_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeReadService:
+        async def aupdate_session_workspace(self, user_id: str, session_id: str, workspace_path: str | None):
+            assert user_id == "u1"
+            assert session_id == "s1"
+            assert workspace_path == "/Users/asuka/code/magi"
+            return messages_router.SessionWorkspaceUpdateResult(
+                session_id="s1",
+                workspace_path="/Users/asuka/code/magi",
+            )
+
+    monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _FakeReadService())
+
+    response = await messages_router.update_session_workspace(
+        session_id="s1",
+        request=messages_router.UpdateSessionWorkspaceRequest(
+            user_id="u1",
+            workspace_path="/Users/asuka/code/magi",
+        ),
+    )
+
+    assert response["success"] is True
+    assert response["session"]["workspace_path"] == "/Users/asuka/code/magi"

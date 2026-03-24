@@ -546,6 +546,38 @@ def test_list_sessions_respects_limit(tmp_path):
     assert len(sessions) == 2
 
 
+def test_create_new_session_persists_workspace_path(tmp_path):
+    service = _build_service(tmp_path)
+
+    session_id = service.create_new_session("u1", workspace_path="/Users/asuka/code/magi")
+
+    sessions = service.list_sessions("u1", limit=10)
+
+    assert sessions[0].session_id == session_id
+    assert sessions[0].workspace_path == "/Users/asuka/code/magi"
+
+
+def test_update_session_workspace_persists_and_allows_clearing(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Workspace Chat",
+        created_at=1000,
+        updated_at=1000,
+    )
+
+    updated = service.update_session_workspace("u1", "s1", "/Users/asuka/code/magi")
+    cleared = service.update_session_workspace("u1", "s1", "")
+    sessions = service.list_sessions("u1", limit=10)
+
+    assert updated.workspace_path == "/Users/asuka/code/magi"
+    assert cleared.workspace_path is None
+    assert sessions[0].workspace_path is None
+
+
 def test_rename_session_persists_custom_title(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._l1_db_path)
