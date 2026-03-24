@@ -65,7 +65,11 @@ def _resolve_execution_workspace(request: FunctionCallingRequest) -> str | None:
     prompt_cwd = str(getattr(runtime_system, "cwd", "") or "").strip()
     if prompt_cwd:
         return prompt_cwd
-    latest_payload = getattr(request.context, "latest_payload", None)
+    return _resolve_turn_workspace_path(request.context)
+
+
+def _resolve_turn_workspace_path(context: object) -> str | None:
+    latest_payload = getattr(context, "latest_payload", None)
     workspace_path = str(getattr(latest_payload, "workspace_path", "") or "").strip()
     return workspace_path or None
 
@@ -107,6 +111,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
             recent_tool_errors=request.context.recent_tool_errors,
+            workspace_path=_resolve_turn_workspace_path(request.context),
         )
         return DirectLLMRequest(
             mode=request.mode,
@@ -159,6 +164,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
             recent_tool_errors=request.context.recent_tool_errors,
+            workspace_path=_resolve_turn_workspace_path(request.context),
         )
         selected_tools = list(request.tool_selection.tools)
         if request.intent.memory_route == "explicit_query" and "memory_query" in selected_tools:

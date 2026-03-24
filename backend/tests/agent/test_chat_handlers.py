@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.chat.handlers import DirectLLMHandler
+from magi.agent.task_agents.chat.handlers import DirectLLMHandler, FunctionCallingHandler
 from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
 
 
@@ -202,6 +202,113 @@ async def test_direct_llm_handler_passes_uploaded_attachments_into_context_servi
     assert context_service.calls[0]["attachments"] == [
         {"attachment_id": "att-1", "kind": "text_file", "original_name": "notes.md"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_passes_turn_workspace_into_context_service() -> None:
+    context_service = _FakeContextService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=context_service,
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="inspect this repo",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="inspect this repo",
+            workspace_path="/tmp/turn-workspace",
+            turn_id="turn-1",
+        ),
+    )
+
+    await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning="direct",
+                orchestration_plan=OrchestrationPlan(),
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="direct"),
+        )
+    )
+
+    assert context_service.calls[0]["workspace_path"] == "/tmp/turn-workspace"
+
+
+@pytest.mark.asyncio
+async def test_function_calling_handler_passes_turn_workspace_into_context_service() -> None:
+    context_service = _FakeContextService()
+    handler = FunctionCallingHandler(
+        SimpleNamespace(
+            context_service=context_service,
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="inspect this repo",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="inspect this repo",
+            workspace_path="/tmp/turn-workspace",
+            turn_id="turn-1",
+        ),
+    )
+
+    await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.FUNCTION_CALLING,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                reasoning="tool use",
+                orchestration_plan=OrchestrationPlan(),
+                memory_route="none",
+                memory_query_hint=None,
+                deep_thinking=False,
+            ),
+            tool_selection=ToolSelection(tools=["glob"], reasoning="search repo"),
+        )
+    )
+
+    assert context_service.calls[0]["workspace_path"] == "/tmp/turn-workspace"
 
 
 @pytest.mark.asyncio
