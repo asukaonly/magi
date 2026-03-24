@@ -132,6 +132,7 @@ export function useSettings(): UseSettingsReturn {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     llm: false,
     memory: false,
+    timeline: false,
   });
 
   // Timeline state

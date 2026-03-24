@@ -484,21 +484,22 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = isNavGroupActive(item);
-              const isExpanded = isNavGroup(item) ? getGroupExpanded(item.id) : false;
-              const ParentChevron = isNavGroup(item) && isExpanded ? ChevronDown : ChevronRight;
+              const isExpandable = isNavGroup(item) || item.id === 'timeline';
+              const isExpanded = isExpandable ? getGroupExpanded(item.id) : false;
+              const ParentChevron = isExpandable && isExpanded ? ChevronDown : ChevronRight;
               return (
                 <div key={item.id} className="space-y-1">
                   <button
                     type="button"
                     onClick={() => {
-                      if (isNavGroup(item)) {
-                        handleNavItemClick(item.id, true, item.children[0]?.id);
+                      if (isExpandable) {
+                        handleNavItemClick(item.id, true, isNavGroup(item) ? item.children[0]?.id : item.id);
                       } else {
                         handleNavItemClick(item.id, false);
                       }
                     }}
                     aria-current={isActive ? 'page' : undefined}
-                    aria-expanded={isNavGroup(item) ? isExpanded : undefined}
+                    aria-expanded={isExpandable ? isExpanded : undefined}
                     aria-label={t(`settings.tabs.${item.id}`)}
                     className={cn(
                       'group flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm',
@@ -522,7 +523,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     </div>
                     <ParentChevron className={cn(
                       'h-4 w-4 text-[hsl(var(--settings-nav-foreground))] transition-all duration-150',
-                      isNavGroup(item)
+                      isExpandable
                         ? isExpanded
                           ? 'opacity-100 translate-x-0'
                           : 'opacity-60 -translate-x-0'
@@ -559,7 +560,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     </div>
                   ) : null}
 
-                  {item.id === 'timeline' && isActive ? (
+                  {item.id === 'timeline' && isActive && isExpanded ? (
                     <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
                       <button
                         type="button"
