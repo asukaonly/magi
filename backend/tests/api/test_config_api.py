@@ -16,14 +16,18 @@ from magi.api.routers.config import (
 )
 from magi.config.loader import get_config
 from magi.config.models import (
+    LLMCapabilityOverridesSettings,
     LLMConcurrencyOverrideSettings,
     LLMLimitsSettings,
+    LLMLimitsOverrideSettings,
+    LLMModelMetadataOverrideSettings,
     LLMProviderSettings,
     LLMSelectionSettings,
     LLMSettings,
 )
 from magi.config.llm_registry import (
     build_runtime_llm_defaults,
+    resolve_provider_model_catalog,
     resolve_llm_profile,
 )
 
@@ -144,6 +148,27 @@ def test_llm_provider_settings_support_custom_model_fields():
     assert provider.custom_default_model == "foo-1"
 
 
+def test_llm_provider_settings_support_model_metadata_overrides():
+    provider = LLMProviderSettings(
+        provider_type="openai",
+        display_name="OpenAI",
+        model_metadata_overrides={
+            "gpt-4o-mini": LLMModelMetadataOverrideSettings(
+                label="GPT 4o Mini Custom",
+                capabilities=LLMCapabilityOverridesSettings(vision=True),
+                limits=LLMLimitsOverrideSettings(context_window=65536),
+                hidden=True,
+            )
+        },
+    )
+
+    override = provider.model_metadata_overrides["gpt-4o-mini"]
+    assert override.label == "GPT 4o Mini Custom"
+    assert override.capabilities.vision is True
+    assert override.limits.context_window == 65536
+    assert override.hidden is True
+
+
 def test_custom_provider_default_model_must_be_in_model_list():
     with pytest.raises(ValueError):
         LLMProviderSettings(
@@ -184,6 +209,24 @@ def test_build_update_paths_contains_new_sections():
     assert "memory_layers" not in updates
     assert "tools.skills" not in updates
     assert "agent.personality.name" not in updates
+
+
+def test_build_update_paths_persists_model_metadata_overrides():
+    current = _build_system_config(mask_api_key=False)
+    config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
+    config.llm.providers["openai"].model_metadata_overrides = {
+        "gpt-4o-mini": LLMModelMetadataOverrideSettings(
+            label="OpenAI Compact",
+            capabilities=LLMCapabilityOverridesSettings(vision=True),
+            limits=LLMLimitsOverrideSettings(max_output_tokens=4096),
+        )
+    }
+
+    updates = _build_update_paths(config)
+
+    assert updates["llm.providers"]["openai"]["model_metadata_overrides"]["gpt-4o-mini"]["label"] == "OpenAI Compact"
+    assert updates["llm.providers"]["openai"]["model_metadata_overrides"]["gpt-4o-mini"]["capabilities"]["vision"] is True
+    assert updates["llm.providers"]["openai"]["model_metadata_overrides"]["gpt-4o-mini"]["limits"]["max_output_tokens"] == 4096
 
 
 def test_timeline_defaults_include_source_retention_and_edge_whitelists():
@@ -335,6 +378,40 @@ def test_resolve_llm_profile_prefers_registry_defaults_until_override_enabled():
     config.llm.selections["core"].capability_override_enabled = True
     resolved = resolve_llm_profile(config.llm.selections["core"], registry)
     assert resolved.capabilities.vision is True
+
+
+def test_resolve_provider_model_catalog_applies_builtin_and_manual_overrides():
+    registry = _default_llm_provider_registry()
+    provider = LLMProviderSettings(
+        provider_type="openai",
+        display_name="OpenAI",
+        custom_models=["acme-vision-embed"],
+        model_metadata_overrides={
+            "gpt-4o-mini": LLMModelMetadataOverrideSettings(
+                label="Compact 4o",
+                capabilities=LLMCapabilityOverridesSettings(vision=True),
+                hidden=True,
+            ),
+            "acme-vision-embed": LLMModelMetadataOverrideSettings(
+                label="Acme Vision Embed",
+                capabilities=LLMCapabilityOverridesSettings(vision=True, embedding=True),
+            ),
+        },
+    )
+
+    resolved = resolve_provider_model_catalog(registry, "openai", provider)
+
+    builtin_model = next(model for model in resolved.chat_models if model.id == "gpt-4o-mini")
+    manual_chat_model = next(model for model in resolved.chat_models if model.id == "acme-vision-embed")
+    manual_embedding_model = next(model for model in resolved.embedding_models if model.id == "acme-vision-embed")
+
+    assert builtin_model.label == "Compact 4o"
+    assert builtin_model.capabilities.vision is True
+    assert builtin_model.hidden is True
+    assert manual_chat_model.source == "manual"
+    assert manual_chat_model.capabilities.vision is True
+    assert manual_embedding_model.source == "manual"
+    assert manual_embedding_model.capabilities.embedding is True
 
 
 def test_onboarding_template_includes_model_capability_defaults():

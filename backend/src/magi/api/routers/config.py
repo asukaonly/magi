@@ -29,10 +29,12 @@ from ...config.llm_registry import (
     find_provider_meta,
     load_llm_provider_registry,
     resolve_embedding_dimension,
+    resolve_provider_model_catalog,
     resolve_llm_profile,
 )
 from ...config.models import (
     LLMCapabilitiesSettings,
+    LLMModelMetadataOverrideSettings,
     LLMConcurrencyOverrideSettings,
     LLMLimitsSettings,
     LLMSelectionLimitsSettings,
@@ -60,6 +62,7 @@ class LLMProviderConfigModel(BaseModel):
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
+    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(default_factory=dict)
 
 
 class LLMSelectionConfigModel(BaseModel):
@@ -542,6 +545,7 @@ def _build_llm_config_model(
             api_format=provider.api_format,
             custom_models=list(getattr(provider, "custom_models", []) or []),
             custom_default_model=getattr(provider, "custom_default_model", None),
+            model_metadata_overrides=dict(getattr(provider, "model_metadata_overrides", {}) or {}),
         )
 
     selections: Dict[str, LLMSelectionConfigModel] = {}
@@ -877,6 +881,7 @@ def _build_onboarding_template() -> SystemConfigModel:
                 base_url="",
                 custom_models=[],
                 custom_default_model=None,
+                model_metadata_overrides={},
             )
             for provider in registry.providers
         }
@@ -997,10 +1002,28 @@ async def test_config(config: SystemConfigModel):
 
 @config_router.get("/llm-providers", response_model=LLMProviderRegistryResponse)
 async def get_llm_provider_registry():
+    registry = _load_llm_provider_registry()
+    runtime_config = get_config()
+    resolved_providers = []
+    for provider_meta in registry.providers:
+        resolved_provider = provider_meta.model_copy(deep=True)
+        provider_settings = runtime_config.llm.providers.get(provider_meta.id)
+        resolved_catalog = resolve_provider_model_catalog(
+            registry,
+            provider_meta.id,
+            provider_settings,
+        )
+        resolved_provider.resolved_chat_models = resolved_catalog.chat_models
+        resolved_provider.resolved_embedding_models = resolved_catalog.embedding_models
+        resolved_providers.append(resolved_provider)
+
     return LLMProviderRegistryResponse(
         success=True,
         message="LLM provider registry loaded",
-        data=_load_llm_provider_registry(),
+        data=LLMProviderRegistryModel(
+            providers=resolved_providers,
+            custom_provider=registry.custom_provider,
+        ),
     )
 
 

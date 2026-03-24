@@ -41,6 +41,40 @@ class LLMLimitsSettings(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1)
 
 
+class LLMCapabilityOverridesSettings(BaseModel):
+    """Per-model capability overrides applied on top of registry metadata."""
+
+    vision: Optional[bool] = Field(default=None)
+    image_output: Optional[bool] = Field(default=None)
+    tool_calling: Optional[bool] = Field(default=None)
+    reasoning: Optional[bool] = Field(default=None)
+    embedding: Optional[bool] = Field(default=None)
+
+
+class LLMLimitsOverrideSettings(BaseModel):
+    """Per-model numeric limit overrides applied on top of registry metadata."""
+
+    context_window: Optional[int] = Field(default=None, ge=1)
+    max_output_tokens: Optional[int] = Field(default=None, ge=1)
+    max_concurrency: Optional[int] = Field(default=None, ge=1)
+
+
+class LLMModelMetadataOverrideSettings(BaseModel):
+    """User-defined metadata override for any provider model."""
+
+    label: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    icon: Optional[str] = Field(default=None)
+    capabilities: LLMCapabilityOverridesSettings = Field(default_factory=LLMCapabilityOverridesSettings)
+    limits: LLMLimitsOverrideSettings = Field(default_factory=LLMLimitsOverrideSettings)
+    input_modalities: Optional[List[str]] = Field(default=None)
+    output_modalities: Optional[List[str]] = Field(default=None)
+    provider_options_example: Optional[Dict[str, Any]] = Field(default=None)
+    hidden: Optional[bool] = Field(default=None)
+    preferred: Optional[bool] = Field(default=None)
+    source_note: Optional[str] = Field(default=None)
+
+
 class LLMSelectionLimitsSettings(BaseModel):
     """Per-scenario numeric limits that remain local to scenario selection."""
 
@@ -112,6 +146,7 @@ class LLMProviderSettings(BaseModel):
     api_format: Optional[str] = Field(default=None)
     custom_models: List[str] = Field(default_factory=list)
     custom_default_model: Optional[str] = Field(default=None)
+    model_metadata_overrides: Dict[str, LLMModelMetadataOverrideSettings] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_custom_model_defaults(self) -> "LLMProviderSettings":

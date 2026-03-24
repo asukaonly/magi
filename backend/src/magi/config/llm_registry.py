@@ -7,7 +7,15 @@ from typing import Any, Dict, Optional
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMSelectionSettings
+from .models import (
+    LLMCapabilitiesSettings,
+    LLMCapabilityOverridesSettings,
+    LLMLimitsOverrideSettings,
+    LLMLimitsSettings,
+    LLMModelMetadataOverrideSettings,
+    LLMProviderSettings,
+    LLMSelectionSettings,
+)
 from .constants import DEFAULT_MAX_TOKENS
 
 
@@ -43,6 +51,61 @@ class LLMModelMetaModel(BaseModel):
         return self
 
 
+class LLMResolvedModelMetaModel(BaseModel):
+    """Resolved metadata for a chat-capable model."""
+
+    id: str
+    label: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    icon: Optional[str] = Field(default=None)
+    source: str = Field(default="builtin")
+    hidden: bool = Field(default=False)
+    preferred: bool = Field(default=False)
+    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
+    limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    input_modalities: list[str] = Field(default_factory=list)
+    output_modalities: list[str] = Field(default_factory=list)
+    provider_options_example: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ensure_label(self) -> "LLMResolvedModelMetaModel":
+        if not self.label:
+            self.label = self.id
+        return self
+
+
+class LLMResolvedEmbeddingModelMetaModel(BaseModel):
+    """Resolved metadata for an embedding-capable model."""
+
+    id: str
+    label: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    icon: Optional[str] = Field(default=None)
+    source: str = Field(default="builtin")
+    hidden: bool = Field(default=False)
+    preferred: bool = Field(default=False)
+    capabilities: LLMCapabilitiesSettings = Field(
+        default_factory=lambda: LLMCapabilitiesSettings(
+            vision=False,
+            image_output=False,
+            tool_calling=False,
+            reasoning=False,
+            embedding=True,
+        )
+    )
+    dimensions: list[int] = Field(default_factory=list)
+    limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    input_modalities: list[str] = Field(default_factory=list)
+    output_modalities: list[str] = Field(default_factory=list)
+    provider_options_example: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ensure_label(self) -> "LLMResolvedEmbeddingModelMetaModel":
+        if not self.label:
+            self.label = self.id
+        return self
+
+
 class LLMProviderMetaModel(BaseModel):
     id: str
     display_name: Optional[str] = Field(default=None)
@@ -56,6 +119,8 @@ class LLMProviderMetaModel(BaseModel):
     image_generation_models: list["LLMImageGenerationModelMetaModel"] = Field(default_factory=list)
     audio_generation_models: list["LLMAudioGenerationModelMetaModel"] = Field(default_factory=list)
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
+    resolved_chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
+    resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def normalize_models(self) -> "LLMProviderMetaModel":
@@ -88,6 +153,13 @@ class LLMCustomProviderMetaModel(BaseModel):
 class LLMProviderRegistryModel(BaseModel):
     providers: list[LLMProviderMetaModel] = Field(default_factory=list)
     custom_provider: LLMCustomProviderMetaModel = Field(default_factory=LLMCustomProviderMetaModel)
+
+
+class LLMResolvedProviderCatalogModel(BaseModel):
+    """Resolved model catalog for a single provider."""
+
+    chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
+    embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
 
 
 class ResolvedLLMProfile(BaseModel):
@@ -169,6 +241,152 @@ def load_llm_provider_registry(path: Path, *, fallback: LLMProviderRegistryModel
         return fallback
 
 
+def _apply_capability_overrides(
+    base: LLMCapabilitiesSettings,
+    overrides: Optional[LLMCapabilityOverridesSettings],
+) -> LLMCapabilitiesSettings:
+    if overrides is None:
+        return base.model_copy(deep=True)
+
+    payload = base.model_dump()
+    for key, value in overrides.model_dump(exclude_none=True).items():
+        payload[key] = value
+    return LLMCapabilitiesSettings.model_validate(payload)
+
+
+def _apply_limit_overrides(
+    base: LLMLimitsSettings,
+    overrides: Optional[LLMLimitsOverrideSettings],
+) -> LLMLimitsSettings:
+    if overrides is None:
+        return base.model_copy(deep=True)
+
+    payload = base.model_dump()
+    for key, value in overrides.model_dump(exclude_none=True).items():
+        payload[key] = value
+    return LLMLimitsSettings.model_validate(payload)
+
+
+def _default_chat_modalities(capabilities: LLMCapabilitiesSettings) -> tuple[list[str], list[str]]:
+    input_modalities = ["text"]
+    if capabilities.vision:
+        input_modalities.append("image")
+
+    output_modalities = ["text"]
+    if capabilities.image_output:
+        output_modalities.append("image")
+    if capabilities.embedding:
+        output_modalities.append("embedding")
+    return input_modalities, output_modalities
+
+
+def _default_embedding_modalities(capabilities: LLMCapabilitiesSettings) -> tuple[list[str], list[str]]:
+    input_modalities = ["text"]
+    if capabilities.vision:
+        input_modalities.append("image")
+
+    output_modalities = ["embedding"]
+    if capabilities.image_output:
+        output_modalities.append("image")
+    return input_modalities, output_modalities
+
+
+def _resolve_chat_model(
+    *,
+    model_id: str,
+    source: str,
+    label: Optional[str],
+    capabilities: LLMCapabilitiesSettings,
+    limits: LLMLimitsSettings,
+    provider_options_example: Dict[str, Any],
+    override: Optional[LLMModelMetadataOverrideSettings],
+) -> LLMResolvedModelMetaModel:
+    resolved_capabilities = _apply_capability_overrides(
+        capabilities,
+        override.capabilities if override is not None else None,
+    )
+    resolved_limits = _apply_limit_overrides(
+        limits,
+        override.limits if override is not None else None,
+    )
+    input_modalities, output_modalities = _default_chat_modalities(resolved_capabilities)
+    return LLMResolvedModelMetaModel(
+        id=model_id,
+        label=override.label if override is not None and override.label else label or model_id,
+        description=override.description if override is not None else None,
+        icon=override.icon if override is not None else None,
+        source=source,
+        hidden=bool(override.hidden) if override is not None and override.hidden is not None else False,
+        preferred=bool(override.preferred) if override is not None and override.preferred is not None else False,
+        capabilities=resolved_capabilities,
+        limits=resolved_limits,
+        input_modalities=(
+            list(override.input_modalities)
+            if override is not None and override.input_modalities is not None
+            else input_modalities
+        ),
+        output_modalities=(
+            list(override.output_modalities)
+            if override is not None and override.output_modalities is not None
+            else output_modalities
+        ),
+        provider_options_example=(
+            dict(override.provider_options_example)
+            if override is not None and override.provider_options_example is not None
+            else dict(provider_options_example)
+        ),
+    )
+
+
+def _resolve_embedding_model(
+    *,
+    model_id: str,
+    source: str,
+    label: Optional[str],
+    dimensions: list[int],
+    capabilities: LLMCapabilitiesSettings,
+    limits: LLMLimitsSettings,
+    provider_options_example: Dict[str, Any],
+    override: Optional[LLMModelMetadataOverrideSettings],
+) -> LLMResolvedEmbeddingModelMetaModel:
+    resolved_capabilities = _apply_capability_overrides(
+        capabilities,
+        override.capabilities if override is not None else None,
+    )
+    resolved_limits = _apply_limit_overrides(
+        limits,
+        override.limits if override is not None else None,
+    )
+    input_modalities, output_modalities = _default_embedding_modalities(resolved_capabilities)
+    return LLMResolvedEmbeddingModelMetaModel(
+        id=model_id,
+        label=override.label if override is not None and override.label else label or model_id,
+        description=override.description if override is not None else None,
+        icon=override.icon if override is not None else None,
+        source=source,
+        hidden=bool(override.hidden) if override is not None and override.hidden is not None else False,
+        preferred=bool(override.preferred) if override is not None and override.preferred is not None else False,
+        capabilities=resolved_capabilities,
+        dimensions=list(dimensions),
+        limits=resolved_limits,
+        input_modalities=(
+            list(override.input_modalities)
+            if override is not None and override.input_modalities is not None
+            else input_modalities
+        ),
+        output_modalities=(
+            list(override.output_modalities)
+            if override is not None and override.output_modalities is not None
+            else output_modalities
+        ),
+        provider_options_example=(
+            dict(override.provider_options_example)
+            if override is not None and override.provider_options_example is not None
+            else dict(provider_options_example)
+        ),
+    )
+
+
 def find_provider_meta(
     registry: LLMProviderRegistryModel,
     provider_id: str,
@@ -228,6 +446,115 @@ def resolve_embedding_dimension(
     return preferred_dimension
 
 
+def resolve_provider_model_catalog(
+    registry: LLMProviderRegistryModel,
+    provider_id: str,
+    provider_settings: Optional[LLMProviderSettings] = None,
+) -> LLMResolvedProviderCatalogModel:
+    """Resolve provider model metadata by merging registry models with user overrides."""
+
+    provider_meta = find_provider_meta(registry, provider_id)
+    overrides = dict(getattr(provider_settings, "model_metadata_overrides", {}) or {})
+    custom_models = list(getattr(provider_settings, "custom_models", []) or [])
+
+    chat_models: dict[str, LLMResolvedModelMetaModel] = {}
+    embedding_models: dict[str, LLMResolvedEmbeddingModelMetaModel] = {}
+
+    if provider_meta is not None:
+        for model in provider_meta.chat_models:
+            base_capabilities = LLMCapabilitiesSettings(
+                vision=model.capabilities.vision,
+                image_output=model.capabilities.image_output,
+                tool_calling=model.capabilities.tool_calling,
+                reasoning=model.capabilities.reasoning,
+                embedding=False,
+            )
+            chat_models[model.id] = _resolve_chat_model(
+                model_id=model.id,
+                source="builtin",
+                label=model.label,
+                capabilities=base_capabilities,
+                limits=model.limits,
+                provider_options_example=model.provider_options_example,
+                override=overrides.get(model.id),
+            )
+
+        for model in provider_meta.embedding_models:
+            base_capabilities = LLMCapabilitiesSettings(
+                vision=False,
+                image_output=False,
+                tool_calling=False,
+                reasoning=False,
+                embedding=True,
+            )
+            embedding_models[model.id] = _resolve_embedding_model(
+                model_id=model.id,
+                source="builtin",
+                label=model.label,
+                dimensions=model.dimensions,
+                capabilities=base_capabilities,
+                limits=model.limits,
+                provider_options_example=model.provider_options_example,
+                override=overrides.get(model.id),
+            )
+
+    for model_id in custom_models:
+        if model_id not in chat_models:
+            chat_models[model_id] = _resolve_chat_model(
+                model_id=model_id,
+                source="manual",
+                label=model_id,
+                capabilities=LLMCapabilitiesSettings(),
+                limits=LLMLimitsSettings(),
+                provider_options_example={},
+                override=overrides.get(model_id),
+            )
+
+    for model_id, override in overrides.items():
+        if model_id not in chat_models and override.capabilities.embedding is not True:
+            chat_models[model_id] = _resolve_chat_model(
+                model_id=model_id,
+                source="manual",
+                label=model_id,
+                capabilities=LLMCapabilitiesSettings(),
+                limits=LLMLimitsSettings(),
+                provider_options_example={},
+                override=override,
+            )
+
+        if override.capabilities.embedding is True and model_id not in embedding_models:
+            base_chat_model = chat_models.get(model_id)
+            embedding_capabilities = (
+                base_chat_model.capabilities.model_copy(deep=True)
+                if base_chat_model is not None
+                else LLMCapabilitiesSettings(
+                    vision=False,
+                    image_output=False,
+                    tool_calling=False,
+                    reasoning=False,
+                    embedding=True,
+                )
+            )
+            embedding_capabilities.embedding = True
+            embedding_models[model_id] = _resolve_embedding_model(
+                model_id=model_id,
+                source=base_chat_model.source if base_chat_model is not None else "manual",
+                label=base_chat_model.label if base_chat_model is not None else model_id,
+                dimensions=[],
+                capabilities=embedding_capabilities,
+                limits=base_chat_model.limits if base_chat_model is not None else LLMLimitsSettings(),
+                provider_options_example=(
+                    base_chat_model.provider_options_example if base_chat_model is not None else {}
+                ),
+                override=override,
+            )
+
+    return LLMResolvedProviderCatalogModel(
+        chat_models=list(chat_models.values()),
+        embedding_models=list(embedding_models.values()),
+    )
+
+
 def resolve_llm_profile(
     llm: LLMSelectionSettings,
     registry: LLMProviderRegistryModel,
@@ -281,6 +608,7 @@ def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, 
             "api_format": None,
             "custom_models": [],
             "custom_default_model": "",
+            "model_metadata_overrides": {},
         }
 
     if not providers:
@@ -293,6 +621,7 @@ def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, 
             "api_format": None,
             "custom_models": [],
             "custom_default_model": "",
+            "model_metadata_overrides": {},
         }
 
     empty_selection = {
