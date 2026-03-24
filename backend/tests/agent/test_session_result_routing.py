@@ -116,6 +116,26 @@ def test_chat_planning_service_context_targets_session_chat_agent() -> None:
     assert context.env_vars["parent_task_agent_id"] == "session-1"
 
 
+def test_chat_planning_service_context_uses_explicit_workspace_root() -> None:
+    service = ChatPlanningService(
+        agent_id="user-1",
+        runtime_key="chat:user-1",
+        context_service=SimpleNamespace(),
+        prompt_service=SimpleNamespace(),
+        history_service=SimpleNamespace(),
+        tool_registry=ToolRegistry(),
+        parent_task_agent_type="chat",
+    )
+
+    context = service._build_agent_tool_context(
+        "user-1",
+        "session-1",
+        workspace_root="/Users/asuka/code/magi",
+    )
+
+    assert context.workspace == "/Users/asuka/code/magi"
+
+
 @pytest.mark.asyncio
 async def test_task_orchestrator_launch_workers_targets_session_chat_agent_in_payload() -> None:
     registry = _RecordingExecuteToolRegistry(ToolResult(success=True, data={"worker_ids": ["worker-1"]}))
@@ -209,6 +229,48 @@ async def test_chat_planning_service_plan_worker_targets_session_chat_agent_in_p
     assert payload["target_task_agent_id"] == "session-1"
     assert payload["parent_task_agent_id"] == "session-1"
     assert context.env_vars["target_task_agent_id"] == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_chat_planning_service_plan_worker_uses_explicit_workspace_root() -> None:
+    registry = _RecordingExecuteToolRegistry(
+        ToolResult(
+            success=True,
+            data={
+                "result": {
+                    "summary": "plan",
+                    "subtasks": [
+                        {
+                            "description": "Inspect backend",
+                            "subagent_type": "Explore",
+                            "prompt": "Inspect backend",
+                            "parallel_group": "group-a",
+                        }
+                    ],
+                }
+            },
+        )
+    )
+    service = ChatPlanningService(
+        agent_id="user-1",
+        runtime_key="chat:user-1",
+        context_service=SimpleNamespace(),
+        prompt_service=SimpleNamespace(),
+        history_service=SimpleNamespace(),
+        tool_registry=registry,  # type: ignore[arg-type]
+        parent_task_agent_type="chat",
+    )
+
+    plan = await service._plan_with_plan_worker(
+        user_message="analyze repo",
+        user_id="user-1",
+        session_id="session-1",
+        workspace_root="/Users/asuka/code/magi",
+    )
+
+    assert plan is not None
+    _, _, context = registry.calls[0]
+    assert context.workspace == "/Users/asuka/code/magi"
 
 
 @pytest.mark.asyncio

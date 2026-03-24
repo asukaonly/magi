@@ -59,6 +59,17 @@ def _serialize_ux_plan(intent: object) -> dict | None:
     return to_dict() if callable(to_dict) else plan
 
 
+def _resolve_execution_workspace(request: FunctionCallingRequest) -> str | None:
+    prompt_context = getattr(request, "prompt_context", None)
+    runtime_system = getattr(prompt_context, "runtime_system", None)
+    prompt_cwd = str(getattr(runtime_system, "cwd", "") or "").strip()
+    if prompt_cwd:
+        return prompt_cwd
+    latest_payload = getattr(request.context, "latest_payload", None)
+    workspace_path = str(getattr(latest_payload, "workspace_path", "") or "").strip()
+    return workspace_path or None
+
+
 @dataclass(slots=True)
 class ChatHandlerDependencies:
     """Shared dependencies passed to chat execution handlers."""
@@ -167,13 +178,17 @@ class FunctionCallingHandler(BaseExecutionHandler):
         )
 
     async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
+        execution_workspace = _resolve_execution_workspace(request)
         if (
             self._deps.session_run_coordinator is not None
             and request.context.session_run_id
             and hasattr(self._deps.function_calling_orchestrator, "step_executor")
             and hasattr(self._deps.function_calling_orchestrator, "build_step_state")
         ):
-            return await self._execute_with_session_checkpoints(request)
+            return await self._execute_with_session_checkpoints(
+                request,
+                execution_workspace=execution_workspace,
+            )
 
         execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
             user_message=request.context.latest_user_message,
@@ -188,6 +203,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             disable_thinking=request.disable_thinking,
             intent=request.intent.intent,
             execution_agent_id=request.context.runtime_key,
+            execution_workspace=execution_workspace,
             orchestration_strategy=(
                 request.intent.orchestration_plan.to_strategy_dict()
                 if request.intent.orchestration_plan is not None
@@ -206,6 +222,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
     async def _execute_with_session_checkpoints(
         self,
         request: FunctionCallingRequest,
+        *,
+        execution_workspace: str | None,
     ) -> ExecutionResult:
         orchestrator = self._deps.function_calling_orchestrator
         session_run_coordinator = self._deps.session_run_coordinator
@@ -232,6 +250,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 turn_id=current_turn_id,
                 intent=request.intent.intent,
                 execution_agent_id=request.context.runtime_key,
+                execution_workspace=execution_workspace,
                 orchestration_strategy=(
                     request.intent.orchestration_plan.to_strategy_dict()
                     if request.intent.orchestration_plan is not None
@@ -304,7 +323,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             turn_id=current_turn_id,
             intent=request.intent.intent,
             execution_agent_id=request.context.runtime_key,
-            execution_workspace=None,
+            execution_workspace=execution_workspace,
             orchestration_strategy=(
                 request.intent.orchestration_plan.to_strategy_dict()
                 if request.intent.orchestration_plan is not None

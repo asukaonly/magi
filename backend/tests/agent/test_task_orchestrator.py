@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -204,3 +205,59 @@ async def test_rate_limit_retry_stops_after_ten_retries(monkeypatch: pytest.Monk
     retried = await orchestrator._maybe_retry_subtask(state, subtask, "LLM_RATE_LIMIT")
 
     assert retried is False
+
+
+@pytest.mark.asyncio
+async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _record_plan_subtasks(*args, **kwargs):  # type: ignore[no-untyped-def]
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            subtasks=[
+                SimpleNamespace(
+                    description="Inspect backend",
+                    subagent_type="Explore",
+                    prompt="Inspect backend",
+                    parallel_group="group-a",
+                )
+            ]
+        )
+
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_record_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+    )
+
+    class _FakeStore:
+        async def save_orchestration(self, state: TaskOrchestrationState) -> None:
+            _ = state
+
+    async def _fake_launch_workers(state: TaskOrchestrationState, *, run_id=None, run_revision=0):  # type: ignore[no-untyped-def]
+        _ = (state, run_id, run_revision)
+        return None
+
+    monkeypatch.setattr(orchestrator, "_orchestration_store", _FakeStore())
+    monkeypatch.setattr(orchestrator, "_launch_workers", _fake_launch_workers)
+    monkeypatch.setattr(orchestrator, "_resolve_workspace_root", lambda user_message: "/Users/asuka/code/magi")
+
+    result = await orchestrator.start_orchestration(
+        user_id="user-1",
+        session_id="session-1",
+        user_message="Analyze the repo",
+        run_id=None,
+        run_revision=0,
+        turn_id="turn-1",
+        history=[],
+        history_key="user-1::session-1",
+        correlation_id=None,
+        orchestration_strategy={"planner": "task_agent", "allow_parallel": True},
+    )
+
+    assert result.skip_emit is True
+    assert captured["kwargs"]["workspace_root"] == "/Users/asuka/code/magi"

@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from ....chat.workspace import get_default_chat_workspace_path
 from ....core.logger import get_logger
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
@@ -53,6 +53,7 @@ class ChatPlanningService:
         session_id: str,
         run_id: str | None = None,
         run_revision: int = 0,
+        workspace_root: str | None = None,
     ) -> SubtaskPlan:
         if isinstance(orchestration_plan, dict):
             orchestration_plan = OrchestrationPlan(
@@ -73,6 +74,7 @@ class ChatPlanningService:
                 session_id=session_id,
                 run_id=run_id,
                 run_revision=run_revision,
+                workspace_root=workspace_root,
             )
         if raw_plan is None:
             raw_plan = await self._plan_with_task_agent(
@@ -232,10 +234,12 @@ class ChatPlanningService:
         session_id: str,
         run_id: str | None = None,
         run_revision: int = 0,
+        workspace_root: str | None = None,
     ) -> Optional[SubtaskPlan]:
         context = self._build_agent_tool_context(
             user_id,
             session_id,
+            workspace_root=workspace_root,
             run_id=run_id,
             run_revision=run_revision,
         )
@@ -612,6 +616,7 @@ class ChatPlanningService:
         self,
         user_id: str,
         session_id: str,
+        workspace_root: str | None = None,
         *,
         run_id: str | None = None,
         run_revision: int = 0,
@@ -619,7 +624,7 @@ class ChatPlanningService:
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         return ToolExecutionContext(
             agent_id=self._runtime_key,
-            workspace=os.getcwd(),
+            workspace=workspace_root or get_default_chat_workspace_path(),
             env_vars={
                 "user_id": user_id,
                 "session_id": session_id,

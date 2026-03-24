@@ -23,6 +23,8 @@ class _FakeOrchestrator:
         self._step_results = list(step_results)
         self._on_step = on_step
         self.build_step_state_calls: list[str] = []
+        self.execute_with_tools_calls: list[dict[str, object]] = []
+        self.fallback_calls: list[dict[str, object]] = []
 
     def build_step_state(self, *, user_message, system_prompt, selected_tools, conversation_history=None):  # type: ignore[no-untyped-def]
         _ = (system_prompt, selected_tools, conversation_history)
@@ -42,6 +44,20 @@ class _FakeOrchestrator:
         outcome = self._step_results.pop(0)
         state.iteration = outcome.iteration
         return outcome
+
+    async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.execute_with_tools_calls.append(dict(kwargs))
+        return SimpleNamespace(
+            content="tool result",
+            to_dict=lambda: {"status": "completed", "content": "tool result"},
+        )
+
+    async def _execute_fallback_final_response(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.fallback_calls.append(dict(kwargs))
+        return SimpleNamespace(
+            content="fallback result",
+            to_dict=lambda: {"status": "completed", "content": "fallback result"},
+        )
 
 
 def _make_context(*, active_run, revision: int, latest_user_message: str) -> ChatRuntimeContext:
@@ -94,6 +110,7 @@ def _make_request(context: ChatRuntimeContext) -> FunctionCallingRequest:
             orchestration_plan=OrchestrationPlan(),
         ),
         tool_selection=ToolSelection(tools=["memory_query"], reasoning="tool use"),
+        prompt_context=SimpleNamespace(runtime_system=SimpleNamespace(cwd="/Users/asuka/code/magi")),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
         disable_thinking=True,
@@ -205,3 +222,53 @@ async def test_interrupt_turn_stops_continuation_and_replans() -> None:
         "Inspect the login flow.",
         "Stop and change the goal to the checkout flow.",
     ]
+
+
+@pytest.mark.asyncio
+async def test_function_calling_handler_passes_prompt_workspace_to_execute_with_tools() -> None:
+    orchestrator = _FakeOrchestrator(step_results=[])
+    deps = ChatHandlerDependencies(
+        context_service=SimpleNamespace(),
+        prompt_service=SimpleNamespace(),
+        planning_service=SimpleNamespace(),
+        function_calling_orchestrator=orchestrator,
+        task_orchestrator=SimpleNamespace(),
+        history_service=SimpleNamespace(),
+        agent_id="s-chat",
+        get_task_agent_manager=lambda: None,
+        session_run_coordinator=None,
+    )
+    handler = FunctionCallingHandler(deps)
+    context = _make_context(active_run=None, revision=0, latest_user_message="Inspect the login flow.")
+
+    result = await handler.execute(_make_request(context))
+
+    assert result.response_text == "tool result"
+    assert orchestrator.execute_with_tools_calls[0]["execution_workspace"] == "/Users/asuka/code/magi"
+
+
+@pytest.mark.asyncio
+async def test_function_calling_handler_passes_prompt_workspace_to_checkpoint_fallback() -> None:
+    coordinator = SessionRunCoordinator()
+    first_turn = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+    orchestrator = _FakeOrchestrator(
+        step_results=[FunctionCallingStepOutcome(status="continue", iteration=10)]
+    )
+    handler = _make_handler(orchestrator, coordinator)
+    context = _make_context(
+        active_run=first_turn.active_run,
+        revision=first_turn.active_run.revision,
+        latest_user_message="Inspect the login flow.",
+    )
+
+    result = await handler.execute(_make_request(context))
+
+    assert result.response_text == "fallback result"
+    assert orchestrator.fallback_calls[0]["execution_workspace"] == "/Users/asuka/code/magi"

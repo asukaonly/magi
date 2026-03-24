@@ -74,6 +74,7 @@ class TaskOrchestrator:
         correlation_id: Optional[str],
         orchestration_strategy: dict[str, Any],
     ) -> OrchestrationExecutionResult:
+        workspace_root = self._resolve_workspace_root(user_message)
         plan_payload = await self._plan_subtasks(
             user_message,
             history,
@@ -82,6 +83,7 @@ class TaskOrchestrator:
             session_id,
             run_id,
             run_revision,
+            workspace_root=workspace_root,
         )
         if not plan_payload.subtasks:
             return OrchestrationExecutionResult(
@@ -94,7 +96,6 @@ class TaskOrchestrator:
 
         orchestration_id = f"orch_{uuid.uuid4().hex[:12]}"
         now = time.time()
-        workspace_root = self._resolve_workspace_root(user_message)
         subtasks = [
             SubtaskDefinition(
                 subtask_id=f"subtask_{uuid.uuid4().hex[:10]}",
