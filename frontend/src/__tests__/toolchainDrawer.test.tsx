@@ -21,6 +21,10 @@ const SNAPSHOT: NormalizedExecutionTraceSnapshot = {
   orchestrationId: null,
   startedAt: 1710000000000,
   endedAt: 1710000019000,
+  continuedFromTurnId: 'turn-0',
+  continuedFromTraceId: 'trace:turn-0',
+  supersededByTurnId: null,
+  supersessionReason: null,
   summary: {
     turnId: 'turn-1',
     mode: 'function_calling',
@@ -32,6 +36,10 @@ const SNAPSHOT: NormalizedExecutionTraceSnapshot = {
     durationSeconds: 19.2,
     traceAvailable: true,
     orchestrationId: null,
+    continuedFromTurnId: 'turn-0',
+    continuedFromTraceId: 'trace:turn-0',
+    supersededByTurnId: null,
+    supersessionReason: null,
   },
   root: {
     id: 'root',
@@ -104,6 +112,8 @@ describe('toolchain drawer', () => {
     expect(screen.getByText('glm-5')).toBeInTheDocument();
     expect(screen.getByText('glm')).toBeInTheDocument();
     expect(screen.getByText('2125')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.continuedFromTurn')).toBeInTheDocument();
+    expect(screen.getByText('turn-0')).toBeInTheDocument();
     expect(screen.queryByText('Execution Timeline')).not.toBeInTheDocument();
     expect(screen.queryByText('1 steps')).not.toBeInTheDocument();
   });

@@ -5,6 +5,7 @@ import {
   createPendingTurn,
   flattenPlanningNodeForDisplay,
   normalizeHistoryMessages,
+  normalizeTraceSnapshot,
   normalizeTraceSummary,
   shouldShowTraceEntry,
   upsertTraceSummary,
@@ -141,6 +142,50 @@ describe('chat trace state helpers', () => {
 
     expect(prominentMessage.traceDisplayMode).toBe('prominent');
     expect(shouldShowTraceEntry(prominentMessage)).toBe(true);
+  });
+
+  it('preserves trace continuation metadata when normalizing a snapshot', () => {
+    const snapshot = normalizeTraceSnapshot({
+      turn_id: 'turn-2',
+      user_id: 'user-1',
+      session_id: 'session-1',
+      status: 'interrupted',
+      mode: 'function_calling',
+      started_at: 1000,
+      ended_at: 2000,
+      continued_from_turn_id: 'turn-1',
+      continued_from_trace_id: 'trace:turn-1',
+      superseded_by_turn_id: 'turn-3',
+      supersession_reason: 'interrupted',
+      summary: {
+        turn_id: 'turn-2',
+        mode: 'function_calling',
+        status: 'interrupted',
+        headline: 'Interrupted by a newer turn',
+        active_steps: 0,
+        completed_steps: 1,
+        failed_steps: 0,
+        duration_seconds: 1,
+        trace_available: true,
+        continued_from_turn_id: 'turn-1',
+        superseded_by_turn_id: 'turn-3',
+      },
+      root: {
+        id: 'turn-2:root',
+        kind: 'root',
+        label: 'Tool chain',
+        status: 'interrupted',
+        metadata: {},
+        children: [],
+      },
+    } as any);
+
+    expect(snapshot?.continuedFromTurnId).toBe('turn-1');
+    expect(snapshot?.continuedFromTraceId).toBe('trace:turn-1');
+    expect(snapshot?.supersededByTurnId).toBe('turn-3');
+    expect(snapshot?.supersessionReason).toBe('interrupted');
+    expect(snapshot?.summary.continuedFromTurnId).toBe('turn-1');
+    expect(snapshot?.summary.supersededByTurnId).toBe('turn-3');
   });
 
   it('adds an interim assistant message for interim-then-final turns', () => {

@@ -222,6 +222,10 @@ def _init_runtime_trace_store(db_path: Path) -> None:
             user_message_preview TEXT,
             response_preview TEXT,
             error_summary TEXT,
+            continued_from_turn_id TEXT,
+            continued_from_trace_id TEXT,
+            superseded_by_turn_id TEXT,
+            supersession_reason TEXT,
             created_at_ms INTEGER NOT NULL,
             updated_at_ms INTEGER NOT NULL
         );
@@ -304,6 +308,10 @@ def _insert_trace_turn(db_path: Path, **values) -> None:
         "user_message_preview": values.get("user_message_preview"),
         "response_preview": values.get("response_preview"),
         "error_summary": values.get("error_summary"),
+        "continued_from_turn_id": values.get("continued_from_turn_id"),
+        "continued_from_trace_id": values.get("continued_from_trace_id"),
+        "superseded_by_turn_id": values.get("superseded_by_turn_id"),
+        "supersession_reason": values.get("supersession_reason"),
         "created_at_ms": values.get("created_at_ms", values.get("started_at_ms", 0)),
         "updated_at_ms": values.get("updated_at_ms", values.get("ended_at_ms", values.get("started_at_ms", 0))),
     }
@@ -314,8 +322,9 @@ def _insert_trace_turn(db_path: Path, **values) -> None:
         INSERT INTO trace_turns (
             trace_id, turn_id, session_id, user_id, status, mode, orchestration_id,
             started_at_ms, ended_at_ms, duration_ms, user_message_preview, response_preview,
-            error_summary, created_at_ms, updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            error_summary, continued_from_turn_id, continued_from_trace_id,
+            superseded_by_turn_id, supersession_reason, created_at_ms, updated_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
     )
@@ -1435,3 +1444,50 @@ def test_trace_summary_counts_active_intent_before_response(tmp_path):
     assert summary["headline"] == "Running tool chain"
     assert summary["active_steps"] == 0
     assert summary["completed_steps"] == 1
+
+
+def test_trace_snapshot_exposes_continuation_metadata(tmp_path):
+    service = ChatTraceReadService()
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    _init_runtime_trace_store(service._runtime_trace_db_path)
+    _insert_trace_turn(
+        service._runtime_trace_db_path,
+        trace_id="trace:turn_2",
+        turn_id="turn_2",
+        session_id="s1",
+        user_id="u1",
+        status="interrupted",
+        mode="function_calling",
+        started_at_ms=1000000,
+        ended_at_ms=1002000,
+        duration_ms=2000,
+        continued_from_turn_id="turn_1",
+        continued_from_trace_id="trace:turn_1",
+        superseded_by_turn_id="turn_3",
+        supersession_reason="interrupted",
+    )
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_2:turn",
+        trace_id="trace:turn_2",
+        turn_id="turn_2",
+        parent_span_id=None,
+        node_type="turn",
+        name="Chat turn",
+        status="interrupted",
+        started_at_ms=1000000,
+        ended_at_ms=1002000,
+        duration_ms=2000,
+    )
+
+    snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_2")
+
+    assert snapshot is not None
+    assert snapshot["status"] == "interrupted"
+    assert snapshot["continued_from_turn_id"] == "turn_1"
+    assert snapshot["continued_from_trace_id"] == "trace:turn_1"
+    assert snapshot["superseded_by_turn_id"] == "turn_3"
+    assert snapshot["supersession_reason"] == "interrupted"
+    assert snapshot["summary"]["continued_from_turn_id"] == "turn_1"
+    assert snapshot["summary"]["superseded_by_turn_id"] == "turn_3"

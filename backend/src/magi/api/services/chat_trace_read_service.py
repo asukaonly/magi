@@ -64,6 +64,10 @@ class ExecutionTraceSummary:
     duration_seconds: float = 0.0
     trace_available: bool = False
     orchestration_id: Optional[str] = None
+    continued_from_turn_id: Optional[str] = None
+    continued_from_trace_id: Optional[str] = None
+    superseded_by_turn_id: Optional[str] = None
+    supersession_reason: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,6 +81,10 @@ class ExecutionTraceSummary:
             "duration_seconds": self.duration_seconds,
             "trace_available": self.trace_available,
             "orchestration_id": self.orchestration_id,
+            "continued_from_turn_id": self.continued_from_turn_id,
+            "continued_from_trace_id": self.continued_from_trace_id,
+            "superseded_by_turn_id": self.superseded_by_turn_id,
+            "supersession_reason": self.supersession_reason,
         }
 
 
@@ -92,6 +100,10 @@ class ExecutionTraceSnapshot:
     orchestration_id: Optional[str]
     started_at: Optional[float]
     ended_at: Optional[float]
+    continued_from_turn_id: Optional[str]
+    continued_from_trace_id: Optional[str]
+    superseded_by_turn_id: Optional[str]
+    supersession_reason: Optional[str]
     summary: ExecutionTraceSummary
     root: ExecutionTraceNode
 
@@ -105,6 +117,10 @@ class ExecutionTraceSnapshot:
             "orchestration_id": self.orchestration_id,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
+            "continued_from_turn_id": self.continued_from_turn_id,
+            "continued_from_trace_id": self.continued_from_trace_id,
+            "superseded_by_turn_id": self.superseded_by_turn_id,
+            "supersession_reason": self.supersession_reason,
             "summary": self.summary.to_dict(),
             "root": self.root.to_dict(),
         }
@@ -240,7 +256,7 @@ class ChatTraceReadService:
         mode = str(turn.get("mode") or self._resolve_normalized_mode(root=root, orchestration_id=None, orchestration_state=None))
         root.status = status
         root.started_at = root.started_at if root.started_at is not None else started_at
-        root.ended_at = ended_at if status in {"completed", "failed"} else None
+        root.ended_at = ended_at if self._is_terminal_status(status) else None
         active_steps, completed_steps, failed_steps = self._count_steps(root)
         summary = ExecutionTraceSummary(
             turn_id=turn_id,
@@ -262,6 +278,10 @@ class ChatTraceReadService:
             ),
             trace_available=bool(root.children),
             orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
+            continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
+            continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
+            superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
+            supersession_reason=self._optional_text(turn.get("supersession_reason")),
         )
         return ExecutionTraceSnapshot(
             turn_id=turn_id,
@@ -272,6 +292,10 @@ class ChatTraceReadService:
             orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
             started_at=started_at,
             ended_at=root.ended_at,
+            continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
+            continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
+            superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
+            supersession_reason=self._optional_text(turn.get("supersession_reason")),
             summary=summary,
             root=root,
         )
@@ -555,10 +579,10 @@ class ChatTraceReadService:
             status = "completed"
         if status == "running":
             status = self._resolve_turn_trace_status(events, default=status)
-        if status in {"completed", "failed"}:
+        if self._is_terminal_status(status):
             self._finalize_terminal_nodes(root, status=status, ended_at=ended_at)
         root.status = status
-        root.ended_at = ended_at if status in {"completed", "failed"} else None
+        root.ended_at = ended_at if self._is_terminal_status(status) else None
 
         active_steps, completed_steps, failed_steps = self._count_steps(root)
         summary = ExecutionTraceSummary(
@@ -1295,6 +1319,10 @@ class ChatTraceReadService:
             return "completed"
         if lowered in {"failed", "error"}:
             return "failed"
+        if lowered == "interrupted":
+            return "interrupted"
+        if lowered == "merged":
+            return "merged"
         if lowered in {"pending"}:
             return "pending"
         return "running"
@@ -1309,10 +1337,22 @@ class ChatTraceReadService:
         for child in node.children:
             self._finalize_terminal_nodes(child, status=status, ended_at=ended_at)
         if node.kind != "root" and node.status in {"running", "pending"}:
-            node.status = "completed" if status == "completed" else "failed"
+            if status in {"completed", "failed"}:
+                node.status = "completed" if status == "completed" else "failed"
+            else:
+                node.status = status
             node.metadata = {**node.metadata, "inferred_terminal": True}
-        if node.status in {"completed", "failed"} and node.ended_at is None:
+        if self._is_terminal_status(node.status) and node.ended_at is None:
             node.ended_at = ended_at
+
+    @staticmethod
+    def _is_terminal_status(status: str) -> bool:
+        return status in {"completed", "failed", "interrupted", "merged"}
+
+    @staticmethod
+    def _optional_text(value: Any) -> Optional[str]:
+        text = str(value or "").strip()
+        return text or None
 
     def _compact_value(self, value: Any) -> str:
         if isinstance(value, dict):

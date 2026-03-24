@@ -54,6 +54,10 @@ export function normalizeTraceSummary(raw: unknown): NormalizedTraceSummary | nu
     durationSeconds: Number(summary.duration_seconds || 0),
     traceAvailable: Boolean(summary.trace_available),
     orchestrationId: summary.orchestration_id || null,
+    continuedFromTurnId: (summary as TraceSummaryData & { continued_from_turn_id?: string | null }).continued_from_turn_id || null,
+    continuedFromTraceId: (summary as TraceSummaryData & { continued_from_trace_id?: string | null }).continued_from_trace_id || null,
+    supersededByTurnId: (summary as TraceSummaryData & { superseded_by_turn_id?: string | null }).superseded_by_turn_id || null,
+    supersessionReason: (summary as TraceSummaryData & { supersession_reason?: string | null }).supersession_reason || null,
   };
 }
 
@@ -113,6 +117,10 @@ export function normalizeTraceSnapshot(
     orchestrationId: raw.orchestration_id || null,
     startedAt: raw.started_at ?? null,
     endedAt: raw.ended_at ?? null,
+    continuedFromTurnId: raw.continued_from_turn_id || null,
+    continuedFromTraceId: raw.continued_from_trace_id || null,
+    supersededByTurnId: raw.superseded_by_turn_id || null,
+    supersessionReason: raw.supersession_reason || null,
     summary,
     root: normalizeTraceNode(raw.root),
   };
