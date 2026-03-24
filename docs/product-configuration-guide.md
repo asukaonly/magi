@@ -146,6 +146,9 @@ Current product expectations:
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
 - users can review the active model capability profile during onboarding and later in settings
+- users can inspect provider model catalogs in Settings and edit per-model metadata without mutating the shipped registry
+- model metadata editing applies to built-in models, discovered models, and manually added model IDs through a user override layer
+- provider model workbenches should expose at least display label, icon, capability toggles, hidden/preferred flags, and key numeric limits
 - advanced users can override capability flags, model limits, and provider-specific JSON options for the current model
 
 At a minimum, the product should support:
@@ -154,6 +157,8 @@ At a minimum, the product should support:
 - model selection
 - API key input
 - optional custom endpoint configuration
+- model catalog inspection per provider
+- manual model ID entry for provider-specific additions
 - model capability summary
 - advanced capability override controls for the currently selected model
 

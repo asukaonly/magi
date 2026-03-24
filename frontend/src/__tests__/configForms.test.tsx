@@ -812,6 +812,30 @@ describe('config forms', () => {
     expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveTextContent('foo-1');
   });
 
+  it('writes model metadata overrides from the provider workbench', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(
+      <LLMForm
+        quickMode={false}
+        surface="settings"
+        view="providers"
+        showSectionIntro={false}
+        value={llmValue as unknown as LLMConfig}
+        onChange={onChange}
+      />
+    );
+
+    const modelList = await screen.findByTestId('llm-provider-model-list-pane');
+    await user.click(within(modelList).getByText('GPT-5.2'));
+    await user.click(screen.getByRole('switch', { name: 'llm.modelFields.embedding' }));
+
+    expect(onChange).toHaveBeenCalled();
+    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+    expect(latest.providers.openai.model_metadata_overrides['gpt-5.2'].capabilities.embedding).toBe(true);
+  });
+
   it('lets users remove a custom provider and falls back to builtin providers', async () => {
     const user = userEvent.setup();
 

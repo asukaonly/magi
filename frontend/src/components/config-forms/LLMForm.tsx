@@ -817,6 +817,11 @@ const LLMForm: React.FC<LLMFormProps> = ({
       if (provider.custom_default_model === model) {
         provider.custom_default_model = nextModels[0] || '';
       }
+      if (provider.model_metadata_overrides?.[model]) {
+        const nextOverrides = { ...(provider.model_metadata_overrides || {}) };
+        delete nextOverrides[model];
+        provider.model_metadata_overrides = nextOverrides;
+      }
       draft.providers[providerId] = provider;
     });
   };

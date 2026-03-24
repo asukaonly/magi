@@ -85,6 +85,8 @@
       "testModelRequired": "请先为当前供应商补一个可测试的模型。",
       "availableModels": "可用模型",
       "defaultModelEmpty": "请先添加模型",
+      "noEditableModels": "当前还没有可编辑模型，先添加一个模型 ID。",
+      "noModelSelected": "请选择左侧模型后再编辑属性。",
       "referencedBy": "当前被以下场景使用",
       "customProviderHint": "自定义供应商会按你填写的 endpoint 和格式工作。",
       "fetchModelsFailed": "拉取模型失败，请检查 Base URL、API Key 和接口格式。",
@@ -122,18 +124,36 @@
       "apiFormat": "API 格式",
       "enabled": "启用"
     },
+    "modelFields": {
+      "modelId": "模型 ID",
+      "icon": "图标",
+      "description": "描述",
+      "vision": "图片输入",
+      "embedding": "向量支持",
+      "toolCalling": "工具调用",
+      "reasoning": "推理",
+      "imageOutput": "图片输出",
+      "hidden": "隐藏",
+      "preferred": "优先",
+      "contextWindow": "上下文窗口",
+      "maxOutputTokens": "最大输出",
+      "maxConcurrency": "最大并发"
+    },
     "actions": {
       "addCustomProvider": "添加自定义供应商",
       "removeProvider": "删除供应商",
       "addModel": "添加模型",
       "removeModel": "移除模型",
+      "restoreModelDefaults": "恢复默认",
       "fetchModels": "拉取模型",
       "testConnection": "测试",
       "testingConnection": "测试中"
     },
     "badges": {
       "enabled": "已启用",
-      "disabled": "未启用"
+      "disabled": "未启用",
+      "chat": "聊天",
+      "embedding": "向量"
     },
     "warnings": {
       "coreVisionMissing": "当前核心模型不支持图片输入。如果聊天中上传图片，会在运行时返回明确错误提示。"

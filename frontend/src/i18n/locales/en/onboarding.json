@@ -84,6 +84,8 @@
       "testModelRequired": "Add a testable model for this provider first.",
       "availableModels": "Available Models",
       "defaultModelEmpty": "Add models first",
+      "noEditableModels": "No editable models yet. Add a model ID first.",
+      "noModelSelected": "Select a model on the left to edit its metadata.",
       "referencedBy": "Currently used by",
       "customProviderHint": "Custom providers use the endpoint and API format you configure here.",
       "fetchModelsFailed": "Failed to fetch models. Check the Base URL, API key, and API format.",
@@ -121,18 +123,36 @@
       "apiFormat": "API Format",
       "enabled": "Enabled"
     },
+    "modelFields": {
+      "modelId": "Model ID",
+      "icon": "Icon",
+      "description": "Description",
+      "vision": "Image Input",
+      "embedding": "Embedding",
+      "toolCalling": "Tool Calling",
+      "reasoning": "Reasoning",
+      "imageOutput": "Image Output",
+      "hidden": "Hidden",
+      "preferred": "Preferred",
+      "contextWindow": "Context Window",
+      "maxOutputTokens": "Max Output",
+      "maxConcurrency": "Max Concurrency"
+    },
     "actions": {
       "addCustomProvider": "Add Custom Provider",
       "removeProvider": "Remove Provider",
       "addModel": "Add Model",
       "removeModel": "Remove Model",
+      "restoreModelDefaults": "Restore Defaults",
       "fetchModels": "Fetch Models",
       "testConnection": "Test",
       "testingConnection": "Testing"
     },
     "badges": {
       "enabled": "Enabled",
-      "disabled": "Disabled"
+      "disabled": "Disabled",
+      "chat": "Chat",
+      "embedding": "Embedding"
     },
     "warnings": {
       "coreVisionMissing": "The current core model does not support image input. If chat receives images, runtime will return a clear error."
