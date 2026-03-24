@@ -126,6 +126,60 @@ async def test_l0_checkpoint_restores_execution_lane(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_l0_workbench_excludes_execution_lane_state(tmp_path):
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    checkpoint_path = tmp_path / "l0_workbench_boundary.db"
+
+    store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        checkpoint_interval_seconds=1,
+        session_timeout_seconds=3600,
+        restore_on_restart=True,
+    )
+    await store.initialize()
+    await store.start_session(session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1")
+    await store.push_goal(
+        session_id="session-1",
+        goal_id="goal-1",
+        goal_type="task",
+        description="Investigate the login issue",
+        status="in_progress",
+    )
+    await store.upsert_execution_run(
+        session_id="session-1",
+        run_id="run-1",
+        root_turn_id="turn-1",
+        root_user_message="Investigate the login issue",
+        revision=1,
+        status="running",
+        response_anchor_turn_id="turn-2",
+    )
+    await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-1",
+        turn_id="turn-2",
+        content="补充一下，是 macOS",
+        revision=1,
+    )
+    await store.record_execution_result(
+        session_id="session-1",
+        run_id="run-1",
+        result_id="result-1",
+        revision=1,
+        disposition="accepted",
+        payload={"tool_name": "search", "content": "raw tool output"},
+    )
+
+    workbench = await store.get_workbench("session-1")
+
+    assert set(workbench) == {"session", "goal_stack", "active_entities", "temporary_tactics"}
+    assert "execution" not in workbench
+    assert "root_user_message" not in str(workbench)
+    assert "raw tool output" not in str(workbench)
+
+
+@pytest.mark.asyncio
 async def test_l0_capture_event_renews_session_activity(tmp_path):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event

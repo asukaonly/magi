@@ -1,4 +1,4 @@
-"""In-memory session run store for chat task-agent coordination."""
+"""L0-backed session run store for chat task-agent coordination."""
 from __future__ import annotations
 
 from copy import deepcopy

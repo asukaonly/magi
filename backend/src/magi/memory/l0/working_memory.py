@@ -501,7 +501,11 @@ class L0WorkingMemoryStore:
         return session
 
     async def get_workbench(self, session_id: str) -> dict[str, Any]:
-        """Return the prompt-consumable workbench for a session."""
+        """Return the prompt-consumable workbench for a session.
+
+        The execution lane is intentionally excluded here so prompt assembly only
+        sees the curated session workbench, not raw runtime control state.
+        """
         await self._expire_stale_tactics(session_id)
         session = self._sessions.get(session_id)
         return {
