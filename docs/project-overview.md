@@ -126,6 +126,9 @@ Execution observability is now a separate concern from durable memory:
 - `~/.magi/data/chat.db`
   Chat-domain source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
 
+- `~/.magi/data/chat_assets/`
+  Managed local chat attachments and derived artifacts grouped by type, session, and turn
+
 - `~/.magi/data/memories/l1_events.db`
   Canonical L1 fact storage for lossy memory projection of `user_text` and `assistant_final` content only
 

@@ -1,0 +1,122 @@
+"""Managed local storage for chat attachments."""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+
+from ..utils.runtime import RuntimePaths, get_runtime_paths
+
+_NON_SAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+@dataclass(slots=True)
+class StoredChatAttachment:
+    """Metadata describing one stored chat attachment."""
+
+    attachment_id: str
+    kind: str
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    storage_path: str
+    sha256: str
+
+
+class LocalChatAttachmentStorage:
+    """Store chat attachments inside the managed runtime data directory."""
+
+    def __init__(self, *, runtime_paths: RuntimePaths | None = None) -> None:
+        self._runtime_paths = runtime_paths or get_runtime_paths()
+
+    def store_image_attachment(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        original_name: str,
+        content: bytes,
+        mime_type: str,
+    ) -> StoredChatAttachment:
+        """Persist one image attachment for a chat turn."""
+
+        return self._store_attachment(
+            kind="image",
+            root_dir=self._runtime_paths.chat_images_dir,
+            session_id=session_id,
+            turn_id=turn_id,
+            original_name=original_name,
+            content=content,
+            mime_type=mime_type,
+        )
+
+    def store_file_attachment(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        original_name: str,
+        content: bytes,
+        mime_type: str,
+    ) -> StoredChatAttachment:
+        """Persist one non-image chat attachment for a chat turn."""
+
+        return self._store_attachment(
+            kind="file",
+            root_dir=self._runtime_paths.chat_files_dir,
+            session_id=session_id,
+            turn_id=turn_id,
+            original_name=original_name,
+            content=content,
+            mime_type=mime_type,
+        )
+
+    def _store_attachment(
+        self,
+        *,
+        kind: str,
+        root_dir: Path,
+        session_id: str,
+        turn_id: str,
+        original_name: str,
+        content: bytes,
+        mime_type: str,
+    ) -> StoredChatAttachment:
+        normalized_session_id = self._normalize_path_component(session_id, label="session_id")
+        normalized_turn_id = self._normalize_path_component(turn_id, label="turn_id")
+        display_name = self._sanitize_original_name(original_name)
+        attachment_id = uuid.uuid4().hex
+        content_bytes = bytes(content)
+        target_dir = root_dir / normalized_session_id / normalized_turn_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = target_dir / f"{attachment_id}__{display_name}"
+        target_path.write_bytes(content_bytes)
+        return StoredChatAttachment(
+            attachment_id=attachment_id,
+            kind=kind,
+            original_name=display_name,
+            mime_type=str(mime_type or "application/octet-stream").strip() or "application/octet-stream",
+            size_bytes=len(content_bytes),
+            storage_path=str(target_path),
+            sha256=hashlib.sha256(content_bytes).hexdigest(),
+        )
+
+    @staticmethod
+    def _normalize_path_component(value: str, *, label: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError(f"{label} is required")
+        if "/" in normalized or "\\" in normalized:
+            raise ValueError(f"{label} must not contain path separators")
+        return normalized
+
+    @staticmethod
+    def _sanitize_original_name(original_name: str) -> str:
+        candidate = Path(str(original_name or "").strip()).name
+        if not candidate:
+            candidate = "attachment"
+        safe_name = _NON_SAFE_FILENAME_CHARS.sub("_", candidate).strip("._")
+        return safe_name or "attachment"

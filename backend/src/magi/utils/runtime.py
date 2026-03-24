@@ -36,6 +36,7 @@ class RuntimePaths:
             self.base_dir,
             self.personalities_dir,
             self.data_dir,
+            self.chat_assets_dir,
             self.memories_dir,
             self.others_dir,
             self.logs_dir,
@@ -60,6 +61,26 @@ class RuntimePaths:
     def memories_dir(self) -> Path:
         """Memory database directory."""
         return self.data_dir / "memories"
+
+    @property
+    def chat_assets_dir(self) -> Path:
+        """Managed chat attachment asset directory."""
+        return self.data_dir / "chat_assets"
+
+    @property
+    def chat_images_dir(self) -> Path:
+        """Managed chat image attachment directory."""
+        return self.chat_assets_dir / "images"
+
+    @property
+    def chat_files_dir(self) -> Path:
+        """Managed chat file attachment directory."""
+        return self.chat_assets_dir / "files"
+
+    @property
+    def chat_derived_dir(self) -> Path:
+        """Managed chat derived-asset directory."""
+        return self.chat_assets_dir / "derived"
 
     @property
     def others_dir(self) -> Path:
