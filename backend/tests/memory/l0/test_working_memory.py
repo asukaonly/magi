@@ -61,6 +61,71 @@ async def test_l0_checkpoint_restores_session_goal_and_tactic(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_l0_checkpoint_restores_execution_lane(tmp_path):
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    checkpoint_path = tmp_path / "l0_execution_checkpoint.db"
+
+    store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        checkpoint_interval_seconds=1,
+        session_timeout_seconds=3600,
+        restore_on_restart=True,
+    )
+    await store.initialize()
+    await store.start_session(session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1")
+    await store.upsert_execution_run(
+        session_id="session-1",
+        run_id="run-1",
+        root_turn_id="turn-1",
+        root_user_message="hello",
+        revision=2,
+        status="running",
+        response_anchor_turn_id="turn-2",
+    )
+    await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-1",
+        turn_id="turn-2",
+        content="补充一下，是 macOS",
+        revision=2,
+    )
+    await store.record_execution_result(
+        session_id="session-1",
+        run_id="run-1",
+        result_id="result-1",
+        revision=2,
+        disposition="accepted",
+        payload={"tool_name": "search"},
+    )
+    await store.record_execution_result(
+        session_id="session-1",
+        run_id="run-1",
+        result_id="result-2",
+        revision=1,
+        disposition="stale",
+        payload={"tool_name": "search"},
+    )
+    await store.checkpoint_session("session-1")
+
+    restored = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        checkpoint_interval_seconds=1,
+        session_timeout_seconds=3600,
+        restore_on_restart=True,
+    )
+    await restored.initialize()
+    execution_state = await restored.get_execution_state("session-1")
+
+    assert execution_state["run"]["run_id"] == "run-1"
+    assert execution_state["run"]["revision"] == 2
+    assert execution_state["run"]["response_anchor_turn_id"] == "turn-2"
+    assert execution_state["pending_turns"][0]["turn_id"] == "turn-2"
+    assert execution_state["accepted_results"][0]["result_id"] == "result-1"
+    assert execution_state["stale_results"][0]["result_id"] == "result-2"
+
+
+@pytest.mark.asyncio
 async def test_l0_capture_event_renews_session_activity(tmp_path):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event

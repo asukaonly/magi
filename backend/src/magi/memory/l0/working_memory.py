@@ -39,6 +39,9 @@ class L0WorkingMemoryStore:
         self._goal_stack: dict[str, list[dict[str, Any]]] = {}
         self._active_entities: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
         self._temporary_tactics: dict[str, dict[str, dict[str, Any]]] = {}
+        self._execution_runs: dict[str, dict[str, Any]] = {}
+        self._execution_pending_turns: dict[str, list[dict[str, Any]]] = {}
+        self._execution_results: dict[str, list[dict[str, Any]]] = {}
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -98,6 +101,38 @@ class L0WorkingMemoryStore:
                     tactic_payload TEXT NOT NULL,
                     source_event_ids TEXT NOT NULL,
                     expires_at REAL,
+                    created_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS l0_execution_runs (
+                    session_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    root_turn_id TEXT,
+                    root_user_message TEXT NOT NULL,
+                    response_anchor_turn_id TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS l0_execution_pending_turns (
+                    pending_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    created_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS l0_execution_results (
+                    result_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    disposition TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
                     created_at REAL NOT NULL
                 );
                 """
@@ -273,6 +308,97 @@ class L0WorkingMemoryStore:
         self._temporary_tactics[session_id][tactic["tactic_id"]] = tactic
         return tactic
 
+    async def upsert_execution_run(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        status: str,
+        revision: int,
+        root_turn_id: Optional[str] = None,
+        root_user_message: str = "",
+        response_anchor_turn_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Upsert the active execution run for a session."""
+        await self.start_session(session_id=session_id)
+        existing = self._execution_runs.get(session_id)
+        now = time.time()
+        execution_run = {
+            "session_id": session_id,
+            "run_id": run_id,
+            "status": status,
+            "revision": int(revision),
+            "root_turn_id": root_turn_id,
+            "root_user_message": root_user_message,
+            "response_anchor_turn_id": response_anchor_turn_id,
+            "created_at": float(existing["created_at"]) if existing else now,
+            "updated_at": now,
+        }
+        self._execution_runs[session_id] = execution_run
+        self._execution_pending_turns.setdefault(session_id, [])
+        self._execution_results.setdefault(session_id, [])
+        return dict(execution_run)
+
+    async def append_execution_pending_turn(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        turn_id: str,
+        content: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        """Append one pending user turn to the execution lane."""
+        await self.start_session(session_id=session_id)
+        pending_turn = {
+            "session_id": session_id,
+            "run_id": run_id,
+            "turn_id": turn_id,
+            "content": content,
+            "revision": int(revision),
+            "created_at": time.time(),
+        }
+        self._execution_pending_turns.setdefault(session_id, []).append(pending_turn)
+        return dict(pending_turn)
+
+    async def record_execution_result(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        result_id: str,
+        revision: int,
+        disposition: str,
+        payload: Dict[str, Any],
+    ) -> dict[str, Any]:
+        """Record one accepted or stale execution result."""
+        await self.start_session(session_id=session_id)
+        result = {
+            "result_id": result_id,
+            "session_id": session_id,
+            "run_id": run_id,
+            "revision": int(revision),
+            "disposition": disposition,
+            "payload": dict(payload),
+            "created_at": time.time(),
+        }
+        results = self._execution_results.setdefault(session_id, [])
+        results[:] = [item for item in results if str(item.get("result_id")) != result_id]
+        results.append(result)
+        return dict(result)
+
+    async def get_execution_state(self, session_id: str) -> dict[str, Any]:
+        """Return the restored execution-lane state for one session."""
+        run = self._execution_runs.get(session_id)
+        pending_turns = [dict(item) for item in self._execution_pending_turns.get(session_id, [])]
+        results = [dict(item) for item in self._execution_results.get(session_id, [])]
+        return {
+            "run": dict(run) if run is not None else None,
+            "pending_turns": pending_turns,
+            "accepted_results": [item for item in results if str(item.get("disposition")) == "accepted"],
+            "stale_results": [item for item in results if str(item.get("disposition")) == "stale"],
+        }
+
     async def get_workbench(self, session_id: str) -> dict[str, Any]:
         """Return the prompt-consumable workbench for a session."""
         await self._expire_stale_tactics(session_id)
@@ -402,6 +528,66 @@ class L0WorkingMemoryStore:
                     ),
                 )
 
+            await db.execute("DELETE FROM l0_execution_runs WHERE session_id = ?", (session_id,))
+            execution_run = self._execution_runs.get(session_id)
+            if execution_run is not None:
+                await db.execute(
+                    """
+                    INSERT INTO l0_execution_runs(
+                        session_id, run_id, status, revision, root_turn_id,
+                        root_user_message, response_anchor_turn_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        session_id,
+                        execution_run["run_id"],
+                        execution_run["status"],
+                        int(execution_run["revision"]),
+                        execution_run.get("root_turn_id"),
+                        execution_run.get("root_user_message", ""),
+                        execution_run.get("response_anchor_turn_id"),
+                        float(execution_run["created_at"]),
+                        float(execution_run["updated_at"]),
+                    ),
+                )
+
+            await db.execute("DELETE FROM l0_execution_pending_turns WHERE session_id = ?", (session_id,))
+            for pending_turn in self._execution_pending_turns.get(session_id, []):
+                await db.execute(
+                    """
+                    INSERT INTO l0_execution_pending_turns(
+                        session_id, run_id, turn_id, content, revision, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        session_id,
+                        pending_turn["run_id"],
+                        pending_turn["turn_id"],
+                        pending_turn["content"],
+                        int(pending_turn["revision"]),
+                        float(pending_turn["created_at"]),
+                    ),
+                )
+
+            await db.execute("DELETE FROM l0_execution_results WHERE session_id = ?", (session_id,))
+            for result in self._execution_results.get(session_id, []):
+                await db.execute(
+                    """
+                    INSERT INTO l0_execution_results(
+                        result_id, session_id, run_id, revision, disposition, payload_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        result["result_id"],
+                        session_id,
+                        result["run_id"],
+                        int(result["revision"]),
+                        result["disposition"],
+                        json.dumps(result["payload"], ensure_ascii=False),
+                        float(result["created_at"]),
+                    ),
+                )
+
             await db.commit()
 
     async def checkpoint_all(self) -> None:
@@ -417,6 +603,9 @@ class L0WorkingMemoryStore:
         self._goal_stack.clear()
         self._active_entities.clear()
         self._temporary_tactics.clear()
+        self._execution_runs.clear()
+        self._execution_pending_turns.clear()
+        self._execution_results.clear()
 
         async with sqlite_connection_async(self.checkpoint_db_path) as db:
             await db.executescript(
@@ -425,6 +614,9 @@ class L0WorkingMemoryStore:
                 DELETE FROM l0_goal_stack;
                 DELETE FROM l0_active_entities;
                 DELETE FROM l0_temporary_tactics;
+                DELETE FROM l0_execution_runs;
+                DELETE FROM l0_execution_pending_turns;
+                DELETE FROM l0_execution_results;
                 """
             )
             await db.commit()
@@ -452,6 +644,9 @@ class L0WorkingMemoryStore:
             self._goal_stack.pop(session_id, None)
             self._active_entities.pop(session_id, None)
             self._temporary_tactics.pop(session_id, None)
+            self._execution_runs.pop(session_id, None)
+            self._execution_pending_turns.pop(session_id, None)
+            self._execution_results.pop(session_id, None)
             expired.append(session_id)
         return expired
 
@@ -471,6 +666,9 @@ class L0WorkingMemoryStore:
         self._goal_stack.pop(lru_id, None)
         self._active_entities.pop(lru_id, None)
         self._temporary_tactics.pop(lru_id, None)
+        self._execution_runs.pop(lru_id, None)
+        self._execution_pending_turns.pop(lru_id, None)
+        self._execution_results.pop(lru_id, None)
         return lru_id
 
     async def _restore_from_checkpoint(self) -> None:
@@ -537,6 +735,58 @@ class L0WorkingMemoryStore:
                         "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
                         "created_at": float(row["created_at"]),
                     }
+
+            async with db.execute("SELECT * FROM l0_execution_runs") as cursor:
+                async for row in cursor:
+                    session_id = str(row["session_id"])
+                    self._execution_runs[session_id] = {
+                        "session_id": session_id,
+                        "run_id": str(row["run_id"]),
+                        "status": str(row["status"]),
+                        "revision": int(row["revision"]),
+                        "root_turn_id": str(row["root_turn_id"]) if row["root_turn_id"] is not None else None,
+                        "root_user_message": str(row["root_user_message"] or ""),
+                        "response_anchor_turn_id": (
+                            str(row["response_anchor_turn_id"])
+                            if row["response_anchor_turn_id"] is not None
+                            else None
+                        ),
+                        "created_at": float(row["created_at"]),
+                        "updated_at": float(row["updated_at"]),
+                    }
+
+            async with db.execute(
+                "SELECT * FROM l0_execution_pending_turns ORDER BY created_at ASC, pending_id ASC"
+            ) as cursor:
+                async for row in cursor:
+                    session_id = str(row["session_id"])
+                    self._execution_pending_turns.setdefault(session_id, []).append(
+                        {
+                            "session_id": session_id,
+                            "run_id": str(row["run_id"]),
+                            "turn_id": str(row["turn_id"]),
+                            "content": str(row["content"]),
+                            "revision": int(row["revision"]),
+                            "created_at": float(row["created_at"]),
+                        }
+                    )
+
+            async with db.execute(
+                "SELECT * FROM l0_execution_results ORDER BY created_at ASC, result_id ASC"
+            ) as cursor:
+                async for row in cursor:
+                    session_id = str(row["session_id"])
+                    self._execution_results.setdefault(session_id, []).append(
+                        {
+                            "result_id": str(row["result_id"]),
+                            "session_id": session_id,
+                            "run_id": str(row["run_id"]),
+                            "revision": int(row["revision"]),
+                            "disposition": str(row["disposition"]),
+                            "payload": json.loads(row["payload_json"] or "{}"),
+                            "created_at": float(row["created_at"]),
+                        }
+                    )
 
     async def _expire_stale_tactics(self, session_id: str) -> None:
         now = time.time()
