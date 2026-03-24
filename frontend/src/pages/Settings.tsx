@@ -88,6 +88,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     usesInnerPaneScroll,
     draftConfig,
     patchDraftConfig,
+    syncNormalizedLlmConfig,
     draftThemeMode,
     handleThemePreviewChange,
     handleLanguagePreviewChange,
@@ -284,7 +285,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             >
               <div className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
                 <label className="space-y-2" htmlFor="default-chat-workspace">
-                  <div className="text-sm font-medium text-foreground">{t('settings.fields.defaultChatWorkspace')}</div>
                   <Input
                     id="default-chat-workspace"
                     aria-label={t('settings.fields.defaultChatWorkspace')}
@@ -331,6 +331,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               surface="settings"
               showSectionIntro={false}
               value={draftConfig.llm}
+              onAutoNormalize={syncNormalizedLlmConfig}
               onChange={(next) => patchDraftConfig((draft) => {
                 draft.llm = next;
               })}
@@ -347,6 +348,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               surface="settings"
               showSectionIntro={false}
               value={draftConfig.llm}
+              onAutoNormalize={syncNormalizedLlmConfig}
               onChange={(next) => patchDraftConfig((draft) => {
                 draft.llm = next;
               })}

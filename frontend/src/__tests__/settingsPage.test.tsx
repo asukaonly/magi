@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,9 +10,12 @@ import { pluginsApi } from '@/api/modules/plugins';
 import { timelineApi } from '@/api/modules/timeline';
 import { toolsApi } from '@/api/modules/tools';
 
-const { syncCloseToTrayPreferenceMock, pickDirectoryMock } = vi.hoisted(() => ({
+const { syncCloseToTrayPreferenceMock, pickDirectoryMock, llmFormAutoChangeRef } = vi.hoisted(() => ({
   syncCloseToTrayPreferenceMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
+  llmFormAutoChangeRef: {
+    current: null as null | ((args: { value: any; view?: 'all' | 'providers' | 'models' }) => any | null),
+  },
 }));
 
 const llmFormMock = vi.fn();
@@ -37,22 +41,37 @@ vi.mock('@/components/config-forms/LLMForm', () => ({
   default: ({
     value,
     onChange,
+    onAutoNormalize,
     view,
     showAdvancedByDefault,
   }: {
     value: any;
     onChange: (next: any) => void;
+    onAutoNormalize?: (next: any) => void;
     view?: 'all' | 'providers' | 'models';
     showAdvancedByDefault?: boolean;
-  }) => (
-    <div>
-      {llmFormMock({ value, onChange, view, showAdvancedByDefault })}
-      <div>{`llm-view:${view || 'all'}`}</div>
-      <button type="button" onClick={() => onChange({ ...value, model: 'gpt-5' })}>
-        change-llm
-      </button>
-    </div>
-  ),
+  }) => {
+    useEffect(() => {
+      const nextValue = llmFormAutoChangeRef.current?.({ value, view });
+      if (nextValue) {
+        if (onAutoNormalize) {
+          onAutoNormalize(nextValue);
+          return;
+        }
+        onChange(nextValue);
+      }
+    }, [onAutoNormalize, onChange, value, view]);
+
+    return (
+      <div>
+        {llmFormMock({ value, onChange, view, showAdvancedByDefault })}
+        <div>{`llm-view:${view || 'all'}`}</div>
+        <button type="button" onClick={() => onChange({ ...value, model: 'gpt-5' })}>
+          change-llm
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock('@/pages/PersonalityModern', () => ({
@@ -474,6 +493,7 @@ describe('settings page draft saving', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     llmFormMock.mockReset();
+    llmFormAutoChangeRef.current = null;
     syncCloseToTrayPreferenceMock.mockReset();
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
@@ -567,6 +587,55 @@ describe('settings page draft saving', () => {
     expect(content).not.toHaveClass('max-w-3xl');
     expect(screen.getAllByText('settings.fields.language')).toHaveLength(1);
     expect(screen.getAllByText('settings.fields.closeToTray')).toHaveLength(1);
+    expect(screen.getAllByText('settings.fields.defaultChatWorkspace')).toHaveLength(1);
+  });
+
+  it('does not mark provider settings dirty when llm form normalizes mounted values', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        llm: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm),
+          providers: {
+            openai: {
+              ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm.providers.openai),
+              display_name: '',
+            },
+          },
+        },
+      },
+    } as any);
+
+    let consumed = false;
+    llmFormAutoChangeRef.current = ({ value, view }) => {
+      if (consumed || view !== 'providers') {
+        return null;
+      }
+      consumed = true;
+      return {
+        ...value,
+        providers: {
+          ...value.providers,
+          openai: {
+            ...value.providers.openai,
+            display_name: 'OpenAI',
+          },
+        },
+      };
+    };
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.llm' }));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.llmProviders' }));
+
+    await screen.findByText('llm-view:providers');
+
+    await waitFor(() => {
+      expect(screen.queryByText('settings.pendingChanges')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('settings.allChangesSaved')).toBeInTheDocument();
   });
 
   it('saves a picked default chat workspace path in preferences', async () => {

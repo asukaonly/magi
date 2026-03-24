@@ -55,6 +55,7 @@ export interface UseSettingsReturn {
   // Config state (saved/draft)
   draftConfig: SystemConfig;
   patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
+  syncNormalizedLlmConfig: (nextLlmConfig: SystemConfig['llm']) => void;
 
   // Theme state (saved/draft)
   draftThemeMode: ThemeMode;
@@ -216,6 +217,19 @@ export function useSettings(): UseSettingsReturn {
     setDraftConfig((prev) => {
       const next = structuredClone(prev);
       updater(next);
+      return next;
+    });
+  }, []);
+
+  const syncNormalizedLlmConfig = useCallback((nextLlmConfig: SystemConfig['llm']) => {
+    setSavedConfig((prev) => {
+      const next = structuredClone(prev);
+      next.llm = structuredClone(nextLlmConfig);
+      return next;
+    });
+    setDraftConfig((prev) => {
+      const next = structuredClone(prev);
+      next.llm = structuredClone(nextLlmConfig);
       return next;
     });
   }, []);
@@ -630,6 +644,7 @@ export function useSettings(): UseSettingsReturn {
     // Config state
     draftConfig,
     patchDraftConfig,
+    syncNormalizedLlmConfig,
 
     // Theme state
     draftThemeMode,

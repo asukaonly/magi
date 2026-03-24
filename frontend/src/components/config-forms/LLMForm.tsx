@@ -30,6 +30,7 @@ interface LLMFormProps {
   view?: 'all' | 'providers' | 'models';
   value?: LLMConfig;
   onChange?: (nextValue: LLMConfig) => void;
+  onAutoNormalize?: (nextValue: LLMConfig) => void;
   showAdvancedByDefault?: boolean;
   surface?: 'onboarding' | 'settings';
   showSectionIntro?: boolean;
@@ -448,6 +449,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   view = 'all',
   value,
   onChange,
+  onAutoNormalize,
   showAdvancedByDefault = false,
   surface = 'onboarding',
   showSectionIntro = true,
@@ -520,12 +522,16 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }
     const normalized = normalizeLLMConfig(currentValue, registry);
     if (llmSignature(normalized) !== llmSignature(currentValue)) {
+      if (controlled && onAutoNormalize) {
+        onAutoNormalize(normalized);
+        return;
+      }
       updateValue((draft) => Object.assign(draft, normalized));
     }
     if (!normalized.providers[activeProviderId]) {
       setActiveProviderId(Object.keys(normalized.providers)[0] || 'openai');
     }
-  }, [activeProviderId, currentValue, registry]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeProviderId, controlled, currentValue, onAutoNormalize, registry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scenarioReferences = useMemo(() => {
     return Object.entries(currentValue.selections).reduce<Record<string, LLMScenario[]>>((acc, [scenario, selection]) => {
