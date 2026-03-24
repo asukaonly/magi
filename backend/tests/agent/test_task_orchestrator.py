@@ -39,7 +39,7 @@ def test_build_agent_tool_context_includes_workspace_and_agent_metadata() -> Non
     context = orchestrator._build_agent_tool_context("user-1", "session-1")
 
     assert context.agent_id == "explore:user-1"
-    expected_workspace = Path.cwd().parent if Path.cwd().name == "backend" else Path.cwd()
+    expected_workspace = Path(task_orchestrator_module.__file__).resolve().parents[4]
     assert context.workspace == str(expected_workspace)
     assert context.permissions == ["authenticated"]
     assert context.env_vars == {
@@ -74,6 +74,29 @@ def test_chat_default_workspace_root_uses_managed_magi_workspace(tmp_path: Path,
     resolved = orchestrator._default_workspace_root()
 
     assert resolved == str(expected_workspace)
+
+
+def test_explore_default_workspace_root_uses_runtime_project_root_not_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    orchestrator = TaskOrchestrator(
+        runtime_key="explore:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="explore",
+    )
+
+    unrelated_cwd = tmp_path / "outside"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+
+    resolved = orchestrator._default_workspace_root()
+
+    assert resolved == str(Path(task_orchestrator_module.__file__).resolve().parents[4])
+    assert resolved != str(unrelated_cwd.resolve())
 
 
 def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:

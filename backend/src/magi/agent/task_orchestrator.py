@@ -515,13 +515,20 @@ class TaskOrchestrator:
     def _default_workspace_root(self) -> str:
         if self._parent_task_agent_type == "chat":
             return get_default_chat_workspace_path()
+        runtime_project_root = self._resolve_runtime_project_root()
+        if runtime_project_root is not None:
+            return runtime_project_root
+        return get_default_chat_workspace_path()
 
-        cwd = Path(os.getcwd()).expanduser().resolve()
-        if cwd.name == "backend":
-            parent = cwd.parent
-            if (parent / "frontend").exists() or (parent / "docs").exists():
-                return str(parent)
-        return str(cwd)
+    def _resolve_runtime_project_root(self) -> str | None:
+        try:
+            candidate = Path(__file__).resolve().parents[4]
+        except IndexError:
+            return None
+
+        if any((candidate / marker).exists() for marker in ("backend", "frontend", "docs", ".git")):
+            return str(candidate)
+        return None
 
     def _extract_explicit_path_candidates(self, message: str, default_root: str) -> list[str]:
         candidates: list[str] = []
