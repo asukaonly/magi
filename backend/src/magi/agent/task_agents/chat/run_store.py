@@ -83,13 +83,16 @@ class SessionRunStore:
             active_run = self._require_run(session_id)
             return deepcopy(active_run)
 
-    def consume_pending_turns(self, session_id: str) -> list[PendingTurn]:
+    def consume_pending_turns(self, session_id: str, *, revision: int | None = None) -> list[PendingTurn]:
         """Return and clear pending turns for the active run."""
         with self._lock:
             self._require_run(session_id)
             pending_turns = [
                 self._to_pending_turn(item)
-                for item in self._l0_store.consume_execution_pending_turns_sync(session_id)
+                for item in self._l0_store.consume_execution_pending_turns_sync(
+                    session_id,
+                    revision=revision,
+                )
             ]
             return pending_turns
 

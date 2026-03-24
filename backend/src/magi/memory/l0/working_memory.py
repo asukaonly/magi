@@ -430,10 +430,29 @@ class L0WorkingMemoryStore:
         self._execution_pending_turns.setdefault(session_id, []).append(pending_turn)
         return dict(pending_turn)
 
-    def consume_execution_pending_turns_sync(self, session_id: str) -> list[dict[str, Any]]:
+    def consume_execution_pending_turns_sync(
+        self,
+        session_id: str,
+        *,
+        revision: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Synchronously return and clear pending execution turns for a session."""
-        pending_turns = [dict(item) for item in self._execution_pending_turns.get(session_id, [])]
-        self._execution_pending_turns[session_id] = []
+        existing = self._execution_pending_turns.get(session_id, [])
+        if revision is None:
+            pending_turns = [dict(item) for item in existing]
+            self._execution_pending_turns[session_id] = []
+            return pending_turns
+        target_revision = int(revision)
+        pending_turns = [
+            dict(item)
+            for item in existing
+            if item.get("revision") is not None and int(item["revision"]) == target_revision
+        ]
+        self._execution_pending_turns[session_id] = [
+            item
+            for item in existing
+            if item.get("revision") is None or int(item["revision"]) != target_revision
+        ]
         return pending_turns
 
     def record_execution_result_sync(
@@ -545,6 +564,11 @@ class L0WorkingMemoryStore:
         projection.execution_summary = build_execution_summary(
             run=run if isinstance(run, dict) else None,
             pending_turns=[item for item in pending_turns if isinstance(item, dict)],
+            accepted_results=[
+                item
+                for item in execution_state.get("accepted_results", [])
+                if isinstance(item, dict)
+            ],
         )
         return projection
 

@@ -46,6 +46,29 @@ def test_bump_revision_increments_active_run_revision() -> None:
     assert store.get_active_run("session-1") == bumped_run
 
 
+def test_consume_pending_turns_only_clears_requested_revision() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+    store.append_pending_turn(
+        session_id="session-1",
+        turn_id="turn-1",
+        content="first revision augment",
+    )
+    store.bump_revision("session-1", clear_pending_turns=False)
+    store.append_pending_turn(
+        session_id="session-1",
+        turn_id="turn-2",
+        content="second revision augment",
+    )
+
+    consumed = store.consume_pending_turns("session-1", revision=1)
+    active_run = store.get_active_run("session-1")
+
+    assert [item.turn_id for item in consumed] == ["turn-2"]
+    assert active_run is not None
+    assert [item.turn_id for item in active_run.pending_turns] == ["turn-1"]
+
+
 def test_mark_stale_result_tracks_stale_results_separately() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1")

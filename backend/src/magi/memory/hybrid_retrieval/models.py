@@ -166,6 +166,8 @@ class RetrievalConfig:
     # ResultFusion
     default_max_tokens: int = 8192
     fallback_trigger_threshold: int = 1  # result count < N triggers fallback
+    l0_max_tokens: int = 512
+    l0_budget_ratio: float = 0.5
 
     # Vector search filtering
     vector_max_distance: float = 0.7  # cosine distance cap (1 - similarity)

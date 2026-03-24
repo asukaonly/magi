@@ -149,6 +149,22 @@ class TestTokenBudget:
         # L0 eats budget, so fewer L1 events fit
         assert len(result.l1_events) < 10
 
+    def test_large_l0_is_soft_capped_before_it_starves_other_layers(self):
+        fusion = ResultFusion(RetrievalConfig(default_max_tokens=120))
+        payload = RetrievalPayload(
+            l0_workbench=[
+                {"session": "x" * 180},
+                {"session": "y" * 180},
+                {"session": "z" * 180},
+            ],
+            l1_events=[{"event_id": "e1", "content": "useful evidence" * 8}],
+        )
+
+        result = fusion.apply(payload)
+
+        assert len(result.l0_workbench) < 3
+        assert len(result.l1_events) == 1
+
     def test_explicit_max_tokens_overrides_config(self):
         fusion = ResultFusion(RetrievalConfig(default_max_tokens=100000))
         payload = RetrievalPayload(

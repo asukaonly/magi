@@ -11,6 +11,7 @@ def build_execution_summary(
     *,
     run: dict[str, Any] | None,
     pending_turns: list[dict[str, Any]],
+    accepted_results: list[dict[str, Any]] | None = None,
 ) -> L0ExecutionSummary | None:
     """Build a prompt-safe execution summary from raw execution-lane state."""
     if not isinstance(run, dict):
@@ -20,13 +21,28 @@ def build_execution_summary(
     current_revision_pending_turns = [
         item
         for item in pending_turns
-        if isinstance(item, dict) and int(item.get("revision") or -1) == current_revision
+        if (
+            isinstance(item, dict)
+            and item.get("revision") is not None
+            and int(item["revision"]) == current_revision
+        )
+    ]
+    current_revision_results = [
+        item
+        for item in (accepted_results or [])
+        if (
+            isinstance(item, dict)
+            and item.get("revision") is not None
+            and int(item["revision"]) == current_revision
+        )
     ]
     latest_pending_turn = current_revision_pending_turns[-1] if current_revision_pending_turns else None
     status = str(run.get("status") or "").strip()
     waiting_reason = (
         "user_replan_pending"
         if current_revision_pending_turns
+        else "checkpoint_ready"
+        if current_revision_results
         else "external_result"
         if status == "running"
         else None

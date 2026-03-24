@@ -70,6 +70,31 @@ def test_build_execution_summary_ignores_pending_turns_from_older_revisions() ->
     )
 
 
+def test_build_execution_summary_marks_current_results_as_checkpoint_ready() -> None:
+    summary = build_execution_summary(
+        run={
+            "status": "running",
+            "revision": 3,
+            "root_user_message": "Investigate the login issue",
+        },
+        pending_turns=[],
+        accepted_results=[
+            {
+                "result_id": "result-1",
+                "revision": 3,
+                "payload": {"content": "tool result"},
+            }
+        ],
+    )
+
+    assert summary == L0ExecutionSummary(
+        active_run_summary="Investigate the login issue",
+        awaiting_external_result=False,
+        waiting_reason="checkpoint_ready",
+        latest_user_augmentation_summary=None,
+    )
+
+
 def test_prompt_projection_emits_retrieval_entry_shape() -> None:
     projection = L0PromptWorkbenchProjection(
         session={"id": "s1"},

@@ -108,7 +108,10 @@ class SessionRunCoordinator:
             and classified_fact.latest_result_fact.event_type in _CHECKPOINT_EVENT_TYPES
             and self._current_revision_pending_turns(active_run)
         ):
-            checkpoint_pending_turns = self._run_store.consume_pending_turns(classified_fact.session_id)
+            checkpoint_pending_turns = self._run_store.consume_pending_turns(
+                classified_fact.session_id,
+                revision=active_run.revision,
+            )
             refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
             planner_user_message = self._merge_visible_user_message(
                 root_user_message=active_run.root_user_message,
@@ -222,7 +225,10 @@ class SessionRunCoordinator:
         active_run = self._run_store.get_active_run(session_id)
         if active_run is None:
             return CheckpointDecision(session_id=session_id, run_id="", revision=0)
-        pending_turns = self._run_store.consume_pending_turns(session_id)
+        pending_turns = self._run_store.consume_pending_turns(
+            session_id,
+            revision=active_run.revision,
+        )
         visible_user_message = self._merge_visible_user_message(
             root_user_message=active_run.root_user_message,
             pending_turns=pending_turns,
