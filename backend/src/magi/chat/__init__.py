@@ -2,6 +2,7 @@
 
 from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
 from .contracts import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+from .pdf_attachment_parser import LocalPdfAttachmentParser, ParsedPdfAttachment
 from .projector import ChatProjector
 from .read_service import (
     ChatDisplayMessage,
@@ -23,7 +24,9 @@ __all__ = [
     "ChatSessionRenameResult",
     "ChatSessionSummary",
     "LocalChatAttachmentStorage",
+    "LocalPdfAttachmentParser",
     "LocalTextAttachmentParser",
+    "ParsedPdfAttachment",
     "ParsedTextAttachment",
     "SessionWorkspaceUpdateResult",
     "StoredChatAttachment",
