@@ -23,6 +23,7 @@ class ChatSessionRecord:
     message_count: int
     archived_at_ms: int | None
     deleted_at_ms: int | None
+    workspace_path: str | None = None
     history_version: int = 0
 
 

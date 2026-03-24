@@ -40,6 +40,7 @@ class ChatStore:
                     last_message_preview TEXT NOT NULL DEFAULT '',
                     last_user_message_preview TEXT NOT NULL DEFAULT '',
                     message_count INTEGER NOT NULL DEFAULT 0,
+                    workspace_path TEXT,
                     history_version INTEGER NOT NULL DEFAULT 0,
                     archived_at_ms INTEGER,
                     deleted_at_ms INTEGER
@@ -201,6 +202,7 @@ class ChatStore:
                     last_message_preview=session_preview,
                     last_user_message_preview=session_preview,
                     message_count=next_message_count,
+                    workspace_path=str(existing_session["workspace_path"]) if existing_session is not None and existing_session["workspace_path"] is not None else None,
                     history_version=int(existing_session["history_version"] or 0) + 1 if existing_session is not None else 1,
                     archived_at_ms=int(existing_session["archived_at_ms"]) if existing_session is not None and existing_session["archived_at_ms"] is not None else None,
                     deleted_at_ms=int(existing_session["deleted_at_ms"]) if existing_session is not None and existing_session["deleted_at_ms"] is not None else None,
@@ -565,6 +567,8 @@ class ChatStore:
             await db.execute(
                 "ALTER TABLE chat_sessions ADD COLUMN history_version INTEGER NOT NULL DEFAULT 0"
             )
+        if "workspace_path" not in column_names:
+            await db.execute("ALTER TABLE chat_sessions ADD COLUMN workspace_path TEXT")
 
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""
@@ -614,7 +618,7 @@ class ChatStore:
             SELECT session_id, user_id, title, title_overridden, summary, created_at_ms,
                    updated_at_ms, last_message_at_ms, last_user_message_at_ms,
                    last_message_preview, last_user_message_preview, message_count,
-                   history_version,
+                   workspace_path, history_version,
                    archived_at_ms, deleted_at_ms
             FROM chat_sessions
             WHERE session_id = ?
@@ -639,11 +643,12 @@ class ChatStore:
                 last_message_preview,
                 last_user_message_preview,
                 message_count,
+                workspace_path,
                 history_version,
                 archived_at_ms,
                 deleted_at_ms
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 user_id = excluded.user_id,
                 title = excluded.title,
@@ -655,6 +660,7 @@ class ChatStore:
                 last_message_preview = excluded.last_message_preview,
                 last_user_message_preview = excluded.last_user_message_preview,
                 message_count = excluded.message_count,
+                workspace_path = excluded.workspace_path,
                 history_version = excluded.history_version,
                 archived_at_ms = excluded.archived_at_ms,
                 deleted_at_ms = excluded.deleted_at_ms
@@ -672,6 +678,7 @@ class ChatStore:
                 record.last_message_preview,
                 record.last_user_message_preview,
                 record.message_count,
+                record.workspace_path,
                 record.history_version,
                 record.archived_at_ms,
                 record.deleted_at_ms,

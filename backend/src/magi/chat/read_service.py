@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
     last_message_preview TEXT NOT NULL DEFAULT '',
     last_user_message_preview TEXT NOT NULL DEFAULT '',
     message_count INTEGER NOT NULL DEFAULT 0,
+    workspace_path TEXT,
     history_version INTEGER NOT NULL DEFAULT 0,
     archived_at_ms INTEGER,
     deleted_at_ms INTEGER
@@ -88,6 +89,7 @@ class ChatSessionSummary:
     title_overridden: bool
     last_timestamp: int
     message_count: int
+    workspace_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +100,7 @@ class ChatSessionSummary:
             "title_overridden": self.title_overridden,
             "last_timestamp": self.last_timestamp,
             "message_count": self.message_count,
+            "workspace_path": self.workspace_path,
         }
 
 
@@ -236,8 +239,8 @@ class ChatReadService:
             INSERT INTO {CHAT_SESSIONS_TABLE} (
                 session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
                 last_message_at_ms, last_user_message_at_ms, last_message_preview,
-                last_user_message_preview, message_count, archived_at_ms, deleted_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                last_user_message_preview, message_count, workspace_path, archived_at_ms, deleted_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.session_id,
@@ -252,6 +255,7 @@ class ChatReadService:
                 record.last_message_preview,
                 record.last_user_message_preview,
                 record.message_count,
+                record.workspace_path,
                 int(record.archived_at * 1000) if record.archived_at is not None else None,
                 int(record.deleted_at * 1000) if record.deleted_at is not None else None,
             ),
@@ -280,6 +284,7 @@ class ChatReadService:
                     title_overridden,
                     last_message_preview,
                     last_user_message_preview,
+                    workspace_path,
                     updated_at_ms,
                     last_message_at_ms,
                     message_count
@@ -305,6 +310,7 @@ class ChatReadService:
                 title_overridden=bool(int(row["title_overridden"] or 0)),
                 last_timestamp=int(row["last_message_at_ms"] or row["updated_at_ms"] or 0),
                 message_count=int(row["message_count"] or 0),
+                workspace_path=str(row["workspace_path"]) if row["workspace_path"] is not None else None,
             )
             for row in rows
         ]
@@ -684,6 +690,8 @@ class ChatReadService:
             conn.execute(
                 f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN history_version INTEGER NOT NULL DEFAULT 0"
             )
+        if "workspace_path" not in session_column_names:
+            conn.execute(f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN workspace_path TEXT")
 
     @staticmethod
     def _parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:

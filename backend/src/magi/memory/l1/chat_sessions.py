@@ -53,6 +53,7 @@ class ChatSessionRecord:
     message_count: int
     archived_at: float | None
     deleted_at: float | None
+    workspace_path: str | None = None
 
 
 async def ensure_chat_sessions_schema_async(db: aiosqlite.Connection) -> None:
@@ -67,6 +68,7 @@ def create_chat_session_record(
     session_id: str | None = None,
     title: str = "New Chat",
     summary: str = "",
+    workspace_path: str | None = None,
     now: float | None = None,
 ) -> ChatSessionRecord:
     """Build a new canonical chat session row."""
@@ -86,6 +88,7 @@ def create_chat_session_record(
         last_message_preview="",
         last_user_message_preview="",
         message_count=0,
+        workspace_path=workspace_path,
         archived_at=None,
         deleted_at=None,
     )

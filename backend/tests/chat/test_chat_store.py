@@ -26,6 +26,20 @@ def _read_journal_mode(db_path: Path) -> str:
         conn.close()
 
 
+def _read_session_workspace_path(db_path: Path, session_id: str) -> str | None:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(
+            "SELECT workspace_path FROM chat_sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return row[0]
+    finally:
+        conn.close()
+
+
 def test_runtime_paths_exposes_chat_db_path(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(base_dir=tmp_path)
 
@@ -53,6 +67,56 @@ async def test_chat_store_creates_chat_tables(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_store_migrates_workspace_path_column(tmp_path: Path) -> None:
+    from magi.chat import ChatStore
+
+    db_path = tmp_path / "chat.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE chat_sessions (
+                session_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                title_overridden INTEGER NOT NULL DEFAULT 0,
+                summary TEXT NOT NULL DEFAULT '',
+                created_at_ms INTEGER NOT NULL,
+                updated_at_ms INTEGER NOT NULL,
+                last_message_at_ms INTEGER,
+                last_user_message_at_ms INTEGER,
+                last_message_preview TEXT NOT NULL DEFAULT '',
+                last_user_message_preview TEXT NOT NULL DEFAULT '',
+                message_count INTEGER NOT NULL DEFAULT 0,
+                history_version INTEGER NOT NULL DEFAULT 0,
+                archived_at_ms INTEGER,
+                deleted_at_ms INTEGER
+            );
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    store = ChatStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            columns = {
+                str(row[1])
+                for row in conn.execute("PRAGMA table_info(chat_sessions)").fetchall()
+            }
+        finally:
+            conn.close()
+
+        assert "workspace_path" in columns
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> None:
     from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatStore, ChatTurnRecord
 
@@ -75,6 +139,7 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
                 last_message_preview="",
                 last_user_message_preview="",
                 message_count=0,
+                workspace_path="/Users/asuka/code/magi",
                 archived_at_ms=None,
                 deleted_at_ms=None,
             )
@@ -140,6 +205,7 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
         assert turn.status == "queued"
         assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
         assert [message.content_text for message in messages] == ["hello", "hi there"]
+        assert _read_session_workspace_path(db_path, "session-1") == "/Users/asuka/code/magi"
     finally:
         await store.shutdown()
 
