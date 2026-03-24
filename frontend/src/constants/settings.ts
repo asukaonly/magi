@@ -47,5 +47,9 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'timeline', icon: ScrollText },
   { id: 'actions', icon: Send },
   { id: 'tools', icon: Wrench },
-  { id: 'usage', icon: BarChart3 },
+  {
+    id: 'statistics',
+    icon: BarChart3,
+    children: [{ id: 'statisticsLlm' }, { id: 'statisticsRuntime' }],
+  },
 ];

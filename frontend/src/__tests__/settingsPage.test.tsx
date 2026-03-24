@@ -802,6 +802,25 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.system' })).not.toBeInTheDocument();
   });
 
+  it('shows grouped statistics navigation with dedicated sub-sections', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const statisticsGroupButton = await screen.findByRole('button', { name: 'settings.tabs.statistics' });
+
+    expect(statisticsGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'settings.tabs.statisticsLlm' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.statisticsRuntime' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.usage' })).not.toBeInTheDocument();
+
+    await user.click(statisticsGroupButton);
+
+    expect(statisticsGroupButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'settings.tabs.statisticsLlm' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.statisticsRuntime' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'settings.tabs.statisticsLlm' })).toBeInTheDocument();
+  });
+
   it('renders the top-level settings navigation in the user-facing order with sensors renamed', async () => {
     render(<SettingsPage />);
 
@@ -822,7 +841,7 @@ describe('settings page draft saving', () => {
           'settings.tabs.timeline',
           'settings.tabs.actions',
           'settings.tabs.tools',
-          'settings.tabs.usage',
+          'settings.tabs.statistics',
         ].includes(label)
       );
 
@@ -835,7 +854,7 @@ describe('settings page draft saving', () => {
       'settings.tabs.timeline',
       'settings.tabs.actions',
       'settings.tabs.tools',
-      'settings.tabs.usage',
+      'settings.tabs.statistics',
     ]);
   });
 });
