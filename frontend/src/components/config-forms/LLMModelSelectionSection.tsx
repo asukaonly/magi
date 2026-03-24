@@ -3,7 +3,7 @@ import { AlertTriangle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { SelectField } from '@/components/config-forms/fields';
-import type { LLMConfig, LLMProviderRegistry, LLMScenario } from '@/api/modules/config';
+import { resolveProviderModels, type LLMConfig, type LLMProviderRegistry, type LLMScenario } from '@/api/modules/config';
 import { cn } from '@/lib/utils';
 
 interface LLMModelSelectionSectionProps {
@@ -73,19 +73,14 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       dimensions: number[];
     }> = [];
     for (const [providerId, provider] of enabledProviders) {
-      const isCustomProvider = provider.provider_type === 'custom';
-      const providerMeta = isCustomProvider
-        ? undefined
-        : registry.providers.find((item) => item.id === provider.provider_type);
-
-      const providerModels = isCustomProvider
-        ? [] // Custom providers don't have embedding models in registry
-        : providerMeta?.embedding_models || [];
+      const providerModels = resolveProviderModels(registry, providerId, provider).embedding_models.filter(
+        (model) => !model.hidden
+      );
 
       for (const model of providerModels) {
         models.push({
           providerId,
-          providerName: provider.display_name || providerMeta?.display_name || providerId,
+          providerName: provider.display_name || providerId,
           modelId: model.id,
           modelLabel: model.label || model.id,
           dimensions: model.dimensions || [],
@@ -195,7 +190,6 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         {SCENARIOS.map((scenario, index) => {
           const selection = value.selections[scenario];
           const provider = value.providers[selection.provider_id];
-          const isCustomProvider = provider?.provider_type === 'custom';
           const isEmbeddingScenario = scenario === 'embedding';
 
           // For embedding scenario, use cross-provider model selection
@@ -309,9 +303,9 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
           // For non-embedding scenarios, filter out embedding models
           // Custom providers don't have embedding models in registry, so no need to filter
-          const models = isCustomProvider
-            ? (provider?.custom_models || []).map((model) => ({ id: model, label: model }))
-            : registry.providers.find((item) => item.id === provider?.provider_type)?.chat_models || [];
+          const models = provider
+            ? resolveProviderModels(registry, selection.provider_id, provider).chat_models.filter((model) => !model.hidden)
+            : [];
 
           return (
           <article

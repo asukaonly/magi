@@ -620,6 +620,61 @@ describe('config forms', () => {
     expect(latest.selections.embedding.embedding_dimension).toBe(512);
   });
 
+  it('includes override-promoted embedding models in the embedding selection list', async () => {
+    const controlledValue = {
+      ...llmValue,
+      providers: {
+        ...llmValue.providers,
+        openai: {
+          ...llmValue.providers.openai,
+          model_metadata_overrides: {
+            'gpt-5.2': {
+              label: 'GPT-5.2 Vector',
+              capabilities: {
+                embedding: true,
+              },
+            },
+          },
+        },
+      },
+      selections: {
+        ...llmValue.selections,
+        embedding: {
+          provider_id: 'openai',
+          model: 'gpt-5.2',
+          embedding_dimension: null,
+          capability_override_enabled: false,
+          capabilities: {
+            vision: false,
+            image_output: false,
+            tool_calling: false,
+            reasoning: false,
+            embedding: true,
+          },
+          limits: {
+            context_window: null,
+            max_output_tokens: null,
+          },
+          provider_options: {},
+        },
+      },
+    } as unknown as LLMConfig;
+
+    render(
+      <LLMForm
+        quickMode={false}
+        surface="settings"
+        view="models"
+        showSectionIntro={false}
+        value={controlledValue}
+        onChange={vi.fn()}
+      />
+    );
+
+    const embeddingCard = await screen.findByTestId('llm-scenario-embedding');
+    expect(within(embeddingCard).getByLabelText('llm.fields.model')).toHaveTextContent('GPT-5.2 Vector (OpenAI)');
+  });
+
   it('stores max concurrency as a shared runtime override for the selected model', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

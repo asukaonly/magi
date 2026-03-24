@@ -16,6 +16,7 @@ import {
   type LLMScenario,
   type LLMSelectionConfig,
   type TestLLMProviderConnectionResponse,
+  resolveProviderModels,
 } from '@/api/modules/config';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -77,6 +78,34 @@ const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderConfig =>
   api_format: value?.api_format,
   custom_models: [...(value?.custom_models || [])],
   custom_default_model: value?.custom_default_model || '',
+  model_metadata_overrides: Object.fromEntries(
+    Object.entries(value?.model_metadata_overrides || {}).map(([modelId, override]) => [
+      modelId,
+      {
+        ...(override || {}),
+        capabilities: { ...(override?.capabilities || {}) },
+        limits: { ...(override?.limits || {}) },
+        input_modalities:
+          override?.input_modalities === null
+            ? null
+            : override?.input_modalities
+              ? [...override.input_modalities]
+              : undefined,
+        output_modalities:
+          override?.output_modalities === null
+            ? null
+            : override?.output_modalities
+              ? [...override.output_modalities]
+              : undefined,
+        provider_options_example:
+          override?.provider_options_example === null
+            ? null
+            : override?.provider_options_example
+              ? { ...override.provider_options_example }
+              : undefined,
+      },
+    ])
+  ),
 });
 
 const cloneSelection = (value?: Partial<LLMSelectionConfig>): LLMSelectionConfig => ({
@@ -111,13 +140,11 @@ const llmSignature = (value: LLMConfig): string => JSON.stringify(value);
 const getProviderMeta = (registry: LLMProviderRegistry, providerId?: string) =>
   registry.providers.find((provider) => provider.id === providerId);
 
-const getProviderModels = (registry: LLMProviderRegistry, providerId?: string) =>
-  getProviderMeta(registry, providerId)?.chat_models || [];
-
-const getProviderEmbeddingModels = (registry: LLMProviderRegistry, providerId?: string) =>
-  getProviderMeta(registry, providerId)?.embedding_models || [];
-
-const getCustomProviderModels = (provider?: LLMProviderConfig): string[] => provider?.custom_models || [];
+const getResolvedProviderModels = (
+  registry: LLMProviderRegistry,
+  providerId: string,
+  provider?: LLMProviderConfig
+) => resolveProviderModels(registry, providerId, provider);
 
 const resolveProviderActionBaseUrl = (
   registry: LLMProviderRegistry,
@@ -217,66 +244,67 @@ const buildRuntimeOverrideKey = ({
 
 const resolveSelectionDefaultMaxConcurrency = ({
   registry,
+  providerId,
   provider,
   model,
   scenario,
 }: {
   registry: LLMProviderRegistry;
+  providerId: string;
   provider: LLMProviderConfig | undefined;
   model: string;
   scenario: LLMScenario;
 }): number | null => {
-  const providerType = provider?.provider_type;
-  if (!providerType || providerType === 'custom') {
+  if (!providerId || !provider) {
     return null;
   }
 
-  const providerMeta = getProviderMeta(registry, providerType);
-  if (!providerMeta) {
-    return null;
-  }
+  const resolvedModels = getResolvedProviderModels(registry, providerId, provider);
 
   if (scenario === 'embedding') {
-    const embeddingModel = (providerMeta.embedding_models || []).find((item) => item.id === model);
+    const embeddingModel = resolvedModels.embedding_models.find((item) => item.id === model);
     return embeddingModel?.limits?.max_concurrency ?? null;
   }
 
-  const chatModel = (providerMeta.chat_models || []).find((item) => item.id === model);
+  const chatModel = resolvedModels.chat_models.find((item) => item.id === model);
   return chatModel?.limits?.max_concurrency ?? null;
 };
 
 const resolveProviderDefaultModel = (
   registry: LLMProviderRegistry,
+  providerId: string,
   provider: LLMProviderConfig | undefined,
   scenario: LLMScenario
 ): string => {
   if (!provider) {
     return '';
   }
-  if (provider.provider_type === 'custom') {
-    return provider.custom_default_model || getCustomProviderModels(provider)[0] || '';
-  }
-  const providerMeta = getProviderMeta(registry, provider.provider_type);
-  if (!providerMeta) {
-    return '';
-  }
+  const providerMeta =
+    provider.provider_type === 'custom' ? undefined : getProviderMeta(registry, provider.provider_type);
+  const resolvedModels = getResolvedProviderModels(registry, providerId, provider);
+
   if (scenario === 'embedding') {
-    return providerMeta.embedding_models?.[0]?.id || '';
+    return resolvedModels.embedding_models.find((model) => !model.hidden)?.id || '';
   }
   if (scenario === 'context_decider') {
     return (
-      providerMeta.default_classify_model ||
-      providerMeta.default_model ||
-      providerMeta.chat_models?.[0]?.id ||
+      providerMeta?.default_classify_model ||
+      providerMeta?.default_model ||
+      resolvedModels.chat_models.find((model) => !model.hidden)?.id ||
       ''
     );
   }
-  return providerMeta.default_model || providerMeta.chat_models?.[0]?.id || '';
+  return (
+    providerMeta?.default_model ||
+    resolvedModels.chat_models.find((model) => !model.hidden)?.id ||
+    ''
+  );
 };
 
 const applySelectionDefaults = (
   selection: LLMSelectionConfig,
   registry: LLMProviderRegistry,
+  providerId: string,
   provider: LLMProviderConfig | undefined,
   scenario?: LLMScenario
 ) => {
@@ -284,23 +312,18 @@ const applySelectionDefaults = (
     return;
   }
 
-  // For embedding scenario, only set defaults if provider has embedding models
+  const resolvedModels = getResolvedProviderModels(registry, providerId, provider);
+
   if (scenario === 'embedding') {
-    const embeddingModels =
-      provider.provider_type === 'custom'
-        ? []
-        : getProviderEmbeddingModels(registry, provider.provider_type);
+    const embeddingModels = resolvedModels.embedding_models.filter((model) => !model.hidden);
     if (embeddingModels.length === 0) {
-      // No embedding models available, don't set any defaults
       selection.provider_id = '';
       selection.model = '';
       selection.embedding_dimension = null;
       return;
     }
 
-    const preferredModelId =
-      selection.model || resolveProviderDefaultModel(registry, provider, scenario);
-    // Find matching embedding model or use first available
+    const preferredModelId = selection.model || resolveProviderDefaultModel(registry, providerId, provider, scenario);
     const matchedModel = embeddingModels.find((model) => model.id === preferredModelId);
     const fallbackModel = matchedModel || embeddingModels[0];
     if (fallbackModel) {
@@ -324,7 +347,7 @@ const applySelectionDefaults = (
   }
 
   if (provider.provider_type === 'custom') {
-    const fallbackModel = selection.model || resolveProviderDefaultModel(registry, provider, scenario || 'core');
+    const fallbackModel = selection.model || resolveProviderDefaultModel(registry, providerId, provider, scenario || 'core');
     selection.model = fallbackModel;
     if (!selection.capability_override_enabled) {
       selection.capabilities = cloneCapabilities(registry.custom_provider.capabilities);
@@ -334,9 +357,8 @@ const applySelectionDefaults = (
     return;
   }
 
-  const models = getProviderModels(registry, provider.provider_type);
-  const preferredModelId =
-    selection.model || resolveProviderDefaultModel(registry, provider, scenario || 'core');
+  const models = resolvedModels.chat_models.filter((model) => !model.hidden);
+  const preferredModelId = selection.model || resolveProviderDefaultModel(registry, providerId, provider, scenario || 'core');
   const matchedModel = models.find((model) => model.id === preferredModelId);
   const fallbackModel = matchedModel || models[0];
   if (fallbackModel) {
@@ -367,6 +389,7 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
         display_name: providerMeta.display_name || providerMeta.id,
         api_key: '',
         base_url: '',
+        model_metadata_overrides: {},
       };
     } else {
       next.providers[providerMeta.id] = {
@@ -379,12 +402,11 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
 
   const firstEnabledProviderId = Object.entries(next.providers).find(([, provider]) => provider.enabled)?.[0] || '';
   const firstEnabledEmbeddingProviderId =
-    Object.entries(next.providers).find(([, provider]) => {
-      if (!provider.enabled || provider.provider_type === 'custom') {
+    Object.entries(next.providers).find(([providerId, provider]) => {
+      if (!provider.enabled) {
         return false;
       }
-      const providerMeta = getProviderMeta(registry, provider.provider_type);
-      return Boolean((providerMeta?.embedding_models || []).length);
+      return Boolean(getResolvedProviderModels(registry, providerId, provider).embedding_models.length);
     })?.[0] || '';
 
   for (const scenario of BUILTIN_SCENARIOS) {
@@ -397,10 +419,11 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
         ? hasEnabledSelection
         : (hasEnabledSelection &&
             Boolean(
-              getProviderEmbeddingModels(
+              getResolvedProviderModels(
                 registry,
-                next.providers[selection.provider_id]?.provider_type
-              ).length
+                selection.provider_id,
+                next.providers[selection.provider_id]
+              ).embedding_models.length
             ));
 
     const firstAvailableProviderId =
@@ -437,7 +460,7 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
       ? selection.provider_id
       : firstAvailableProviderId;
 
-    applySelectionDefaults(selection, registry, selectedProvider, scenario);
+    applySelectionDefaults(selection, registry, selection.provider_id, selectedProvider, scenario);
     next.selections[scenario] = selection;
   }
 
@@ -585,6 +608,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
         runtimeKey ? currentValue.model_runtime_overrides?.[runtimeKey]?.max_concurrency ?? null : null;
       const defaultMaxConcurrency = resolveSelectionDefaultMaxConcurrency({
         registry,
+        providerId: selection.provider_id,
         provider,
         model: selection.model,
         scenario,
@@ -626,8 +650,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
       const selection = cloneSelection(draft.selections[scenario]);
       selection.provider_id = providerId;
       const provider = draft.providers[providerId];
-      selection.model = resolveProviderDefaultModel(registry, provider, scenario);
-      applySelectionDefaults(selection, registry, provider, scenario);
+      selection.model = resolveProviderDefaultModel(registry, providerId, provider, scenario);
+      applySelectionDefaults(selection, registry, providerId, provider, scenario);
       draft.selections[scenario] = selection;
     });
   };
@@ -639,7 +663,13 @@ const LLMForm: React.FC<LLMFormProps> = ({
     updateValue((draft) => {
       const selection = cloneSelection(draft.selections[scenario]);
       selection.model = model;
-      applySelectionDefaults(selection, registry, draft.providers[selection.provider_id], scenario);
+      applySelectionDefaults(
+        selection,
+        registry,
+        selection.provider_id,
+        draft.providers[selection.provider_id],
+        scenario
+      );
       draft.selections[scenario] = selection;
     });
   };
@@ -745,6 +775,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
         api_format: 'openai',
         custom_models: [],
         custom_default_model: '',
+        model_metadata_overrides: {},
       };
     });
     setActiveProviderId(nextProviderId);
@@ -851,7 +882,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
       return referencedSelection.model;
     }
 
-    return resolveProviderDefaultModel(registry, currentValue.providers[providerId], 'core');
+    return resolveProviderDefaultModel(registry, providerId, currentValue.providers[providerId], 'core');
   };
 
   const handleTestProviderConnection = async (providerId: string) => {
