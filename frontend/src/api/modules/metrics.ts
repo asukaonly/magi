@@ -50,6 +50,83 @@ export interface LLMUsageTimeseries {
   points: LLMUsageTimeseriesPoint[];
 }
 
+export interface RuntimeOverviewSystemMetrics {
+  cpu_percent: number;
+  memory_percent: number;
+  memory_used_gb: number;
+  memory_total_gb: number;
+}
+
+export interface RuntimeOverviewStatus {
+  status: string;
+  api_ready: boolean;
+  runtime_ready: boolean;
+  runtime_status: string;
+  runtime_heartbeat_age_ms?: number | null;
+  queue_backlog_healthy?: boolean | null;
+  pending_commands?: number | null;
+  process_role?: string | null;
+}
+
+export interface RuntimeOverviewModelExecution {
+  avg_ttft_ms?: number | null;
+  ttft_available: boolean;
+  core_model_success_rate?: number | null;
+  core_model_success_rate_available: boolean;
+  intent_success_rate?: number | null;
+  intent_success_rate_available: boolean;
+}
+
+export interface RuntimeOverviewPendingLayer {
+  pending: number;
+  worker_running: boolean;
+  vector_enabled: boolean;
+  async_embeddings: boolean;
+}
+
+export interface RuntimeOverviewMemory {
+  total_pending: number;
+  l2: {
+    is_running: boolean;
+    extract_pending: number;
+    reconcile_pending: number;
+    snapshot_pending: number;
+    total_pending: number;
+  };
+  embeddings: {
+    total_pending: number;
+    l1: RuntimeOverviewPendingLayer;
+    l3: RuntimeOverviewPendingLayer;
+    l4: RuntimeOverviewPendingLayer;
+  };
+}
+
+export interface RuntimeOverviewSchedulerTarget {
+  target_type: string;
+  target_key: string;
+  running: boolean;
+  last_error?: string | null;
+  next_run_at?: number | null;
+  updated_at?: number | null;
+}
+
+export interface RuntimeOverviewScheduler {
+  enabled_schedule_count: number;
+  running_target_count: number;
+  errored_target_count: number;
+  upcoming_target_count: number;
+  recent_targets: RuntimeOverviewSchedulerTarget[];
+}
+
+export interface RuntimeOverview {
+  captured_at_ms: number;
+  system: RuntimeOverviewSystemMetrics;
+  runtime: RuntimeOverviewStatus;
+  model_execution: RuntimeOverviewModelExecution;
+  memory: RuntimeOverviewMemory;
+  scheduler: RuntimeOverviewScheduler;
+}
+
 export const metricsApi = {
   getLLMUsageSummary: (days = 7, modelLimit = 8) =>
     api.get<LLMUsageSummary>('/metrics/llm/usage/summary', {
@@ -57,6 +134,7 @@ export const metricsApi = {
     }),
   getLLMUsageTimeseries: (days = 7) =>
     api.get<LLMUsageTimeseries>('/metrics/llm/usage/timeseries', { params: { days } }),
+  getRuntimeOverview: () => api.get<RuntimeOverview>('/metrics/runtime/overview'),
 };
 
 export default metricsApi;

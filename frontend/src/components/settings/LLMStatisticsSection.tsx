@@ -21,12 +21,12 @@ const formatCompactNumber = (value: number) =>
   new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 
 const formatLatency = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)}ms` : 'N/A';
+  typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)}ms` : null;
 
 const formatPercent = (value: number) => `${Math.round(value)}%`;
 
 const formatCurrency = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(value >= 10 ? 1 : 2)}` : 'N/A';
+  typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(value >= 10 ? 1 : 2)}` : null;
 
 const computeSuccessRate = (summary: LLMUsageSummary | null) => {
   const totals = summary?.totals;
@@ -121,6 +121,8 @@ const LLMStatisticsSectionInner: FC = () => {
   const topModel = pickTopItem(filteredModels, 'total_tokens');
   const topFailureKind = pickTopItem(filteredRequestKinds, 'failed_calls');
   const topProviderCost = pickTopItem(filteredProviders, 'cost_usd');
+  const unavailableLabel = t('settings.statistics.shared.unavailable');
+  const unknownLabel = t('settings.statistics.shared.unknown');
 
   if (loading) {
     return (
@@ -169,7 +171,7 @@ const LLMStatisticsSectionInner: FC = () => {
                 onChange={(event) => setProviderFilter(event.target.value)}
                 className="h-9 rounded-full border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 text-sm text-foreground outline-none"
               >
-                <option value="all">All providers</option>
+                <option value="all">{t('settings.statistics.shared.allProviders')}</option>
                 {providerOptions.map((provider) => (
                   <option key={provider} value={provider}>{provider}</option>
                 ))}
@@ -180,22 +182,24 @@ const LLMStatisticsSectionInner: FC = () => {
                 onChange={(event) => setModelFilter(event.target.value)}
                 className="h-9 rounded-full border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 text-sm text-foreground outline-none"
               >
-                <option value="all">All models</option>
+                <option value="all">{t('settings.statistics.shared.allModels')}</option>
                 {modelOptions.map((model) => (
                   <option key={model} value={model}>{model}</option>
                 ))}
               </select>
             </div>
-            <div className="text-sm text-muted-foreground">Updated for the last {windowDays} days</div>
+            <div className="text-sm text-muted-foreground">
+              {t('settings.statistics.shared.updatedForDays', { days: windowDays })}
+            </div>
           </>
         )}
         signalRibbon={(
           <>
-            <SignalItem label="Total Tokens" value={formatCompactNumber(totals.total_tokens)} />
-            <SignalItem label="Total Cost" value={formatCurrency(totals.total_cost_usd)} />
-            <SignalItem label="Avg Latency" value={formatLatency(totals.avg_latency_ms)} />
-            <SignalItem label="Avg TTFT" value={formatLatency(totals.avg_ttft_ms)} />
-            <SignalItem label="Success Rate" value={formatPercent(successRate)} />
+            <SignalItem label={t('settings.usage.cards.totalTokens')} value={formatCompactNumber(totals.total_tokens)} />
+            <SignalItem label={t('settings.statistics.shared.totalCost')} value={formatCurrency(totals.total_cost_usd) || unavailableLabel} />
+            <SignalItem label={t('settings.usage.cards.avgLatency')} value={formatLatency(totals.avg_latency_ms) || unavailableLabel} />
+            <SignalItem label={t('settings.statistics.shared.avgTTFT')} value={formatLatency(totals.avg_ttft_ms) || unavailableLabel} />
+            <SignalItem label={t('settings.usage.cards.successRate', { value: Math.round(successRate) })} value={formatPercent(successRate)} />
           </>
         )}
         mainCanvas={(
@@ -238,7 +242,7 @@ const LLMStatisticsSectionInner: FC = () => {
               <AnalysisSection
                 title={t('settings.usage.modelTitle')}
                 items={filteredModels.slice(0, 3).map((item) => ({
-                  label: item.model || 'Unknown',
+                  label: item.model || unknownLabel,
                   value: formatCompactNumber(item.total_tokens),
                   meta: item.provider,
                 }))}
@@ -246,16 +250,16 @@ const LLMStatisticsSectionInner: FC = () => {
               <AnalysisSection
                 title={t('settings.usage.providerTitle')}
                 items={filteredProviders.slice(0, 3).map((item) => ({
-                  label: item.provider || 'Unknown',
+                  label: item.provider || unknownLabel,
                   value: formatCompactNumber(item.total_tokens),
                 }))}
               />
               <AnalysisSection
                 title={t('settings.usage.requestKindsTitle')}
                 items={filteredRequestKinds.slice(0, 3).map((item) => ({
-                  label: item.request_kind || 'Unknown',
+                  label: item.request_kind || unknownLabel,
                   value: formatCompactNumber(item.total_tokens),
-                  meta: `${item.calls} calls`,
+                  meta: t('settings.usage.callsLabel', { count: item.calls }),
                 }))}
               />
             </div>
@@ -263,13 +267,25 @@ const LLMStatisticsSectionInner: FC = () => {
         )}
         summaryRail={(
           <>
-            <SummaryItem label="Most active model" value={topModel?.model || 'Unavailable'} detail={topModel?.provider || undefined} />
-            <SummaryItem label="Highest failure request kind" value={topFailureKind?.request_kind || 'Unavailable'} detail={typeof topFailureKind?.failed_calls === 'number' ? `${topFailureKind.failed_calls} failed calls` : 'No failure data'} />
-            <SummaryItem label="Highest cost provider" value={topProviderCost?.provider || 'Unavailable'} detail={formatCurrency(topProviderCost?.cost_usd)} />
+            <SummaryItem label={t('settings.statistics.llm.summary.mostActiveModel')} value={topModel?.model || unavailableLabel} detail={topModel?.provider || undefined} />
+            <SummaryItem
+              label={t('settings.statistics.llm.summary.highestFailureRequestKind')}
+              value={topFailureKind?.request_kind || unavailableLabel}
+              detail={
+                typeof topFailureKind?.failed_calls === 'number'
+                  ? t('settings.usage.cards.failedCalls', { count: topFailureKind.failed_calls })
+                  : t('settings.statistics.shared.noFailureData')
+              }
+            />
+            <SummaryItem
+              label={t('settings.statistics.llm.summary.highestCostProvider')}
+              value={topProviderCost?.provider || unavailableLabel}
+              detail={formatCurrency(topProviderCost?.cost_usd) || unavailableLabel}
+            />
             <div className="rounded-[1.25rem] border border-[hsl(var(--settings-subnav-border)/0.48)] bg-[hsl(var(--settings-shell-elevated)/0.24)] p-4 text-sm leading-6 text-muted-foreground">
               {successRate >= 95
-                ? 'Usage quality looks stable, with failures contained and latency in a healthy range.'
-                : 'Usage is active, but recent failures or latency spikes deserve a closer look.'}
+                ? t('settings.statistics.llm.summary.healthyNote')
+                : t('settings.statistics.llm.summary.attentionNote')}
             </div>
           </>
         )}

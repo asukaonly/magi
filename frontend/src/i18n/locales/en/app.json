@@ -581,6 +581,95 @@
         "failedCalls": "Failed {{count}}"
       }
     },
+    "statistics": {
+      "shared": {
+        "unavailable": "Unavailable",
+        "unknown": "Unknown",
+        "allProviders": "All providers",
+        "allModels": "All models",
+        "updatedForDays": "Updated for the last {{days}} days",
+        "updatedAt": "Updated at {{time}}",
+        "totalCost": "Total Cost",
+        "avgTTFT": "Avg TTFT",
+        "noFailureData": "No failure data"
+      },
+      "llm": {
+        "summary": {
+          "mostActiveModel": "Most active model",
+          "highestFailureRequestKind": "Highest failure request kind",
+          "highestCostProvider": "Highest cost provider",
+          "healthyNote": "Usage quality looks stable, with failures contained and latency in a healthy range.",
+          "attentionNote": "Usage is active, but recent failures or latency spikes deserve a closer look."
+        }
+      },
+      "runtime": {
+        "autoRefresh": "Live auto-refresh",
+        "refreshAction": "Refresh now",
+        "errorTitle": "Runtime metrics are temporarily unavailable",
+        "trendTitle": "Runtime trend",
+        "trendDesc": "Tracks the recent samples collected while this page stays open.",
+        "cards": {
+          "cpu": "CPU Usage",
+          "memory": "Memory Usage",
+          "ttft": "Avg TTFT",
+          "intentSuccess": "Intent Success",
+          "coreSuccess": "Core Model Success",
+          "memoryQueue": "Memory Queue"
+        },
+        "sections": {
+          "schedulerTitle": "Scheduler state",
+          "queueTitle": "Queue pressure",
+          "healthTitle": "Runtime health",
+          "recentTasksTitle": "Recent scheduler targets"
+        },
+        "status": {
+          "ready": "Ready",
+          "degraded": "Degraded",
+          "starting": "Starting",
+          "offline": "Offline",
+          "stale": "Stale"
+        },
+        "bottlenecks": {
+          "cpu": "CPU saturation",
+          "memory": "Memory pressure",
+          "queue": "Queue backlog",
+          "latency": "TTFT drift",
+          "success": "Success rate drop",
+          "stable": "No clear bottleneck"
+        },
+        "queue": {
+          "l2Pending": "L2 pending",
+          "embeddingPending": "Embedding pending",
+          "runtimePending": "Runtime commands"
+        },
+        "scheduler": {
+          "enabledSchedules": "Enabled schedules",
+          "runningTargets": "Running targets",
+          "erroredTargets": "Errored targets",
+          "noRecentTargets": "No recent scheduler targets",
+          "running": "Running",
+          "idle": "Idle"
+        },
+        "health": {
+          "queueStatus": "Queue status",
+          "processRole": "Process role",
+          "heartbeat": "Heartbeat age",
+          "good": "Healthy",
+          "needsAttention": "Needs attention",
+          "queueHealthy": "Queues remain contained and runtime health looks steady.",
+          "queueBacklog": "Queue pressure is rising and deserves a closer look.",
+          "runtimeOffline": "Runtime readiness is degraded or waiting for a worker heartbeat.",
+          "successDrift": "Core model success rate is drifting below the healthy range."
+        },
+        "summary": {
+          "status": "Current status",
+          "attention": "Primary attention point",
+          "queueHealth": "Queue health",
+          "queueDetail": "{{runtime}} runtime commands · {{scheduler}} scheduled targets ahead",
+          "runtimeCommands": "{{count}} runtime commands"
+        }
+      }
+    },
     "timeline": {
       "title": "Timeline & Sources",
       "desc": "Choose which sources can contribute to the timeline and how much raw context Magi keeps from each one.",

@@ -581,6 +581,95 @@
         "failedCalls": "失败 {{count}} 次"
       }
     },
+    "statistics": {
+      "shared": {
+        "unavailable": "未接入",
+        "unknown": "未知",
+        "allProviders": "全部提供商",
+        "allModels": "全部模型",
+        "updatedForDays": "已切换到最近 {{days}} 天",
+        "updatedAt": "更新于 {{time}}",
+        "totalCost": "总成本",
+        "avgTTFT": "平均 TTFT",
+        "noFailureData": "暂无失败数据"
+      },
+      "llm": {
+        "summary": {
+          "mostActiveModel": "最活跃模型",
+          "highestFailureRequestKind": "失败率最高场景",
+          "highestCostProvider": "成本最高提供商",
+          "healthyNote": "最近调用质量比较稳定，失败与延迟都还在健康区间内。",
+          "attentionNote": "最近调用依然活跃，但失败或延迟波动值得继续观察。"
+        }
+      },
+      "runtime": {
+        "autoRefresh": "实时自动刷新",
+        "refreshAction": "立即刷新",
+        "errorTitle": "系统运行指标暂时不可用",
+        "trendTitle": "实时走势",
+        "trendDesc": "展示当前页面停留期间采集到的最近样本。",
+        "cards": {
+          "cpu": "CPU 使用率",
+          "memory": "内存使用率",
+          "ttft": "平均 TTFT",
+          "intentSuccess": "意图识别成功率",
+          "coreSuccess": "核心模型成功率",
+          "memoryQueue": "记忆队列长度"
+        },
+        "sections": {
+          "schedulerTitle": "调度状态",
+          "queueTitle": "队列压力",
+          "healthTitle": "运行健康",
+          "recentTasksTitle": "最近调度目标"
+        },
+        "status": {
+          "ready": "运行正常",
+          "degraded": "状态降级",
+          "starting": "启动中",
+          "offline": "离线",
+          "stale": "心跳过期"
+        },
+        "bottlenecks": {
+          "cpu": "CPU 压力偏高",
+          "memory": "内存压力偏高",
+          "queue": "队列开始堆积",
+          "latency": "TTFT 偏慢",
+          "success": "成功率下降",
+          "stable": "暂未发现明显瓶颈"
+        },
+        "queue": {
+          "l2Pending": "L2 待处理",
+          "embeddingPending": "向量待处理",
+          "runtimePending": "运行时命令"
+        },
+        "scheduler": {
+          "enabledSchedules": "已启用计划",
+          "runningTargets": "运行中目标",
+          "erroredTargets": "异常目标",
+          "noRecentTargets": "最近没有调度目标活动",
+          "running": "运行中",
+          "idle": "空闲"
+        },
+        "health": {
+          "queueStatus": "队列状态",
+          "processRole": "进程角色",
+          "heartbeat": "心跳年龄",
+          "good": "健康",
+          "needsAttention": "需要关注",
+          "queueHealthy": "当前队列压力可控，系统整体运行比较平稳。",
+          "queueBacklog": "队列压力正在上升，建议优先关注堆积变化。",
+          "runtimeOffline": "运行时可用性下降，或仍在等待 worker 心跳。",
+          "successDrift": "核心模型成功率已经低于健康区间。"
+        },
+        "summary": {
+          "status": "当前状态",
+          "attention": "优先关注点",
+          "queueHealth": "队列健康",
+          "queueDetail": "{{runtime}} 个运行时命令 · {{scheduler}} 个待执行调度目标",
+          "runtimeCommands": "{{count}} 个运行时命令"
+        }
+      }
+    },
     "timeline": {
       "title": "时间线与来源",
       "desc": "控制哪些来源可以参与时间线展示，以及 Magi 为每类来源保留多少原始上下文。",
