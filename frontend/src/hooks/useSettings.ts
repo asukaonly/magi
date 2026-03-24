@@ -13,6 +13,7 @@ import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { timelineApi, type TimelineSourceStatusItem } from '@/api/modules/timeline';
 import { useThemeStore, type ThemeMode } from '@/stores/theme';
+import { syncCloseToTrayPreference } from '@/runtime/desktop';
 import type {
   MemoryToggleFieldId,
   PluginDraftMap,
@@ -478,6 +479,7 @@ export function useSettings(): UseSettingsReturn {
 
       if (configDirty) {
         await configApi.update(draftConfig);
+        await syncCloseToTrayPreference(draftConfig.preferences.close_to_tray_enabled);
         setSavedConfig(structuredClone(draftConfig));
       }
 

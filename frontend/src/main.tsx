@@ -7,7 +7,9 @@ import App from './App';
 import './index.css';
 import './i18n';
 import { configureApiClient } from './api/client';
+import { configApi } from './api/modules/config';
 import { initializeRuntime, resetRuntimeInitialization } from './runtime/config';
+import { syncCloseToTrayPreference } from './runtime/desktop';
 import { initializeTheme } from './stores/theme';
 
 initializeTheme();
@@ -25,6 +27,13 @@ const RuntimeBootstrap: React.FC = () => {
         baseUrl: runtime.apiBaseUrl,
         sessionToken: runtime.sessionToken,
       });
+      try {
+        const response = await configApi.get();
+        const enabled = response.data?.preferences?.close_to_tray_enabled;
+        await syncCloseToTrayPreference(enabled ?? true);
+      } catch {
+        await syncCloseToTrayPreference(true);
+      }
       setReady(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to initialize runtime';

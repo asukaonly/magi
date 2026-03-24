@@ -1284,6 +1284,14 @@
       "cancel": "Cancel"
     }
   },
+  "desktop": {
+    "quitConfirm": {
+      "title": "Quit Magi?",
+      "description": "Quitting will stop backend tasks and shut down the local runtime.",
+      "cancel": "Keep Running",
+      "confirm": "Quit"
+    }
+  },
   "personality": {
     "loadFailed": "Failed to load personality",
     "switchFailed": "Failed to switch personality",

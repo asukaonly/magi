@@ -1284,6 +1284,14 @@
       "cancel": "取消"
     }
   },
+  "desktop": {
+    "quitConfirm": {
+      "title": "退出 Magi？",
+      "description": "退出后会终止后台任务并关闭本地运行时。",
+      "cancel": "继续驻留",
+      "confirm": "退出"
+    }
+  },
   "personality": {
     "loadFailed": "加载人格失败",
     "switchFailed": "切换失败",

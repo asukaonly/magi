@@ -9,6 +9,10 @@ import { pluginsApi } from '@/api/modules/plugins';
 import { timelineApi } from '@/api/modules/timeline';
 import { toolsApi } from '@/api/modules/tools';
 
+const { syncCloseToTrayPreferenceMock } = vi.hoisted(() => ({
+  syncCloseToTrayPreferenceMock: vi.fn(),
+}));
+
 const llmFormMock = vi.fn();
 
 vi.mock('react-i18next', () => ({
@@ -76,6 +80,10 @@ vi.mock('@/components/settings/LLMStatisticsSection', () => ({
 
 vi.mock('@/components/settings/RuntimeStatisticsSection', () => ({
   RuntimeStatisticsSection: () => <div data-testid="runtime-statistics-section">runtime-statistics-section</div>,
+}));
+
+vi.mock('@/runtime/desktop', () => ({
+  syncCloseToTrayPreference: syncCloseToTrayPreferenceMock,
 }));
 
 vi.mock('@/api/modules/config', async () => {
@@ -464,6 +472,7 @@ describe('settings page draft saving', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     llmFormMock.mockReset();
+    syncCloseToTrayPreferenceMock.mockReset();
 
     vi.mocked(configApi.get).mockResolvedValue({
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
@@ -543,6 +552,7 @@ describe('settings page draft saving', () => {
         })
       )
     );
+    expect(syncCloseToTrayPreferenceMock).toHaveBeenCalledWith(false);
   });
 
   it('shows grouped memory navigation with dedicated sub-sections', async () => {
