@@ -12,6 +12,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { messagesApi } from '@/api';
 import type { ChatAttachment } from '@/api';
@@ -120,6 +121,11 @@ interface DraftAttachment {
   size: number;
   mimeType: string;
   previewUrl?: string;
+}
+
+interface HistoryImagePreview {
+  name: string;
+  url: string;
 }
 
 const assistantMarkdownComponents: Components = {
@@ -254,6 +260,7 @@ export const ChatPage: React.FC = () => {
   const [coreModelSupportsVision, setCoreModelSupportsVision] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+  const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
@@ -892,33 +899,47 @@ export const ChatPage: React.FC = () => {
 
     return (
       <div className="mb-3 flex flex-wrap gap-2">
-        {attachments.map((attachment) => (
-          <div
-            key={attachment.attachment_id}
-            className={align === 'user'
-              ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground shadow-sm'
-              : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-border/60 bg-background/90 px-3 py-2 text-foreground shadow-sm'}
-          >
-            {resolveHistoryImagePreviewUrl(attachment) ? (
-              <img
-                src={resolveHistoryImagePreviewUrl(attachment) || ''}
-                alt={attachment.original_name}
-                className="h-12 w-12 shrink-0 rounded-xl object-cover"
-              />
-            ) : (
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                {attachment.kind === 'image' ? <ImagePlus className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-foreground">{attachment.original_name}</div>
-              <div className="truncate text-xs text-muted-foreground">
-                {formatAttachmentKindLabel(attachment, t)}
-                {typeof attachment.size_bytes === 'number' ? ` · ${formatAttachmentSize(attachment.size_bytes)}` : ''}
+        {attachments.map((attachment) => {
+          const previewUrl = resolveHistoryImagePreviewUrl(attachment);
+
+          return (
+            <div
+              key={attachment.attachment_id}
+              className={align === 'user'
+                ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground shadow-sm'
+                : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-border/60 bg-background/90 px-3 py-2 text-foreground shadow-sm'}
+            >
+              {previewUrl ? (
+                <button
+                  type="button"
+                  onClick={() => setHistoryImagePreview({
+                    name: attachment.original_name,
+                    url: previewUrl,
+                  })}
+                  aria-label={t('chat.attachments.openPreview')}
+                  className="shrink-0 rounded-xl transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                >
+                  <img
+                    src={previewUrl}
+                    alt={attachment.original_name}
+                    className="h-12 w-12 rounded-xl object-cover"
+                  />
+                </button>
+              ) : (
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  {attachment.kind === 'image' ? <ImagePlus className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-foreground">{attachment.original_name}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {formatAttachmentKindLabel(attachment, t)}
+                  {typeof attachment.size_bytes === 'number' ? ` · ${formatAttachmentSize(attachment.size_bytes)}` : ''}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -1168,9 +1189,31 @@ export const ChatPage: React.FC = () => {
         title={t('chat.trace.title')}
         subtitle={t('chat.trace.subtitle')}
       />
+      <Dialog open={Boolean(historyImagePreview)} onOpenChange={(open) => !open && setHistoryImagePreview(null)}>
+        <DialogContent className="max-w-4xl overflow-hidden border-border/70 bg-background/95 p-0">
+          <DialogHeader className="sr-only">
+            <DialogTitle>{historyImagePreview?.name || t('chat.attachments.previewTitle')}</DialogTitle>
+            <DialogDescription>{t('chat.attachments.previewDescription')}</DialogDescription>
+          </DialogHeader>
+          {historyImagePreview ? (
+            <div className="flex max-h-[85vh] flex-col">
+              <div className="border-b border-border/60 px-6 py-4 pr-12">
+                <div className="truncate text-sm font-medium text-foreground">{historyImagePreview.name}</div>
+              </div>
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/30 p-4">
+                <img
+                  src={historyImagePreview.url}
+                  alt={historyImagePreview.name}
+                  className="max-h-[70vh] w-auto max-w-full rounded-2xl object-contain shadow-sm"
+                />
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 
-  };
+};
 
 export default ChatPage;

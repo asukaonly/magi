@@ -198,6 +198,9 @@
       "addImage": "添加图片",
       "addFile": "添加文件",
       "remove": "移除附件",
+      "openPreview": "打开图片预览",
+      "previewTitle": "图片预览",
+      "previewDescription": "查看附件图片的大图预览。",
       "visionRequired": "当前 core 模型不支持图片附件。",
       "imageLimit": "单次消息最多可添加 {{count}} 张图片。",
       "uploadFailed": "附件上传失败：{{message}}"

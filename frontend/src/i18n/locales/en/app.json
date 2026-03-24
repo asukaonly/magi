@@ -198,6 +198,9 @@
       "addImage": "Add Image",
       "addFile": "Add File",
       "remove": "Remove Attachment",
+      "openPreview": "Open Image Preview",
+      "previewTitle": "Image Preview",
+      "previewDescription": "View the attached image in a larger preview.",
       "visionRequired": "The current core model does not support image attachments.",
       "imageLimit": "You can attach up to {{count}} images per message.",
       "uploadFailed": "Failed to upload attachments: {{message}}"

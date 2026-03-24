@@ -358,6 +358,43 @@ describe('ChatPage', () => {
     expect(convertFileSrcMock).toHaveBeenCalledWith('/tmp/history-diagram.png');
   });
 
+  it('opens a larger preview dialog when a persisted history image thumbnail is clicked', async () => {
+    const user = userEvent.setup();
+
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          role: 'user',
+          content: '看下这张图',
+          timestamp: 1000,
+          turn_id: 'turn-image-preview',
+          kind: 'user',
+          attachments: [
+            {
+              attachment_id: 'att-image-preview',
+              kind: 'image',
+              original_name: 'diagram.png',
+              storage_path: '/tmp/history-diagram.png',
+              size_bytes: 2048,
+            },
+          ],
+        },
+      ])
+    );
+
+    render(<ChatPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'chat.attachments.openPreview' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('img', { name: 'diagram.png' })).toHaveAttribute(
+      'src',
+      'asset:///tmp/history-diagram.png',
+    );
+    expect(within(dialog).getAllByText('diagram.png').length).toBeGreaterThan(0);
+  });
+
   it('renders trace entry when an agent response arrives through chat subscription', async () => {
     render(<ChatPage />);
 
