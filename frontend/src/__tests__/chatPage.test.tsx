@@ -1,3 +1,4 @@
+import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -338,6 +339,29 @@ describe('ChatPage', () => {
 
     expect(screen.getByText('notes.md')).toBeInTheDocument();
     expect(screen.queryByText('archive.zip')).not.toBeInTheDocument();
+    expect(toastWarningMock).toHaveBeenCalledWith('chat.attachments.unsupportedFiles');
+  });
+
+  it('shows the unsupported-file warning only once in strict mode', async () => {
+    const user = userEvent.setup();
+    render(
+      <React.StrictMode>
+        <ChatPage />
+      </React.StrictMode>
+    );
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('button', { name: 'chat.attachments.add' }));
+
+    const fileInput = screen.getByTestId('chat-attachments-file-input') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(['zip'], 'archive.zip', { type: 'application/zip' })],
+      },
+    });
+
+    expect(toastWarningMock).toHaveBeenCalledTimes(1);
     expect(toastWarningMock).toHaveBeenCalledWith('chat.attachments.unsupportedFiles');
   });
 

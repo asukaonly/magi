@@ -128,6 +128,13 @@ interface HistoryImagePreview {
   url: string;
 }
 
+interface DraftAttachmentResolution {
+  nextAttachments: DraftAttachment[];
+  droppedForVision: boolean;
+  droppedForLimit: boolean;
+  droppedUnsupportedCount: number;
+}
+
 const assistantMarkdownComponents: Components = {
   h1: ({ children }) => <h1 className="mb-3 mt-1 text-lg font-semibold leading-snug text-foreground">{children}</h1>,
   h2: ({ children }) => <h2 className="mb-3 mt-5 text-base font-semibold leading-snug text-foreground first:mt-0">{children}</h2>,
@@ -224,6 +231,66 @@ const resolveHistoryImagePreviewUrl = (attachment: ChatAttachment): string | nul
 const getWorkspaceDisplayPath = (workspacePath: string | null | undefined): string => {
   const normalizedPath = String(workspacePath || '').trim();
   return normalizedPath || DEFAULT_CHAT_WORKSPACE_DISPLAY;
+};
+
+const resolveDraftAttachments = (
+  current: DraftAttachment[],
+  files: File[],
+  coreModelSupportsVision: boolean
+): DraftAttachmentResolution => {
+  const nextAttachments = [...current];
+  let remainingImageSlots = Math.max(
+    0,
+    MAX_IMAGE_ATTACHMENTS - current.filter((attachment) => attachment.kind === 'image').length
+  );
+  let droppedForVision = false;
+  let droppedForLimit = false;
+  let droppedUnsupportedCount = 0;
+
+  files.forEach((file) => {
+    if (isSupportedImageFile(file)) {
+      if (!coreModelSupportsVision) {
+        droppedForVision = true;
+        return;
+      }
+      if (remainingImageSlots <= 0) {
+        droppedForLimit = true;
+        return;
+      }
+      remainingImageSlots -= 1;
+      nextAttachments.push({
+        id: createDraftAttachmentId(),
+        kind: 'image',
+        file,
+        name: file.name,
+        size: file.size,
+        mimeType: file.type,
+        previewUrl: URL.createObjectURL(file),
+      });
+      return;
+    }
+
+    if (isSupportedPdfFile(file) || isSupportedTextLikeFile(file)) {
+      nextAttachments.push({
+        id: createDraftAttachmentId(),
+        kind: 'file',
+        file,
+        name: file.name,
+        size: file.size,
+        mimeType: file.type,
+      });
+      return;
+    }
+
+    droppedUnsupportedCount += 1;
+  });
+
+  return {
+    nextAttachments,
+    droppedForVision,
+    droppedForLimit,
+    droppedUnsupportedCount,
+  };
 };
 
 export const ChatPage: React.FC = () => {
@@ -387,66 +454,23 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
-    setDraftAttachments((current) => {
-      const nextAttachments = [...current];
-      let remainingImageSlots = Math.max(
-        0,
-        MAX_IMAGE_ATTACHMENTS - current.filter((attachment) => attachment.kind === 'image').length
-      );
-      let droppedForVision = false;
-      let droppedForLimit = false;
-      let droppedUnsupportedCount = 0;
+    const resolution = resolveDraftAttachments(
+      draftAttachmentsRef.current,
+      files,
+      coreModelSupportsVision
+    );
 
-      files.forEach((file) => {
-        if (isSupportedImageFile(file)) {
-          if (!coreModelSupportsVision) {
-            droppedForVision = true;
-            return;
-          }
-          if (remainingImageSlots <= 0) {
-            droppedForLimit = true;
-            return;
-          }
-          remainingImageSlots -= 1;
-          nextAttachments.push({
-            id: createDraftAttachmentId(),
-            kind: 'image',
-            file,
-            name: file.name,
-            size: file.size,
-            mimeType: file.type,
-            previewUrl: URL.createObjectURL(file),
-          });
-          return;
-        }
+    setDraftAttachments(resolution.nextAttachments);
 
-        if (isSupportedPdfFile(file) || isSupportedTextLikeFile(file)) {
-          nextAttachments.push({
-            id: createDraftAttachmentId(),
-            kind: 'file',
-            file,
-            name: file.name,
-            size: file.size,
-            mimeType: file.type,
-          });
-          return;
-        }
-
-        droppedUnsupportedCount += 1;
-      });
-
-      if (droppedForVision) {
-        toast.warning(t('chat.attachments.visionRequired'));
-      }
-      if (droppedForLimit) {
-        toast.warning(t('chat.attachments.imageLimit', { count: MAX_IMAGE_ATTACHMENTS }));
-      }
-      if (droppedUnsupportedCount > 0) {
-        toast.warning(t('chat.attachments.unsupportedFiles', { count: droppedUnsupportedCount }));
-      }
-
-      return nextAttachments;
-    });
+    if (resolution.droppedForVision) {
+      toast.warning(t('chat.attachments.visionRequired'));
+    }
+    if (resolution.droppedForLimit) {
+      toast.warning(t('chat.attachments.imageLimit', { count: MAX_IMAGE_ATTACHMENTS }));
+    }
+    if (resolution.droppedUnsupportedCount > 0) {
+      toast.warning(t('chat.attachments.unsupportedFiles', { count: resolution.droppedUnsupportedCount }));
+    }
   }, [coreModelSupportsVision, t]);
 
   const handleAttachmentInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
