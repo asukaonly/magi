@@ -12,7 +12,8 @@ import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
-from .contracts import L0ExecutionSummary, L0PromptWorkbenchProjection
+from .contracts import L0PromptWorkbenchProjection
+from .projection_builder import build_execution_summary
 
 
 MAX_CONCURRENT_SESSIONS = 64
@@ -541,25 +542,10 @@ class L0WorkingMemoryStore:
             active_entities=list(workbench.get("active_entities", [])),
             temporary_tactics=list(workbench.get("temporary_tactics", [])),
         )
-        if isinstance(run, dict):
-            latest_pending_turn = pending_turns[-1] if pending_turns else None
-            current_revision = int(run.get("revision") or 0)
-            has_current_revision_pending_turns = any(
-                isinstance(item, dict) and int(item.get("revision") or -1) == current_revision
-                for item in pending_turns
-            )
-            projection.execution_summary = L0ExecutionSummary(
-                active_run_summary=str(run.get("root_user_message") or "").strip(),
-                awaiting_external_result=(
-                    str(run.get("status") or "").strip() == "running"
-                    and not has_current_revision_pending_turns
-                ),
-                latest_user_augmentation_summary=(
-                    str(latest_pending_turn.get("content") or "").strip()
-                    if isinstance(latest_pending_turn, dict)
-                    else None
-                ),
-            )
+        projection.execution_summary = build_execution_summary(
+            run=run if isinstance(run, dict) else None,
+            pending_turns=[item for item in pending_turns if isinstance(item, dict)],
+        )
         return projection
 
     async def checkpoint_session(self, session_id: str) -> None:
