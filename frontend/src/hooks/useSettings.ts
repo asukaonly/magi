@@ -164,7 +164,12 @@ export function useSettings(): UseSettingsReturn {
   // ========================================
 
   const isWideSection = useMemo(
-    () => activeSection === 'llmProviders' || activeSection === 'llmModels' || activeSection === 'personality',
+    () =>
+      activeSection === 'llmProviders'
+      || activeSection === 'llmModels'
+      || activeSection === 'personality'
+      || activeSection === 'statisticsLlm'
+      || activeSection === 'statisticsRuntime',
     [activeSection]
   );
 

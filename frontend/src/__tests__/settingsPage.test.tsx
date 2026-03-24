@@ -833,6 +833,7 @@ describe('settings page draft saving', () => {
 
     expect(screen.getByRole('heading', { name: 'settings.tabs.statisticsRuntime' })).toBeInTheDocument();
     expect(screen.getByTestId('runtime-statistics-section')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-section-content')).not.toHaveClass('max-w-3xl');
   });
 
   it('renders the top-level settings navigation in the user-facing order with sensors renamed', async () => {
