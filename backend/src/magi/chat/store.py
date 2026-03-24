@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import uuid
 
@@ -159,6 +160,7 @@ class ChatStore:
         user_id: str,
         turn_id: str,
         message_text: str,
+        attachment_payloads: list[dict[str, object]] | None = None,
         created_at_ms: int,
         run_id: str | None = None,
         run_revision: int = 0,
@@ -175,7 +177,7 @@ class ChatStore:
             role="user",
             message_kind="user_text",
             content_text=message_text,
-            payload_json="{}",
+            payload_json=self._build_user_message_payload_json(attachment_payloads),
             is_final=True,
             is_visible=True,
             created_at_ms=created_at_ms,
@@ -295,6 +297,12 @@ class ChatStore:
             )
             await db.commit()
         return message
+
+    @staticmethod
+    def _build_user_message_payload_json(attachment_payloads: list[dict[str, object]] | None) -> str:
+        if not attachment_payloads:
+            return "{}"
+        return json.dumps({"attachments": list(attachment_payloads)}, ensure_ascii=False)
 
     async def upsert_turn(self, record: ChatTurnRecord) -> None:
         """Insert or update one chat turn row."""

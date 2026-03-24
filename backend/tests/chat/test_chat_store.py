@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -36,6 +37,19 @@ def _read_session_workspace_path(db_path: Path, session_id: str) -> str | None:
         if row is None:
             return None
         return row[0]
+    finally:
+        conn.close()
+
+
+def _read_message_payload_json(db_path: Path, turn_id: str) -> dict:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(
+            "SELECT payload_json FROM chat_messages WHERE turn_id = ?",
+            (turn_id,),
+        ).fetchone()
+        assert row is not None
+        return json.loads(row[0] or "{}")
     finally:
         conn.close()
 
@@ -230,6 +244,31 @@ async def test_chat_store_bumps_history_version_when_creating_user_turn(tmp_path
         history_version = await store.get_history_version("session-1")
 
         assert history_version == 1
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_chat_store_persists_attachment_metadata_on_user_turn(tmp_path: Path) -> None:
+    from magi.chat import ChatStore
+
+    db_path = tmp_path / "chat.db"
+    store = ChatStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        await store.create_user_turn(
+            session_id="session-1",
+            user_id="user-1",
+            turn_id="turn-attachments",
+            message_text="",
+            attachment_payloads=[{"kind": "image", "attachment_id": "att-1"}],
+            created_at_ms=100,
+        )
+
+        payload_json = _read_message_payload_json(db_path, "turn-attachments")
+
+        assert payload_json["attachments"] == [{"kind": "image", "attachment_id": "att-1"}]
     finally:
         await store.shutdown()
 

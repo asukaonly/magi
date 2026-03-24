@@ -55,6 +55,7 @@ class _FakeChatStore:
         user_id: str,
         turn_id: str,
         message_text: str,
+        attachment_payloads: list[dict[str, object]] | None = None,
         created_at_ms: int,
     ) -> _FakeCreatedTurn:
         self.created_turns.append(
@@ -63,6 +64,7 @@ class _FakeChatStore:
                 "user_id": user_id,
                 "turn_id": turn_id,
                 "message_text": message_text,
+                "attachment_payloads": list(attachment_payloads or []),
                 "created_at_ms": created_at_ms,
             }
         )
@@ -276,8 +278,10 @@ async def test_dispatch_user_message_returns_chat_persist_failure_before_enqueue
             user_id: str,
             turn_id: str,
             message_text: str,
+            attachment_payloads: list[dict[str, object]] | None = None,
             created_at_ms: int,
         ) -> _FakeCreatedTurn:
+            _ = attachment_payloads
             raise RuntimeError("persist failed")
 
     queue = _FakeRuntimeCommandQueue()

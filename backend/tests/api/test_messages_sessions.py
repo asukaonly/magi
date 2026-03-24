@@ -557,6 +557,45 @@ def test_create_new_session_persists_workspace_path(tmp_path):
     assert sessions[0].workspace_path == "/Users/asuka/code/magi"
 
 
+def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Attachment Chat",
+        created_at=1000,
+        updated_at=1000,
+        message_count=1,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s1",
+        user_id="u1",
+        created_at_ms=1000,
+        updated_at_ms=1000,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-1",
+        session_id="s1",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="",
+        payload_json=json.dumps({"attachments": [{"kind": "pdf", "attachment_id": "att-1"}]}),
+        created_at_ms=1000,
+    )
+
+    history = service.get_display_history("u1", "s1", limit=10)
+
+    assert history[0].attachments == [{"kind": "pdf", "attachment_id": "att-1"}]
+    assert history[0].content == ""
+
+
 def test_update_session_workspace_persists_and_allows_clearing(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)

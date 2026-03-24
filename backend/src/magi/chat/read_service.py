@@ -140,6 +140,7 @@ class ChatDisplayMessage:
     content: str
     timestamp: int
     kind: str
+    attachments: list[dict[str, Any]] | None = None
     message_id: str | None = None
     message_kind: str | None = None
     turn_id: str | None = None
@@ -157,6 +158,7 @@ class ChatDisplayMessage:
             "message_kind": self.message_kind,
             "turn_id": self.turn_id,
             "kind": self.kind,
+            "attachments": list(self.attachments or []),
             "trace_display_mode": self.trace_display_mode,
             "allow_trace_collapse": self.allow_trace_collapse,
             "trace_summary": self.trace_summary,
@@ -802,7 +804,9 @@ class ChatReadService:
     def _row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
         message_kind = str(row["message_kind"] or "")
         content = str(row["content_text"] or "").strip()
-        if not content:
+        payload = ChatReadService._parse_message_payload_json(row["payload_json"])
+        attachments = payload.get("attachments") if isinstance(payload.get("attachments"), list) else []
+        if not content and not attachments:
             return None
         role = str(row["role"] or "assistant")
         if message_kind == "user_text":
@@ -810,6 +814,7 @@ class ChatReadService:
                 role="user",
                 kind="user",
                 content=content,
+                attachments=list(attachments),
                 timestamp=int(row["created_at_ms"] or 0),
                 message_id=str(row["message_id"]),
                 message_kind=message_kind,
@@ -849,6 +854,16 @@ class ChatReadService:
             message_count=int(row["message_count"] or 0),
             workspace_path=str(row["workspace_path"]) if row["workspace_path"] is not None else None,
         )
+
+    @staticmethod
+    def _parse_message_payload_json(raw_payload_json: str | None) -> dict[str, Any]:
+        if not raw_payload_json:
+            return {}
+        try:
+            parsed = json.loads(raw_payload_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     @staticmethod
     def _normalize_workspace_path(workspace_path: str | None) -> str | None:

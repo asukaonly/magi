@@ -105,6 +105,7 @@ async def dispatch_user_message(
             user_id=user_id,
             turn_id=turn_id,
             message_text=normalized_message,
+            attachment_payloads=normalized_attachments,
             created_at_ms=created_at_ms,
         )
     except Exception:
