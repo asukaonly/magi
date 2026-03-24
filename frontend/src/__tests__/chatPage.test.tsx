@@ -11,8 +11,9 @@ import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 const sendMock = vi.fn();
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
 const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-const { pickDirectoryMock } = vi.hoisted(() => ({
+const { pickDirectoryMock, convertFileSrcMock } = vi.hoisted(() => ({
   pickDirectoryMock: vi.fn(),
+  convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -42,6 +43,10 @@ vi.mock('@/runtime/config', () => ({
 
 vi.mock('@/runtime/desktop', () => ({
   pickDirectory: pickDirectoryMock,
+}));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  convertFileSrc: convertFileSrcMock,
 }));
 
 vi.mock('@/api/modules/config', async () => {
@@ -321,6 +326,36 @@ describe('ChatPage', () => {
       }),
     ]);
     expect(screen.queryAllByText('notes.md')).not.toHaveLength(0);
+  });
+
+  it('renders image thumbnails for persisted history attachments', async () => {
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          role: 'user',
+          content: '看下这张图',
+          timestamp: 1000,
+          turn_id: 'turn-image-history',
+          kind: 'user',
+          attachments: [
+            {
+              attachment_id: 'att-image-history',
+              kind: 'image',
+              original_name: 'diagram.png',
+              storage_path: '/tmp/history-diagram.png',
+              size_bytes: 2048,
+            },
+          ],
+        },
+      ])
+    );
+
+    render(<ChatPage />);
+
+    const preview = await screen.findByRole('img', { name: 'diagram.png' });
+    expect(preview).toHaveAttribute('src', 'asset:///tmp/history-diagram.png');
+    expect(convertFileSrcMock).toHaveBeenCalledWith('/tmp/history-diagram.png');
   });
 
   it('renders trace entry when an agent response arrives through chat subscription', async () => {

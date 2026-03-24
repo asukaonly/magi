@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -197,6 +198,21 @@ const formatAttachmentKindLabel = (attachment: ChatAttachment, t: (key: string) 
     return t('chat.attachments.addImage');
   }
   return t('chat.attachments.addFile');
+};
+
+const resolveHistoryImagePreviewUrl = (attachment: ChatAttachment): string | null => {
+  if (attachment.kind !== 'image') {
+    return null;
+  }
+  const storagePath = String(attachment.storage_path || '').trim();
+  if (!storagePath) {
+    return null;
+  }
+  try {
+    return convertFileSrc(storagePath);
+  } catch {
+    return storagePath || null;
+  }
 };
 
 export const ChatPage: React.FC = () => {
@@ -883,9 +899,17 @@ export const ChatPage: React.FC = () => {
               ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground shadow-sm'
               : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-border/60 bg-background/90 px-3 py-2 text-foreground shadow-sm'}
           >
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              {attachment.kind === 'image' ? <ImagePlus className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
-            </div>
+            {resolveHistoryImagePreviewUrl(attachment) ? (
+              <img
+                src={resolveHistoryImagePreviewUrl(attachment) || ''}
+                alt={attachment.original_name}
+                className="h-12 w-12 shrink-0 rounded-xl object-cover"
+              />
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                {attachment.kind === 'image' ? <ImagePlus className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+              </div>
+            )}
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-foreground">{attachment.original_name}</div>
               <div className="truncate text-xs text-muted-foreground">

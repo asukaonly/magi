@@ -123,6 +123,7 @@ Current product expectations:
 - desktop chat attachments should be uploaded into managed local runtime storage before a turn is sent
 - desktop chat should support image, text-like, and PDF attachments with backend-side normalization metadata
 - desktop chat composers should present selected attachments as removable blocks before send and preserve them in message history
+- image attachments preserved in message history should render as thumbnails on desktop chat surfaces
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
 - image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
