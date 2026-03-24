@@ -9,6 +9,8 @@ import { pluginsApi } from '@/api/modules/plugins';
 import { timelineApi } from '@/api/modules/timeline';
 import { toolsApi } from '@/api/modules/tools';
 
+const llmFormMock = vi.fn();
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, any>) => {
@@ -31,12 +33,15 @@ vi.mock('@/components/config-forms/LLMForm', () => ({
     value,
     onChange,
     view,
+    showAdvancedByDefault,
   }: {
     value: any;
     onChange: (next: any) => void;
     view?: 'all' | 'providers' | 'models';
+    showAdvancedByDefault?: boolean;
   }) => (
     <div>
+      {llmFormMock({ value, onChange, view, showAdvancedByDefault })}
       <div>{`llm-view:${view || 'all'}`}</div>
       <button type="button" onClick={() => onChange({ ...value, model: 'gpt-5' })}>
         change-llm
@@ -450,6 +455,7 @@ const toolsFixture = {
 describe('settings page draft saving', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    llmFormMock.mockReset();
 
     vi.mocked(configApi.get).mockResolvedValue({
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
@@ -606,6 +612,23 @@ describe('settings page draft saving', () => {
     await user.click(llmGroupButton);
     expect(llmGroupButton).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: 'settings.tabs.llmProviders' })).not.toBeInTheDocument();
+  });
+
+  it('does not force advanced model settings open by default', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.llm' }));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.llmModels' }));
+
+    await waitFor(() => {
+      expect(llmFormMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          view: 'models',
+          showAdvancedByDefault: undefined,
+        })
+      );
+    });
   });
 
   it('keeps timeline source changes in draft until save', async () => {

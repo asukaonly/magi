@@ -244,7 +244,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               surface="settings"
               showSectionIntro={false}
               value={draftConfig.llm}
-              showAdvancedByDefault
               onChange={(next) => patchDraftConfig((draft) => {
                 draft.llm = next;
               })}
@@ -261,7 +260,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               surface="settings"
               showSectionIntro={false}
               value={draftConfig.llm}
-              showAdvancedByDefault
               onChange={(next) => patchDraftConfig((draft) => {
                 draft.llm = next;
               })}
