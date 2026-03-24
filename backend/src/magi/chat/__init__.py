@@ -12,6 +12,7 @@ from .read_service import (
     get_chat_read_service,
 )
 from .store import ChatStore
+from .text_attachment_parser import LocalTextAttachmentParser, ParsedTextAttachment
 
 __all__ = [
     "ChatDisplayMessage",
@@ -22,6 +23,8 @@ __all__ = [
     "ChatSessionRenameResult",
     "ChatSessionSummary",
     "LocalChatAttachmentStorage",
+    "LocalTextAttachmentParser",
+    "ParsedTextAttachment",
     "SessionWorkspaceUpdateResult",
     "StoredChatAttachment",
     "ChatStore",
