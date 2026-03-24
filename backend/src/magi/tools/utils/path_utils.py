@@ -26,6 +26,21 @@ def expand_input_path(path: str | None, default: str = ".") -> str:
     return os.path.expandvars(os.path.expanduser(raw_path))
 
 
+def resolve_path_from_workspace(
+    path: str | None,
+    *,
+    workspace: str | None,
+    default: str = ".",
+) -> str:
+    """Resolve a tool path relative to the active workspace when needed."""
+    expanded_path = expand_input_path(path, default=default)
+    if os.path.isabs(expanded_path):
+        return os.path.normpath(expanded_path)
+
+    expanded_workspace = expand_input_path(workspace, default=".")
+    return os.path.normpath(os.path.join(expanded_workspace, expanded_path))
+
+
 def has_hidden_path_component(path: str) -> bool:
     """Return True if any path segment is hidden (starts with a dot)."""
     normalized = path.replace("\\", "/")

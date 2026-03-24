@@ -4,7 +4,7 @@ File read tool
 import os
 from typing import Dict, Any
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
-from ..utils.path_utils import expand_input_path
+from ..utils.path_utils import resolve_path_from_workspace
 
 
 class FileReadTool(Tool):
@@ -75,7 +75,11 @@ class FileReadTool(Tool):
         context: ToolExecutionContext
     ) -> ToolResult:
         """Read file"""
-        file_path = expand_input_path(parameters.get("path"), default=".")
+        file_path = resolve_path_from_workspace(
+            parameters.get("path"),
+            workspace=context.workspace,
+            default=".",
+        )
         encoding = parameters.get("encoding", "utf-8")
         offset = parameters.get("offset", 0)
         limit = parameters.get("limit")

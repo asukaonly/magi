@@ -8,9 +8,9 @@ from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 from ..utils.path_utils import (
     DEFAULT_EXCLUDE_PATTERNS,
-    expand_input_path,
     matches_exclude_path,
     normalize_exclude_patterns,
+    resolve_path_from_workspace,
 )
 
 
@@ -113,7 +113,11 @@ class GrepTool(Tool):
     ) -> ToolResult:
         """Execute grep search"""
         pattern = parameters["pattern"]
-        search_path = expand_input_path(parameters.get("path", "."), default=".")
+        search_path = resolve_path_from_workspace(
+            parameters.get("path", "."),
+            workspace=context.workspace,
+            default=".",
+        )
         file_pattern = parameters.get("glob", "*")
         ignore_case = parameters.get("ignore_case", False)
         recursive = parameters.get("recursive", True)

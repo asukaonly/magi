@@ -7,10 +7,10 @@ from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 from ..utils.path_utils import (
     DEFAULT_EXCLUDE_PATTERNS,
-    expand_input_path,
     has_hidden_path_component,
     matches_exclude_path,
     normalize_exclude_patterns,
+    resolve_path_from_workspace,
 )
 
 
@@ -115,7 +115,11 @@ class GlobTool(Tool):
     ) -> ToolResult:
         """Execute glob search"""
         pattern = parameters["pattern"]
-        base_path = expand_input_path(parameters.get("path", "."), default=".")
+        base_path = resolve_path_from_workspace(
+            parameters.get("path", "."),
+            workspace=context.workspace,
+            default=".",
+        )
         recursive = parameters.get("recursive", False)
         include_hidden = parameters.get("include_hidden", False)
         directories_only = parameters.get("directories_only", False)

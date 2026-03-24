@@ -11,8 +11,8 @@ from magi.tools.builtin.grep_tool import GrepTool
 from magi.tools.schema import ToolExecutionContext
 
 
-def _context() -> ToolExecutionContext:
-    return ToolExecutionContext(agent_id="test-agent")
+def _context(workspace: str = "./workspace") -> ToolExecutionContext:
+    return ToolExecutionContext(agent_id="test-agent", workspace=workspace)
 
 
 @pytest.mark.asyncio
@@ -36,6 +36,30 @@ async def test_grep_expands_home_placeholder(monkeypatch: pytest.MonkeyPatch, tm
     assert result.data["path"] == str(project_dir)
     assert result.data["match_count"] == 1
     assert result.data["matches"][0]["content"] == "hello magi"
+
+
+@pytest.mark.asyncio
+async def test_grep_resolves_relative_path_from_workspace(tmp_path: Path) -> None:
+    workspace_dir = tmp_path / "workspace"
+    src_dir = workspace_dir / "src"
+    src_dir.mkdir(parents=True)
+    app_path = src_dir / "app.py"
+    app_path.write_text("TARGET_TOKEN\n", encoding="utf-8")
+
+    tool = GrepTool()
+    result = await tool.execute(
+        {
+            "pattern": "TARGET_TOKEN",
+            "path": "src",
+            "glob": "*.py",
+        },
+        _context(str(workspace_dir)),
+    )
+
+    assert result.success is True
+    assert result.data["path"] == str(src_dir)
+    assert result.data["match_count"] == 1
+    assert Path(result.data["matches"][0]["file"]).resolve() == app_path.resolve()
 
 
 @pytest.mark.asyncio

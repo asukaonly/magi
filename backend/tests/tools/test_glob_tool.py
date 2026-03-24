@@ -11,8 +11,8 @@ from magi.tools.builtin.glob_tool import GlobTool
 from magi.tools.schema import ToolExecutionContext
 
 
-def _context() -> ToolExecutionContext:
-    return ToolExecutionContext(agent_id="test-agent")
+def _context(workspace: str = "./workspace") -> ToolExecutionContext:
+    return ToolExecutionContext(agent_id="test-agent", workspace=workspace)
 
 
 @pytest.mark.asyncio
@@ -29,6 +29,22 @@ async def test_glob_expands_home_placeholder(monkeypatch: pytest.MonkeyPatch, tm
     assert result.data["base_path"] == str(project_dir)
     assert result.data["count"] == 1
     assert result.data["matches"][0]["name"] == "main.py"
+
+
+@pytest.mark.asyncio
+async def test_glob_resolves_relative_path_from_workspace(tmp_path: Path) -> None:
+    workspace_dir = tmp_path / "workspace"
+    src_dir = workspace_dir / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "app.py").write_text("print('ok')\n", encoding="utf-8")
+
+    tool = GlobTool()
+    result = await tool.execute({"pattern": "*.py", "path": "src"}, _context(str(workspace_dir)))
+
+    assert result.success is True
+    assert result.data["base_path"] == str(src_dir)
+    assert result.data["count"] == 1
+    assert result.data["matches"][0]["name"] == "app.py"
 
 
 @pytest.mark.asyncio
