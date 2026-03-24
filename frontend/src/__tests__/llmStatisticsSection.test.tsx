@@ -140,4 +140,27 @@ describe('LLMStatisticsSection', () => {
 
     expect(await screen.findByText('settings.usage.emptyTitle')).toBeInTheDocument();
   });
+
+  it('keeps tab rendering stable when multiple providers share the same model name', async () => {
+    const user = userEvent.setup();
+    vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValueOnce({
+      data: {
+        ...summaryFixture,
+        models: [
+          { provider: 'zhipu', model: 'glm', calls: 20, prompt_tokens: 20000, completion_tokens: 9000, total_tokens: 29000, cost_usd: 1.2 },
+          { provider: 'openai', model: 'glm', calls: 10, prompt_tokens: 12000, completion_tokens: 4000, total_tokens: 16000, cost_usd: 0.8 },
+        ],
+      },
+    } as any);
+
+    render(<LLMStatisticsSection />);
+
+    expect(await screen.findAllByText('glm')).toHaveLength(3);
+
+    await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.providers' }));
+    expect(screen.getAllByText('openai').length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.models' }));
+    expect(screen.getAllByText('glm')).toHaveLength(3);
+  });
 });

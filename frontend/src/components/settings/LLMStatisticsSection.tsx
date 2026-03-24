@@ -38,6 +38,8 @@ const REQUEST_KIND_TRANSLATION_KEYS: Record<string, string> = {
 const formatCompactNumber = (value: number) =>
   new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 
+const uniqueStrings = (values: Array<string | undefined>) => [...new Set(values.filter((value): value is string => Boolean(value)))];
+
 const formatInteger = (value?: number | null) =>
   new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Number(value || 0));
 
@@ -61,6 +63,24 @@ const resolveRequestKindLabel = (requestKind: string | undefined, t: (key: strin
   }
   const translationKey = REQUEST_KIND_TRANSLATION_KEYS[requestKind];
   return translationKey ? t(translationKey) : requestKind;
+};
+
+const buildBreakdownRowKey = (
+  activeTab: TableTab,
+  item: {
+    provider?: string;
+    model?: string;
+    request_kind?: string;
+  },
+  index: number
+) => {
+  if (activeTab === 'models') {
+    return `${activeTab}-${item.provider || 'unknown'}-${item.model || 'unknown'}-${index}`;
+  }
+  if (activeTab === 'providers') {
+    return `${activeTab}-${item.provider || 'unknown'}-${index}`;
+  }
+  return `${activeTab}-${item.request_kind || 'unknown'}-${index}`;
 };
 
 export const LLMStatisticsSection: FC = () => <LLMStatisticsSectionInner />;
@@ -104,7 +124,7 @@ const LLMStatisticsSectionInner: FC = () => {
   }, [windowDays]);
 
   const providerOptions = useMemo(
-    () => (summary?.providers || []).map((item) => item.provider).filter((value): value is string => Boolean(value)),
+    () => uniqueStrings((summary?.providers || []).map((item) => item.provider)),
     [summary]
   );
 
@@ -112,7 +132,7 @@ const LLMStatisticsSectionInner: FC = () => {
     const candidates = (summary?.models || []).filter((item) =>
       providerFilter === 'all' ? true : item.provider === providerFilter
     );
-    return candidates.map((item) => item.model).filter((value): value is string => Boolean(value));
+    return uniqueStrings(candidates.map((item) => item.model));
   }, [providerFilter, summary]);
 
   useEffect(() => {
@@ -297,8 +317,8 @@ const LLMStatisticsSectionInner: FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {activeRows.map((item) => (
-                      <tr key={`${activeTab}-${item.provider || item.model || item.request_kind || unknownLabel}`} className="border-b border-[hsl(var(--settings-subnav-border)/0.3)] last:border-b-0">
+                    {activeRows.map((item, index) => (
+                      <tr key={buildBreakdownRowKey(activeTab, item, index)} className="border-b border-[hsl(var(--settings-subnav-border)/0.3)] last:border-b-0">
                         <TableCell>
                           {activeTab === 'models'
                             ? (item.model || unknownLabel)
