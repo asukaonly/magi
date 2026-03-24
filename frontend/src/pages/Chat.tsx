@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Loader2, Sparkles, UserRound } from 'lucide-react';
+import { ArrowUp, FolderOpen, Loader2, Sparkles, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -10,9 +10,12 @@ import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { messagesApi } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { getRuntimeConfig } from '@/runtime/config';
+import { pickDirectory } from '@/runtime/desktop';
 import { useRealtime } from '@/realtime/provider';
 import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
@@ -81,10 +84,14 @@ export const ChatPage: React.FC = () => {
   const { send, subscribe } = useRealtime();
   const connected = useRealtimeStore((state) => state.connected);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
+  const currentSession = useConversationStore((state) => (
+    state.currentSessionId ? state.sessionsById[state.currentSessionId] || null : null
+  ));
   const setCurrentSessionId = useConversationStore((state) => state.setCurrentSessionId);
   const messages = useConversationStore((state) =>
     state.currentSessionId ? (state.messagesBySession[state.currentSessionId] || []) : []
   );
+  const upsertSession = useConversationStore((state) => state.upsertSession);
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
   const applyTurnUxPlan = useConversationStore((state) => state.applyTurnUxPlan);
   const receiveAgentResponse = useConversationStore((state) => state.receiveAgentResponse);
@@ -105,6 +112,7 @@ export const ChatPage: React.FC = () => {
   const [aiName, setAiName] = useState<string>('AI');
   const [aiAvatar, setAiAvatar] = useState<string>('');
   const [loadingTrace, setLoadingTrace] = useState(false);
+  const [updatingWorkspace, setUpdatingWorkspace] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
@@ -113,6 +121,32 @@ export const ChatPage: React.FC = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const persistSessionWorkspace = useCallback(async (workspacePath: string | null) => {
+    if (!currentSessionId) {
+      toast.error(t('chat.sessionRequired'));
+      return;
+    }
+    setUpdatingWorkspace(true);
+    try {
+      const response = await messagesApi.updateSessionWorkspace(USER_ID, currentSessionId, workspacePath);
+      upsertSession(response.session);
+      window.dispatchEvent(new Event(SESSION_EVENT));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown';
+      toast.error(t('chat.workspace.updateFailed', { message }));
+    } finally {
+      setUpdatingWorkspace(false);
+    }
+  }, [currentSessionId, t, upsertSession]);
+
+  const handlePickWorkspace = useCallback(async () => {
+    const selectedPath = await pickDirectory(currentSession?.workspace_path ?? null);
+    if (!selectedPath) {
+      return;
+    }
+    await persistSessionWorkspace(selectedPath);
+  }, [currentSession?.workspace_path, persistSessionWorkspace]);
 
   const loadTrace = useCallback(
     async (turnId: string) => {
@@ -523,6 +557,53 @@ export const ChatPage: React.FC = () => {
       transition={{ duration: 0.15 }}
       className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
     >
+      {currentSessionId && (
+        <div className="mb-3 shrink-0 rounded-2xl border border-border/50 bg-background/80 px-4 py-3 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <label className="space-y-2" htmlFor="chat-session-workspace">
+                <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  {t('chat.workspace.label')}
+                </div>
+                <Input
+                  id="chat-session-workspace"
+                  readOnly
+                  value={currentSession?.workspace_path ?? ''}
+                  placeholder={t('chat.workspace.notSet')}
+                  className="h-9 bg-background/70"
+                />
+              </label>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void handlePickWorkspace();
+                }}
+                disabled={updatingWorkspace}
+              >
+                <FolderOpen className="mr-2 h-4 w-4" />
+                {t('chat.workspace.change')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  void persistSessionWorkspace(null);
+                }}
+                disabled={updatingWorkspace || !currentSession?.workspace_path}
+              >
+                <X className="mr-2 h-4 w-4" />
+                {t('chat.workspace.clear')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {messages.map((msg) => (
           msg.kind === 'status' ? (

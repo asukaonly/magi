@@ -48,6 +48,7 @@ type ConversationState = {
   unreadBySession: Record<string, number>;
   setCurrentSessionId: (sessionId: string | null) => void;
   hydrateSessions: (sessions: ChatSessionListItem[], currentSessionId?: string | null) => void;
+  upsertSession: (session: ChatSessionListItem) => void;
   receiveHistory: (sessionId: string, messages: ChatTimelineMessage[]) => void;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   applyTurnUxPlan: (payload: TurnUxPlanPayload) => void;
@@ -86,6 +87,7 @@ const ensureSession = (
         title_overridden: false,
         last_timestamp: 0,
         message_count: 0,
+        workspace_path: null,
       },
     },
     orderedSessionIds: [sessionId, ...orderedSessionIds],
@@ -146,6 +148,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
           : state.unreadBySession,
     };
   }),
+  upsertSession: (session) => set((state) => {
+    const nextSummaryState = upsertSessionSummary(state.sessionsById, state.orderedSessionIds, session);
+    return {
+      sessionsById: nextSummaryState.sessionsById,
+      orderedSessionIds: nextSummaryState.orderedSessionIds,
+    };
+  }),
   receiveHistory: (sessionId, messages) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     return {
@@ -187,6 +196,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
             title_overridden: false,
             last_timestamp: 0,
             message_count: 0,
+            workspace_path: null,
           }),
           last_user_message_preview: input.trim(),
           last_timestamp: Math.floor(timestamp / 1000),
@@ -245,6 +255,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
         title_overridden: false,
         last_timestamp: 0,
         message_count: 0,
+        workspace_path: null,
       }),
       session_id: sessionId,
       last_message_preview: lastMessagePreview,

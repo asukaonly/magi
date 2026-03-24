@@ -1,13 +1,18 @@
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useChatTraceStore } from '@/stores';
 import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/pages/chat-state';
+import { messagesApi } from '@/api';
 
 const sendMock = vi.fn();
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
 const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+const { pickDirectoryMock } = vi.hoisted(() => ({
+  pickDirectoryMock: vi.fn(),
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -34,9 +39,14 @@ vi.mock('@/runtime/config', () => ({
   }),
 }));
 
+vi.mock('@/runtime/desktop', () => ({
+  pickDirectory: pickDirectoryMock,
+}));
+
 vi.mock('@/api', () => ({
   messagesApi: {
     getTrace: vi.fn(),
+    updateSessionWorkspace: vi.fn(),
   },
 }));
 
@@ -62,10 +72,93 @@ describe('ChatPage', () => {
     sendMock.mockReset();
     realtimeListener = null;
     consoleErrorSpy.mockClear();
+    pickDirectoryMock.mockReset();
+    pickDirectoryMock.mockResolvedValue(undefined);
     Element.prototype.scrollIntoView = vi.fn();
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
     useConversationStore.getState().setCurrentSessionId('session-1');
+  });
+
+  it('shows the current session workspace path in the chat header', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: '/Users/asuka/code/magi',
+      },
+    ], 'session-1');
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('chat.workspace.label')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('/Users/asuka/code/magi')).toBeInTheDocument();
+  });
+
+  it('updates and clears the current session workspace from the chat header', async () => {
+    const user = userEvent.setup();
+    pickDirectoryMock.mockResolvedValue('/tmp/next-workspace');
+    vi.mocked(messagesApi.updateSessionWorkspace)
+      .mockResolvedValueOnce({
+        success: true,
+        user_id: 'local_user',
+        session: {
+          session_id: 'session-1',
+          title: 'New Chat',
+          last_message_preview: '',
+          last_user_message_preview: '',
+          title_overridden: false,
+          last_timestamp: 0,
+          message_count: 0,
+          workspace_path: '/tmp/next-workspace',
+        },
+      } as any)
+      .mockResolvedValueOnce({
+        success: true,
+        user_id: 'local_user',
+        session: {
+          session_id: 'session-1',
+          title: 'New Chat',
+          last_message_preview: '',
+          last_user_message_preview: '',
+          title_overridden: false,
+          last_timestamp: 0,
+          message_count: 0,
+          workspace_path: null,
+        },
+      } as any);
+
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: '/Users/asuka/code/magi',
+      },
+    ], 'session-1');
+
+    render(<ChatPage />);
+
+    await user.click(screen.getByRole('button', { name: 'chat.workspace.change' }));
+
+    await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledWith('/Users/asuka/code/magi'));
+    await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenCalledWith('local_user', 'session-1', '/tmp/next-workspace'));
+    expect(screen.getByLabelText('chat.workspace.label')).toHaveValue('/tmp/next-workspace');
+
+    await user.click(screen.getByRole('button', { name: 'chat.workspace.clear' }));
+
+    await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenLastCalledWith('local_user', 'session-1', null));
+    expect(screen.getByLabelText('chat.workspace.label')).toHaveValue('');
+    expect(screen.getByPlaceholderText('chat.workspace.notSet')).toBeInTheDocument();
   });
 
   it('renders trace entry when an agent response arrives through chat subscription', async () => {

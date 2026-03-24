@@ -184,8 +184,15 @@
     "send": "Send",
     "tip": "Tip: Enter to send, Shift+Enter for newline",
   "emptyInput": "Please enter a message",
-  "sessionRequired": "Please choose or create a session first",
-  "wsNotConnected": "WebSocket is not connected yet",
+    "sessionRequired": "Please choose or create a session first",
+    "wsNotConnected": "WebSocket is not connected yet",
+    "workspace": {
+      "label": "Conversation Workspace",
+      "change": "Change Directory",
+      "clear": "Clear Directory",
+      "notSet": "Using runtime default directory",
+      "updateFailed": "Failed to update conversation workspace: {{message}}"
+    },
     "sendFailed": "Failed to send message",
     "clearFailed": "Failed to clear chat",
     "cleared": "Chat cleared",

@@ -8,6 +8,9 @@ export interface UserMessageRequest {
   message: string;
   user_id?: string;
   session_id: string;
+  attachments?: Record<string, any>[];
+  workspace_path?: string | null;
+  client_turn_id?: string;
   metadata?: Record<string, any>;
 }
 
@@ -31,6 +34,7 @@ export interface ChatHistoryMessage {
   allow_trace_collapse?: boolean;
   trace_summary?: Record<string, any> | null;
   trace_available?: boolean;
+  attachments?: Record<string, any>[];
 }
 
 export interface ConversationHistory {
@@ -48,6 +52,7 @@ export interface ChatSessionListItem {
   title_overridden?: boolean;
   last_timestamp: number;
   message_count: number;
+  workspace_path?: string | null;
 }
 
 export interface SessionListResponse {
@@ -129,11 +134,11 @@ export const messagesApi = {
     return (response.data || response) as { success: boolean; message: string; user_id: string; session_id?: string };
   },
 
-  createNewSession: async (userId: string = DEFAULT_USER_ID): Promise<{ success: boolean; user_id: string; session_id: string | null }> => {
-    const response = await api.post<{ success: boolean; user_id: string; session_id: string | null }>('/messages/session/new', null, {
+  createNewSession: async (userId: string = DEFAULT_USER_ID): Promise<{ success: boolean; user_id: string; session_id: string | null; workspace_path?: string | null }> => {
+    const response = await api.post<{ success: boolean; user_id: string; session_id: string | null; workspace_path?: string | null }>('/messages/session/new', null, {
       params: { user_id: userId },
     });
-    return (response.data || response) as { success: boolean; user_id: string; session_id: string | null };
+    return (response.data || response) as { success: boolean; user_id: string; session_id: string | null; workspace_path?: string | null };
   },
 
   renameSession: async (
@@ -149,6 +154,21 @@ export const messagesApi = {
       }
     );
     return (response.data || response) as { success: boolean; user_id: string; session: { session_id: string; title: string } };
+  },
+
+  updateSessionWorkspace: async (
+    userId: string = DEFAULT_USER_ID,
+    sessionId: string,
+    workspacePath: string | null,
+  ): Promise<{ success: boolean; user_id: string; session: ChatSessionListItem }> => {
+    const response = await api.patch<{ success: boolean; user_id: string; session: ChatSessionListItem }>(
+      `/messages/session/${encodeURIComponent(sessionId)}/workspace`,
+      {
+        user_id: userId,
+        workspace_path: workspacePath,
+      }
+    );
+    return (response.data || response) as { success: boolean; user_id: string; session: ChatSessionListItem };
   },
 
   deleteSession: async (
