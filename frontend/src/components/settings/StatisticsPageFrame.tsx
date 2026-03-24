@@ -5,7 +5,7 @@ interface StatisticsPageFrameProps {
   toolbar: ReactNode;
   signalRibbon: ReactNode;
   mainCanvas: ReactNode;
-  summaryRail: ReactNode;
+  summaryRail?: ReactNode;
   secondary?: ReactNode;
   className?: string;
 }
@@ -33,14 +33,16 @@ export const StatisticsPageFrame: FC<StatisticsPageFrameProps> = ({
       {signalRibbon}
     </div>
 
-    <div className="grid min-h-0 flex-1 gap-8 xl:grid-cols-[minmax(0,1.5fr)_300px]">
+    <div className={cn('grid min-h-0 flex-1 gap-8', summaryRail ? 'xl:grid-cols-[minmax(0,1.5fr)_300px]' : 'grid-cols-1')}>
       <div className="min-h-0 space-y-6">
         <div data-testid="statistics-page-main-canvas">{mainCanvas}</div>
         {secondary ? <div>{secondary}</div> : null}
       </div>
-      <aside data-testid="statistics-page-summary-rail" className="space-y-4 xl:border-l xl:border-[hsl(var(--settings-subnav-border)/0.56)] xl:pl-6">
-        {summaryRail}
-      </aside>
+      {summaryRail ? (
+        <aside data-testid="statistics-page-summary-rail" className="space-y-4 xl:border-l xl:border-[hsl(var(--settings-subnav-border)/0.56)] xl:pl-6">
+          {summaryRail}
+        </aside>
+      ) : null}
     </div>
   </div>
 );

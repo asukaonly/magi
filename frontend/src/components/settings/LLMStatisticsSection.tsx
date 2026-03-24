@@ -10,15 +10,36 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { metricsApi, type LLMUsageBreakdownItem, type LLMUsageSummary, type LLMUsageTimeseriesPoint } from '@/api/modules/metrics';
+import { metricsApi, type LLMUsageSummary, type LLMUsageTimeseriesPoint } from '@/api/modules/metrics';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { StatisticsPageFrame } from './StatisticsPageFrame';
 
 const WINDOW_OPTIONS = [7, 30] as const;
+const TABLE_TABS = ['models', 'providers', 'requestKinds'] as const;
+
+type TableTab = (typeof TABLE_TABS)[number];
+
+const REQUEST_KIND_TRANSLATION_KEYS: Record<string, string> = {
+  chat: 'settings.statistics.llm.requestKinds.chat',
+  context_decider: 'settings.statistics.llm.requestKinds.contextDecider',
+  'function_calling:tools': 'settings.statistics.llm.requestKinds.functionCallingTools',
+  'function_calling:final_response': 'settings.statistics.llm.requestKinds.functionCallingFinalResponse',
+  'skill_subagent:direct': 'settings.statistics.llm.requestKinds.skillSubagentDirect',
+  'memory:l2_unified_extraction': 'settings.statistics.llm.requestKinds.memoryL2UnifiedExtraction',
+  'memory:l2_entity_resolution': 'settings.statistics.llm.requestKinds.memoryL2EntityResolution',
+  'memory:l2_contradiction_hint': 'settings.statistics.llm.requestKinds.memoryL2ContradictionHint',
+  'memory:l2_conflict_arbitration': 'settings.statistics.llm.requestKinds.memoryL2ConflictArbitration',
+  'memory:l2_entity_reconcile': 'settings.statistics.llm.requestKinds.memoryL2EntityReconcile',
+  'memory:l3_temporal_summary': 'settings.statistics.llm.requestKinds.memoryL3TemporalSummary',
+  'memory:l3_thematic_topic_summary': 'settings.statistics.llm.requestKinds.memoryL3ThematicTopicSummary',
+};
 
 const formatCompactNumber = (value: number) =>
   new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+
+const formatInteger = (value?: number | null) =>
+  new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Number(value || 0));
 
 const formatLatency = (value?: number | null) =>
   typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)}ms` : null;
@@ -34,14 +55,15 @@ const computeSuccessRate = (summary: LLMUsageSummary | null) => {
   return (totals.successful_calls / totals.total_calls) * 100;
 };
 
-const pickTopItem = (items: LLMUsageBreakdownItem[], key: 'total_tokens' | 'cost_usd' | 'failed_calls') =>
-  [...items]
-    .sort((left, right) => Number(right[key] || 0) - Number(left[key] || 0))
-    .find((item) => Number(item[key] || 0) > 0) || null;
+const resolveRequestKindLabel = (requestKind: string | undefined, t: (key: string) => string, fallback: string) => {
+  if (!requestKind) {
+    return fallback;
+  }
+  const translationKey = REQUEST_KIND_TRANSLATION_KEYS[requestKind];
+  return translationKey ? t(translationKey) : requestKind;
+};
 
-export const LLMStatisticsSection: FC = () => (
-  <LLMStatisticsSectionInner />
-);
+export const LLMStatisticsSection: FC = () => <LLMStatisticsSectionInner />;
 
 const LLMStatisticsSectionInner: FC = () => {
   const { t } = useTranslation('app');
@@ -51,6 +73,7 @@ const LLMStatisticsSectionInner: FC = () => {
   const [loading, setLoading] = useState(true);
   const [providerFilter, setProviderFilter] = useState('all');
   const [modelFilter, setModelFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState<TableTab>('models');
 
   useEffect(() => {
     let cancelled = false;
@@ -113,16 +136,23 @@ const LLMStatisticsSectionInner: FC = () => {
     [providerFilter, summary]
   );
 
-  const filteredRequestKinds = useMemo(() => summary?.request_kinds || [], [summary]);
+  const requestKinds = useMemo(() => summary?.request_kinds || [], [summary]);
 
   const totals = summary?.totals;
   const hasUsage = Boolean(totals && totals.total_calls > 0);
   const successRate = computeSuccessRate(summary);
-  const topModel = pickTopItem(filteredModels, 'total_tokens');
-  const topFailureKind = pickTopItem(filteredRequestKinds, 'failed_calls');
-  const topProviderCost = pickTopItem(filteredProviders, 'cost_usd');
   const unavailableLabel = t('settings.statistics.shared.unavailable');
   const unknownLabel = t('settings.statistics.shared.unknown');
+
+  const activeRows = useMemo(() => {
+    if (activeTab === 'models') {
+      return filteredModels;
+    }
+    if (activeTab === 'providers') {
+      return filteredProviders;
+    }
+    return requestKinds;
+  }, [activeTab, filteredModels, filteredProviders, requestKinds]);
 
   if (loading) {
     return (
@@ -159,10 +189,10 @@ const LLMStatisticsSectionInner: FC = () => {
                   size="sm"
                   variant={windowDays === days ? 'default' : 'outline'}
                   onClick={() => setWindowDays(days)}
-                  aria-label={`${days}D`}
+                  aria-label={t(`settings.usage.windows.${days}`)}
                   className={windowDays === days ? 'rounded-full' : 'rounded-full bg-transparent'}
                 >
-                  {days}D
+                  {t(`settings.usage.windows.${days}`)}
                 </Button>
               ))}
               <select
@@ -230,64 +260,64 @@ const LLMStatisticsSectionInner: FC = () => {
           </div>
         )}
         secondary={(
-          <div className="space-y-6">
-            <AnalysisSection
-              title={t('settings.usage.splitTitle')}
-              items={[
-                { label: t('settings.usage.cards.prompt'), value: formatCompactNumber(totals.prompt_tokens) },
-                { label: t('settings.usage.cards.completion'), value: formatCompactNumber(totals.completion_tokens) },
-              ]}
-            />
-            <div className="grid gap-6 md:grid-cols-3">
-              <AnalysisSection
-                title={t('settings.usage.modelTitle')}
-                items={filteredModels.slice(0, 3).map((item) => ({
-                  label: item.model || unknownLabel,
-                  value: formatCompactNumber(item.total_tokens),
-                  meta: item.provider,
-                }))}
-              />
-              <AnalysisSection
-                title={t('settings.usage.providerTitle')}
-                items={filteredProviders.slice(0, 3).map((item) => ({
-                  label: item.provider || unknownLabel,
-                  value: formatCompactNumber(item.total_tokens),
-                }))}
-              />
-              <AnalysisSection
-                title={t('settings.usage.requestKindsTitle')}
-                items={filteredRequestKinds.slice(0, 3).map((item) => ({
-                  label: item.request_kind || unknownLabel,
-                  value: formatCompactNumber(item.total_tokens),
-                  meta: t('settings.usage.callsLabel', { count: item.calls }),
-                }))}
-              />
+          <section className="space-y-4 border-t border-[hsl(var(--settings-subnav-border)/0.42)] pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="text-sm font-medium text-foreground">{t('settings.statistics.llm.table.title')}</div>
+              <div role="tablist" aria-label={t('settings.statistics.llm.table.title')} className="inline-flex rounded-full border border-[hsl(var(--settings-subnav-border)/0.68)] p-1">
+                {TABLE_TABS.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={
+                      activeTab === tab
+                        ? 'rounded-full bg-[hsl(var(--settings-shell-elevated)/0.82)] px-3 py-1.5 text-sm font-medium text-foreground'
+                        : 'rounded-full px-3 py-1.5 text-sm text-muted-foreground transition hover:text-foreground'
+                    }
+                  >
+                    {t(`settings.statistics.llm.tabs.${tab}`)}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-        summaryRail={(
-          <>
-            <SummaryItem label={t('settings.statistics.llm.summary.mostActiveModel')} value={topModel?.model || unavailableLabel} detail={topModel?.provider || undefined} />
-            <SummaryItem
-              label={t('settings.statistics.llm.summary.highestFailureRequestKind')}
-              value={topFailureKind?.request_kind || unavailableLabel}
-              detail={
-                typeof topFailureKind?.failed_calls === 'number'
-                  ? t('settings.usage.cards.failedCalls', { count: topFailureKind.failed_calls })
-                  : t('settings.statistics.shared.noFailureData')
-              }
-            />
-            <SummaryItem
-              label={t('settings.statistics.llm.summary.highestCostProvider')}
-              value={topProviderCost?.provider || unavailableLabel}
-              detail={formatCurrency(topProviderCost?.cost_usd) || unavailableLabel}
-            />
-            <div className="rounded-[1.25rem] border border-[hsl(var(--settings-subnav-border)/0.48)] bg-[hsl(var(--settings-shell-elevated)/0.24)] p-4 text-sm leading-6 text-muted-foreground">
-              {successRate >= 95
-                ? t('settings.statistics.llm.summary.healthyNote')
-                : t('settings.statistics.llm.summary.attentionNote')}
+
+            <div className="overflow-hidden rounded-[1.3rem] border border-[hsl(var(--settings-subnav-border)/0.56)] bg-[hsl(var(--settings-shell-elevated)/0.22)]">
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-[hsl(var(--settings-subnav-border)/0.56)] text-left">
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.key')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.calls')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.totalTokens')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.promptTokens')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.completionTokens')}</TableHeaderCell>
+                      <TableHeaderCell>{t('settings.statistics.llm.table.columns.cost')}</TableHeaderCell>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeRows.map((item) => (
+                      <tr key={`${activeTab}-${item.provider || item.model || item.request_kind || unknownLabel}`} className="border-b border-[hsl(var(--settings-subnav-border)/0.3)] last:border-b-0">
+                        <TableCell>
+                          {activeTab === 'models'
+                            ? (item.model || unknownLabel)
+                            : activeTab === 'providers'
+                              ? (item.provider || unknownLabel)
+                              : resolveRequestKindLabel(item.request_kind, t, unknownLabel)}
+                        </TableCell>
+                        <TableCell>{formatInteger(item.calls)}</TableCell>
+                        <TableCell>{formatInteger(item.total_tokens)}</TableCell>
+                        <TableCell>{formatInteger(item.prompt_tokens)}</TableCell>
+                        <TableCell>{formatInteger(item.completion_tokens)}</TableCell>
+                        <TableCell>{formatCurrency(item.cost_usd) || unavailableLabel}</TableCell>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </>
+          </section>
         )}
       />
     </div>
@@ -301,43 +331,12 @@ const SignalItem = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-const AnalysisSection = ({
-  title,
-  items,
-}: {
-  title: string;
-  items: Array<{ label: string; value: string; meta?: string }>;
-}) => (
-  <section className="space-y-3 border-t border-[hsl(var(--settings-subnav-border)/0.42)] pt-4">
-    <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{title}</div>
-    <div className="space-y-3">
-      {items.map((item) => (
-        <div key={`${title}-${item.label}`} className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-foreground">{item.label}</div>
-            {item.meta ? <div className="text-xs text-muted-foreground">{item.meta}</div> : null}
-          </div>
-          <div className="text-sm text-foreground">{item.value}</div>
-        </div>
-      ))}
-    </div>
-  </section>
+const TableHeaderCell = ({ children }: { children: React.ReactNode }) => (
+  <th className="px-4 py-3 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">{children}</th>
 );
 
-const SummaryItem = ({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail?: string;
-}) => (
-  <div className="border-b border-[hsl(var(--settings-subnav-border)/0.38)] pb-4">
-    <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{label}</div>
-    <div className="mt-2 text-lg font-semibold text-foreground">{value}</div>
-    {detail ? <div className="mt-1 text-sm text-muted-foreground">{detail}</div> : null}
-  </div>
+const TableCell = ({ children }: { children: React.ReactNode }) => (
+  <td className="px-4 py-3 text-sm text-foreground">{children}</td>
 );
 
 export default LLMStatisticsSection;

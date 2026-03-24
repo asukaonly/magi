@@ -594,12 +594,35 @@
         "noFailureData": "No failure data"
       },
       "llm": {
-        "summary": {
-          "mostActiveModel": "Most active model",
-          "highestFailureRequestKind": "Highest failure request kind",
-          "highestCostProvider": "Highest cost provider",
-          "healthyNote": "Usage quality looks stable, with failures contained and latency in a healthy range.",
-          "attentionNote": "Usage is active, but recent failures or latency spikes deserve a closer look."
+        "tabs": {
+          "models": "By model",
+          "providers": "By provider",
+          "requestKinds": "By request kind"
+        },
+        "table": {
+          "title": "Detailed breakdown",
+          "columns": {
+            "key": "Key",
+            "calls": "Calls",
+            "totalTokens": "Token Spend",
+            "promptTokens": "Prompt Tokens",
+            "completionTokens": "Completion Tokens",
+            "cost": "Cost"
+          }
+        },
+        "requestKinds": {
+          "chat": "Chat",
+          "contextDecider": "Context Decider",
+          "functionCallingTools": "Tool Calling",
+          "functionCallingFinalResponse": "Final Response",
+          "skillSubagentDirect": "Skill Subagent",
+          "memoryL2UnifiedExtraction": "L2 Unified Extraction",
+          "memoryL2EntityResolution": "L2 Entity Resolution",
+          "memoryL2ContradictionHint": "L2 Contradiction Hint",
+          "memoryL2ConflictArbitration": "L2 Conflict Arbitration",
+          "memoryL2EntityReconcile": "L2 Entity Reconcile",
+          "memoryL3TemporalSummary": "L3 Temporal Summary",
+          "memoryL3ThematicTopicSummary": "L3 Thematic Topic Summary"
         }
       },
       "runtime": {

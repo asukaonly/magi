@@ -41,8 +41,8 @@ const summaryFixture = {
     { provider: 'anthropic', model: 'claude-sonnet', calls: 50, prompt_tokens: 50000, completion_tokens: 22000, total_tokens: 72000, cost_usd: 3.8, failed_calls: 1, avg_ttft_ms: 640 },
   ],
   request_kinds: [
-    { request_kind: 'chat', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, failed_calls: 4 },
-    { request_kind: 'memory', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, failed_calls: 2 },
+    { request_kind: 'chat', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, cost_usd: 8.9, failed_calls: 4 },
+    { request_kind: 'memory:l2_unified_extraction', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, cost_usd: 3.2, failed_calls: 2 },
   ],
 };
 
@@ -69,16 +69,16 @@ beforeEach(() => {
 });
 
 describe('LLMStatisticsSection', () => {
-  it('renders the shared statistics frame regions', async () => {
+  it('renders the statistics frame without the removed summary rail', async () => {
     render(<LLMStatisticsSection />);
 
     expect(await screen.findByTestId('statistics-page-toolbar')).toBeInTheDocument();
     expect(screen.getByTestId('statistics-page-signal-ribbon')).toBeInTheDocument();
     expect(screen.getByTestId('statistics-page-main-canvas')).toBeInTheDocument();
-    expect(screen.getByTestId('statistics-page-summary-rail')).toBeInTheDocument();
+    expect(screen.queryByTestId('statistics-page-summary-rail')).not.toBeInTheDocument();
   });
 
-  it('loads toolbar filters, omits repeated local title copy, and switches windows', async () => {
+  it('loads toolbar filters, uses i18n window labels, and switches windows', async () => {
     const user = userEvent.setup();
     render(<LLMStatisticsSection />);
 
@@ -88,14 +88,29 @@ describe('LLMStatisticsSection', () => {
     });
 
     expect(screen.queryByRole('heading', { name: 'settings.tabs.statisticsLlm' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '7D' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '30D' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.usage.windows.7' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.usage.windows.30' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'provider-filter' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'model-filter' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.models' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.providers' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.requestKinds' })).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.key')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.calls')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.totalTokens')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.promptTokens')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.completionTokens')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.table.columns.cost')).toBeInTheDocument();
     expect(screen.getAllByText('gpt-5').length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.providers' }));
     expect(screen.getAllByText('openai').length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole('button', { name: '30D' }));
+    await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.requestKinds' }));
+    expect(screen.getByText('settings.statistics.llm.requestKinds.chat')).toBeInTheDocument();
+    expect(screen.getByText('settings.statistics.llm.requestKinds.memoryL2UnifiedExtraction')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.usage.windows.30' }));
 
     await waitFor(() => {
       expect(metricsApi.getLLMUsageSummary).toHaveBeenLastCalledWith(30, 8);

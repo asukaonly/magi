@@ -594,12 +594,35 @@
         "noFailureData": "暂无失败数据"
       },
       "llm": {
-        "summary": {
-          "mostActiveModel": "最活跃模型",
-          "highestFailureRequestKind": "失败率最高场景",
-          "highestCostProvider": "成本最高提供商",
-          "healthyNote": "最近调用质量比较稳定，失败与延迟都还在健康区间内。",
-          "attentionNote": "最近调用依然活跃，但失败或延迟波动值得继续观察。"
+        "tabs": {
+          "models": "按模型",
+          "providers": "按提供商",
+          "requestKinds": "按调用场景"
+        },
+        "table": {
+          "title": "详细明细",
+          "columns": {
+            "key": "Key",
+            "calls": "调用次数",
+            "totalTokens": "Token 花费",
+            "promptTokens": "输入 Token",
+            "completionTokens": "输出 Token",
+            "cost": "成本"
+          }
+        },
+        "requestKinds": {
+          "chat": "对话",
+          "contextDecider": "上下文决策",
+          "functionCallingTools": "工具调用",
+          "functionCallingFinalResponse": "最终回复",
+          "skillSubagentDirect": "技能子代理",
+          "memoryL2UnifiedExtraction": "L2 统一抽取",
+          "memoryL2EntityResolution": "L2 实体消歧",
+          "memoryL2ContradictionHint": "L2 矛盾提示",
+          "memoryL2ConflictArbitration": "L2 冲突仲裁",
+          "memoryL2EntityReconcile": "L2 实体归并",
+          "memoryL3TemporalSummary": "L3 时间摘要",
+          "memoryL3ThematicTopicSummary": "L3 主题摘要"
         }
       },
       "runtime": {
