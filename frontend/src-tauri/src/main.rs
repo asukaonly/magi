@@ -1,3 +1,5 @@
+mod desktop_presence;
+
 use serde::Serialize;
 use std::env;
 use std::io::{Read, Write};
@@ -526,21 +528,68 @@ fn get_backend_base_url(state: State<'_, BackendState>) -> Result<BackendBaseUrl
     })
 }
 
+#[tauri::command]
+fn set_close_to_tray_enabled(
+    state: State<'_, desktop_presence::DesktopPresenceState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.set_close_to_tray_enabled(enabled)
+}
+
+#[tauri::command]
+fn confirm_exit_app(
+    app: AppHandle,
+    backend_state: State<'_, BackendState>,
+) -> Result<(), String> {
+    stop_backend_inner(&backend_state)?;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_exit_request() -> Result<(), String> {
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(BackendState::default())
+        .manage(desktop_presence::DesktopPresenceState::default())
+        .setup(|app| {
+            desktop_presence::setup(app.handle()).map_err(Into::into)
+        })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                let state: State<'_, BackendState> = window.state();
-                let _ = stop_backend_inner(&state);
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    let state: State<'_, desktop_presence::DesktopPresenceState> = window.state();
+                    match state.close_action() {
+                        Ok(desktop_presence::CloseAction::HideToTray) => {
+                            api.prevent_close();
+                            let _ = desktop_presence::hide_main_window(window.app_handle());
+                        }
+                        Ok(desktop_presence::CloseAction::RequestQuitConfirmation) => {
+                            api.prevent_close();
+                            let _ = desktop_presence::emit_quit_requested(window.app_handle());
+                        }
+                        Err(_) => {}
+                    }
+                }
+                tauri::WindowEvent::Destroyed => {
+                    let state: State<'_, BackendState> = window.state();
+                    let _ = stop_backend_inner(&state);
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
             start_backend,
             stop_backend,
             backend_status,
-            get_backend_base_url
+            get_backend_base_url,
+            set_close_to_tray_enabled,
+            confirm_exit_app,
+            cancel_exit_request
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Magi desktop application");
