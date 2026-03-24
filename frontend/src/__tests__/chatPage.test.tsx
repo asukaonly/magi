@@ -257,11 +257,13 @@ describe('ChatPage', () => {
     const composerRoot = composerInput.parentElement;
     const toolbar = screen.getByTestId('chat-composer-toolbar');
     const sendButton = screen.getByRole('button', { name: 'chat.send' });
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
 
     expect(composerRoot).toHaveClass('rounded-2xl');
     expect(composerRoot).not.toHaveClass('rounded-[28px]');
     expect(toolbar).not.toHaveClass('border-t');
     expect(sendButton).toHaveClass('h-10', 'w-10');
+    expect(textarea.style.height).toBe('88px');
   });
 
   it('disables image attachments when the core model does not support vision', async () => {

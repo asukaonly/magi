@@ -1120,7 +1120,7 @@ export const ChatPage: React.FC = () => {
 
           <div
             data-testid="chat-composer-input"
-            className={draftAttachments.length > 0 ? 'px-5 pb-1 pt-3' : 'px-5 pb-1 pt-4'}
+            className={draftAttachments.length > 0 ? 'px-5 pb-0 pt-2.5' : 'px-5 pb-0 pt-3'}
           >
             <AutoResizeTextarea
               value={inputValue}
@@ -1135,13 +1135,13 @@ export const ChatPage: React.FC = () => {
               onKeyDown={handleKeyPress}
               onPaste={handleComposerPaste}
               disabled={!connected}
-              minHeight={112}
-              className="max-h-72 resize-none border-0 bg-transparent p-0 text-sm leading-7 shadow-none placeholder:text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+              minHeight={88}
+              className="max-h-72 resize-none border-0 bg-transparent p-0 text-sm leading-6 shadow-none placeholder:text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
             />
           </div>
           <div
             data-testid="chat-composer-toolbar"
-            className="flex items-center justify-between px-4 pb-4 pt-2"
+            className="flex items-center justify-between px-4 pb-3 pt-1"
           >
             <div className="relative">
               <button
