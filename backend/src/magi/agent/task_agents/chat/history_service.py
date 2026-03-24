@@ -78,11 +78,9 @@ class ChatHistoryService:
                 session_id,
                 exc,
             )
-            cached = self._conversation_history.setdefault(
-                history_key,
-                CachedConversationHistory(version=durable_version, messages=[]),
-            )
-            return cached.messages
+            if cached_entry is not None:
+                return cached_entry.messages
+            return []
 
     def require_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
         _ = user_id

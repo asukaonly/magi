@@ -673,6 +673,118 @@ def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path
     assert messages[1].message_kind == "assistant_final"
 
 
+def test_clear_conversation_history_bumps_history_version(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-chat",
+        user_id="u1",
+        title="Chat",
+        created_at=1000,
+        updated_at=1020,
+        message_count=2,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s-chat",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1020,
+        completed_at_ms=1020,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="chat-store user",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+
+    conn = service._get_conn()
+    before_version = int(
+        conn.execute(
+            f"SELECT history_version FROM {CHAT_SESSIONS_TABLE} WHERE session_id = ?",
+            ("s-chat",),
+        ).fetchone()[0]
+    )
+
+    service.clear_conversation_history("u1", "s-chat")
+
+    after_version = int(
+        conn.execute(
+            f"SELECT history_version FROM {CHAT_SESSIONS_TABLE} WHERE session_id = ?",
+            ("s-chat",),
+        ).fetchone()[0]
+    )
+
+    assert after_version == before_version + 1
+
+
+def test_delete_session_bumps_history_version(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-chat",
+        user_id="u1",
+        title="Chat",
+        created_at=1000,
+        updated_at=1020,
+        message_count=2,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s-chat",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1020,
+        completed_at_ms=1020,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="chat-store user",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+
+    conn = service._get_conn()
+    before_version = int(
+        conn.execute(
+            f"SELECT history_version FROM {CHAT_SESSIONS_TABLE} WHERE session_id = ?",
+            ("s-chat",),
+        ).fetchone()[0]
+    )
+
+    service.delete_session("u1", "s-chat")
+
+    after_version = int(
+        conn.execute(
+            f"SELECT history_version FROM {CHAT_SESSIONS_TABLE} WHERE session_id = ?",
+            ("s-chat",),
+        ).fetchone()[0]
+    )
+
+    assert after_version == before_version + 1
+
+
 def test_get_display_history_prefers_chat_store_transcript(tmp_path, monkeypatch):
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()

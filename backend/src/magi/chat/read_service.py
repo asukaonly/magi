@@ -370,7 +370,8 @@ class ChatReadService:
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
             SET deleted_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
-                updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+                history_version = history_version + 1
             WHERE user_id = ?
               AND session_id = ?
               AND deleted_at_ms IS NULL
@@ -510,7 +511,8 @@ class ChatReadService:
                     last_user_message_at_ms = NULL,
                     last_message_preview = '',
                     last_user_message_preview = '',
-                    message_count = 0
+                    message_count = 0,
+                    history_version = history_version + 1
                 WHERE user_id = ?
                   AND session_id = ?
                   AND deleted_at_ms IS NULL

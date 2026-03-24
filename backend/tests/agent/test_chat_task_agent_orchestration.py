@@ -107,6 +107,54 @@ async def test_chat_history_service_reloads_cache_when_history_version_changes(t
 
 
 @pytest.mark.asyncio
+async def test_chat_history_service_retries_reload_after_transient_read_failure(tmp_path: Path) -> None:
+    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await chat_store.initialize()
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-1",
+        message_text="hello",
+        created_at_ms=100,
+    )
+
+    from magi.chat.read_service import ChatReadService
+
+    real_read_service = ChatReadService()
+    real_read_service._chat_db_path = tmp_path / "chat.db"
+    real_read_service._l1_db_path = tmp_path / "l1.sqlite3"
+    real_read_service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+
+    class _FlakyReadService:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_conversation_history(self, *, user_id: str, session_id: str, limit: int = 200):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("transient read failure")
+            return real_read_service.get_conversation_history(
+                user_id=user_id,
+                session_id=session_id,
+                limit=limit,
+            )
+
+    flaky_read_service = _FlakyReadService()
+    service = ChatHistoryService(
+        l1_db_path=tmp_path / "l1.sqlite3",
+        runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
+        chat_store=chat_store,
+        chat_read_service_factory=lambda: flaky_read_service,
+    )
+
+    first_history = await service.get_or_load_history("u-chat", "s-chat")
+    second_history = await service.get_or_load_history("u-chat", "s-chat")
+
+    assert first_history == []
+    assert second_history == [{"role": "user", "content": "hello"}]
+
+
+@pytest.mark.asyncio
 async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_path: Path, monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._orchestration_store = OrchestrationStore(tmp_path / "orchestrations.json")
