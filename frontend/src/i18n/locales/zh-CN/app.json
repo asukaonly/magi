@@ -338,6 +338,7 @@
     },
     "preferencesDesc": "配置界面语言和用户模式",
     "closeToTrayDesc": "关闭主窗口时隐藏到托盘或状态栏，并保持本地运行时继续运行。",
+    "closeToTrayHelp": "关闭主窗口后，Magi 仍会在后台继续运行。",
     "defaultChatWorkspaceDesc": "设置桌面端新对话默认挂载的工作目录。进入具体会话后，仍然可以单独覆盖这个目录。",
     "defaultChatWorkspacePlaceholder": "未选择默认目录",
     "defaultChatWorkspacePickFailed": "选择默认对话目录失败：{{message}}",

@@ -559,6 +559,16 @@ describe('settings page draft saving', () => {
     expect(syncCloseToTrayPreferenceMock).toHaveBeenCalledWith(false);
   });
 
+  it('uses a full-width preferences pane without repeating single-field labels', async () => {
+    render(<SettingsPage />);
+
+    const content = await screen.findByTestId('settings-section-content');
+
+    expect(content).not.toHaveClass('max-w-3xl');
+    expect(screen.getAllByText('settings.fields.language')).toHaveLength(1);
+    expect(screen.getAllByText('settings.fields.closeToTray')).toHaveLength(1);
+  });
+
   it('saves a picked default chat workspace path in preferences', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/Users/asuka/code/magi');

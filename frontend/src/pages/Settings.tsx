@@ -202,7 +202,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             <SettingsGroup title={t('settings.fields.language')}>
               <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
                 <LabeledSelectField
-                  label={t('settings.fields.language')}
+                  label=""
+                  ariaLabel={t('settings.fields.language')}
                   value={draftConfig.preferences.language}
                   options={[
                     { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
@@ -262,11 +263,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               description={t('settings.closeToTrayDesc')}
             >
               <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-foreground">{t('settings.fields.closeToTray')}</div>
-                  <div className="text-xs leading-6 text-muted-foreground">
-                    {t('settings.closeToTrayDesc')}
-                  </div>
+                <div className="text-xs leading-6 text-muted-foreground">
+                  {t('settings.closeToTrayHelp')}
                 </div>
                 <div className="flex justify-start sm:justify-end">
                   <Switch
@@ -749,7 +747,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out',
                     usesInnerPaneScroll
                       ? 'flex h-full min-h-0 w-full flex-col overflow-hidden'
-                      : isWideSection
+                      : isWideSection || activeSection === 'preferences'
                         ? 'h-full overflow-y-auto pr-1'
                         : 'h-full max-w-3xl overflow-y-auto pr-1'
                   )}

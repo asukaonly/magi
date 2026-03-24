@@ -21,6 +21,7 @@ export interface SelectOption {
 
 export interface LabeledSelectFieldProps {
   label: string;
+  ariaLabel?: string;
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
@@ -28,13 +29,20 @@ export interface LabeledSelectFieldProps {
 
 export const LabeledSelectField: React.FC<LabeledSelectFieldProps> = ({
   label,
+  ariaLabel,
   value,
   options,
   onChange,
 }) => (
   <label className="space-y-2">
-    <span className="text-sm font-medium">{label}</span>
-    <BaseSelectField value={value} onChange={onChange} options={options} allowEmpty={false} />
+    {label ? <span className="text-sm font-medium">{label}</span> : null}
+    <BaseSelectField
+      value={value}
+      onChange={onChange}
+      options={options}
+      allowEmpty={false}
+      ariaLabel={ariaLabel}
+    />
   </label>
 );
 

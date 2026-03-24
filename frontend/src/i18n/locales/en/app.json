@@ -338,6 +338,7 @@
     },
     "preferencesDesc": "Configure interface language and user mode",
     "closeToTrayDesc": "Hide the main window to the tray or menu bar when closing it, while keeping the local runtime active.",
+    "closeToTrayHelp": "Keeps Magi running in the background after the main window is closed.",
     "defaultChatWorkspaceDesc": "Set the default working directory mounted into new desktop chat sessions. You can still override it inside an individual conversation.",
     "defaultChatWorkspacePlaceholder": "No default directory selected",
     "defaultChatWorkspacePickFailed": "Failed to choose a default chat directory: {{message}}",

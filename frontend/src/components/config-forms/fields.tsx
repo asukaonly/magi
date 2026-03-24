@@ -19,6 +19,7 @@ export function SelectField({
   className,
   triggerClassName,
   menuClassName,
+  ariaLabel,
 }: {
   value?: string;
   onChange?: (value: string) => void;
@@ -29,6 +30,7 @@ export function SelectField({
   className?: string;
   triggerClassName?: string;
   menuClassName?: string;
+  ariaLabel?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -114,6 +116,7 @@ export function SelectField({
         type="button"
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
+        aria-label={ariaLabel}
         className={cn(
           'flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.05)]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600/60',
