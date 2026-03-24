@@ -4,6 +4,8 @@
 
 Only current project, product, architecture, and implementation guidance should live here. Historical review notes, scratch plans, and one-off execution prompts should be folded into the main docs or removed once the work is complete.
 
+Local-only working drafts, design spikes, and execution plans belong under `docs/dev/`. That directory is intentionally gitignored and should not be treated as repository documentation.
+
 ## Recommended Reading Order
 
 1. [Project Overview](./project-overview.md)
@@ -21,16 +23,13 @@ Only current project, product, architecture, and implementation guidance should 
 5. [Memory System Design](./memory-system-design.md)
   Maintainer-level implementation design for the lifecycle-based memory model.
 
-6. [Memory System Execution Plan](./memory-system-execution-plan.md)
-  Active subsystem plan for the remaining memory-system implementation work.
-
-7. [Unified Plugin Extension Architecture](./plugin-extension-architecture.md)
+6. [Unified Plugin Extension Architecture](./plugin-extension-architecture.md)
   Current design for plugin discovery, contribution registration, and settings metadata.
 
-8. [Plugin Development Guide](./plugin-development-guide.md)
+7. [Plugin Development Guide](./plugin-development-guide.md)
   Practical guide for authoring built-in or external plugins.
 
-9. [Backlog](./backlog.md)
+8. [Backlog](./backlog.md)
   Current development and maintenance follow-ups that are intentionally not mixed into the design docs.
 
 ## Audience Guide
@@ -45,7 +44,7 @@ Only current project, product, architecture, and implementation guidance should 
   Use [Layered Agent Architecture](./layered-agent-architecture.md) for ownership rules and [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md) for the current bootstrap and runtime wiring.
 
 - Memory maintainers
-  Read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), then [Memory System Design](./memory-system-design.md), then [Memory System Execution Plan](./memory-system-execution-plan.md).
+  Read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), then [Memory System Design](./memory-system-design.md).
 
 - Extension and plugin maintainers
   Read [Unified Plugin Extension Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
@@ -54,4 +53,5 @@ Only current project, product, architecture, and implementation guidance should 
 
 - Keep `docs/` aligned with the current codebase, not historical intent.
 - When implementation changes alter runtime ownership or product behavior, update the relevant document in the same change when practical.
-- Keep durable architecture in the main docs and keep open work in [Backlog](./backlog.md) or subsystem-specific execution plans.
+- Keep durable architecture in the main docs and keep open work in [Backlog](./backlog.md).
+- Put temporary plans, design explorations, and review scratchpads in local-only `docs/dev/`, then fold durable conclusions back into the main docs.

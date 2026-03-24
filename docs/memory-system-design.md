@@ -1,8 +1,8 @@
 # Agent 核心记忆系统架构设计文档
 
-> 版本: 1.1
-> 日期: 2026-03-14
-> 状态: 可实施草案
+> 版本: 1.2
+> 日期: 2026-03-24
+> 状态: 当前 source-of-truth（需随实现持续校准）
 
 ## 0. 文档目标
 
@@ -43,7 +43,7 @@
 
 1. **分层原则**：按信息生命周期分层，而不是按功能插件分层。
 2. **系统目标**：核心服务于用户长期记忆与自我感知体系，而不是仅服务于回复增强。
-3. **向量定位**：向量是 L1/L3/L4/L5 的检索属性，不是独立层级。
+3. **向量定位**：向量是 L1/L3/L4 的检索属性，不是独立层级。
 4. **L4 定位**：L4 属于程序性记忆，负责沉淀“如何做一件事”的经验与策略，包括工具使用经验、异常处理肌肉记忆、熔断状态。
 5. **L0 介质**：L0 默认以内存为主，采用 checkpoint 定时落盘到 SQLite，用于恢复与异常重启保护。
 6. **ToM 必做**：L2 必须支持 ToM，但必须采用防御性设计，主观推断先进入低置信度断言层，经跨事件验证后才固化到稳定画像。
@@ -51,7 +51,7 @@
 8. **保留策略**：事件是否可压缩/删除取决于事件类型；聊天记录与用户主动记录默认不可删，浏览记录与部分外部活动默认可压缩删除。
 9. **污染隔离**：L1 中允许存在运行时遥测事件，但它们必须在评分、摘要、图谱与 ToM 流程中被默认隔离，不能与用户长期经验事件混算。
 
-### 1.1 当前实现基线（2026-03-14）
+### 1.1 当前实现基线（2026-03-24）
 
 1. `message_queue.db` 仅承担消息总线持久化（`message_queue`），不再承载 L1 主存。
 2. L1 主存独立为 `memories/l1_events.db`（当前为单库单表，分片后置）。
@@ -61,7 +61,6 @@
    - `l1_event_vectors`
    - `l3_summary_vectors`
    - `l4_skill_vectors`
-   - `l5_capability_vectors`
 6. `scheduler.db` 除 `schedules/target_state` 外，新增 `schedule_executions` 记录每次调度执行。
 7. `tasks.db` 当前不参与 runtime 主链路，不作为调度执行记录来源。
 
@@ -72,17 +71,15 @@
 当前实现位于以下模块：
 
 - [UnifiedMemoryStore](/Users/asuka/code/magi/backend/src/magi/memory/__init__.py)
-- [L1EventStore](/Users/asuka/code/magi/backend/src/magi/memory/l1_event_store.py)
-- [EventRelationStore](/Users/asuka/code/magi/backend/src/magi/memory/l2_event_relations.py)
-- [L2UserGraphStore](/Users/asuka/code/magi/backend/src/magi/memory/l2_user_graph.py)
-- [eventEmbeddingStore](/Users/asuka/code/magi/backend/src/magi/memory/l3_semantic_embeddings.py)
-- [SummaryStore](/Users/asuka/code/magi/backend/src/magi/memory/l4_summaries.py)
-- [CapabilityMemory](/Users/asuka/code/magi/backend/src/magi/memory/l5_capabilities.py)
+- [L1EventStore](/Users/asuka/code/magi/backend/src/magi/memory/l1/event_store.py)
+- [L2 store and pipeline](/Users/asuka/code/magi/backend/src/magi/memory/l2/store.py)
+- [L3SummaryStore](/Users/asuka/code/magi/backend/src/magi/memory/l3/summary_store.py)
+- [L4ProceduralMemoryStore](/Users/asuka/code/magi/backend/src/magi/memory/l4/procedural_memory.py)
 - [MemoryIntegrationModule](/Users/asuka/code/magi/backend/src/magi/memory/integration.py)
 
 当前方案的主要问题：
 
-1. **分层语义不统一**：当前 L1-L5 更像功能模块堆叠，而不是围绕“事件 -> 认知 -> 摘要 -> 程序性经验”的生命周期演化。
+1. **分层语义不统一**：旧实现更像功能模块堆叠，而不是围绕“事件 -> 认知 -> 摘要 -> 程序性经验”的生命周期演化。
 2. **短期工作记忆缺位**：Prompt 组装仍然手工传入 `short_term_workbench` 等占位结构，缺少真正的 L0。
 3. **L2 结构割裂**：事件关系图与用户图分成两套存储，没有统一的实体、证据、冲突与置信度模型。
 4. **向量独立成层**：向量与事件本体分离，导致检索与事件主存之间缺少统一契约。
@@ -955,7 +952,7 @@ class RetrievalPayload:
 
 ### 10.4 Prompt 组装契约
 
-`PromptContextAssembler` 需要新增对以下 payload 的读取：
+`backend/src/magi/context/assembler.py` 与 `backend/src/magi/context/service.py` 需要能够消费以下 payload：
 
 ```python
 retrieved_memory_payload = {
@@ -1028,7 +1025,7 @@ retrieved_memory_payload = {
 | `MemoryIntegrationModule` | 统一入口，负责标准化、落 L1、投递异步任务 |
 | `L0WorkingMemoryStore` | 内存态 session/workbench 管理与 checkpoint |
 | `L1EventStore` | 事件主存与分片路由 |
-| `L2CognitionStore` | 图谱、断言、快照 |
+| `L2 store + pipeline` | 图谱、断言、快照与抽取流水线 |
 | `L3SummaryStore` | 摘要与 insight |
 | `L4ProceduralMemoryStore` | 程序性记忆 |
 | `HybridRetrievalService` | 统一检索 |
@@ -1042,15 +1039,15 @@ retrieved_memory_payload = {
 
 | 当前模块 | 新模块/新角色 | 动作 |
 |---------|---------------|------|
-| `raw_event_store.py` | `l1_event_store.py` | 替换 |
-| `l2_event_relations.py` | `l2_cognition_store.py` | 删除并合并 |
-| `l2_user_graph.py` | `l2_cognition_store.py` | 删除并合并 |
-| `l3_semantic_embeddings.py` | L1/L3 内嵌向量能力 | 删除独立层角色 |
-| `l4_summaries.py` | `l3_summary_store.py` | 重命名并升级 |
-| `l5_capabilities.py` | `l4_procedural_memory.py` | 替换并扩展 |
+| `raw_event_store.py` | `l1/event_store.py` | 替换 |
+| `l2_event_relations.py` | `l2/store.py` + `l2/pipeline.py` | 删除并合并 |
+| `l2_user_graph.py` | `l2/store.py` + `l2/pipeline.py` | 删除并合并 |
+| `l3_semantic_embeddings.py` | L1/L3/L4 内嵌向量能力 | 删除独立层角色 |
+| `l4_summaries.py` | `l3/summary_store.py` | 重命名并升级 |
+| `l5_capabilities.py` | `l4/procedural_memory.py` | 替换并扩展 |
 | `integration.py` | `integration.py` | 保留入口，但重写内部流程 |
 | `query/*` | `hybrid_retrieval/*` | 重写 |
-| `prompt_context_assembler.py` | 同文件 | 保留并扩展读取新 payload |
+| `context/assembler.py` | 同文件 | 保留并扩展读取新 payload |
 | `bootstrap/backend.py` | 同文件 | 改造初始化与 wiring |
 
 #### 12.2.1 本轮暂不替换
@@ -1094,8 +1091,8 @@ retrieved_memory_payload = {
 
 主要变更：
 
-1. 新增 `backend/src/magi/memory/l0_working_memory.py`
-2. 新增 `backend/src/magi/memory/l1_event_store.py`
+1. 新增 `backend/src/magi/memory/l0/working_memory.py`
+2. 新增 `backend/src/magi/memory/l1/event_store.py`
 3. 删除/替换 `backend/src/magi/memory/raw_event_store.py`
 4. 更新 `backend/src/magi/memory/__init__.py`
 
@@ -1114,10 +1111,10 @@ retrieved_memory_payload = {
 
 主要变更：
 
-1. 新增 `backend/src/magi/memory/l2_cognition_store.py`
-2. 删除 `backend/src/magi/memory/l2_event_relations.py`
-3. 删除 `backend/src/magi/memory/l2_user_graph.py`
-4. 新增 `backend/src/magi/memory/l2_extractors.py`
+1. 新增 `backend/src/magi/memory/l2/store.py`
+2. 新增 `backend/src/magi/memory/l2/pipeline.py`
+3. 删除 `backend/src/magi/memory/l2_event_relations.py`
+4. 删除 `backend/src/magi/memory/l2_user_graph.py`
 
 验收：
 
@@ -1134,9 +1131,9 @@ retrieved_memory_payload = {
 
 主要变更：
 
-1. 新增 `backend/src/magi/memory/l3_summary_store.py`
+1. 新增 `backend/src/magi/memory/l3/summary_store.py`
 2. 删除/替换 `backend/src/magi/memory/l4_summaries.py`
-3. 新增 `backend/src/magi/memory/l3_generators.py`
+3. 新增 L3 生成与校验相关模块
 
 验收：
 
@@ -1153,7 +1150,7 @@ retrieved_memory_payload = {
 
 主要变更：
 
-1. 新增 `backend/src/magi/memory/l4_procedural_memory.py`
+1. 新增 `backend/src/magi/memory/l4/procedural_memory.py`
 2. 删除/替换 `backend/src/magi/memory/l5_capabilities.py`
 
 验收：

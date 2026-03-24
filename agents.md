@@ -10,6 +10,7 @@ This document defines mandatory implementation and delivery rules for coding age
 
 **Do**
 - Align major changes with the active `docs/` architecture and product guides before implementation.
+- Keep `docs/` root reserved for long-lived source-of-truth documents only.
 - Keep each task atomic and independently verifiable.
 - Commit immediately after each completed independent task.
 - Use Conventional Commits with clear English subjects.
@@ -21,6 +22,7 @@ This document defines mandatory implementation and delivery rules for coding age
 - Don't include `cursor` / `claude` / `chatgpt` / `copilot` in commit text.
 - Don't add AI identity signatures (for example, `Co-authored-by: AI Agent`).
 - Don't diverge from the active `docs/` guidance without documenting why and impact.
+- Don't commit temporary plans, review scratchpads, or exploratory design notes under `docs/`.
 - Don't skip validation for core logic changes.
 - Don't enforce English-only for UI copy unless explicitly required.
 - Never add any compatibility code paths; this project is in active development mode.
@@ -31,9 +33,22 @@ This document defines mandatory implementation and delivery rules for coding age
 
 Before changing architecture, core flows, product behavior, or module boundaries, align with the active documentation in `docs/`:
 
+- `docs/README.md`
 - `docs/project-overview.md`
 - `docs/product-configuration-guide.md`
+- `docs/layered-agent-architecture.md`
 - `docs/task-agent-runtime-architecture.md`
+- `docs/memory-system-design.md`
+- `docs/plugin-extension-architecture.md`
+- `docs/plugin-development-guide.md`
+- `docs/backlog.md`
+
+Only these root-level `docs/*.md` files are repository documentation source-of-truth.
+
+Temporary material rules:
+- Put local scratch plans, implementation checklists, and design spikes under `docs/dev/`.
+- `docs/dev/` is local-only and must stay gitignored.
+- If a temporary document produces a durable decision, fold that decision back into the relevant root doc and then remove or ignore the temporary copy.
 
 If implementation must deviate from the active documentation, explain in commit body:
 1. Why deviation is necessary
@@ -46,9 +61,9 @@ If implementation must deviate from the active documentation, explain in commit 
 
 Magi is a local-first AI agent framework with:
 - Sense-Plan-Act-Reflect loop
-- Three-layer agents: `MasterAgent -> TaskAgent -> WorkerAgent`
+- Task-agent runtime centered on `ChatTaskAgent`, `ExploreTaskAgent`, `TaskOrchestrator`, and `WorkerAgentManager`
 - Tool registry + builtin/provider tools + skills integration
-- Multi-layer memory system (L1-L5)
+- Lifecycle-based memory system (`L0`-`L4`)
 - Dual runtime targets:
   - Web mode: `React frontend + Python backend`
   - Desktop mode: `Tauri shell + React WebView + Python sidecar backend`
@@ -191,6 +206,14 @@ A task is complete only when all are done:
 Rules:
 - Do not mix unrelated tasks in one commit.
 - Keep changes atomic and traceable.
+
+### Documentation Update Rules
+
+- When code changes alter product behavior, architecture ownership, runtime boundaries, or operator workflows, update the relevant root `docs/*.md` file in the same task when practical.
+- Prefer updating an existing root doc over creating a new root-level document.
+- New root-level docs require a durable cross-team purpose, not a one-off implementation need.
+- If a root doc becomes obsolete, merge any still-valid guidance into surviving docs before deleting or archiving it.
+- Do not leave root docs pointing at deleted files, renamed modules, or temporary execution plans.
 
 ---
 

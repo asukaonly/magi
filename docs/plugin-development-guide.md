@@ -355,9 +355,8 @@ When adding a new plugin or contribution, validate at three levels when relevant
 
 Useful existing references:
 
-- [test_plugin_manager.py](/Users/asuka/code/magi/backend/tests/test_plugin_manager.py)
-- [test_plugins_api.py](/Users/asuka/code/magi/backend/tests/test_plugins_api.py)
-- [test_plugin_actions.py](/Users/asuka/code/magi/backend/tests/test_plugin_actions.py)
+- Backend plugin tests under [backend/tests/plugins](/Users/asuka/code/magi/backend/tests/plugins)
+- Backend plugin API tests under [backend/tests/api](/Users/asuka/code/magi/backend/tests/api)
 - [settingsPage.test.tsx](/Users/asuka/code/magi/frontend/src/__tests__/settingsPage.test.tsx)
 
 ## Built-In Examples

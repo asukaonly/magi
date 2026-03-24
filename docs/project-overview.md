@@ -215,4 +215,4 @@ This keeps workers leaf-only while preserving a conversational entry point.
 - Runtime contributors should read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md).
 - Product and settings contributors should read [Product Configuration Guide](./product-configuration-guide.md).
 - Extension contributors should read [Unified Plugin Extension Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
-- Memory contributors should read [Memory System Design](./memory-system-design.md) and [Memory System Execution Plan](./memory-system-execution-plan.md).
+- Memory contributors should read [Memory System Design](./memory-system-design.md).

@@ -13,7 +13,7 @@ Status: active
 Why it is still open:
 
 - the lifecycle model is documented and partially implemented, but the subsystem plan still contains unfinished phases
-- retrieval, prompt integration, API cleanup, and some legacy memory-module removal work are still tracked in [Memory System Execution Plan](./memory-system-execution-plan.md)
+- retrieval, prompt integration, API cleanup, and some legacy memory-module removal work are still open in the implementation backlog
 
 Current focus areas:
 

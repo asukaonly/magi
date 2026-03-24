@@ -423,7 +423,7 @@ For a large codebase exploration request, the path is:
 
 If you are modifying this part of the system, read these first:
 
-- [task_agent.py](/Users/asuka/code/magi/backend/src/magi/core/runtime/task_agent.py)
+- [task_agent.py](/Users/asuka/code/magi/backend/src/magi/agent/runtime/task_agent.py)
 - [chat_task_agent.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/chat_task_agent.py)
 - [explore_task_agent.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/explore_task_agent.py)
 - [task_orchestrator.py](/Users/asuka/code/magi/backend/src/magi/agent/task_orchestrator.py)

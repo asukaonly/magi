@@ -41,6 +41,7 @@ env/
 htmlcov/
 .tox/
 .hypothesis/
+backend/AsyncMock/
 
 # Logs
 *.log
@@ -88,3 +89,6 @@ frontend/src-tauri/gen/
 
 # Superpowers brainstorming
 .superpowers/
+
+# Local-only docs workspace
+docs/dev/
