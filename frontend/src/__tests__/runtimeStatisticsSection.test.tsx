@@ -10,7 +10,16 @@ const { getRuntimeOverviewMock } = vi.hoisted(() => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, options?: Record<string, unknown>) => {
+      if (!options) {
+        return key;
+      }
+      const serialized = Object.entries(options)
+        .filter(([, value]) => value !== undefined)
+        .map(([name, value]) => `${name}=${String(value)}`)
+        .join(',');
+      return serialized ? `${key}:${serialized}` : key;
+    },
   }),
 }));
 
@@ -151,5 +160,33 @@ describe('RuntimeStatisticsSection', () => {
     });
 
     expect(screen.getByText('31%')).toBeInTheDocument();
+  });
+
+  it('formats runtime timestamps with a 24-hour clock', async () => {
+    const dateTimeFormatSpy = vi.spyOn(Intl, 'DateTimeFormat');
+
+    render(<RuntimeStatisticsSection />);
+
+    await waitFor(() => {
+      expect(getRuntimeOverviewMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(dateTimeFormatSpy).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      })
+    );
+    expect(dateTimeFormatSpy).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+    );
   });
 });
