@@ -856,7 +856,7 @@ export const ChatPage: React.FC = () => {
     >
       <div className="flex max-w-[76%] gap-3">
         {getAvatar('assistant')}
-        <div className="rounded-2xl rounded-tl-md border border-border/30 bg-muted/50 px-4 py-3">
+        <div className="rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>
@@ -889,7 +889,7 @@ export const ChatPage: React.FC = () => {
 
     return (
       <div className="mt-2 flex justify-end">
-        <div className="flex max-w-[75%] items-center gap-3 rounded-2xl border border-border/40 bg-background/90 px-3 py-2 shadow-sm">
+        <div className="flex max-w-[75%] items-center gap-3 rounded-xl border border-border/35 bg-background px-3 py-2">
           <span className="text-xs text-muted-foreground">{message.traceSummary.headline}</span>
           {renderTraceEntry(message)}
         </div>
@@ -911,8 +911,8 @@ export const ChatPage: React.FC = () => {
             <div
               key={attachment.attachment_id}
               className={align === 'user'
-                ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground shadow-sm'
-                : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-border/60 bg-background/90 px-3 py-2 text-foreground shadow-sm'}
+                ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground'
+                : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-xl border border-border/55 bg-background px-3 py-2 text-foreground'}
             >
               {previewUrl ? (
                 <button
@@ -1038,8 +1038,8 @@ export const ChatPage: React.FC = () => {
                   </div>
                   <div
                     className={msg.role === 'user'
-                      ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-accent-foreground'
-                      : 'rounded-2xl rounded-tl-md border border-border/30 bg-muted/50 px-4 py-3'}
+                      ? 'rounded-xl rounded-tr-sm border border-accent/15 bg-accent/75 px-4 py-2.5 text-accent-foreground'
+                      : 'rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}
                   >
                     {renderMessageAttachments(msg.attachments, msg.role)}
                     {msg.role === 'assistant' ? (
