@@ -22,6 +22,10 @@ class TraceTurnRecord:
     error_summary: str | None = None
     run_id: str | None = None
     run_revision: int = 0
+    continued_from_turn_id: str | None = None
+    continued_from_trace_id: str | None = None
+    superseded_by_turn_id: str | None = None
+    supersession_reason: str | None = None
     created_at_ms: int = 0
     updated_at_ms: int = 0
 

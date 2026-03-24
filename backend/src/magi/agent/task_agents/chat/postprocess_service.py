@@ -69,6 +69,7 @@ class ChatPostProcessService:
         self._memory = memory
         self._other_memory = other_memory
         self._unified_memory = unified_memory
+        self._chat_store = chat_store
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
         self._trace_read_service = trace_read_service
@@ -90,6 +91,12 @@ class ChatPostProcessService:
         """Persist merged/interrupted turn states before new execution continues."""
         for superseded_turn in superseded_turns:
             await self._chat_outcome_writer.persist_turn_supersession(
+                turn_id=superseded_turn.turn_id,
+                anchor_turn_id=superseded_turn.anchor_turn_id,
+                reason=superseded_turn.reason,
+                updated_at_ms=updated_at_ms,
+            )
+            await self._persist_trace_supersession(
                 turn_id=superseded_turn.turn_id,
                 anchor_turn_id=superseded_turn.anchor_turn_id,
                 reason=superseded_turn.reason,
@@ -821,6 +828,9 @@ class ChatPostProcessService:
     ) -> None:
         if self._runtime_trace_store is None or turn_id in self._started_turn_traces:
             return
+        continued_from_turn_id, continued_from_trace_id = await self._resolve_trace_continuation(
+            anchor_turn_id=turn_id
+        )
         await self._runtime_trace_store.upsert_turn(
             TraceTurnRecord(
                 trace_id=trace_id,
@@ -831,6 +841,8 @@ class ChatPostProcessService:
                 mode=mode,
                 started_at_ms=started_at_ms,
                 user_message_preview=user_message[:240] or None,
+                continued_from_turn_id=continued_from_turn_id,
+                continued_from_trace_id=continued_from_trace_id,
                 created_at_ms=started_at_ms,
                 updated_at_ms=started_at_ms,
             )
@@ -850,6 +862,88 @@ class ChatPostProcessService:
             )
         )
         self._started_turn_traces.add(turn_id)
+
+    async def _resolve_trace_continuation(
+        self,
+        *,
+        anchor_turn_id: str,
+    ) -> tuple[str | None, str | None]:
+        if self._chat_store is None:
+            return (None, None)
+        previous_turn = await self._chat_store.get_latest_superseded_turn(anchor_turn_id=anchor_turn_id)
+        if previous_turn is None:
+            return (None, None)
+        trace_id = str(previous_turn.trace_id or self._build_trace_id(previous_turn.turn_id)).strip() or None
+        return (previous_turn.turn_id, trace_id)
+
+    async def _persist_trace_supersession(
+        self,
+        *,
+        turn_id: str,
+        anchor_turn_id: str,
+        reason: str,
+        updated_at_ms: int,
+    ) -> None:
+        if self._runtime_trace_store is None:
+            return
+        existing_turn = await self._runtime_trace_store.get_turn(turn_id)
+        if existing_turn is None:
+            return
+        status = "merged" if reason == "augment" else "interrupted"
+        started_at_ms = int(existing_turn.started_at_ms or updated_at_ms)
+        ended_at_ms = max(updated_at_ms, started_at_ms)
+        await self._runtime_trace_store.upsert_turn(
+            TraceTurnRecord(
+                trace_id=existing_turn.trace_id,
+                turn_id=existing_turn.turn_id,
+                session_id=existing_turn.session_id,
+                user_id=existing_turn.user_id,
+                status=status,
+                mode=existing_turn.mode,
+                orchestration_id=existing_turn.orchestration_id,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=max(0, ended_at_ms - started_at_ms),
+                user_message_preview=existing_turn.user_message_preview,
+                response_preview=existing_turn.response_preview,
+                error_summary=existing_turn.error_summary,
+                run_id=existing_turn.run_id,
+                run_revision=existing_turn.run_revision,
+                continued_from_turn_id=existing_turn.continued_from_turn_id,
+                continued_from_trace_id=existing_turn.continued_from_trace_id,
+                superseded_by_turn_id=anchor_turn_id,
+                supersession_reason=status,
+                created_at_ms=int(existing_turn.created_at_ms or started_at_ms),
+                updated_at_ms=ended_at_ms,
+            )
+        )
+        root_span = await self._runtime_trace_store.get_span(self._build_root_span_id(turn_id))
+        if root_span is None:
+            return
+        await self._runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=root_span.span_id,
+                trace_id=root_span.trace_id,
+                turn_id=root_span.turn_id,
+                parent_span_id=root_span.parent_span_id,
+                node_type=root_span.node_type,
+                name=root_span.name,
+                status=status,
+                attempt_index=root_span.attempt_index,
+                retry_count=root_span.retry_count,
+                iteration=root_span.iteration,
+                execution_agent_id=root_span.execution_agent_id,
+                result_preview=root_span.result_preview,
+                error_text=root_span.error_text,
+                run_id=root_span.run_id,
+                run_revision=root_span.run_revision,
+                started_at_ms=int(root_span.started_at_ms or started_at_ms),
+                ended_at_ms=ended_at_ms,
+                duration_ms=max(0, ended_at_ms - int(root_span.started_at_ms or started_at_ms)),
+                created_at_ms=int(root_span.created_at_ms or started_at_ms),
+                updated_at_ms=ended_at_ms,
+            )
+        )
 
     async def _emit_agent_response_notification(
         self,

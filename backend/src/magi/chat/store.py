@@ -468,6 +468,46 @@ class ChatStore:
             supersession_reason=row["supersession_reason"],
         )
 
+    async def get_latest_superseded_turn(self, *, anchor_turn_id: str) -> ChatTurnRecord | None:
+        """Return the most recent turn superseded by one anchor turn."""
+        row = await self._fetchone(
+            """
+            SELECT turn_id, session_id, user_id, trace_id, orchestration_id, status,
+                   response_mode, execution_mode, ux_plan_json, created_at_ms,
+                   updated_at_ms, completed_at_ms, error_text, run_id,
+                   run_revision, run_disposition, response_anchor_turn_id,
+                   superseded_by_turn_id, supersession_reason
+            FROM chat_turns
+            WHERE superseded_by_turn_id = ?
+            ORDER BY updated_at_ms DESC, created_at_ms DESC
+            LIMIT 1
+            """,
+            (anchor_turn_id,),
+        )
+        if row is None:
+            return None
+        return ChatTurnRecord(
+            turn_id=str(row["turn_id"]),
+            session_id=str(row["session_id"]),
+            user_id=str(row["user_id"]),
+            trace_id=row["trace_id"],
+            orchestration_id=row["orchestration_id"],
+            status=str(row["status"]),
+            response_mode=str(row["response_mode"]),
+            execution_mode=row["execution_mode"],
+            ux_plan_json=str(row["ux_plan_json"]),
+            created_at_ms=int(row["created_at_ms"]),
+            updated_at_ms=int(row["updated_at_ms"]),
+            completed_at_ms=int(row["completed_at_ms"]) if row["completed_at_ms"] is not None else None,
+            error_text=row["error_text"],
+            run_id=row["run_id"],
+            run_revision=int(row["run_revision"] or 0),
+            run_disposition=row["run_disposition"],
+            response_anchor_turn_id=row["response_anchor_turn_id"],
+            superseded_by_turn_id=row["superseded_by_turn_id"],
+            supersession_reason=row["supersession_reason"],
+        )
+
     async def _ensure_chat_turn_columns(self, db: aiosqlite.Connection) -> None:
         cursor = await db.execute("PRAGMA table_info(chat_turns)")
         rows = await cursor.fetchall()

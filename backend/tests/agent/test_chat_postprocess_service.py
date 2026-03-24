@@ -11,6 +11,7 @@ from magi.agent.task_agents.chat.postprocess_components import (
     ChatRuntimeNotifier,
 )
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
+from magi.agent.task_agents.chat.session_run_coordinator import TurnSupersession
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
 from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
@@ -734,6 +735,134 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
     assert len(action_emitter.runtime_events) == 1
     assert action_emitter.runtime_events[0]["event_type"] == "CHAT_TOOL_LOOP_STEP"
     assert action_emitter.runtime_events[0]["payload"]["tool_name"] == "file_read"
+
+
+@pytest.mark.asyncio
+async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-1",
+        message_text="Inspect login flow",
+        created_at_ms=1710000000000,
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-2",
+        message_text="Switch to checkout flow",
+        created_at_ms=1710000001000,
+    )
+    first_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "Inspect login flow",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    second_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "Switch to checkout flow",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-2",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000001.0,
+        correlation_id="corr-2",
+    )
+    first_context = ChatRuntimeContext(
+        latest_fact=first_fact,
+        recent_facts=[first_fact],
+        batch_facts=[first_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Inspect login flow",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="Inspect login flow",
+            turn_id="turn-1",
+        ),
+    )
+    second_context = ChatRuntimeContext(
+        latest_fact=second_fact,
+        recent_facts=[second_fact],
+        batch_facts=[second_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Switch to checkout flow",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="Switch to checkout flow",
+            turn_id="turn-2",
+        ),
+    )
+    decision = _FakeIntentDecision()
+    decision.execution_mode = ExecutionMode.FUNCTION_CALLING
+
+    await service.record_intent_resolution(first_context, decision)
+    await service.persist_turn_supersessions(
+        superseded_turns=[
+            TurnSupersession(turn_id="turn-1", anchor_turn_id="turn-2", reason="interrupt"),
+        ],
+        updated_at_ms=1710000001000,
+    )
+    await service.record_intent_resolution(second_context, decision)
+
+    first_trace = await runtime_trace_store.get_turn("turn-1")
+    second_trace = await runtime_trace_store.get_turn("turn-2")
+
+    assert first_trace is not None
+    assert first_trace.status == "interrupted"
+    assert first_trace.superseded_by_turn_id == "turn-2"
+    assert first_trace.supersession_reason == "interrupted"
+    assert second_trace is not None
+    assert second_trace.continued_from_turn_id == "turn-1"
+    assert second_trace.continued_from_trace_id == "trace:turn-1"
 
 
 @pytest.mark.asyncio
