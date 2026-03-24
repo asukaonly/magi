@@ -193,6 +193,15 @@
       "notSet": "Using runtime default directory",
       "updateFailed": "Failed to update conversation workspace: {{message}}"
     },
+    "attachments": {
+      "add": "Add Attachment",
+      "addImage": "Add Image",
+      "addFile": "Add File",
+      "remove": "Remove Attachment",
+      "visionRequired": "The current core model does not support image attachments.",
+      "imageLimit": "You can attach up to {{count}} images per message.",
+      "uploadFailed": "Failed to upload attachments: {{message}}"
+    },
     "sendFailed": "Failed to send message",
     "clearFailed": "Failed to clear chat",
     "cleared": "Chat cleared",

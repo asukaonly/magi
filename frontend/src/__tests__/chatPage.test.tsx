@@ -1,11 +1,12 @@
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
-import { useChatTraceStore } from '@/stores';
+import { useChatTraceStore, useRealtimeStore } from '@/stores';
 import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/pages/chat-state';
 import { messagesApi } from '@/api';
+import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 
 const sendMock = vi.fn();
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
@@ -43,9 +44,21 @@ vi.mock('@/runtime/desktop', () => ({
   pickDirectory: pickDirectoryMock,
 }));
 
+vi.mock('@/api/modules/config', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/config')>('@/api/modules/config');
+  return {
+    ...actual,
+    configApi: {
+      ...actual.configApi,
+      get: vi.fn(),
+    },
+  };
+});
+
 vi.mock('@/api', () => ({
   messagesApi: {
     getTrace: vi.fn(),
+    uploadAttachment: vi.fn(),
     updateSessionWorkspace: vi.fn(),
   },
 }));
@@ -55,6 +68,25 @@ vi.mock('@/components/chat/ToolchainDrawer', () => ({
 }));
 
 describe('ChatPage', () => {
+  const buildConfigWithVision = (vision: boolean) => ({
+    data: {
+      ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+      llm: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm),
+        selections: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm.selections),
+          core: {
+            ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm.selections.core),
+            capabilities: {
+              ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm.selections.core.capabilities),
+              vision,
+            },
+          },
+        },
+      },
+    },
+  });
+
   afterAll(() => {
     consoleErrorSpy.mockRestore();
   });
@@ -64,6 +96,7 @@ describe('ChatPage', () => {
     sendMock.mockReset();
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
+    useRealtimeStore.getState().reset();
     cleanup();
     document.body.innerHTML = '';
   });
@@ -74,9 +107,13 @@ describe('ChatPage', () => {
     consoleErrorSpy.mockClear();
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
+    vi.mocked(configApi.get).mockResolvedValue(buildConfigWithVision(true) as any);
     Element.prototype.scrollIntoView = vi.fn();
+    URL.createObjectURL = vi.fn(() => 'blob:chat-attachment');
+    URL.revokeObjectURL = vi.fn();
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
+    useRealtimeStore.getState().setConnected(true);
     useConversationStore.getState().setCurrentSessionId('session-1');
   });
 
@@ -159,6 +196,131 @@ describe('ChatPage', () => {
     await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenLastCalledWith('local_user', 'session-1', null));
     expect(screen.getByLabelText('chat.workspace.label')).toHaveValue('');
     expect(screen.getByPlaceholderText('chat.workspace.notSet')).toBeInTheDocument();
+  });
+
+  it('shows draft attachment chips for supported image and file selections', async () => {
+    const user = userEvent.setup();
+    render(<ChatPage />);
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('button', { name: 'chat.attachments.add' }));
+
+    const imageInput = screen.getByTestId('chat-attachments-image-input') as HTMLInputElement;
+    const fileInput = screen.getByTestId('chat-attachments-file-input') as HTMLInputElement;
+
+    await user.upload(imageInput, new File(['image-bytes'], 'diagram.png', { type: 'image/png' }));
+    await user.upload(fileInput, new File(['notes'], 'notes.md', { type: 'text/markdown' }));
+
+    expect(screen.getByText('diagram.png')).toBeInTheDocument();
+    expect(screen.getByText('notes.md')).toBeInTheDocument();
+  });
+
+  it('disables image attachments when the core model does not support vision', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue(buildConfigWithVision(false) as any);
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+    await user.click(screen.getByRole('button', { name: 'chat.attachments.add' }));
+
+    expect(screen.getByRole('button', { name: 'chat.attachments.addImage' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'chat.attachments.addFile' })).toBeEnabled();
+  });
+
+  it('adds pasted supported attachments and ignores unsupported files', async () => {
+    render(<ChatPage />);
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder');
+    const pastedImage = new File(['image'], 'clipboard.png', { type: 'image/png' });
+    const pastedPdf = new File(['pdf'], 'report.pdf', { type: 'application/pdf' });
+    const pastedZip = new File(['zip'], 'archive.zip', { type: 'application/zip' });
+
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [
+          { kind: 'file', type: pastedImage.type, getAsFile: () => pastedImage },
+          { kind: 'file', type: pastedPdf.type, getAsFile: () => pastedPdf },
+          { kind: 'file', type: pastedZip.type, getAsFile: () => pastedZip },
+        ],
+        getData: () => '',
+      },
+    });
+
+    expect(screen.getByText('clipboard.png')).toBeInTheDocument();
+    expect(screen.getByText('report.pdf')).toBeInTheDocument();
+    expect(screen.queryByText('archive.zip')).not.toBeInTheDocument();
+  });
+
+  it('uploads draft attachments before sending the websocket turn payload', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.uploadAttachment).mockResolvedValue({
+      attachment_id: 'att-1',
+      kind: 'text_file',
+      original_name: 'notes.md',
+      mime_type: 'text/markdown',
+      size_bytes: 5,
+      storage_path: '/tmp/notes.md',
+      sha256: 'abc',
+      parse_status: 'parsed',
+    } as any);
+
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: '/Users/asuka/code/magi',
+      },
+    ], 'session-1');
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('button', { name: 'chat.attachments.add' }));
+    const fileInput = screen.getByTestId('chat-attachments-file-input') as HTMLInputElement;
+    await user.upload(fileInput, new File(['notes'], 'notes.md', { type: 'text/markdown' }));
+    await user.type(screen.getByPlaceholderText('chat.inputPlaceholder'), 'Please inspect this file');
+    await user.click(screen.getByRole('button', { name: 'chat.send' }));
+
+    await waitFor(() => expect(messagesApi.uploadAttachment).toHaveBeenCalledTimes(1));
+    const uploadedTurnId = vi.mocked(messagesApi.uploadAttachment).mock.calls[0]?.[2];
+    expect(messagesApi.uploadAttachment).toHaveBeenCalledWith(
+      'local_user',
+      'session-1',
+      uploadedTurnId,
+      expect.any(File),
+    );
+    expect(sendMock).toHaveBeenCalledWith({
+      type: 'send_message',
+      user_id: 'local_user',
+      session_id: 'session-1',
+      message: 'Please inspect this file',
+      attachments: [
+        expect.objectContaining({
+          attachment_id: 'att-1',
+          original_name: 'notes.md',
+          kind: 'text_file',
+        }),
+      ],
+      workspace_path: '/Users/asuka/code/magi',
+      client_turn_id: uploadedTurnId,
+    });
+    expect(useConversationStore.getState().messagesBySession['session-1']?.[0]?.attachments).toEqual([
+      expect.objectContaining({
+        attachment_id: 'att-1',
+        original_name: 'notes.md',
+      }),
+    ]);
+    expect(screen.queryAllByText('notes.md')).not.toHaveLength(0);
   });
 
   it('renders trace entry when an agent response arrives through chat subscription', async () => {

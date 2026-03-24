@@ -193,6 +193,15 @@
       "notSet": "使用运行时默认目录",
       "updateFailed": "更新当前会话目录失败：{{message}}"
     },
+    "attachments": {
+      "add": "添加附件",
+      "addImage": "添加图片",
+      "addFile": "添加文件",
+      "remove": "移除附件",
+      "visionRequired": "当前 core 模型不支持图片附件。",
+      "imageLimit": "单次消息最多可添加 {{count}} 张图片。",
+      "uploadFailed": "附件上传失败：{{message}}"
+    },
     "sendFailed": "发送消息失败",
     "clearFailed": "清空对话失败",
     "cleared": "对话已清空",

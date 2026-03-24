@@ -322,6 +322,35 @@ describe('chat trace state helpers', () => {
     expect(normalized[0].traceAvailable).toBe(true);
   });
 
+  it('preserves attachment metadata when normalizing history messages', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        role: 'user',
+        content: '',
+        timestamp: 1000,
+        turn_id: 'turn_attachment_history',
+        kind: 'user',
+        attachments: [
+          {
+            attachment_id: 'att-1',
+            kind: 'pdf',
+            original_name: 'report.pdf',
+            size_bytes: 1024,
+          },
+        ],
+      },
+    ]);
+
+    expect(normalized[0].attachments).toEqual([
+      {
+        attachment_id: 'att-1',
+        kind: 'pdf',
+        original_name: 'report.pdf',
+        size_bytes: 1024,
+      },
+    ]);
+  });
+
   it('attaches a terminal trace summary back onto the user turn when no assistant row exists', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_user_only', 1000, 'Thinking');
     const next = upsertTraceSummary(

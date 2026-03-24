@@ -1,4 +1,4 @@
-import type { ChatHistoryMessage, ExecutionTraceNode, ExecutionTraceSnapshot, ExecutionTraceSummary } from '@/api';
+import type { ChatAttachment, ChatHistoryMessage, ExecutionTraceNode, ExecutionTraceSnapshot, ExecutionTraceSummary } from '@/api';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 
 export type ChatMessageKind = 'user' | 'assistant' | 'status';
@@ -13,6 +13,7 @@ export interface ChatTimelineMessage {
   messageKind?: string | null;
   turnId?: string;
   reaction?: string | null;
+  attachments?: ChatAttachment[];
   traceDisplayMode?: string | null;
   allowTraceCollapse?: boolean;
   traceSummary?: NormalizedExecutionTraceSummary | null;
@@ -212,6 +213,7 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       turnId: message.turn_id || undefined,
       traceDisplayMode: message.trace_display_mode || null,
       allowTraceCollapse: Boolean(message.allow_trace_collapse),
+      attachments: Array.isArray(message.attachments) ? message.attachments : undefined,
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
     };
@@ -238,7 +240,13 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
   return normalizedMessages;
 };
 
-export const createPendingTurn = (input: string, turnId: string, timestamp: number, _pendingLabel: string): ChatTimelineMessage[] => [
+export const createPendingTurn = (
+  input: string,
+  turnId: string,
+  timestamp: number,
+  _pendingLabel: string,
+  attachments: ChatAttachment[] = [],
+): ChatTimelineMessage[] => [
   {
     id: `${turnId}-user`,
     role: 'user',
@@ -246,6 +254,7 @@ export const createPendingTurn = (input: string, turnId: string, timestamp: numb
     content: input,
     timestamp,
     turnId,
+    attachments: attachments.length > 0 ? attachments : undefined,
     traceDisplayMode: null,
     allowTraceCollapse: false,
   },

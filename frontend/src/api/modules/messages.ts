@@ -4,11 +4,25 @@
 import { api } from '../client';
 import { DEFAULT_USER_ID } from '@/constants';
 
+export interface ChatAttachment {
+  attachment_id: string;
+  kind: string;
+  original_name: string;
+  mime_type?: string;
+  size_bytes?: number;
+  storage_path?: string;
+  sha256?: string;
+  parse_status?: string;
+  derived_text_excerpt?: string;
+  derived_text_path?: string;
+  [key: string]: any;
+}
+
 export interface UserMessageRequest {
   message: string;
   user_id?: string;
   session_id: string;
-  attachments?: Record<string, any>[];
+  attachments?: ChatAttachment[];
   workspace_path?: string | null;
   client_turn_id?: string;
   metadata?: Record<string, any>;
@@ -34,7 +48,7 @@ export interface ChatHistoryMessage {
   allow_trace_collapse?: boolean;
   trace_summary?: Record<string, any> | null;
   trace_available?: boolean;
-  attachments?: Record<string, any>[];
+  attachments?: ChatAttachment[];
 }
 
 export interface ConversationHistory {
@@ -169,6 +183,26 @@ export const messagesApi = {
       }
     );
     return (response.data || response) as { success: boolean; user_id: string; session: ChatSessionListItem };
+  },
+
+  uploadAttachment: async (
+    userId: string = DEFAULT_USER_ID,
+    sessionId: string,
+    turnId: string,
+    file: File,
+  ): Promise<ChatAttachment> => {
+    const formData = new FormData();
+    formData.append('user_id', userId);
+    formData.append('turn_id', turnId);
+    formData.append('file', file);
+    const response = await api.post<{ attachment: ChatAttachment }>(
+      `/messages/session/${encodeURIComponent(sessionId)}/attachments`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }
+    );
+    return ((response.data || response) as { attachment: ChatAttachment }).attachment;
   },
 
   deleteSession: async (

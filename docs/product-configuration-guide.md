@@ -122,6 +122,7 @@ Current product expectations:
 - desktop chat surfaces should show the active conversation workspace and allow per-session overrides
 - desktop chat attachments should be uploaded into managed local runtime storage before a turn is sent
 - desktop chat should support image, text-like, and PDF attachments with backend-side normalization metadata
+- desktop chat composers should present selected attachments as removable blocks before send and preserve them in message history
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
 - per-conversation workspace changes should not overwrite the saved global default
 

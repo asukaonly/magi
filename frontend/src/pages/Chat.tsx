@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, FolderOpen, Loader2, Sparkles, UserRound, X } from 'lucide-react';
+import { ArrowUp, FileText, FolderOpen, ImagePlus, Loader2, Paperclip, Sparkles, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -13,6 +13,8 @@ import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { messagesApi } from '@/api';
+import type { ChatAttachment } from '@/api';
+import { configApi } from '@/api/modules/config';
 import { DEFAULT_USER_ID } from '@/constants';
 import { getRuntimeConfig } from '@/runtime/config';
 import { pickDirectory } from '@/runtime/desktop';
@@ -41,6 +43,83 @@ interface WSMessage {
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const SESSION_EVENT = 'magi-session-sync';
 const USER_ID = DEFAULT_USER_ID;
+const MAX_IMAGE_ATTACHMENTS = 5;
+const IMAGE_ATTACHMENT_ACCEPT = 'image/png,image/jpeg,image/webp';
+const FILE_ATTACHMENT_ACCEPT = '.txt,.md,.json,.pdf,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.kt,.swift,.c,.cc,.cpp,.h,.hpp,.html,.css,.csv,.xml,.yaml,.yml,.toml,.ini,.log,.sh,.sql,.php,.rb';
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const SUPPORTED_PDF_MIME_TYPES = new Set(['application/pdf']);
+const SUPPORTED_TEXT_MIME_TYPES = new Set([
+  'application/json',
+  'application/ld+json',
+  'application/sql',
+  'application/toml',
+  'application/x-httpd-php',
+  'application/x-sh',
+  'application/xml',
+  'application/yaml',
+  'text/csv',
+  'text/html',
+  'text/javascript',
+  'text/jsx',
+  'text/markdown',
+  'text/plain',
+  'text/tsx',
+  'text/typescript',
+  'text/x-c',
+  'text/x-c++',
+  'text/x-go',
+  'text/x-java-source',
+  'text/x-python',
+  'text/x-ruby',
+  'text/x-rust',
+  'text/x-shellscript',
+  'text/xml',
+]);
+const SUPPORTED_TEXT_EXTENSIONS = new Set([
+  '.c',
+  '.cc',
+  '.cpp',
+  '.css',
+  '.csv',
+  '.go',
+  '.h',
+  '.hpp',
+  '.html',
+  '.ini',
+  '.java',
+  '.js',
+  '.json',
+  '.kt',
+  '.log',
+  '.md',
+  '.mjs',
+  '.php',
+  '.py',
+  '.rb',
+  '.rs',
+  '.sh',
+  '.sql',
+  '.swift',
+  '.toml',
+  '.ts',
+  '.tsx',
+  '.txt',
+  '.xml',
+  '.yaml',
+  '.yml',
+]);
+
+type DraftAttachmentKind = 'image' | 'file';
+
+interface DraftAttachment {
+  id: string;
+  kind: DraftAttachmentKind;
+  file: File;
+  name: string;
+  size: number;
+  mimeType: string;
+  previewUrl?: string;
+}
 
 const assistantMarkdownComponents: Components = {
   h1: ({ children }) => <h1 className="mb-3 mt-1 text-lg font-semibold leading-snug text-foreground">{children}</h1>,
@@ -78,6 +157,48 @@ const createClientTurnId = (): string => {
   return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 };
 
+const createDraftAttachmentId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `attachment_${crypto.randomUUID()}`;
+  }
+  return `attachment_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const getFileExtension = (filename: string): string => {
+  const dotIndex = filename.lastIndexOf('.');
+  if (dotIndex < 0) return '';
+  return filename.slice(dotIndex).toLowerCase();
+};
+
+const isSupportedImageFile = (file: File): boolean =>
+  SUPPORTED_IMAGE_MIME_TYPES.has(String(file.type || '').toLowerCase());
+
+const isSupportedPdfFile = (file: File): boolean => {
+  const mimeType = String(file.type || '').toLowerCase();
+  return SUPPORTED_PDF_MIME_TYPES.has(mimeType) || getFileExtension(file.name) === '.pdf';
+};
+
+const isSupportedTextLikeFile = (file: File): boolean => {
+  const mimeType = String(file.type || '').toLowerCase();
+  return mimeType.startsWith('text/')
+    || SUPPORTED_TEXT_MIME_TYPES.has(mimeType)
+    || SUPPORTED_TEXT_EXTENSIONS.has(getFileExtension(file.name));
+};
+
+const formatAttachmentSize = (size: number): string => {
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const formatAttachmentKindLabel = (attachment: ChatAttachment, t: (key: string) => string): string => {
+  if (attachment.kind === 'image') {
+    return t('chat.attachments.addImage');
+  }
+  return t('chat.attachments.addFile');
+};
+
 export const ChatPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
   const shouldReduceMotion = useReducedMotion();
@@ -113,14 +234,89 @@ export const ChatPage: React.FC = () => {
   const [aiAvatar, setAiAvatar] = useState<string>('');
   const [loadingTrace, setLoadingTrace] = useState(false);
   const [updatingWorkspace, setUpdatingWorkspace] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [coreModelSupportsVision, setCoreModelSupportsVision] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
   const isComposingRef = useRef(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const draftAttachmentsRef = useRef<DraftAttachment[]>([]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    draftAttachmentsRef.current = draftAttachments;
+  }, [draftAttachments]);
+
+  useEffect(() => () => {
+    draftAttachmentsRef.current.forEach((attachment) => {
+      if (attachment.previewUrl) {
+        URL.revokeObjectURL(attachment.previewUrl);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCoreModelCapabilities = async () => {
+      try {
+        const response = await configApi.get();
+        if (!cancelled) {
+          setCoreModelSupportsVision(Boolean(response.data?.llm?.selections?.core?.capabilities?.vision));
+        }
+      } catch {
+        if (!cancelled) {
+          setCoreModelSupportsVision(false);
+        }
+      }
+    };
+
+    void loadCoreModelCapabilities();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!composerRef.current?.contains(event.target as Node)) {
+        setAttachmentMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [attachmentMenuOpen]);
+
+  const clearDraftAttachments = useCallback(() => {
+    setDraftAttachments((current) => {
+      current.forEach((attachment) => {
+        if (attachment.previewUrl) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      });
+      return [];
+    });
+  }, []);
+
+  useEffect(() => {
+    clearDraftAttachments();
+    setAttachmentMenuOpen(false);
+  }, [clearDraftAttachments, currentSessionId]);
 
   const persistSessionWorkspace = useCallback(async (workspacePath: string | null) => {
     if (!currentSessionId) {
@@ -147,6 +343,93 @@ export const ChatPage: React.FC = () => {
     }
     await persistSessionWorkspace(selectedPath);
   }, [currentSession?.workspace_path, persistSessionWorkspace]);
+
+  const removeDraftAttachment = useCallback((attachmentId: string) => {
+    setDraftAttachments((current) => {
+      const target = current.find((attachment) => attachment.id === attachmentId);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return current.filter((attachment) => attachment.id !== attachmentId);
+    });
+  }, []);
+
+  const addDraftAttachments = useCallback((files: File[]) => {
+    if (!files.length) {
+      return;
+    }
+
+    setDraftAttachments((current) => {
+      const nextAttachments = [...current];
+      let remainingImageSlots = Math.max(
+        0,
+        MAX_IMAGE_ATTACHMENTS - current.filter((attachment) => attachment.kind === 'image').length
+      );
+      let droppedForVision = false;
+      let droppedForLimit = false;
+
+      files.forEach((file) => {
+        if (isSupportedImageFile(file)) {
+          if (!coreModelSupportsVision) {
+            droppedForVision = true;
+            return;
+          }
+          if (remainingImageSlots <= 0) {
+            droppedForLimit = true;
+            return;
+          }
+          remainingImageSlots -= 1;
+          nextAttachments.push({
+            id: createDraftAttachmentId(),
+            kind: 'image',
+            file,
+            name: file.name,
+            size: file.size,
+            mimeType: file.type,
+            previewUrl: URL.createObjectURL(file),
+          });
+          return;
+        }
+
+        if (isSupportedPdfFile(file) || isSupportedTextLikeFile(file)) {
+          nextAttachments.push({
+            id: createDraftAttachmentId(),
+            kind: 'file',
+            file,
+            name: file.name,
+            size: file.size,
+            mimeType: file.type,
+          });
+        }
+      });
+
+      if (droppedForVision) {
+        toast.warning(t('chat.attachments.visionRequired'));
+      }
+      if (droppedForLimit) {
+        toast.warning(t('chat.attachments.imageLimit', { count: MAX_IMAGE_ATTACHMENTS }));
+      }
+
+      return nextAttachments;
+    });
+  }, [coreModelSupportsVision, t]);
+
+  const handleAttachmentInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    addDraftAttachments(Array.from(event.target.files || []));
+    event.target.value = '';
+    setAttachmentMenuOpen(false);
+  }, [addDraftAttachments]);
+
+  const handleComposerPaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pastedFiles = Array.from(event.clipboardData?.items || [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file instanceof File);
+
+    if (pastedFiles.length > 0) {
+      addDraftAttachments(pastedFiles);
+    }
+  }, [addDraftAttachments]);
 
   const loadTrace = useCallback(
     async (turnId: string) => {
@@ -391,8 +674,22 @@ export const ChatPage: React.FC = () => {
     return () => window.removeEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
   }, [connected, resetConversation, resetTraceStore, send, setCurrentSessionId]);
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) {
+  const uploadDraftAttachments = useCallback(
+    async (sessionId: string, turnId: string, attachments: DraftAttachment[]): Promise<ChatAttachment[]> => {
+      if (!attachments.length) {
+        return [];
+      }
+      return Promise.all(
+        attachments.map((attachment) => messagesApi.uploadAttachment(USER_ID, sessionId, turnId, attachment.file))
+      );
+    },
+    []
+  );
+
+  const handleSendMessage = useCallback(async () => {
+    const trimmedMessage = inputValue.trim();
+    const queuedAttachments = draftAttachmentsRef.current;
+    if (!trimmedMessage && queuedAttachments.length === 0) {
       toast.warning(t('chat.emptyInput'));
       return;
     }
@@ -405,30 +702,53 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
-    const messageContent = inputValue.trim();
+    const messageContent = trimmedMessage;
     const turnId = createClientTurnId();
     const now = Date.now();
-    appendPendingTurn({
-      sessionId: currentSessionId,
-      input: messageContent,
-      turnId,
-      timestamp: now,
-      pendingLabel: t('chat.trace.pending'),
-    });
-    setInputValue('');
-    send({
-      type: 'send_message',
-      user_id: USER_ID,
-      session_id: currentSessionId,
-      message: messageContent,
-      client_turn_id: turnId,
-    });
-  };
+    setSendingMessage(true);
+    try {
+      const uploadedAttachments = await uploadDraftAttachments(currentSessionId, turnId, queuedAttachments);
+      appendPendingTurn({
+        sessionId: currentSessionId,
+        input: messageContent,
+        turnId,
+        timestamp: now,
+        pendingLabel: t('chat.trace.pending'),
+        attachments: uploadedAttachments,
+      });
+      setInputValue('');
+      clearDraftAttachments();
+      send({
+        type: 'send_message',
+        user_id: USER_ID,
+        session_id: currentSessionId,
+        message: messageContent,
+        attachments: uploadedAttachments,
+        workspace_path: currentSession?.workspace_path ?? null,
+        client_turn_id: turnId,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : t('chat.sendFailed');
+      toast.error(t('chat.attachments.uploadFailed', { message }));
+    } finally {
+      setSendingMessage(false);
+    }
+  }, [
+    appendPendingTurn,
+    clearDraftAttachments,
+    connected,
+    currentSession?.workspace_path,
+    currentSessionId,
+    inputValue,
+    send,
+    t,
+    uploadDraftAttachments,
+  ]);
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (shouldSubmitOnEnter(event as React.KeyboardEvent<HTMLTextAreaElement>, isComposingRef.current)) {
       event.preventDefault();
-      handleSendMessage();
+      void handleSendMessage();
     }
   };
 
@@ -549,6 +869,36 @@ export const ChatPage: React.FC = () => {
     );
   };
 
+  const renderMessageAttachments = (attachments: ChatAttachment[] | undefined, align: 'user' | 'assistant') => {
+    if (!attachments || attachments.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="mb-3 flex flex-wrap gap-2">
+        {attachments.map((attachment) => (
+          <div
+            key={attachment.attachment_id}
+            className={align === 'user'
+              ? 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-accent-foreground/10 bg-background/90 px-3 py-2 text-foreground shadow-sm'
+              : 'flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-border/60 bg-background/90 px-3 py-2 text-foreground shadow-sm'}
+          >
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              {attachment.kind === 'image' ? <ImagePlus className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-foreground">{attachment.original_name}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {formatAttachmentKindLabel(attachment, t)}
+                {typeof attachment.size_bytes === 'number' ? ` · ${formatAttachmentSize(attachment.size_bytes)}` : ''}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -633,15 +983,16 @@ export const ChatPage: React.FC = () => {
                       ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-accent-foreground'
                       : 'rounded-2xl rounded-tl-md border border-border/30 bg-muted/50 px-4 py-3'}
                   >
+                    {renderMessageAttachments(msg.attachments, msg.role)}
                     {msg.role === 'assistant' ? (
                       <div className="max-w-none text-current">
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                           {msg.content}
                         </ReactMarkdown>
                       </div>
-                    ) : (
+                    ) : msg.content ? (
                       <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
-                    )}
+                    ) : null}
                   </div>
                   {msg.role === 'user' && msg.reaction && (
                     <div className="mt-2 flex justify-end">
@@ -667,7 +1018,42 @@ export const ChatPage: React.FC = () => {
       </div>
 
       <div className="mt-2 shrink-0">
-        <div className="relative rounded-2xl bg-muted/40 px-3 py-3">
+        <div ref={composerRef} className="relative rounded-2xl bg-muted/40 px-3 py-3">
+          {draftAttachments.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2 px-2">
+              {draftAttachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="flex min-w-[180px] max-w-[260px] items-center gap-3 rounded-2xl border border-border/60 bg-background/80 px-3 py-2 shadow-sm"
+                >
+                  {attachment.kind === 'image' && attachment.previewUrl ? (
+                    <img
+                      src={attachment.previewUrl}
+                      alt={attachment.name}
+                      className="h-12 w-12 shrink-0 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-foreground">{attachment.name}</div>
+                    <div className="text-xs text-muted-foreground">{formatAttachmentSize(attachment.size)}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeDraftAttachment(attachment.id)}
+                    aria-label={t('chat.attachments.remove')}
+                    className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <AutoResizeTextarea
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
@@ -679,22 +1065,74 @@ export const ChatPage: React.FC = () => {
             }}
             placeholder={t('chat.inputPlaceholder')}
             onKeyDown={handleKeyPress}
+            onPaste={handleComposerPaste}
             disabled={!connected}
             minHeight={120}
-            className="max-h-72 resize-none rounded-2xl border border-transparent bg-transparent px-3 py-3 pr-20 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            className="max-h-72 resize-none rounded-2xl border border-transparent bg-transparent px-3 py-3 pl-14 pr-20 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
           />
+          <div className="absolute bottom-4 left-4">
+            <button
+              type="button"
+              onClick={() => setAttachmentMenuOpen((open) => !open)}
+              aria-label={t('chat.attachments.add')}
+              title={t('chat.attachments.add')}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-background/90 text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+
+            {attachmentMenuOpen && (
+              <div className="absolute bottom-12 left-0 flex w-44 flex-col gap-1 rounded-2xl border border-border/60 bg-background/95 p-2 shadow-lg backdrop-blur">
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={!coreModelSupportsVision}
+                  className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:text-muted-foreground"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  {t('chat.attachments.addImage')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <FileText className="h-4 w-4" />
+                  {t('chat.attachments.addFile')}
+                </button>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => {
               void handleSendMessage();
             }}
-            disabled={!connected}
+            disabled={!connected || sendingMessage}
             className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
             aria-label={t('chat.send')}
             title={t('chat.send')}
           >
-            <ArrowUp className="h-5 w-5" />
+            {sendingMessage ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
           </button>
+          <input
+            ref={imageInputRef}
+            data-testid="chat-attachments-image-input"
+            type="file"
+            accept={IMAGE_ATTACHMENT_ACCEPT}
+            multiple
+            className="hidden"
+            onChange={handleAttachmentInputChange}
+          />
+          <input
+            ref={fileInputRef}
+            data-testid="chat-attachments-file-input"
+            type="file"
+            accept={FILE_ATTACHMENT_ACCEPT}
+            multiple
+            className="hidden"
+            onChange={handleAttachmentInputChange}
+          />
         </div>
       </div>
 

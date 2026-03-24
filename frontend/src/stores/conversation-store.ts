@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatSessionListItem } from '@/api';
+import type { ChatAttachment, ChatSessionListItem } from '@/api';
 import {
   applyAgentResponse,
   applyTurnUxPlan as applyTurnUxPlanUpdate,
@@ -28,6 +28,7 @@ type PendingTurnPayload = {
   turnId: string;
   timestamp: number;
   pendingLabel: string;
+  attachments?: ChatAttachment[];
 };
 
 type TurnUxPlanPayload = {
@@ -171,12 +172,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendPendingTurn: ({ sessionId, input, turnId, timestamp, pendingLabel }) => set((state) => {
+  appendPendingTurn: ({ sessionId, input, turnId, timestamp, pendingLabel, attachments }) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
+    const previewText = input.trim() || (attachments || []).map((attachment) => attachment.original_name).join(', ').trim();
     const nextMessages = [
       ...previousMessages,
-      ...createPendingTurn(input, turnId, timestamp, pendingLabel),
+      ...createPendingTurn(input, turnId, timestamp, pendingLabel, attachments || []),
     ];
     return {
       currentSessionId: sessionId,
@@ -198,7 +200,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
             message_count: 0,
             workspace_path: null,
           }),
-          last_user_message_preview: input.trim(),
+          last_user_message_preview: previewText,
           last_timestamp: Math.floor(timestamp / 1000),
         },
       },
