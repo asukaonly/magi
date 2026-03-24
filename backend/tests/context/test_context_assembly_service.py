@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock
 
@@ -131,6 +132,60 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         session_workspace_provider.assert_awaited_once_with(user_id="u1", session_id="s1")
         self.assertEqual(package.prompt_context.runtime_system.cwd, "/Users/asuka/code/magi")
         self.assertIn("* Working Directory: /Users/asuka/code/magi", package.system_prompt)
+
+    async def test_build_prompt_package_renders_active_text_and_pdf_attachments(self):
+        retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
+        text_path = Path(self.id().replace(".", "_")).with_suffix(".txt")
+        pdf_path = Path(self.id().replace(".", "_")).with_suffix(".pdf.txt")
+        text_path.write_text("Alpha\nBeta\n", encoding="utf-8")
+        pdf_path.write_text("Quarterly summary", encoding="utf-8")
+        self.addCleanup(lambda: text_path.unlink(missing_ok=True))
+        self.addCleanup(lambda: pdf_path.unlink(missing_ok=True))
+
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            other_memory=None,
+            retrieval_memory_provider=retrieval_memory_provider,
+        )
+
+        package = await service.build_prompt_package(
+            user_id="u1",
+            session_id="s1",
+            user_message="帮我总结附件",
+            task_category="chat",
+            tools=[],
+            attachments=[
+                {
+                    "attachment_id": "att-text",
+                    "kind": "text_file",
+                    "original_name": "notes.md",
+                    "parse_status": "parsed",
+                    "derived_text_path": str(text_path),
+                    "character_count": 11,
+                    "truncated": False,
+                },
+                {
+                    "attachment_id": "att-pdf",
+                    "kind": "pdf",
+                    "original_name": "report.pdf",
+                    "parse_status": "parsed",
+                    "derived_text_path": str(pdf_path),
+                    "character_count": 17,
+                    "truncated": False,
+                    "page_count": 2,
+                },
+            ],
+        )
+
+        self.assertIn("# Active Attachments", package.system_prompt)
+        self.assertIn("notes.md", package.system_prompt)
+        self.assertIn("Alpha\nBeta", package.system_prompt)
+        self.assertIn("report.pdf", package.system_prompt)
+        self.assertIn("Quarterly summary", package.system_prompt)
 
     @staticmethod
     def _empty_retrieval_payload() -> dict[str, object]:

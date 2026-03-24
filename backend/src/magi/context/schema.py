@@ -57,6 +57,7 @@ class RuntimeSystemContext:
     cwd: str
     agent_id: str
     agent_type: str
+    active_attachments: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

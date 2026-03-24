@@ -10,8 +10,11 @@ from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, Incom
 
 
 class _FakeContextService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
     async def build_prompt_package(self, **kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
+        self.calls.append(dict(kwargs))
         return SimpleNamespace(prompt_context={}, system_prompt="sys")
 
 
@@ -96,9 +99,10 @@ async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> N
 
 @pytest.mark.asyncio
 async def test_direct_llm_handler_does_not_duplicate_latest_user_message_from_history() -> None:
+    context_service = _FakeContextService()
     handler = DirectLLMHandler(
         SimpleNamespace(
-            context_service=_FakeContextService(),
+            context_service=context_service,
             prompt_service=_FakePromptService(),
         )
     )
@@ -142,3 +146,58 @@ async def test_direct_llm_handler_does_not_duplicate_latest_user_message_from_hi
     )
 
     assert request.messages == [{"role": "user", "content": "hello"}]
+    assert context_service.calls[0]["attachments"] == []
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_passes_uploaded_attachments_into_context_service() -> None:
+    context_service = _FakeContextService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=context_service,
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="summarize this file",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="summarize this file",
+            attachments=[{"attachment_id": "att-1", "kind": "text_file", "original_name": "notes.md"}],
+            turn_id="turn-1",
+        ),
+    )
+
+    await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning="direct",
+                orchestration_plan=OrchestrationPlan(),
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="direct"),
+        )
+    )
+
+    assert context_service.calls[0]["attachments"] == [
+        {"attachment_id": "att-1", "kind": "text_file", "original_name": "notes.md"}
+    ]

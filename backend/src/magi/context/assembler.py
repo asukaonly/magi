@@ -7,6 +7,7 @@ import platform
 import time
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .schema import (
@@ -63,6 +64,7 @@ class PromptContextAssembler:
         state_transition_override: Optional[str] = None,
         persona_name: str = "default",
         workspace_path: str | None = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> PromptAssemblyContext:
         identity = self._build_identity_constraints()
         self_mem = await self._build_self_memory_context(
@@ -84,6 +86,7 @@ class PromptContextAssembler:
             agent_id=agent_id,
             agent_type=agent_type,
             workspace_path=workspace_path,
+            attachments=attachments,
         )
         tools = self._build_tool_catalog_context(tool_result=tool_result)
 
@@ -222,6 +225,7 @@ class PromptContextAssembler:
         agent_id: str,
         agent_type: str,
         workspace_path: str | None = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> RuntimeSystemContext:
         now = datetime.now().astimezone()
         normalized_workspace_path = str(workspace_path or "").strip()
@@ -233,6 +237,7 @@ class PromptContextAssembler:
             cwd=normalized_workspace_path or os.getcwd(),
             agent_id=agent_id,
             agent_type=agent_type,
+            active_attachments=list(attachments or []),
         )
 
     def _build_tool_catalog_context(self, *, tool_result: Optional[Dict[str, Any]]) -> ToolCatalogContext:
@@ -293,6 +298,7 @@ class PromptContextRenderer:
         lines.extend(self._render_state_override(context.self_memory.state_transition_override))
         lines.extend(self._render_profile_memory(context.profile_memory))
         lines.extend(self._render_runtime_system(context.runtime_system))
+        lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
         lines.extend(self._render_tool_catalog(context.tool_catalog))
 
         return "\n".join(lines).strip()
@@ -539,6 +545,56 @@ class PromptContextRenderer:
             ])
 
         return lines
+
+    def _render_active_attachments(self, attachments: List[Dict[str, Any]]) -> List[str]:
+        if not attachments:
+            return []
+
+        lines = ["# Active Attachments"]
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            name = str(attachment.get("original_name") or "attachment").strip() or "attachment"
+            kind = str(attachment.get("kind") or "unknown").strip() or "unknown"
+            parse_status = str(attachment.get("parse_status") or "unknown").strip() or "unknown"
+            lines.append(f"## {name} ({kind})")
+            lines.append(f"* Parse Status: {parse_status}")
+
+            character_count = attachment.get("character_count")
+            if isinstance(character_count, int):
+                lines.append(f"* Character Count: {character_count}")
+            page_count = attachment.get("page_count")
+            if isinstance(page_count, int):
+                lines.append(f"* Page Count: {page_count}")
+            if "truncated" in attachment:
+                lines.append(f"* Truncated: {'yes' if bool(attachment.get('truncated')) else 'no'}")
+            parse_error = str(attachment.get("parse_error") or "").strip()
+            if parse_error:
+                lines.append(f"* Parse Error: {parse_error}")
+
+            attachment_text = self._load_attachment_text(attachment)
+            if attachment_text:
+                lines.append("### Extracted Content")
+                lines.append("```text")
+                lines.append(attachment_text)
+                lines.append("```")
+            lines.append("")
+        return lines
+
+    @staticmethod
+    def _load_attachment_text(attachment: Dict[str, Any], *, max_chars: int = 24_000) -> str:
+        derived_text_path = str(attachment.get("derived_text_path") or "").strip()
+        text = ""
+        if derived_text_path:
+            path = Path(derived_text_path)
+            if path.is_file():
+                text = path.read_text(encoding="utf-8", errors="ignore")
+        if not text:
+            text = str(attachment.get("derived_text_excerpt") or "").strip()
+        normalized = text.strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        return f"{normalized[:max_chars].rstrip()}\n...[truncated]"
 
     def _format_memory_item(self, item: Any) -> str:
         """Format a memory item for display."""

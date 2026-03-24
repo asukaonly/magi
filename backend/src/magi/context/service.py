@@ -43,6 +43,7 @@ class ContextAssemblyService:
         user_id: str,
         session_id: str | None = None,
         user_message: str = "",
+        attachments: list[dict[str, Any]] | None = None,
         task_category: str,
         tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
@@ -81,6 +82,7 @@ class ContextAssemblyService:
             state_transition_override=None,
             persona_name=self._memory.personality_name if self._memory else "default",
             workspace_path=resolved_workspace_path,
+            attachments=list(attachments or []),
         )
         system_prompt = self._prompt_context_renderer.render_system_prompt(prompt_context)
         recent_tool_errors_block = self.build_recent_tool_errors_block(recent_tool_errors or [])
@@ -98,6 +100,7 @@ class ContextAssemblyService:
         user_id: str,
         session_id: str | None = None,
         user_message: str = "",
+        attachments: list[dict[str, Any]] | None = None,
         task_category: str,
         tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
@@ -108,6 +111,7 @@ class ContextAssemblyService:
             user_id=user_id,
             session_id=session_id,
             user_message=user_message,
+            attachments=attachments,
             task_category=task_category,
             tools=tools,
             scenario=scenario,
@@ -122,6 +126,7 @@ class ContextAssemblyService:
         user_id: str,
         session_id: str | None = None,
         user_message: str = "",
+        attachments: list[dict[str, Any]] | None = None,
         task_category: str,
         tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
@@ -132,6 +137,7 @@ class ContextAssemblyService:
             user_id=user_id,
             session_id=session_id,
             user_message=user_message,
+            attachments=attachments,
             task_category=task_category,
             tools=tools,
             scenario=scenario,
