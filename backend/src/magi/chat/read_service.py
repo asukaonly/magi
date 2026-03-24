@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
     last_message_preview TEXT NOT NULL DEFAULT '',
     last_user_message_preview TEXT NOT NULL DEFAULT '',
     message_count INTEGER NOT NULL DEFAULT 0,
+    history_version INTEGER NOT NULL DEFAULT 0,
     archived_at_ms INTEGER,
     deleted_at_ms INTEGER
 );
@@ -673,6 +674,14 @@ class ChatReadService:
             )
         if "run_disposition" not in column_names:
             conn.execute(f"ALTER TABLE {CHAT_TURNS_TABLE} ADD COLUMN run_disposition TEXT")
+        session_column_names = {
+            str(row[1])
+            for row in conn.execute(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})").fetchall()
+        }
+        if "history_version" not in session_column_names:
+            conn.execute(
+                f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN history_version INTEGER NOT NULL DEFAULT 0"
+            )
 
     @staticmethod
     def _parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:

@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from magi.chat import ChatStore
 from magi.agent.orchestration import (
     OrchestrationStore,
     PlannedSubtask,
@@ -68,6 +69,44 @@ async def test_chat_history_service_uses_explicit_session_pairs_without_state_fi
 
 
 @pytest.mark.asyncio
+async def test_chat_history_service_reloads_cache_when_history_version_changes(tmp_path: Path) -> None:
+    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await chat_store.initialize()
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-1",
+        message_text="hello",
+        created_at_ms=100,
+    )
+
+    service = ChatHistoryService(
+        l1_db_path=tmp_path / "l1.sqlite3",
+        runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
+        chat_store=chat_store,
+        chat_read_service_factory=lambda: __import__("magi.chat.read_service", fromlist=["get_chat_read_service"]).get_chat_read_service(),
+    )
+
+    initial_history = await service.get_or_load_history("u-chat", "s-chat")
+    assert initial_history == [{"role": "user", "content": "hello"}]
+
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-2",
+        message_text="follow up",
+        created_at_ms=200,
+    )
+
+    refreshed_history = await service.get_or_load_history("u-chat", "s-chat")
+
+    assert refreshed_history == [
+        {"role": "user", "content": "hello"},
+        {"role": "user", "content": "follow up"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_path: Path, monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._orchestration_store = OrchestrationStore(tmp_path / "orchestrations.json")
@@ -87,7 +126,7 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
             ],
         )
 
-    async def _fake_launch(state):  # type: ignore[no-untyped-def]
+    async def _fake_launch(state, **_kwargs):  # type: ignore[no-untyped-def]
         state.subtasks[0].worker_id = "worker_1"
         state.subtasks[0].status = "running"
         await agent._orchestration_store.save_orchestration(state)
@@ -187,10 +226,8 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
 async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     history_key = "u-chat::s-chat"
-    agent._conversation_history[history_key] = [
-        {"role": "user", "content": "看下代码架构"},
-        {"role": "assistant", "content": "[Worker:abc] Started (Explore)"},
-    ]
+    agent._history_service.append_user_message(history_key, "看下代码架构")
+    agent._history_service.append_assistant_message(history_key, "[Worker:abc] Started (Explore)")
 
     calls: dict[str, object] = {}
 
@@ -309,7 +346,7 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
     )
     merged = await agent.merge_facts([user_fact])
     context = await agent.build_context(merged)
-    agent._conversation_history["u-chat::s-chat"] = [{"role": "user", "content": "看下代码架构"}]
+    agent._history_service.append_user_message("u-chat::s-chat", "看下代码架构")
     request = ExecutionRequest(
         mode=ExecutionMode.ORCHESTRATION_LAUNCH,
         context=context,
@@ -428,10 +465,8 @@ async def test_chat_planning_service_uses_json_mode_and_extended_timeout(monkeyp
 @pytest.mark.asyncio
 async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    agent._conversation_history["u-chat::s-chat"] = [
-        {"role": "user", "content": "看下代码架构"},
-        {"role": "assistant", "content": "好的，我先拆分下。"},
-    ]
+    agent._history_service.append_user_message("u-chat::s-chat", "看下代码架构")
+    agent._history_service.append_assistant_message("u-chat::s-chat", "好的，我先拆分下。")
     calls = {}
 
     async def _fake_build_system_prompt(  # type: ignore[no-untyped-def]

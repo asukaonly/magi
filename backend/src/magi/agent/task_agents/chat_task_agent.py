@@ -102,6 +102,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             l1_db_path=runtime_paths.l1_memory_db_path,
             history_cache_max_sessions=history_cache_max_sessions,
             history_fetch_limit=history_fetch_limit,
+            chat_store=chat_store,
         )
         self._fact_classifier = ChatFactClassifier()
         self._prompt_service = ChatPromptService(

@@ -23,6 +23,7 @@ class ChatSessionRecord:
     message_count: int
     archived_at_ms: int | None
     deleted_at_ms: int | None
+    history_version: int = 0
 
 
 @dataclass(slots=True)

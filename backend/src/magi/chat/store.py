@@ -40,6 +40,7 @@ class ChatStore:
                     last_message_preview TEXT NOT NULL DEFAULT '',
                     last_user_message_preview TEXT NOT NULL DEFAULT '',
                     message_count INTEGER NOT NULL DEFAULT 0,
+                    history_version INTEGER NOT NULL DEFAULT 0,
                     archived_at_ms INTEGER,
                     deleted_at_ms INTEGER
                 );
@@ -94,6 +95,7 @@ class ChatStore:
                     ON chat_messages(turn_id, sequence_no ASC);
                 """
             )
+            await self._ensure_chat_session_columns(db)
             await self._ensure_chat_turn_columns(db)
             await db.commit()
         self._initialized = True
@@ -119,6 +121,20 @@ class ChatStore:
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await self._upsert_session_with_connection(db, record)
             await db.commit()
+
+    async def get_history_version(self, session_id: str) -> int:
+        """Return the durable prompt-history version for one session."""
+        row = await self._fetchone(
+            """
+            SELECT history_version
+            FROM chat_sessions
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+        if row is None:
+            return 0
+        return int(row["history_version"] or 0)
 
     async def create_user_turn(
         self,
@@ -170,6 +186,7 @@ class ChatStore:
                     last_message_preview=session_preview,
                     last_user_message_preview=session_preview,
                     message_count=next_message_count,
+                    history_version=int(existing_session["history_version"] or 0) + 1 if existing_session is not None else 1,
                     archived_at_ms=int(existing_session["archived_at_ms"]) if existing_session is not None and existing_session["archived_at_ms"] is not None else None,
                     deleted_at_ms=int(existing_session["deleted_at_ms"]) if existing_session is not None and existing_session["deleted_at_ms"] is not None else None,
                 ),
@@ -525,6 +542,15 @@ class ChatStore:
         if "supersession_reason" not in column_names:
             await db.execute("ALTER TABLE chat_turns ADD COLUMN supersession_reason TEXT")
 
+    async def _ensure_chat_session_columns(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(chat_sessions)")
+        rows = await cursor.fetchall()
+        column_names = {str(row[1]) for row in rows}
+        if "history_version" not in column_names:
+            await db.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN history_version INTEGER NOT NULL DEFAULT 0"
+            )
+
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""
         row = await self._fetchone(
@@ -573,6 +599,7 @@ class ChatStore:
             SELECT session_id, user_id, title, title_overridden, summary, created_at_ms,
                    updated_at_ms, last_message_at_ms, last_user_message_at_ms,
                    last_message_preview, last_user_message_preview, message_count,
+                   history_version,
                    archived_at_ms, deleted_at_ms
             FROM chat_sessions
             WHERE session_id = ?
@@ -597,10 +624,11 @@ class ChatStore:
                 last_message_preview,
                 last_user_message_preview,
                 message_count,
+                history_version,
                 archived_at_ms,
                 deleted_at_ms
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 user_id = excluded.user_id,
                 title = excluded.title,
@@ -612,6 +640,7 @@ class ChatStore:
                 last_message_preview = excluded.last_message_preview,
                 last_user_message_preview = excluded.last_user_message_preview,
                 message_count = excluded.message_count,
+                history_version = excluded.history_version,
                 archived_at_ms = excluded.archived_at_ms,
                 deleted_at_ms = excluded.deleted_at_ms
             """,
@@ -628,6 +657,7 @@ class ChatStore:
                 record.last_message_preview,
                 record.last_user_message_preview,
                 record.message_count,
+                record.history_version,
                 record.archived_at_ms,
                 record.deleted_at_ms,
             ),

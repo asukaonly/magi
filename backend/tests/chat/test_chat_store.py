@@ -145,6 +145,30 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_chat_store_bumps_history_version_when_creating_user_turn(tmp_path: Path) -> None:
+    from magi.chat import ChatStore
+
+    db_path = tmp_path / "chat.db"
+    store = ChatStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        await store.create_user_turn(
+            session_id="session-1",
+            user_id="user-1",
+            turn_id="turn-1",
+            message_text="hello",
+            created_at_ms=100,
+        )
+
+        history_version = await store.get_history_version("session-1")
+
+        assert history_version == 1
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_chat_store_marks_interim_messages_replaced_by_final(tmp_path: Path) -> None:
     from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatStore, ChatTurnRecord
 
