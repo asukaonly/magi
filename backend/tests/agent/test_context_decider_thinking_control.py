@@ -202,6 +202,24 @@ def test_context_decider_prompt_includes_recent_tool_error_config_path() -> None
     assert "next_action=configure_qweather_api_key" in prompt
 
 
+def test_context_decider_prompt_excludes_latest_user_message_from_recent_conversation() -> None:
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+
+    prompt = decider._build_prompt(
+        "你是谁啊",
+        [{"name": "agent", "description": "worker launch", "type": "tool"}],
+        {
+            "os": "Darwin",
+            "recent_messages": [
+                {"role": "user", "content": "你是谁啊"},
+            ],
+        },
+    )
+
+    assert prompt.count("- user: 你是谁啊") == 0
+    assert "## User Request\n\n你是谁啊" in prompt
+
+
 def test_context_decider_rule_fallback_routes_complex_news_to_generic_decompose() -> None:
     decider = ContextDecider(tool_registry=_ResearchToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
 

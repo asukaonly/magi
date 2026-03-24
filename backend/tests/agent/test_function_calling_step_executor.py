@@ -22,6 +22,19 @@ def _build_orchestrator() -> FunctionCallingOrchestrator:
     )
 
 
+def test_build_step_state_does_not_duplicate_latest_user_message_from_history() -> None:
+    orchestrator = _build_orchestrator()
+
+    step_state = orchestrator.build_step_state(
+        user_message="Inspect the repository.",
+        system_prompt="system prompt",
+        selected_tools=["memory_query"],
+        conversation_history=[{"role": "user", "content": "Inspect the repository."}],
+    )
+
+    assert step_state.messages == [{"role": "user", "content": "Inspect the repository."}]
+
+
 @pytest.mark.asyncio
 async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkeypatch) -> None:
     orchestrator = _build_orchestrator()

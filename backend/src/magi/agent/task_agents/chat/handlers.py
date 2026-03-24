@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ....core.logger import get_logger
+from ....agent.message_utils import append_latest_user_message
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
 from ....context.service import ContextAssemblyService
@@ -102,9 +103,11 @@ class DirectLLMHandler(BaseExecutionHandler):
             tool_selection=request.tool_selection,
             prompt_context=prompt_package.prompt_context,
             system_prompt=prompt_package.system_prompt,
-            messages=request.context.history[-10:] + [
-                {"role": "user", "content": request.context.latest_user_message}
-            ],
+            messages=append_latest_user_message(
+                request.context.history,
+                request.context.latest_user_message,
+                history_limit=10,
+            ),
             disable_thinking=not request.intent.deep_thinking,
         )
 

@@ -21,6 +21,7 @@ from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge
 from ...config.models import LLMScenario
 from ...config.constants import DEFAULT_MAX_TOKENS
+from ..message_utils import append_latest_user_message
 from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
 from .function_calling_postprocessor import FunctionCallingPostprocessor
 from .function_calling_step_executor import (
@@ -166,10 +167,11 @@ class FunctionCallingOrchestrator:
         conversation_history: List[Dict[str, Any]] | None = None,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
-        messages: list[dict[str, Any]] = []
-        if conversation_history:
-            messages.extend(conversation_history[-10:])
-        messages.append({"role": "user", "content": user_message})
+        messages = append_latest_user_message(
+            conversation_history,
+            user_message,
+            history_limit=10,
+        )
         return FunctionCallingStepState(
             messages=messages,
             effective_system_prompt=self._augment_system_prompt(system_prompt),

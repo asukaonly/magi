@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, List as TypingList
 
+from ..agent.message_utils import trim_latest_user_message
 from ..config.models import LLMScenario
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
@@ -403,6 +404,8 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             if "home_dir" in context:
                 prompt += f"- Home directory: {context['home_dir']}\n"
             recent_messages = context.get("recent_messages")
+            if isinstance(recent_messages, list) and recent_messages:
+                recent_messages = trim_latest_user_message(recent_messages, user_message)
             if isinstance(recent_messages, list) and recent_messages:
                 prompt += "\n## Recent Conversation\n\n"
                 for item in recent_messages[-6:]:

@@ -6,6 +6,7 @@ import platform
 from datetime import datetime
 from typing import Any, Awaitable, Callable
 
+from ....agent.message_utils import build_recent_messages
 from ....core.logger import get_logger
 from ....tools.context_decider import ContextDecider
 from ..common import (
@@ -105,17 +106,12 @@ class ChatExecutionCoordinator:
                 ),
             )
 
-        recent_messages: list[dict[str, str]] = []
-        for msg in context.history[-6:]:
-            if not isinstance(msg, dict):
-                continue
-            role = str(msg.get("role", "unknown"))
-            content = str(msg.get("content", "")).strip()
-            if not content:
-                continue
-            if len(content) > 120:
-                content = content[:120] + "..."
-            recent_messages.append({"role": role, "content": content})
+        recent_messages = build_recent_messages(
+            context.history,
+            limit=6,
+            content_limit=120,
+            exclude_latest_user_message=context.latest_user_message,
+        )
 
         now = datetime.now()
         decision_context = {

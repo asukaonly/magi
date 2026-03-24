@@ -9,6 +9,12 @@ from magi.agent.task_agents.chat.handlers import DirectLLMHandler
 from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
 
 
+class _FakeContextService:
+    async def build_prompt_package(self, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return SimpleNamespace(prompt_context={}, system_prompt="sys")
+
+
 class _FakePromptService:
     async def call_llm(  # type: ignore[no-untyped-def]
         self,
@@ -86,3 +92,53 @@ async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> N
     assert result.llm_trace["model"] == "gpt-test"
     assert result.llm_trace["input_tokens"] == 64
     assert result.llm_trace["duration_ms"] == 920
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_does_not_duplicate_latest_user_message_from_history() -> None:
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[{"role": "user", "content": "hello"}],
+        conversation_history=[{"role": "user", "content": "hello"}],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="hello",
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning="direct",
+                orchestration_plan=OrchestrationPlan(),
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="direct"),
+        )
+    )
+
+    assert request.messages == [{"role": "user", "content": "hello"}]
