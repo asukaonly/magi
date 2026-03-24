@@ -298,16 +298,7 @@ class HybridRetrievalService:
         try:
             projection = await self._memory.l0.get_prompt_workbench_projection(session_id)
             if projection.session is not None:
-                projection_payload = projection.to_payload()
-                return [
-                    {
-                        "session": projection_payload["session"],
-                        "goals": projection_payload.get("goal_stack", [])[:3],
-                        "active_entities": projection_payload.get("active_entities", [])[:5],
-                        "temporary_tactics": projection_payload.get("temporary_tactics", [])[:5],
-                        "execution_summary": projection_payload.get("execution_summary"),
-                    }
-                ]
+                return [projection.to_retrieval_entry()]
         except Exception:
             logger.debug("L0 workbench load failed", exc_info=True)
         return []

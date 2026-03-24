@@ -145,23 +145,30 @@ class TestServiceBasicFlow:
 
     @pytest.mark.asyncio
     async def test_l0_loaded_when_session_id_present(self):
+        class _Projection:
+            session = {"id": "s1"}
+
+            def to_retrieval_entry(self):
+                return {
+                    "session": {"id": "s1"},
+                    "goals": ["g1"],
+                    "active_entities": ["e1"],
+                    "temporary_tactics": ["t1"],
+                    "execution_summary": {
+                        "active_run_summary": "Investigate the login issue",
+                        "awaiting_external_result": True,
+                        "latest_user_augmentation_summary": "补充一下，是 macOS",
+                    },
+                }
+
         l0 = AsyncMock()
-        l0.get_prompt_workbench_projection.return_value = L0PromptWorkbenchProjection(
-            session={"id": "s1"},
-            goal_stack=["g1"],
-            active_entities=["e1"],
-            temporary_tactics=["t1"],
-            execution_summary=L0ExecutionSummary(
-                active_run_summary="Investigate the login issue",
-                awaiting_external_result=True,
-                latest_user_augmentation_summary="补充一下，是 macOS",
-            ),
-        )
+        l0.get_prompt_workbench_projection.return_value = _Projection()
         mem = _make_memory(l0=l0)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         result = await svc.query(_make_request(session_id="s1"))
         assert len(result.l0_workbench) == 1
         assert result.l0_workbench[0]["session"]["id"] == "s1"
+        assert result.l0_workbench[0]["goals"] == ["g1"]
         assert result.l0_workbench[0]["execution_summary"]["active_run_summary"] == "Investigate the login issue"
         l0.get_prompt_workbench_projection.assert_awaited_once_with("s1")
         l0.get_workbench.assert_not_called()
