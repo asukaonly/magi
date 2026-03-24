@@ -458,7 +458,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 export const configApi = {
   get: () => api.get<SystemConfig>('/config'),
   update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
-  reset: () => api.post<SystemConfig>('/config/reset', {}),
   getTemplate: () => api.get<SystemConfig>('/config/template'),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
   getLLMProviders: () => api.get<LLMProviderRegistry>('/config/llm-providers'),

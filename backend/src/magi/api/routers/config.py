@@ -977,20 +977,6 @@ async def update_config(config: SystemConfigModel):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@config_router.post("/reset", response_model=ConfigResponse)
-async def reset_config():
-    try:
-        config_path = get_config_file_path()
-        if config_path.exists():
-            config_path.unlink()
-        # Trigger default config regeneration.
-        _ = get_config()
-        return ConfigResponse(success=True, message="Configuration reset", data=_build_system_config())
-    except Exception as exc:
-        logger.exception("Failed to reset config")
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 @config_router.get("/template", response_model=ConfigResponse)
 async def get_config_template():
     return ConfigResponse(success=True, message="Configuration template", data=SystemConfigModel())

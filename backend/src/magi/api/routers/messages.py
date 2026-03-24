@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 
-from ..services import dispatch_user_message, get_chat_trace_read_service, require_user_message_sensor
+from ..services import dispatch_user_message, get_chat_trace_read_service
 from ...chat import get_chat_read_service
 from ...utils.agent_logger import get_agent_logger
 from ...core.logger import get_logger
@@ -140,19 +140,6 @@ async def get_conversation_history(
         }
 
 
-@user_messages_router.get("/worker/{worker_id}", response_model=Dict[str, Any])
-async def get_worker_result(worker_id: str, user_id: str = "web_user"):
-    """Get the full structured result for one worker."""
-    read_service = get_chat_read_service()
-    result = await read_service.aget_worker_result(worker_id)
-    return {
-        "success": result is not None,
-        "worker_id": worker_id,
-        "user_id": user_id,
-        "result": result,
-    }
-
-
 @user_messages_router.get("/trace", response_model=Dict[str, Any])
 async def get_execution_trace(
     user_id: str = "web_user",
@@ -278,37 +265,3 @@ async def list_sessions(
             "count": 0,
         }
 
-
-@user_messages_router.get("/sensor/status")
-async def get_sensor_status():
-    """
-    Get sensor state.
-
-    Returns:
-        Sensor state info.
-    """
-    sensor = require_user_message_sensor()
-
-    return {
-        "sensor_type": "user_message",
-        "enabled": sensor.enabled,
-        "perception_type": sensor.perception_type.value,
-        "trigger_mode": sensor.trigger_mode.value,
-        "queue_size": sensor.get_queue().qsize(),
-    }
-
-
-@user_messages_router.post("/sensor/enable")
-async def enable_sensor():
-    """Enable the sensor."""
-    sensor = require_user_message_sensor()
-    sensor.enable()
-    return {"success": True, "message": "Sensor enabled"}
-
-
-@user_messages_router.post("/sensor/disable")
-async def disable_sensor():
-    """Disable the sensor."""
-    sensor = require_user_message_sensor()
-    sensor.disable()
-    return {"success": True, "message": "Sensor disabled"}

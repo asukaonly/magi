@@ -8,7 +8,6 @@ export { messagesApi } from './modules/messages';
 export type {
   UserMessageRequest,
   MessageData,
-  SensorStatus,
   ConversationHistory,
   ChatHistoryMessage,
   ChatSessionListItem,

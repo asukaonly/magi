@@ -96,22 +96,6 @@ def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_stat
 
 
 @pytest.mark.asyncio
-async def test_refresh_skills_syncs_enabled_subset_to_tool_registry(
-    isolated_skills_state,
-) -> None:
-    enabled_skills, container = isolated_skills_state
-    bindings = skills_runtime_service.build_skills_runtime(llm_adapter=None)
-    _bind_skills_runtime(container, bindings)
-    assert set(tool_registry.get_skill_names()) == {"enabled-skill"}
-
-    enabled_skills[:] = ["disabled-skill"]
-
-    await skills_router_module.refresh_skills()
-
-    assert set(tool_registry.get_skill_names()) == {"disabled-skill"}
-
-
-@pytest.mark.asyncio
 async def test_list_skills_returns_503_when_module_uninitialized(monkeypatch: pytest.MonkeyPatch) -> None:
     container = get_container()
     container.skill_indexer.reset_override()

@@ -18,14 +18,6 @@ export interface MessageData {
   timestamp: number;
 }
 
-export interface SensorStatus {
-  sensor_type: string;
-  enabled: boolean;
-  perception_type: string;
-  trigger_mode: string;
-  queue_size: number;
-}
-
 export interface ChatHistoryMessage {
   message_id?: string | null;
   message_kind?: string | null;
@@ -106,24 +98,6 @@ export const messagesApi = {
   /** Send user message */
   sendMessage: async (request: UserMessageRequest): Promise<{ success: boolean; message: string; data?: MessageData }> => {
     const response = await api.post<MessageData>('/messages/send', request);
-    return response;
-  },
-
-  /** Get sensor status */
-  getSensorStatus: async (): Promise<SensorStatus> => {
-    const response = await api.get<SensorStatus>('/messages/sensor/status');
-    return (response.data || response) as SensorStatus;
-  },
-
-  /** Enable sensor */
-  enableSensor: async (): Promise<{ success: boolean; message: string }> => {
-    const response = await api.post<{ success: boolean; message: string }>('/messages/sensor/enable');
-    return response;
-  },
-
-  /** Disable sensor */
-  disableSensor: async (): Promise<{ success: boolean; message: string }> => {
-    const response = await api.post<{ success: boolean; message: string }>('/messages/sensor/disable');
     return response;
   },
 

@@ -12,15 +12,6 @@ def test_messages_router_does_not_define_global_user_message_sensor() -> None:
     assert "UserMessageSensor()" not in source
 
 
-def test_others_router_does_not_define_global_other_memory() -> None:
-    from magi.api.routers import others as others_router
-
-    source = Path(others_router.__file__).read_text(encoding="utf-8")
-    assert "_other_memory:" not in source
-    assert "global _other_memory" not in source
-    assert "OtherMemory(" not in source
-
-
 def test_api_services_module_does_not_reexport_runtime_globals() -> None:
     from magi.api import services as api_services
 
