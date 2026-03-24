@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use tauri::{
+    image::Image,
     menu::{MenuBuilder, MenuEvent},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, Runtime,
@@ -62,6 +63,20 @@ impl DesktopPresenceState {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn macos_template_icon_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("icons")
+        .join("tray-template-macos.png")
+}
+
+#[cfg(target_os = "macos")]
+fn load_tray_icon() -> Result<Image<'static>, String> {
+    Image::from_path(macos_template_icon_path())
+        .map(|image| image.to_owned())
+        .map_err(|err| format!("Failed to load macOS tray template icon: {err}"))
+}
+
 pub fn setup<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let menu = MenuBuilder::new(app)
         .text(MENU_OPEN_ID, "Open")
@@ -81,13 +96,21 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
             handle_tray_event(tray, &event);
         });
 
-    if let Some(icon) = app.default_window_icon().cloned() {
-        tray_builder = tray_builder.icon(icon);
+    #[cfg(target_os = "macos")]
+    {
+        tray_builder = tray_builder.icon(load_tray_icon()?);
     }
 
     #[cfg(target_os = "macos")]
     {
         tray_builder = tray_builder.icon_as_template(true);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(icon) = app.default_window_icon().cloned() {
+            tray_builder = tray_builder.icon(icon);
+        }
     }
 
     tray_builder
@@ -184,5 +207,18 @@ mod tests {
             state.close_action().unwrap(),
             CloseAction::RequestQuitConfirmation
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desktop_presence_includes_a_macos_template_icon_asset() {
+        let icon_path = super::macos_template_icon_path();
+
+        let icon_bytes = std::fs::read(&icon_path).expect("expected macOS tray template icon asset");
+        assert!(icon_bytes.starts_with(&[0x89, b'P', b'N', b'G']));
+        let image =
+            tauri::image::Image::from_path(&icon_path).expect("expected macOS tray template icon to load");
+        assert!(image.width() > 0);
+        assert!(image.height() > 0);
     }
 }
