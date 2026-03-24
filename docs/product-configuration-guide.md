@@ -282,6 +282,80 @@ Expected product behavior:
 
 Action execution may also be scheduled by the backend runtime for delayed or recurring delivery, even when the product does not yet expose a full task-center UI.
 
+## Desktop Window Presence
+
+Magi is a desktop-only application and should behave like a native background-capable desktop app instead of a browser tab wrapped in a shell.
+
+Expected product behavior:
+
+- the application may remain running after the main window is closed
+- window-close behavior should be user-configurable from Settings
+- the default behavior should preserve the local runtime and hide the main window instead of terminating the app
+- the app should expose a persistent desktop presence entry point even when the main window is hidden
+
+### Close-To-Tray Or Menu-Bar Preference
+
+The Preferences surface should expose a desktop behavior toggle:
+
+- `Close window to tray/menu bar`
+
+Expected behavior:
+
+- the toggle is enabled by default
+- the preference is persisted with the rest of product settings
+- when enabled, clicking the main window close control hides the main window and keeps the app resident
+- when disabled, clicking the main window close control should follow the normal exit flow
+
+Implementation boundary:
+
+- the frontend owns the user-facing setting, copy, and confirmation dialog experience
+- the desktop shell owns interception of native close events, visibility changes, and final process termination
+
+### Platform-Specific Presence Surface
+
+The product behavior should stay conceptually aligned across operating systems while still respecting system conventions.
+
+- macOS
+  Use a menu-bar status item as the persistent presence surface. Closing the main window should hide it, not terminate the runtime, when the close-to-tray setting is enabled.
+
+- Windows
+  Use a notification-area tray icon as the persistent presence surface. Closing the main window should hide it to the tray when the close-to-tray setting is enabled.
+
+- Linux
+  Use a system tray icon where the desktop environment supports it. Closing the main window should hide it to the tray when the close-to-tray setting is enabled.
+
+The persistent presence surface should provide these actions:
+
+- open
+- settings
+- quit
+
+Expected behavior:
+
+- `open` restores and focuses the main window
+- `settings` restores the main window and routes directly into Settings
+- `quit` performs a real application exit rather than merely hiding the window
+
+### Exit Confirmation
+
+When the user requests a real exit from the persistent presence surface, the product should warn that local runtime work will stop.
+
+Expected behavior:
+
+- quitting from the tray or menu bar should require confirmation
+- the confirmation should explain that backend tasks and the local runtime will be terminated
+- canceling the confirmation should keep the app resident
+- hiding the window through the native close control should not trigger the quit confirmation when the close-to-tray setting is enabled
+
+### Runtime Ownership Rule
+
+Hiding the window is not equivalent to shutting down the desktop runtime.
+
+Important rule:
+
+- ordinary close-to-tray behavior must not stop the Python sidecar or other desktop runtime services
+- backend shutdown should happen only during an explicit quit flow or unrecoverable application termination
+
 ## Cross-Cutting Product Rules
 
 These rules apply across onboarding and settings:
