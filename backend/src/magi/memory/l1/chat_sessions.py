@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
     last_message_preview TEXT NOT NULL DEFAULT '',
     last_user_message_preview TEXT NOT NULL DEFAULT '',
     message_count INTEGER NOT NULL DEFAULT 0,
+    workspace_path TEXT,
     archived_at REAL,
     deleted_at REAL
 );
@@ -60,6 +61,13 @@ async def ensure_chat_sessions_schema_async(db: aiosqlite.Connection) -> None:
     """Create the canonical chat session schema for an async connection."""
 
     await db.executescript(CHAT_SESSIONS_SCHEMA_SQL)
+    cursor = await db.execute(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
+    rows = await cursor.fetchall()
+    column_names = {str(row[1]) for row in rows}
+    if "workspace_path" not in column_names:
+        await db.execute(
+            f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN workspace_path TEXT"
+        )
 
 
 def create_chat_session_record(
@@ -116,8 +124,8 @@ async def project_chat_event_to_session(
         INSERT INTO {CHAT_SESSIONS_TABLE} (
             session_id, user_id, title, title_overridden, summary, created_at, updated_at,
             last_message_at, last_user_message_at, last_message_preview,
-            last_user_message_preview, message_count, archived_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            last_user_message_preview, message_count, workspace_path, archived_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO NOTHING
         """,
         (
@@ -133,6 +141,7 @@ async def project_chat_event_to_session(
             "",
             "",
             0,
+            None,
             None,
             None,
         ),
