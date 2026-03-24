@@ -1,6 +1,7 @@
 """API read/write services."""
 from .chat_trace_read_service import ChatTraceReadService, get_chat_trace_read_service
 from .message_dispatch_service import MessageDispatchOutcome, dispatch_user_message
+from .metrics_overview_service import build_runtime_overview
 from .personality_state_service import (
     get_current_personality_name,
     set_current_personality_name,
@@ -20,6 +21,7 @@ __all__ = [
     "get_chat_trace_read_service",
     "MessageDispatchOutcome",
     "dispatch_user_message",
+    "build_runtime_overview",
     "get_runtime_system_status",
     "require_message_bus",
     "require_other_memory",

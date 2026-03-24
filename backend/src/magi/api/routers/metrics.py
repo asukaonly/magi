@@ -3,13 +3,14 @@ Metrics Monitoring API Routes
 
 Provides system performance, agent state, and other monitoring metrics.
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 from typing import List
 import psutil
 import logging
 
 from ...llm import get_llm_usage_store
+from ..services.metrics_overview_service import build_runtime_overview
 
 logger = logging.getLogger(__name__)
 
@@ -218,4 +219,15 @@ async def get_llm_usage_timeseries(
             "window_days": days,
             "points": series,
         },
+    }
+
+
+@metrics_router.get("/runtime/overview")
+async def get_runtime_overview(request: Request):
+    """Get a settings-facing runtime overview payload."""
+    overview = await build_runtime_overview(request.app)
+    return {
+        "success": True,
+        "message": "Runtime overview loaded",
+        "data": overview,
     }
