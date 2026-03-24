@@ -19,6 +19,7 @@ from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge
+from ...chat.workspace import get_default_chat_workspace_path
 from ...config.models import LLMScenario
 from ...config.constants import DEFAULT_MAX_TOKENS
 from ..message_utils import append_latest_user_message
@@ -1098,6 +1099,7 @@ class FunctionCallingOrchestrator:
                     skill_name=skill_name,
                     arguments=arguments,
                     user_id=user_id,
+                    execution_workspace=execution_workspace,
                 )
 
             # Regular tool
@@ -1126,7 +1128,7 @@ class FunctionCallingOrchestrator:
 
             context = ToolExecutionContext(
                 agent_id=execution_agent_id,
-                workspace=execution_workspace or os.getcwd(),
+                workspace=self._resolve_execution_workspace(execution_workspace),
                 env_vars={
                     "user_id": user_id,
                     "session_id": session_id or "",
@@ -1233,9 +1235,13 @@ class FunctionCallingOrchestrator:
         if raw_path in {"", ".", "./"}:
             return True
 
-        workspace_root = os.path.realpath(execution_workspace or os.getcwd())
+        workspace_root = self._resolve_execution_workspace(execution_workspace)
         candidate_path = os.path.realpath(os.path.expandvars(os.path.expanduser(raw_path)))
         return candidate_path == workspace_root
+
+    def _resolve_execution_workspace(self, execution_workspace: Optional[str]) -> str:
+        raw_workspace = str(execution_workspace or "").strip() or get_default_chat_workspace_path()
+        return os.path.realpath(os.path.expandvars(os.path.expanduser(raw_workspace)))
 
     def _bounded_max_results(self, value: Any, cap: int) -> int:
         """Parse max_results and keep it within [1, cap]."""
@@ -1503,6 +1509,7 @@ class FunctionCallingOrchestrator:
         skill_name: str,
         arguments: Dict[str, Any],
         user_id: str,
+        execution_workspace: Optional[str] = None,
     ) -> ToolCallResult:
         """Execute a skill"""
         if not self.skill_runner:
@@ -1513,14 +1520,15 @@ class FunctionCallingOrchestrator:
                 error="Skill runner not available",
             )
 
-        import os
+        workspace_root = self._resolve_execution_workspace(execution_workspace)
         skill_context = {
             "user_id": user_id,
             "session_id": f"session_{user_id}",
+            "workspace": workspace_root,
             "env_vars": {
                 "user": getpass.getuser(),
                 "HOME": os.path.expanduser("~"),
-                "PWD": os.getcwd(),
+                "PWD": workspace_root,
             },
         }
 

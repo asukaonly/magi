@@ -33,10 +33,11 @@ class SkillIndexer:
     """
 
     # Skill directories in priority order (higher priority first)
+    _REPO_ROOT = Path(__file__).resolve().parents[4]
     SKILL_LOCATIONS = [
         Path.home() / ".claude" / "skills",     # Personal (high priority)
-        Path(__file__).parent.parent.parent.parent.parent / "skills",  # Project predefined skills (magi/skills)
-        Path.cwd() / ".claude" / "skills",       # Project local (lower priority)
+        _REPO_ROOT / "skills",                  # Project predefined skills (magi/skills)
+        _REPO_ROOT / ".claude" / "skills",      # Project local (lower priority)
     ]
 
     def __init__(self, skill_locations: Optional[List[Path]] = None):

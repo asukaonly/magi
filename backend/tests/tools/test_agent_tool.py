@@ -450,6 +450,38 @@ def test_agent_tool_prompt_includes_execution_environment():
     assert "Do not invent alternative Linux-style or macOS-style home paths" in prompt
 
 
+def test_agent_tool_prompt_defaults_to_managed_workspace_when_missing(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from magi.agent.workers import worker_manager as worker_manager_module
+
+    fallback_cwd = tmp_path / "cwd"
+    managed_workspace = tmp_path / "managed-chat-workspace"
+    fallback_cwd.mkdir()
+    managed_workspace.mkdir()
+
+    monkeypatch.chdir(fallback_cwd)
+    monkeypatch.setattr(
+        worker_manager_module,
+        "get_default_chat_workspace_path",
+        lambda: str(managed_workspace),
+        raising=False,
+    )
+
+    tool = AgentTool()
+    prompt = tool._build_worker_system_prompt(
+        worker_id="worker_test",
+        subagent_type=tool.TYPE_EXPLORE,
+        description="Analyze backend modules",
+        selected_tools=["glob", "grep", "file_read"],
+        execution_workspace=None,
+    )
+
+    assert f"Workspace root: {managed_workspace.resolve()}" in prompt
+    assert f"Workspace root: {fallback_cwd.resolve()}" not in prompt
+
+
 @pytest.mark.asyncio
 async def test_await_timeout_does_not_cancel_worker_task():
     tool = AgentTool()

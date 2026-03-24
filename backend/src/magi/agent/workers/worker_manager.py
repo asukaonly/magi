@@ -18,6 +18,7 @@ from ...agent.trace import build_trace_timing, now_wall_ms
 from ...core.logger import get_logger
 from ...events.events import Event, EventLevel
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
+from ...chat.workspace import get_default_chat_workspace_path
 from ...runtime_trace import (
     RuntimeNotificationRecord,
     RuntimeTraceStore,
@@ -1441,9 +1442,7 @@ class WorkerAgentManager(Tool):
         return "\n".join([base_rules, environment_rules, role_rules, tool_rules])
 
     def _build_worker_environment_rules(self, execution_workspace: Optional[str]) -> str:
-        workspace_root = os.path.realpath(
-            os.path.expandvars(os.path.expanduser(execution_workspace or os.getcwd()))
-        )
+        workspace_root = self._resolve_execution_workspace(execution_workspace)
         home_dir = os.path.realpath(os.path.expanduser("~"))
         current_time = datetime.now().astimezone().isoformat(timespec="seconds")
         return "\n".join(
@@ -1458,6 +1457,10 @@ class WorkerAgentManager(Tool):
                 "- Do not invent alternative Linux-style or macOS-style home paths when a path is missing; report the missing path instead.",
             ]
         )
+
+    def _resolve_execution_workspace(self, execution_workspace: Optional[str]) -> str:
+        raw_workspace = str(execution_workspace or "").strip() or get_default_chat_workspace_path()
+        return os.path.realpath(os.path.expandvars(os.path.expanduser(raw_workspace)))
 
     def _build_explore_role_rules(self, description: str) -> str:
         lowered = description.lower()

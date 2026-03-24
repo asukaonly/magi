@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
 from .schema import SkillContent, SkillResult
+from ..chat.workspace import get_default_chat_workspace_path
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_SKILL_MAX_TOKENS
@@ -247,11 +248,21 @@ class SkillSubagent:
             conversation_history=[],
             disable_thinking=True,
             intent="skill_execution",
+            execution_workspace=self._resolve_workspace(context),
         )
 
         if not result.succeeded:
             raise RuntimeError(result.failure_reason or "Skill subagent execution failed")
         return result.content
+
+    def _resolve_workspace(self, context: Dict[str, Any]) -> str:
+        env_vars = context.get("env_vars", {})
+        raw_workspace = (
+            str(context.get("workspace", "")).strip()
+            or str(env_vars.get("PWD", "")).strip()
+            or get_default_chat_workspace_path()
+        )
+        return str(Path(raw_workspace).expanduser().resolve())
 
     async def _execute_direct(
         self,

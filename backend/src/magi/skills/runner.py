@@ -13,6 +13,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Set
 
+from ..chat.workspace import get_default_chat_workspace_path
 from .schema import SkillContent, SkillResult
 from .loader import SkillLoader
 from .subagent import create_skill_subagent
@@ -140,6 +141,7 @@ class SkillRunner:
             Template with variables substituted
         """
         result = template
+        workspace_root = self._resolve_workspace(context)
 
         all_args = " ".join(arguments)
         result = result.replace("$argumentS", all_args)
@@ -156,9 +158,18 @@ class SkillRunner:
         result = result.replace("${CLAUDE_session_id}", context.get("session_id", ""))
         result = result.replace("${user_id}", context.get("user_id", ""))
         result = result.replace("${HOME}", os.path.expanduser("~"))
-        result = result.replace("${PWD}", os.getcwd())
+        result = result.replace("${PWD}", workspace_root)
 
         return result
+
+    def _resolve_workspace(self, context: Dict[str, Any]) -> str:
+        env_vars = context.get("env_vars", {})
+        raw_workspace = (
+            str(context.get("workspace", "")).strip()
+            or str(env_vars.get("PWD", "")).strip()
+            or get_default_chat_workspace_path()
+        )
+        return os.path.realpath(os.path.expandvars(os.path.expanduser(raw_workspace)))
 
     async def _execute_direct(
         self,
