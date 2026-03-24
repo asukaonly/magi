@@ -7,6 +7,7 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { normalizeHistoryMessages, normalizeTraceSummary } from '@/pages/chat-state';
+import { DEFAULT_USER_CHANNEL } from '@/constants';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useConversationStore } from '@/stores/conversation-store';
@@ -17,8 +18,6 @@ type RealtimeContextValue = {
   send: (message: Record<string, unknown>) => void;
   subscribe: (listener: (message: RealtimeMessage) => void) => () => void;
 };
-
-const USER_CHANNEL = 'user_web_user';
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
 
@@ -107,11 +106,11 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
     const unsubscribeStatus = client.subscribeStatus((status) => {
       setConnected(status.connected);
       setLastError(status.lastError);
-      setReconnectAttempts(status.reconnectAttempts);
-      if (status.connected) {
-        client.send({ type: 'subscribe', channel: USER_CHANNEL });
-      }
-    });
+        setReconnectAttempts(status.reconnectAttempts);
+        if (status.connected) {
+          client.send({ type: 'subscribe', channel: DEFAULT_USER_CHANNEL });
+        }
+      });
 
     client.connect(resolveWsUrl());
 

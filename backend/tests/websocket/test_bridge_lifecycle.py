@@ -13,7 +13,7 @@ class _DummyTraceService:
         raise AssertionError("sync trace reader should not be used")
 
     async def aget_trace_summary(self, *, user_id: str, session_id: str, turn_id: str) -> dict:
-        assert user_id == "web_user"
+        assert user_id == "local_user"
         assert session_id == "session-1"
         assert turn_id == "turn-1"
         return {"trace_available": True, "headline": "done"}
@@ -25,13 +25,13 @@ class _FakeRuntimeTraceStore:
             {
                 "notification_id": 1,
                 "channel": "agent_response",
-                "user_id": "web_user",
+                "user_id": "local_user",
                 "session_id": "session-1",
                 "turn_id": "turn-1",
                 "payload_json": json.dumps(
                     {
                         "content": "hello",
-                        "user_id": "web_user",
+                        "user_id": "local_user",
                         "session_id": "session-1",
                         "turn_id": "turn-1",
                     }
@@ -41,12 +41,12 @@ class _FakeRuntimeTraceStore:
             {
                 "notification_id": 2,
                 "channel": "turn_ux_plan",
-                "user_id": "web_user",
+                "user_id": "local_user",
                 "session_id": "session-1",
                 "turn_id": "turn-1",
                 "payload_json": json.dumps(
                     {
-                        "user_id": "web_user",
+                        "user_id": "local_user",
                         "session_id": "session-1",
                         "turn_id": "turn-1",
                         "ux_plan": {
@@ -106,6 +106,6 @@ async def test_websocket_bridge_polls_runtime_notifications(monkeypatch: pytest.
     assert broadcasts[0][1]["content"] == "hello"
     assert broadcasts[0][1]["trace_summary"]["headline"] == "done"
     assert broadcasts[0][1]["trace_available"] is True
-    assert broadcasts[0][2] == "user_web_user"
+    assert broadcasts[0][2] == "user_local_user"
     assert broadcasts[1][0] == "turn_ux_plan"
     assert broadcasts[1][1]["ux_plan"]["assistant_surface_mode"] == "interim_then_final"

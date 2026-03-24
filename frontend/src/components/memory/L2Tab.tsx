@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { DEFAULT_USER_ID } from '@/constants';
 import type {
   L1Event,
   L2Assertion,
@@ -56,7 +57,7 @@ interface L2TabProps {
 
 const defaultManualState: ManualL2EventPayload = {
   text: '',
-  user_id: 'web_user',
+  user_id: DEFAULT_USER_ID,
   session_id: 'l2-lab',
   source: 'l2_lab',
   entity_focus_hint: '',

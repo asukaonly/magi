@@ -218,7 +218,7 @@ describe('L2Tab lab', () => {
         identityLinks={[
           {
             namespace: 'web',
-            runtime_user_id: 'web_user',
+            runtime_user_id: 'local_user',
             memory_owner_id: 'user:self',
             link_type: 'runtime_account',
           },
@@ -240,7 +240,7 @@ describe('L2Tab lab', () => {
     expect(screen.getByText('memory.pages.knowledge.sections.identitySummary')).toBeInTheDocument();
     expect(screen.getByText('memory.identity.runtimeLinks')).toBeInTheDocument();
     expect(screen.getAllByText('user:self').length).toBeGreaterThan(0);
-    expect(screen.getByText('web_user')).toBeInTheDocument();
+    expect(screen.getByText('local_user')).toBeInTheDocument();
     expect(screen.getByText('memory.l2.lab.evidenceBreakdown')).toBeInTheDocument();
     expect(screen.getByText('memory.l2.lab.skipReasonBreakdown')).toBeInTheDocument();
     expect(screen.getByText('user_self_report')).toBeInTheDocument();

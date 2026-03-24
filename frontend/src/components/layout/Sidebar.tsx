@@ -14,7 +14,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { messagesApi, type ChatSessionListItem } from '@/api';
-import { CHAT_SESSION_KEY } from '@/constants';
+import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,7 +27,7 @@ import {
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 
-const USER_ID = 'web_user';
+const USER_ID = DEFAULT_USER_ID;
 const SESSION_EVENT = 'magi-session-sync';
 
 interface SidebarProps {

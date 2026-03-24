@@ -27,7 +27,7 @@ async def test_chat_sensor_discover_fetch_and_build_round_trip():
         "turn_id": "turn-1",
         "message": "I still like Asuka best.",
         "assistant_message": "You really care about Asuka.",
-        "user_id": "web_user",
+        "user_id": "local_user",
         "session_id": "session-1",
         "timestamp": 1710000000.0,
     }

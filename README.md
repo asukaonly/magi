@@ -141,9 +141,7 @@ Magi is built as a local-first agent runtime with clear layering and ownership b
   - `WorkerAgentManager` for leaf worker execution
 - Memory model: lifecycle-based `L0` to `L4`
 - Extension model: tools, plugins, skills, sensors/actions
-- Runtime shapes:
-  - Web mode: React frontend + Python backend
-  - Desktop mode: Tauri shell + React WebView + Python sidecar backend
+- Runtime target: desktop-only via Tauri shell + React WebView + Python sidecar backend
 
 ## Repository Layout
 

@@ -11,7 +11,7 @@ describe('chat trace store', () => {
     store.openDrawer('turn_1');
     store.setSnapshot({
       turn_id: 'turn_1',
-      user_id: 'web_user',
+      user_id: 'local_user',
       session_id: 'session_1',
       status: 'completed',
       mode: 'orchestration',

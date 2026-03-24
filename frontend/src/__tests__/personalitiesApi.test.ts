@@ -6,7 +6,7 @@ import type { RuntimeConfig } from '@/runtime/config';
 describe('personalitiesApi.getAvatarUrl', () => {
   beforeEach(() => {
     window.__MAGI_RUNTIME__ = {
-      isDesktop: false,
+      isDesktop: true,
       apiBaseUrl: 'http://127.0.0.1:8123/api',
       wsBaseUrl: 'ws://127.0.0.1:8123',
     } satisfies RuntimeConfig;

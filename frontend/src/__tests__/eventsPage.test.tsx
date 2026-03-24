@@ -55,7 +55,7 @@ const L1_EVENT = {
   retention_class: 'compressible',
   importance_score: 0.5,
   cognition_eligible: true,
-  user_id: 'web_user',
+  user_id: 'local_user',
   author_type: 'assistant',
   content_type: 'text',
 };
@@ -112,7 +112,7 @@ describe('events page', () => {
       links: [
         {
           namespace: 'web',
-          runtime_user_id: 'web_user',
+          runtime_user_id: 'local_user',
           memory_owner_id: 'user:self',
           link_type: 'runtime_account',
         },
@@ -158,7 +158,7 @@ describe('events page', () => {
     expect(eventCard).toBeInTheDocument();
     expect(eventCard).toHaveClass('rounded-lg');
     expect(screen.getByText('hello')).toBeInTheDocument();
-    expect(screen.getByText('web_user')).toBeInTheDocument();
+    expect(screen.getByText('local_user')).toBeInTheDocument();
     expect(screen.getAllByText('assistant').length).toBeGreaterThan(0);
     expect(screen.getByText('text')).toBeInTheDocument();
   });

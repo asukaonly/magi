@@ -29,7 +29,7 @@ const READY_CHECK_INTERVAL_MS = 250;
 const READY_CHECK_TIMEOUT_MS = 30000;
 
 let runtimeConfig: RuntimeConfig = {
-  isDesktop: false,
+  isDesktop: true,
   apiBaseUrl: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL),
   wsBaseUrl: "",
 };
@@ -124,19 +124,9 @@ export async function initializeRuntime(): Promise<RuntimeConfig> {
   }
 
   if (!isTauriRuntime()) {
-    const apiBaseUrl = runtimeConfig.apiBaseUrl;
-    await waitForBackendReady(apiBaseUrl);
-    runtimeConfig = {
-      ...runtimeConfig,
-      isDesktop: false,
-      apiBaseUrl,
-      wsBaseUrl: buildWsBaseUrl(apiBaseUrl),
-      sessionToken: undefined,
-      backendPid: undefined,
-    };
+    startupError = "Desktop runtime requires Tauri shell";
     initialized = true;
-    window.__MAGI_RUNTIME__ = runtimeConfig;
-    return runtimeConfig;
+    throw new Error(startupError);
   }
 
   try {

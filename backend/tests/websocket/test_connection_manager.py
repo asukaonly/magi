@@ -18,7 +18,7 @@ async def test_broadcast_agent_response_to_room_does_not_raise() -> None:
     manager = ConnectionManager()
     ws = _DummyWebSocket()
     sid = "sid-1"
-    room = "user_web_user"
+    room = "user_local_user"
 
     manager.active_connections[sid] = ws
     manager.connection_rooms[sid] = {room}

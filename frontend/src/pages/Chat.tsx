@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { messagesApi } from '@/api';
+import { DEFAULT_USER_ID } from '@/constants';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useRealtime } from '@/realtime/provider';
 import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/stores';
@@ -36,7 +37,7 @@ interface WSMessage {
 
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const SESSION_EVENT = 'magi-session-sync';
-const USER_ID = 'web_user';
+const USER_ID = DEFAULT_USER_ID;
 
 const assistantMarkdownComponents: Components = {
   h1: ({ children }) => <h1 className="mb-3 mt-1 text-lg font-semibold leading-snug text-foreground">{children}</h1>,

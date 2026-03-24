@@ -7,6 +7,7 @@ from typing import Optional
 from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventTypes
+from ..runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
 from .contracts import SensorEvent
 
 logger = get_logger(__name__)
@@ -68,11 +69,11 @@ class SensorHub:
             event_type=EventTypes.USER_MESSAGE,
             payload={
                 "content": content,
-                "user_id": str(data.get("user_id", "web_user")),
+                "user_id": str(data.get("user_id", DEFAULT_USER_ID)),
                 "runtime_namespace": str(
                     data.get("runtime_namespace")
                     or (data.get("metadata") or {}).get("runtime_namespace")
-                    or "web"
+                    or DEFAULT_RUNTIME_NAMESPACE
                 ),
                 "session_id": session_id,
                 "turn_id": str(data.get("turn_id") or "").strip() or None,

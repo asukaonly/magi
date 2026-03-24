@@ -29,7 +29,7 @@ const createMemoryStub = () =>
         source: 'user',
         author_type: 'user',
         content_type: 'text',
-        user_id: 'web_user',
+        user_id: 'local_user',
       },
     ],
     l2Relations: [
@@ -66,7 +66,7 @@ const createMemoryStub = () =>
     identityLinks: [
       {
         namespace: 'runtime',
-        runtime_user_id: 'web_user',
+        runtime_user_id: 'local_user',
         memory_owner_id: 'user:self',
       },
     ],

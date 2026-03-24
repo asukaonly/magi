@@ -35,6 +35,33 @@ async def test_send_user_message_uses_runtime_namespace_for_dispatch(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_send_user_message_defaults_to_desktop_runtime_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+
+    response = await messages_router.send_user_message(
+        messages_router.UserMessageRequest(
+            message="hello",
+            session_id="session-1",
+        )
+    )
+
+    assert response.success is True
+    assert captured["user_id"] == "local_user"
+    assert captured["runtime_namespace"] == "desktop"
+
+
+@pytest.mark.asyncio
 async def test_get_conversation_history_uses_async_read_service(monkeypatch: pytest.MonkeyPatch) -> None:
     class _AsyncOnlyReadService:
         def get_display_history(self, user_id: str, session_id: str):  # type: ignore[no-untyped-def]

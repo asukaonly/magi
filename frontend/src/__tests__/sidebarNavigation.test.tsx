@@ -10,12 +10,12 @@ vi.mock('@/api', () => ({
   messagesApi: {
     listSessions: vi.fn().mockResolvedValue({
       sessions: [],
-      user_id: 'web_user',
+      user_id: 'local_user',
       count: 0,
     }),
     createNewSession: vi.fn().mockResolvedValue({
       success: true,
-      user_id: 'web_user',
+      user_id: 'local_user',
       session_id: null,
     }),
     renameSession: vi.fn(),
@@ -86,7 +86,7 @@ describe('sidebar navigation', () => {
           message_count: 2,
         },
       ],
-      user_id: 'web_user',
+      user_id: 'local_user',
       count: 2,
     });
 
@@ -139,7 +139,7 @@ describe('sidebar navigation', () => {
           message_count: 1,
         },
       ],
-      user_id: 'web_user',
+      user_id: 'local_user',
       count: 1,
     });
     useConversationStore.setState({
@@ -184,7 +184,7 @@ describe('sidebar navigation', () => {
           message_count: 1,
         },
       ],
-      user_id: 'web_user',
+      user_id: 'local_user',
       count: 1,
     });
     useConversationStore.setState({
@@ -239,7 +239,7 @@ describe('sidebar navigation', () => {
           message_count: 2,
         },
       ],
-      user_id: 'web_user',
+      user_id: 'local_user',
       count: 2,
     });
     useConversationStore.getState().setCurrentSessionId('session-b');
@@ -269,7 +269,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'web_user',
+        user_id: 'local_user',
         count: 1,
       })
       .mockResolvedValueOnce({
@@ -289,12 +289,12 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'web_user',
+        user_id: 'local_user',
         count: 2,
       });
     vi.mocked(messagesApi.createNewSession).mockResolvedValueOnce({
       success: true,
-      user_id: 'web_user',
+      user_id: 'local_user',
       session_id: 'session-new',
     });
 
@@ -327,7 +327,7 @@ describe('sidebar navigation', () => {
           message_count: 1,
         },
       ],
-      user_id: 'web_user',
+      user_id: 'local_user',
       count: 1,
     });
     useConversationStore.setState({
@@ -383,7 +383,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'web_user',
+        user_id: 'local_user',
         count: 1,
       })
       .mockResolvedValue({
@@ -398,12 +398,12 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'web_user',
+        user_id: 'local_user',
         count: 1,
       });
     vi.mocked(messagesApi.renameSession).mockResolvedValue({
       success: true,
-      user_id: 'web_user',
+      user_id: 'local_user',
       session: {
         session_id: 'session-a',
         title: '天气追踪',
@@ -441,7 +441,7 @@ describe('sidebar navigation', () => {
     await user.click(screen.getByRole('button', { name: 'shell.saveRename' }));
 
     await waitFor(() =>
-      expect(messagesApi.renameSession).toHaveBeenCalledWith('web_user', 'session-a', '天气追踪')
+      expect(messagesApi.renameSession).toHaveBeenCalledWith('local_user', 'session-a', '天气追踪')
     );
     expect(await screen.findByRole('button', { name: '天气追踪' })).toBeInTheDocument();
   });
@@ -468,7 +468,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'web_user',
+        user_id: 'local_user',
         count: 2,
       })
       .mockResolvedValue({
@@ -482,12 +482,12 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'web_user',
+        user_id: 'local_user',
         count: 1,
       });
     vi.mocked(messagesApi.deleteSession).mockResolvedValue({
       success: true,
-      user_id: 'web_user',
+      user_id: 'local_user',
       deleted_session_id: 'session-a',
     });
 
@@ -528,7 +528,7 @@ describe('sidebar navigation', () => {
     await user.click(await screen.findByRole('button', { name: 'shell.confirmDeleteSession' }));
 
     await waitFor(() =>
-      expect(messagesApi.deleteSession).toHaveBeenCalledWith('web_user', 'session-a')
+      expect(messagesApi.deleteSession).toHaveBeenCalledWith('local_user', 'session-a')
     );
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument()
@@ -612,7 +612,7 @@ describe('sidebar navigation', () => {
           message_count: 2,
         },
       ],
-      user_id: 'web_user',
+      user_id: 'local_user',
       count: 2,
     });
     useConversationStore.setState({

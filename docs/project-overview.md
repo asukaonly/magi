@@ -2,13 +2,13 @@
 
 ## What Magi Is
 
-Magi is a local-first AI agent framework that runs as a Python backend with either a web frontend or a Tauri desktop shell.
+Magi is a local-first AI agent framework that runs as a desktop application with a Python backend sidecar and a Tauri shell.
 
 At a high level, Magi combines:
 
 - a backend runtime for bootstrap, orchestration, memory, tools, plugins, scheduling, and transport
 - a React frontend for onboarding, settings, chat, inspection, and operational workflows
-- a desktop shell that reuses the same backend runtime through a sidecar model
+- a Tauri desktop shell that hosts the frontend and runs the backend through a sidecar model
 
 The project is optimized for local deployment and contributor control rather than cloud-first orchestration.
 
@@ -29,15 +29,12 @@ The project is optimized for local deployment and contributor control rather tha
 
 ## Product Shape
 
-Magi currently supports two runtime shapes:
-
-- Web mode
-  React frontend plus Python backend
+Magi is a desktop-only application:
 
 - Desktop mode
   Tauri shell plus React WebView plus Python backend sidecar
 
-The same backend runtime serves both targets.
+The backend runtime is packaged and started locally by the desktop shell.
 
 ## Backend Shape
 

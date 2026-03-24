@@ -14,6 +14,7 @@ from fastapi import WebSocket
 from ..api.avatar_paths import resolve_avatar_public_url
 from ..chat import get_chat_read_service
 from ..core.logger import get_logger
+from ..runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
 
 if TYPE_CHECKING:
     from .connection_manager import ConnectionManager
@@ -134,7 +135,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
     try:
         from ..api.services import dispatch_user_message
 
-        user_id = data.get("user_id", "web_user")
+        user_id = data.get("user_id", DEFAULT_USER_ID)
         session_id = data.get("session_id")
         message = data.get("message", "")
 
@@ -152,7 +153,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
             runtime_namespace=str(
                 data.get("runtime_namespace")
                 or (data.get("metadata") or {}).get("runtime_namespace")
-                or "web"
+                or DEFAULT_RUNTIME_NAMESPACE
             ),
         )
         if not outcome.success:
@@ -180,7 +181,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
 async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
     """Handle conversation history requests."""
     try:
-        user_id = data.get("user_id", "web_user")
+        user_id = data.get("user_id", DEFAULT_USER_ID)
         session_id = data.get("session_id")
         resolved_session = str(session_id or "").strip()
         if not resolved_session:
@@ -204,7 +205,7 @@ async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
         return {
             "type": "history",
             "data": {
-                "user_id": data.get("user_id", "web_user"),
+                "user_id": data.get("user_id", DEFAULT_USER_ID),
                 "session_id": data.get("session_id"),
                 "messages": [],
                 "count": 0,

@@ -42,30 +42,9 @@ describe('runtime config URL normalization', () => {
     expect(buildWsBaseUrl(normalizeApiBaseUrl('http://0.0.0.0:8000/api', 'localhost'))).toBe('ws://localhost:8000');
   });
 
-  it('waits for the backend ready probe before resolving in web mode', async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        data: { ready: false, status: 'starting' },
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        data: { ready: true, status: 'ready' },
-      }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const runtimePromise = initializeRuntime();
-    await vi.advanceTimersByTimeAsync(250);
-    const runtime = await runtimePromise;
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      'http://localhost:8000/api/ready',
-      expect.objectContaining({ method: 'GET' })
-    );
-    expect(runtime.apiBaseUrl).toBe('http://localhost:8000/api');
+  it('rejects initialization outside the Tauri desktop runtime', async () => {
+    await expect(initializeRuntime()).rejects.toThrow('Desktop runtime requires Tauri');
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it('waits for the backend ready probe after starting the desktop sidecar', async () => {

@@ -52,7 +52,7 @@ describe('memory page design', () => {
       l0Sessions: [
         {
           session_id: 'session-alpha',
-          user_id: 'web_user',
+          user_id: 'local_user',
           status: 'active',
           started_at: 1710000000,
           last_active_at: 1710000300,

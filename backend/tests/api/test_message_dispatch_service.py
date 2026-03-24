@@ -147,7 +147,7 @@ async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: p
     assert command.source == "api"
     assert command.message == "hello"
     assert command.metadata["origin"] == "test"
-    assert command.runtime_namespace == "web"
+    assert command.runtime_namespace == "desktop"
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from typing import Any
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_chat_projector, require_chat_store, require_runtime_command_queue
 from ...events.contracts import UserMessageCommand
+from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 
 logger = get_logger(__name__)
 
@@ -115,7 +116,7 @@ async def dispatch_user_message(
                 session_id=resolved_session_id,
                 turn_id=turn_id,
                 message=message,
-                runtime_namespace=str(runtime_namespace or "").strip() or "web",
+                runtime_namespace=str(runtime_namespace or "").strip() or DEFAULT_RUNTIME_NAMESPACE,
                 metadata=dict(metadata or {}),
                 created_at=created_at,
             )

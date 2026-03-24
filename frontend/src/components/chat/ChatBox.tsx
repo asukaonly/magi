@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { messagesApi } from '../../api';
+import { DEFAULT_USER_ID } from '@/constants';
 import { cn } from '@/lib/utils';
 
 interface ChatMessage {
@@ -57,7 +58,7 @@ const ChatBox: React.FC = () => {
       // Send to backend
       const response = await messagesApi.sendMessage({
         message: inputValue,
-        user_id: 'web_user',
+        user_id: DEFAULT_USER_ID,
         session_id: 'demo-session',
       });
 

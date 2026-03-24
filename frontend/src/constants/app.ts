@@ -6,8 +6,14 @@
 // User Identification
 // ============================================================================
 
-/** Default user ID for web client (no authentication) */
-export const DEFAULT_USER_ID = 'web_user';
+/** Default single-user desktop identity */
+export const DEFAULT_USER_ID = 'local_user';
+
+/** Default runtime namespace for the desktop shell */
+export const DEFAULT_RUNTIME_NAMESPACE = 'desktop';
+
+/** Default realtime channel for the local desktop user */
+export const DEFAULT_USER_CHANNEL = `user_${DEFAULT_USER_ID}`;
 
 /** Local storage key for current chat session */
 export const CHAT_SESSION_KEY = (userId: string) => `chat_session_${userId}`;

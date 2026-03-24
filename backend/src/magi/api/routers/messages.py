@@ -8,6 +8,7 @@ from ..services import dispatch_user_message, get_chat_trace_read_service
 from ...chat import get_chat_read_service
 from ...utils.agent_logger import get_agent_logger
 from ...core.logger import get_logger
+from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
 
 logger = get_logger(__name__)
 agent_logger = get_agent_logger('api')
@@ -19,7 +20,7 @@ user_messages_router = APIRouter()
 class UserMessageRequest(BaseModel):
     """User message request."""
     message: str = Field(..., description="User message content")
-    user_id: str = Field(default="web_user", description="User ID")
+    user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
     session_id: Optional[str] = Field(None, description="Session ID")
     client_turn_id: Optional[str] = Field(None, description="Optional client-generated turn id")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
@@ -34,7 +35,7 @@ class MessageResponse(BaseModel):
 
 class RenameSessionRequest(BaseModel):
     """Session rename request."""
-    user_id: str = Field(default="web_user", description="User ID")
+    user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
     title: str = Field(..., description="New session title")
 
 
@@ -60,7 +61,7 @@ async def send_user_message(
             session_id=request.session_id,
             client_turn_id=request.client_turn_id,
             metadata=request.metadata or {},
-            runtime_namespace=str((request.metadata or {}).get("runtime_namespace") or "web"),
+            runtime_namespace=str((request.metadata or {}).get("runtime_namespace") or DEFAULT_RUNTIME_NAMESPACE),
         )
         if not outcome.success:
             agent_logger.warning(
@@ -104,7 +105,7 @@ async def send_user_message(
 
 @user_messages_router.get("/history", response_model=Dict[str, Any])
 async def get_conversation_history(
-    user_id: str = "web_user",
+    user_id: str = DEFAULT_USER_ID,
     session_id: Optional[str] = Query(default=None, description="Session ID"),
 ):
     """
@@ -142,7 +143,7 @@ async def get_conversation_history(
 
 @user_messages_router.get("/trace", response_model=Dict[str, Any])
 async def get_execution_trace(
-    user_id: str = "web_user",
+    user_id: str = DEFAULT_USER_ID,
     session_id: Optional[str] = Query(default=None, description="Session ID"),
     turn_id: str = Query(..., description="Turn ID for the target user message"),
 ):
@@ -166,7 +167,7 @@ async def get_execution_trace(
 
 @user_messages_router.post("/history/clear")
 async def clear_conversation_history(
-    user_id: str = "web_user",
+    user_id: str = DEFAULT_USER_ID,
     session_id: Optional[str] = Query(default=None, description="Session ID"),
 ):
     """
@@ -200,7 +201,7 @@ async def clear_conversation_history(
 
 
 @user_messages_router.post("/session/new", response_model=Dict[str, Any])
-async def create_new_session(user_id: str = "web_user"):
+async def create_new_session(user_id: str = DEFAULT_USER_ID):
     """Create a new chat session row for the given user."""
     try:
         read_service = get_chat_read_service()
@@ -228,7 +229,7 @@ async def rename_session(session_id: str, request: RenameSessionRequest):
 
 
 @user_messages_router.delete("/session/{session_id}", response_model=Dict[str, Any])
-async def delete_session(session_id: str, user_id: str = "web_user"):
+async def delete_session(session_id: str, user_id: str = DEFAULT_USER_ID):
     """Delete one session and its related chat data."""
     try:
         read_service = get_chat_read_service()
@@ -246,7 +247,7 @@ async def delete_session(session_id: str, user_id: str = "web_user"):
 
 @user_messages_router.get("/sessions", response_model=Dict[str, Any])
 async def list_sessions(
-    user_id: str = "web_user",
+    user_id: str = DEFAULT_USER_ID,
     limit: int = Query(default=30, ge=1, le=200),
 ):
     """List recent chat sessions for the given user."""
@@ -264,4 +265,3 @@ async def list_sessions(
             "sessions": [],
             "count": 0,
         }
-

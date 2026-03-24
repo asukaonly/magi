@@ -27,6 +27,8 @@ export type {
 // Application constants
 export {
   DEFAULT_USER_ID,
+  DEFAULT_RUNTIME_NAMESPACE,
+  DEFAULT_USER_CHANNEL,
   CHAT_SESSION_KEY,
   API_CONFIG,
   UI_CONFIG,

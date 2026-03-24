@@ -64,9 +64,7 @@ Magi is a local-first AI agent framework with:
 - Task-agent runtime centered on `ChatTaskAgent`, `ExploreTaskAgent`, `TaskOrchestrator`, and `WorkerAgentManager`
 - Tool registry + builtin/provider tools + skills integration
 - Lifecycle-based memory system (`L0`-`L4`)
-- Dual runtime targets:
-  - Web mode: `React frontend + Python backend`
-  - Desktop mode: `Tauri shell + React WebView + Python sidecar backend`
+- Desktop runtime target: `Tauri shell + React WebView + Python sidecar backend`
 
 Main code locations:
 - Backend core: `backend/src/magi/`

@@ -8,7 +8,7 @@ import { useRealtimeStore } from '@/stores/realtime-store';
 
 vi.mock('@/runtime/config', () => ({
   getRuntimeConfig: () => ({
-    isDesktop: false,
+    isDesktop: true,
     apiBaseUrl: 'http://localhost:8000/api',
     wsBaseUrl: 'ws://localhost:8000',
     sessionToken: 'test-token',

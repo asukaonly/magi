@@ -2,6 +2,7 @@
  * Messages API.
  */
 import { api } from '../client';
+import { DEFAULT_USER_ID } from '@/constants';
 
 export interface UserMessageRequest {
   message: string;
@@ -110,7 +111,7 @@ export const messagesApi = {
   },
 
   /** Get conversation history */
-  getHistory: async (userId: string = 'web_user', sessionId: string): Promise<ConversationHistory> => {
+  getHistory: async (userId: string = DEFAULT_USER_ID, sessionId: string): Promise<ConversationHistory> => {
     const response = await api.get<ConversationHistory>('/messages/history', {
       params: { user_id: userId, session_id: sessionId },
     });
@@ -119,7 +120,7 @@ export const messagesApi = {
 
   /** Clear conversation history */
   clearHistory: async (
-    userId: string = 'web_user',
+    userId: string = DEFAULT_USER_ID,
     sessionId: string
   ): Promise<{ success: boolean; message: string; user_id: string; session_id?: string }> => {
     const response = await api.post<{ success: boolean; message: string; user_id: string }>('/messages/history/clear', null, {
@@ -128,7 +129,7 @@ export const messagesApi = {
     return (response.data || response) as { success: boolean; message: string; user_id: string; session_id?: string };
   },
 
-  createNewSession: async (userId: string = 'web_user'): Promise<{ success: boolean; user_id: string; session_id: string | null }> => {
+  createNewSession: async (userId: string = DEFAULT_USER_ID): Promise<{ success: boolean; user_id: string; session_id: string | null }> => {
     const response = await api.post<{ success: boolean; user_id: string; session_id: string | null }>('/messages/session/new', null, {
       params: { user_id: userId },
     });
@@ -136,7 +137,7 @@ export const messagesApi = {
   },
 
   renameSession: async (
-    userId: string = 'web_user',
+    userId: string = DEFAULT_USER_ID,
     sessionId: string,
     title: string
   ): Promise<{ success: boolean; user_id: string; session: { session_id: string; title: string } }> => {
@@ -151,7 +152,7 @@ export const messagesApi = {
   },
 
   deleteSession: async (
-    userId: string = 'web_user',
+    userId: string = DEFAULT_USER_ID,
     sessionId: string
   ): Promise<{ success: boolean; user_id: string; deleted_session_id: string }> => {
     const response = await api.delete<{ success: boolean; user_id: string; deleted_session_id: string }>(
@@ -164,7 +165,7 @@ export const messagesApi = {
   },
 
   listSessions: async (
-    userId: string = 'web_user',
+    userId: string = DEFAULT_USER_ID,
     limit: number = 30
   ): Promise<SessionListResponse> => {
     const response = await api.get<SessionListResponse>('/messages/sessions', {
@@ -174,7 +175,7 @@ export const messagesApi = {
   },
 
   getTrace: async (
-    userId: string = 'web_user',
+    userId: string = DEFAULT_USER_ID,
     sessionId: string,
     turnId: string
   ): Promise<{ success: boolean; user_id: string; session_id: string; turn_id: string; trace: ExecutionTraceSnapshot | null }> => {
