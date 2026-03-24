@@ -108,6 +108,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                 request.context.history,
                 request.context.latest_user_message,
                 history_limit=10,
+                attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
             ),
             disable_thinking=not request.intent.deep_thinking,
         )

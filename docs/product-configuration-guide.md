@@ -124,6 +124,7 @@ Current product expectations:
 - desktop chat should support image, text-like, and PDF attachments with backend-side normalization metadata
 - desktop chat composers should present selected attachments as removable blocks before send and preserve them in message history
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
+- image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
 - per-conversation workspace changes should not overwrite the saved global default
 

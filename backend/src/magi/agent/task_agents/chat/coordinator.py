@@ -127,11 +127,18 @@ class ChatExecutionCoordinator:
             user_message=context.latest_user_message,
             strategy=decision.orchestration_strategy,
         )
+        has_image_attachments = any(
+            isinstance(item, dict) and str(item.get("kind") or "").strip() == "image"
+            for item in list(getattr(context.latest_payload, "attachments", []) or [])
+        )
+        selected_tools = [] if has_image_attachments else list(decision.tools)
         execution_mode = (
-            ExecutionMode.ORCHESTRATION_LAUNCH
+            ExecutionMode.DIRECT_LLM
+            if has_image_attachments
+            else ExecutionMode.ORCHESTRATION_LAUNCH
             if orchestration_plan.mode == "decompose"
             else ExecutionMode.FUNCTION_CALLING
-            if decision.tools
+            if selected_tools
             else ExecutionMode.DIRECT_LLM
         )
         intent_decision = IntentDecision(
@@ -141,10 +148,10 @@ class ChatExecutionCoordinator:
             ux_plan=self._build_turn_ux_plan(
                 user_message=context.latest_user_message,
                 execution_mode=execution_mode,
-                tools=list(decision.tools),
+                tools=selected_tools,
                 orchestration_plan=orchestration_plan,
             ),
-            tools=list(decision.tools),
+            tools=selected_tools,
             llm_trace=dict(getattr(decision, "llm_trace", {}) or {}),
             deep_thinking=bool(decision.deep_thinking),
             reasoning=str(decision.reasoning),

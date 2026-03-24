@@ -507,3 +507,57 @@ async def test_coordinator_marks_acknowledgement_as_reaction_only_ui() -> None:
     assert decision.execution_mode == ExecutionMode.DIRECT_LLM
     assert decision.ux_plan.assistant_surface_mode.value == "reaction_only"
     assert decision.ux_plan.reaction_style == "acknowledge"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_forces_direct_llm_for_image_attachments() -> None:
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            _FakeContextDecision(
+                intent="screenshot_analysis",
+                tools=["file_read"],
+                deep_thinking=False,
+                reasoning="tool required",
+                orchestration_strategy={
+                    "mode": "direct",
+                    "planner": "task_agent",
+                    "default_leaf_type": "general-purpose",
+                    "allow_parallel": False,
+                },
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "content": "这张图里是什么",
+            "attachments": [{"attachment_id": "att-image", "kind": "image", "original_name": "diagram.png"}],
+        },
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="这张图里是什么",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.DIRECT_LLM

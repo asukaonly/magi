@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -201,3 +202,68 @@ async def test_direct_llm_handler_passes_uploaded_attachments_into_context_servi
     assert context_service.calls[0]["attachments"] == [
         {"attachment_id": "att-1", "kind": "text_file", "original_name": "notes.md"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_builds_multimodal_message_for_image_attachments(tmp_path: Path) -> None:
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"fake-image-bytes")
+
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="describe this screenshot",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="describe this screenshot",
+            attachments=[
+                {
+                    "attachment_id": "att-image",
+                    "kind": "image",
+                    "original_name": "diagram.png",
+                    "mime_type": "image/png",
+                    "storage_path": str(image_path),
+                }
+            ],
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning="direct",
+                orchestration_plan=OrchestrationPlan(),
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="direct"),
+        )
+    )
+
+    assert request.messages[0]["role"] == "user"
+    assert request.messages[0]["content"][0]["type"] == "text"
+    assert request.messages[0]["content"][1]["type"] == "image"
+    assert request.messages[0]["content"][1]["mime_type"] == "image/png"

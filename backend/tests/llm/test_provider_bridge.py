@@ -181,6 +181,35 @@ async def test_openai_tool_call_parsing_and_assistant_message():
 
 
 @pytest.mark.asyncio
+async def test_openai_chat_response_converts_generic_image_blocks() -> None:
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="done"), finish_reason="stop")],
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="openai", client=client)
+    bridge = LLMProviderBridge(llm)
+
+    await bridge.chat_response(
+        system_prompt="sys",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe this image"},
+                    {"type": "image", "mime_type": "image/png", "data": "ZmFrZS1pbWFnZQ=="},
+                ],
+            }
+        ],
+    )
+
+    sent_content = client.kwargs["messages"][1]["content"]
+    assert sent_content[0] == {"type": "text", "text": "describe this image"}
+    assert sent_content[1]["type"] == "image_url"
+    assert sent_content[1]["image_url"]["url"] == "data:image/png;base64,ZmFrZS1pbWFnZQ=="
+
+
+@pytest.mark.asyncio
 async def test_anthropic_path_converts_tool_result_messages():
     tool_block = SimpleNamespace(type="tool_use", id="toolu_1", name="bash", input={"command": "ls"})
     text_block = SimpleNamespace(type="text", text="done")
@@ -209,6 +238,39 @@ async def test_anthropic_path_converts_tool_result_messages():
     assert sent_messages[1]["role"] == "user"
     assert sent_messages[1]["content"][0]["type"] == "tool_result"
     assert sent_messages[1]["content"][0]["tool_use_id"] == "toolu_0"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_chat_response_converts_generic_image_blocks() -> None:
+    text_block = SimpleNamespace(type="text", text="done")
+    response = SimpleNamespace(content=[text_block], usage=SimpleNamespace(input_tokens=1, output_tokens=1))
+    messages_client = DummyAnthropicMessagesClient(response=response)
+    llm = DummyLLMAdapter(
+        provider="anthropic",
+        client=SimpleNamespace(messages=messages_client),
+    )
+    bridge = LLMProviderBridge(llm)
+    bridge.is_anthropic = lambda: True
+
+    await bridge.chat_response(
+        system_prompt="sys",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe this image"},
+                    {"type": "image", "mime_type": "image/png", "data": "ZmFrZS1pbWFnZQ=="},
+                ],
+            }
+        ],
+    )
+
+    sent_content = messages_client.kwargs["messages"][0]["content"]
+    assert sent_content[0] == {"type": "text", "text": "describe this image"}
+    assert sent_content[1]["type"] == "image"
+    assert sent_content[1]["source"]["type"] == "base64"
+    assert sent_content[1]["source"]["media_type"] == "image/png"
+    assert sent_content[1]["source"]["data"] == "ZmFrZS1pbWFnZQ=="
 
 
 @pytest.mark.asyncio

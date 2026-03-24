@@ -306,12 +306,13 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float],
     ) -> ProviderResponse:
         if self.is_anthropic():
+            api_messages = self._convert_messages_to_anthropic(messages)
             anthropic_kwargs: Dict[str, Any] = {
                 "model": self.llm.model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "system": system_prompt,
-                "messages": messages,
+                "messages": api_messages,
             }
             if timeout_seconds is not None:
                 anthropic_kwargs["timeout"] = timeout_seconds
@@ -320,7 +321,7 @@ class LLMProviderBridge:
                 return self._parse_anthropic_response(response)
             return self._build_content_response("")
 
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
         chat_kwargs: Dict[str, Any] = {
             "messages": full_messages,
             "max_tokens": max_tokens,
@@ -367,7 +368,7 @@ class LLMProviderBridge:
             )
             return self._parse_anthropic_response(response)
 
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
         kwargs: Dict[str, Any] = {
             "model": self.llm.model_name,
             "messages": full_messages,
@@ -398,6 +399,11 @@ class LLMProviderBridge:
                         "content": msg.get("content", ""),
                     }],
                 })
+            elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
+                converted.append({
+                    "role": "user",
+                    "content": self._convert_content_blocks_to_anthropic(msg["content"]),
+                })
             elif msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
                 converted.append({"role": "assistant", "content": msg["content"]})
             else:
@@ -405,6 +411,66 @@ class LLMProviderBridge:
                     "role": msg.get("role"),
                     "content": msg.get("content", ""),
                 })
+        return converted
+
+    def _convert_messages_to_openai(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        converted: List[Dict[str, Any]] = []
+        for msg in messages:
+            if msg.get("role") == "user" and isinstance(msg.get("content"), list):
+                converted.append({
+                    "role": "user",
+                    "content": self._convert_content_blocks_to_openai(msg["content"]),
+                })
+                continue
+            converted.append(dict(msg))
+        return converted
+
+    @staticmethod
+    def _convert_content_blocks_to_openai(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        converted: List[Dict[str, Any]] = []
+        for block in blocks:
+            block_type = str(block.get("type") or "").strip()
+            if block_type == "text":
+                converted.append({"type": "text", "text": str(block.get("text") or "")})
+                continue
+            if block_type == "image":
+                mime_type = str(block.get("mime_type") or "image/png").strip() or "image/png"
+                data = str(block.get("data") or "").strip()
+                converted.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{data}",
+                        },
+                    }
+                )
+                continue
+            converted.append(dict(block))
+        return converted
+
+    @staticmethod
+    def _convert_content_blocks_to_anthropic(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        converted: List[Dict[str, Any]] = []
+        for block in blocks:
+            block_type = str(block.get("type") or "").strip()
+            if block_type == "text":
+                converted.append({"type": "text", "text": str(block.get("text") or "")})
+                continue
+            if block_type == "image":
+                mime_type = str(block.get("mime_type") or "image/png").strip() or "image/png"
+                data = str(block.get("data") or "").strip()
+                converted.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": data,
+                        },
+                    }
+                )
+                continue
+            converted.append(dict(block))
         return converted
 
     def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
