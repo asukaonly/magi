@@ -3,13 +3,17 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 
 from ..services import dispatch_user_message, get_chat_trace_read_service
-from ...chat import SessionWorkspaceUpdateResult, get_chat_read_service
+from ...chat import (
+    LocalChatAttachmentIngestionService,
+    SessionWorkspaceUpdateResult,
+    get_chat_read_service,
+)
 from ...utils.agent_logger import get_agent_logger
 from ...core.logger import get_logger
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
@@ -70,6 +74,10 @@ def _get_default_chat_workspace_path() -> str | None:
     return normalized_workspace_path or None
 
 
+def _get_chat_attachment_ingestion_service() -> LocalChatAttachmentIngestionService:
+    return LocalChatAttachmentIngestionService()
+
+
 @user_messages_router.post("/send", response_model=MessageResponse)
 async def send_user_message(
     request: UserMessageRequest,
@@ -125,6 +133,45 @@ async def send_user_message(
         logger.error(f"Failed to queue message: {e}")
         agent_logger.error(f"❌ Queue failed | User: {request.user_id} | error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@user_messages_router.post("/session/{session_id}/attachments", response_model=Dict[str, Any])
+async def upload_chat_attachment(
+    session_id: str,
+    user_id: str = Form(default=DEFAULT_USER_ID),
+    turn_id: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Upload one desktop chat attachment into managed local storage."""
+
+    resolved_session_id = _require_session_id(session_id)
+    resolved_turn_id = _require_session_id(turn_id)
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file is not allowed.")
+
+    service = _get_chat_attachment_ingestion_service()
+    try:
+        attachment_payload = service.ingest_attachment(
+            session_id=resolved_session_id,
+            turn_id=resolved_turn_id,
+            original_name=file.filename or "",
+            content=content,
+            mime_type=file.content_type or "application/octet-stream",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "success": True,
+        "message": "Attachment uploaded",
+        "data": {
+            "user_id": user_id,
+            "session_id": resolved_session_id,
+            "turn_id": resolved_turn_id,
+            "attachment": attachment_payload,
+        },
+    }
 
 
 @user_messages_router.get("/history", response_model=Dict[str, Any])

@@ -43,6 +43,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/history/clear": {"POST"},
         "/session/new": {"POST"},
         "/session/{session_id}": {"PATCH", "DELETE"},
+        "/session/{session_id}/attachments": {"POST"},
         "/sessions": {"GET"},
     },
     "config": {

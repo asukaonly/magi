@@ -1,6 +1,7 @@
 """Dedicated chat-domain persistence exports."""
 
 from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
+from .attachment_ingestion import LocalChatAttachmentIngestionService
 from .contracts import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
 from .pdf_attachment_parser import LocalPdfAttachmentParser, ParsedPdfAttachment
 from .projector import ChatProjector
@@ -23,6 +24,7 @@ __all__ = [
     "ChatSessionRecord",
     "ChatSessionRenameResult",
     "ChatSessionSummary",
+    "LocalChatAttachmentIngestionService",
     "LocalChatAttachmentStorage",
     "LocalPdfAttachmentParser",
     "LocalTextAttachmentParser",

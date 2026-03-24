@@ -120,6 +120,8 @@ Current product expectations:
 - desktop users can choose whether closing the main window hides to tray or exits
 - desktop users can set a default chat workspace directory for new conversations
 - desktop chat surfaces should show the active conversation workspace and allow per-session overrides
+- desktop chat attachments should be uploaded into managed local runtime storage before a turn is sent
+- desktop chat should support image, text-like, and PDF attachments with backend-side normalization metadata
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
 - per-conversation workspace changes should not overwrite the saved global default
 
