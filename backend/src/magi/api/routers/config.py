@@ -152,6 +152,7 @@ class UserPreferencesModel(BaseModel):
     onboarding_completed: bool = Field(default=False)
     user_mode: Optional[str] = Field(default=None)
     language: str = Field(default="zh")
+    close_to_tray_enabled: bool = Field(default=True)
 
 
 # Import full PersonalityConfigModel from personality config module

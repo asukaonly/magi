@@ -57,6 +57,25 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l3.vectors_enabled is True
 
 
+def test_system_config_defaults_include_close_to_tray_enabled_preference():
+    config = SystemConfigModel()
+
+    assert config.preferences.close_to_tray_enabled is True
+
+
+def test_build_system_config_loads_close_to_tray_enabled_preference_from_raw_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "magi.api.routers.config._read_raw_yaml",
+        lambda: {"preferences": {"close_to_tray_enabled": False}},
+    )
+
+    config = _build_system_config()
+
+    assert config.preferences.close_to_tray_enabled is False
+
+
 def test_system_config_does_not_expose_internal_runtime_fields():
     config = SystemConfigModel()
     payload = config.model_dump(mode="json")
@@ -537,6 +556,32 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(monkeypatc
 
     assert response.status_code == 200
     assert calls == ["save", "reload", "refresh"]
+
+
+def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences_payload(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    captured_updates: dict[str, object] = {}
+
+    def _fake_save_config(updates: dict) -> bool:
+        captured_updates.update(updates)
+        return True
+
+    monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
+    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda config: None)
+
+    payload = SystemConfigModel().model_dump(mode="json")
+    payload["preferences"]["close_to_tray_enabled"] = False
+
+    response = client.put("/config/", json=payload)
+
+    assert response.status_code == 200
+    assert captured_updates["preferences"]["close_to_tray_enabled"] is False
 
 
 def test_update_config_persists_changed_settings_and_returns_rebuilt_config(monkeypatch: pytest.MonkeyPatch):
