@@ -16,18 +16,25 @@ def build_execution_summary(
     if not isinstance(run, dict):
         return None
 
-    latest_pending_turn = pending_turns[-1] if pending_turns else None
     current_revision = int(run.get("revision") or 0)
-    has_current_revision_pending_turns = any(
-        isinstance(item, dict) and int(item.get("revision") or -1) == current_revision
+    current_revision_pending_turns = [
+        item
         for item in pending_turns
+        if isinstance(item, dict) and int(item.get("revision") or -1) == current_revision
+    ]
+    latest_pending_turn = current_revision_pending_turns[-1] if current_revision_pending_turns else None
+    status = str(run.get("status") or "").strip()
+    waiting_reason = (
+        "user_replan_pending"
+        if current_revision_pending_turns
+        else "external_result"
+        if status == "running"
+        else None
     )
     return L0ExecutionSummary(
         active_run_summary=str(run.get("root_user_message") or "").strip(),
-        awaiting_external_result=(
-            str(run.get("status") or "").strip() == "running"
-            and not has_current_revision_pending_turns
-        ),
+        awaiting_external_result=waiting_reason == "external_result",
+        waiting_reason=waiting_reason,
         latest_user_augmentation_summary=(
             str(latest_pending_turn.get("content") or "").strip()
             if isinstance(latest_pending_turn, dict)

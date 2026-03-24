@@ -225,6 +225,7 @@ async def test_l0_prompt_projection_summarizes_execution_lane(tmp_path):
     assert projection.execution_summary == L0ExecutionSummary(
         active_run_summary="Investigate the login issue",
         awaiting_external_result=False,
+        waiting_reason="user_replan_pending",
         latest_user_augmentation_summary="补充一下，是 macOS",
     )
     payload = projection.to_payload()
@@ -270,6 +271,7 @@ async def test_l0_prompt_projection_treats_pending_turns_as_replan_not_external_
     assert projection.execution_summary == L0ExecutionSummary(
         active_run_summary="Investigate the login issue",
         awaiting_external_result=False,
+        waiting_reason="user_replan_pending",
         latest_user_augmentation_summary="补充一下，是 macOS",
     )
 

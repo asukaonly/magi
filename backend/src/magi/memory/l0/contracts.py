@@ -12,6 +12,7 @@ class L0ExecutionSummary:
 
     active_run_summary: str
     awaiting_external_result: bool
+    waiting_reason: str | None = None
     latest_user_augmentation_summary: str | None = None
 
 
@@ -34,8 +35,8 @@ class L0PromptWorkbenchProjection:
         payload = self.to_payload()
         return {
             "session": payload.get("session"),
-            "goals": payload.get("goal_stack", [])[:3],
-            "active_entities": payload.get("active_entities", [])[:5],
-            "temporary_tactics": payload.get("temporary_tactics", [])[:5],
+            "goals": payload.get("goal_stack", []),
+            "active_entities": payload.get("active_entities", []),
+            "temporary_tactics": payload.get("temporary_tactics", []),
             "execution_summary": payload.get("execution_summary"),
         }
