@@ -412,6 +412,29 @@ describe('config forms', () => {
     expect(within(providerList).getByTestId('llm-provider-icon-minimax')).toBeInTheDocument();
   });
 
+  it('pins enabled providers above disabled providers in the settings provider list', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const providerList = await screen.findByTestId('llm-provider-list-pane');
+    const openAiButton = within(providerList).getByText('OpenAI').closest('button');
+    const zaiButton = within(providerList).getByText('Z.ai').closest('button');
+    const anthropicButton = within(providerList).getByText('Anthropic').closest('button');
+
+    expect(openAiButton).toBeTruthy();
+    expect(zaiButton).toBeTruthy();
+    expect(anthropicButton).toBeTruthy();
+    expect(
+      openAiButton!.compareDocumentPosition(anthropicButton!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      zaiButton!.compareDocumentPosition(anthropicButton!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('renders provider configuration before model selection', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>

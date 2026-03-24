@@ -781,4 +781,41 @@ describe('settings page draft saving', () => {
 
     expect(screen.queryByRole('button', { name: 'settings.tabs.system' })).not.toBeInTheDocument();
   });
+
+  it('renders the top-level settings navigation in the user-facing order with sensors renamed', async () => {
+    render(<SettingsPage />);
+
+    const nav = (await screen.findByRole('button', { name: 'settings.tabs.preferences' })).closest('nav');
+    expect(nav).toBeTruthy();
+
+    const topLevelButtons = within(nav as HTMLElement)
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'))
+      .filter((label): label is string => Boolean(label))
+      .filter((label) =>
+        [
+          'settings.tabs.preferences',
+          'settings.tabs.llm',
+          'settings.tabs.personality',
+          'settings.tabs.memory',
+          'settings.tabs.extensions',
+          'settings.tabs.timeline',
+          'settings.tabs.actions',
+          'settings.tabs.tools',
+          'settings.tabs.usage',
+        ].includes(label)
+      );
+
+    expect(topLevelButtons).toEqual([
+      'settings.tabs.preferences',
+      'settings.tabs.llm',
+      'settings.tabs.personality',
+      'settings.tabs.memory',
+      'settings.tabs.extensions',
+      'settings.tabs.timeline',
+      'settings.tabs.actions',
+      'settings.tabs.tools',
+      'settings.tabs.usage',
+    ]);
+  });
 });

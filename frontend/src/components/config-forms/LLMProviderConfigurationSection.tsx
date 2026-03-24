@@ -84,8 +84,14 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   const providerItems = useMemo(
     () =>
       providerOrder
-        .map((providerId) => ({ providerId, provider: value.providers[providerId] }))
-        .filter((item): item is { providerId: string; provider: LLMProviderConfig } => Boolean(item.provider)),
+        .map((providerId, index) => ({ providerId, provider: value.providers[providerId], index }))
+        .filter((item): item is { providerId: string; provider: LLMProviderConfig; index: number } => Boolean(item.provider))
+        .sort((left, right) => {
+          if (left.provider.enabled === right.provider.enabled) {
+            return left.index - right.index;
+          }
+          return left.provider.enabled ? -1 : 1;
+        }),
     [providerOrder, value.providers]
   );
 

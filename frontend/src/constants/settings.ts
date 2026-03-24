@@ -30,7 +30,6 @@ export const LANGUAGE_STORAGE_KEY = 'magi_language';
 export const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
-  { id: 'usage', icon: BarChart3 },
   { id: 'personality', icon: User },
   {
     id: 'memory',
@@ -44,8 +43,9 @@ export const NAV_ITEMS: NavItem[] = [
       { id: 'memorySkills' },
     ],
   },
-  { id: 'timeline', icon: ScrollText },
   { id: 'extensions', icon: PlugZap },
-  { id: 'tools', icon: Wrench },
+  { id: 'timeline', icon: ScrollText },
   { id: 'actions', icon: Send },
+  { id: 'tools', icon: Wrench },
+  { id: 'usage', icon: BarChart3 },
 ];
