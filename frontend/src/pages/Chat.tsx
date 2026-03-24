@@ -962,23 +962,23 @@ export const ChatPage: React.FC = () => {
       className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
     >
       {currentSessionId && (
-        <div className="mb-3 shrink-0 rounded-2xl border border-border/50 bg-background/85 px-4 py-3 shadow-sm">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                {t('chat.workspace.label')}
+        <div className="mb-2 shrink-0 px-2 py-1">
+          <div className="flex flex-col gap-2 text-sm text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2">
+              <span data-testid="chat-workspace-message-count" className="font-medium text-foreground/80">
+                {visibleMessageCount}
               </span>
-              <span className="inline-flex items-center rounded-full bg-muted/60 px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                <span data-testid="chat-workspace-message-count">{visibleMessageCount}</span>
-                <span className="ml-1">{t('chat.workspace.messageCount')}</span>
-              </span>
-              <div className="min-w-[220px] flex-1 rounded-full bg-muted/40 px-3 py-2 text-sm text-foreground/85">
-                <span data-testid="chat-workspace-path" className="block truncate font-medium">
-                  {workspaceDisplayPath}
-                </span>
-              </div>
+              <span>{t('chat.workspace.messageCount')}</span>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+              <span
+                data-testid="chat-workspace-path"
+                aria-label={t('chat.workspace.label')}
+                className="max-w-[min(56vw,36rem)] truncate text-sm text-foreground/75"
+                title={workspaceDisplayPath}
+              >
+                {workspaceDisplayPath}
+              </span>
               <Button
                 type="button"
                 variant="ghost"
@@ -987,7 +987,7 @@ export const ChatPage: React.FC = () => {
                   void handlePickWorkspace();
                 }}
                 disabled={updatingWorkspace}
-                className="rounded-full px-3 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                className="h-8 rounded-full px-2.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
               >
                 <FolderOpen className="mr-2 h-4 w-4" />
                 {t('chat.workspace.change')}
@@ -1001,7 +1001,7 @@ export const ChatPage: React.FC = () => {
                     void persistSessionWorkspace(null);
                   }}
                   disabled={updatingWorkspace}
-                  className="rounded-full px-3 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                  className="h-8 rounded-full px-2.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 >
                   <X className="mr-2 h-4 w-4" />
                   {t('chat.workspace.clear')}

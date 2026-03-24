@@ -122,7 +122,7 @@ describe('ChatPage', () => {
     useConversationStore.getState().setCurrentSessionId('session-1');
   });
 
-  it('shows the current session workspace status bar with path and message count', async () => {
+  it('shows a lightweight workspace status bar with count and path', async () => {
     useConversationStore.getState().hydrateSessions([
       {
         session_id: 'session-1',
@@ -145,7 +145,7 @@ describe('ChatPage', () => {
 
     render(<ChatPage />);
 
-    expect(await screen.findByText('chat.workspace.label')).toBeInTheDocument();
+    expect(screen.queryByText('chat.workspace.label')).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/Users/asuka/code/magi');
     expect(screen.getByTestId('chat-workspace-message-count')).toHaveTextContent('2');
   });

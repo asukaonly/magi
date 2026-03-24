@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "dialog:allow-open",
     {
       "identifier": "shell:allow-execute",
       "allow": [
@@ -20,4 +21,3 @@
     "shell:allow-kill"
   ]
 }
-
