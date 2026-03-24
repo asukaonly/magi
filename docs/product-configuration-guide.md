@@ -120,9 +120,11 @@ Current product expectations:
 - desktop users can choose whether closing the main window hides to tray or exits
 - desktop users can set a default chat workspace directory for new conversations
 - desktop chat surfaces should show the active conversation workspace and allow per-session overrides
+- when neither a global default nor a per-session override is set, desktop chat should fall back to a managed local workspace under `~/.magi/chat-workspace`
 - desktop chat attachments should be uploaded into managed local runtime storage before a turn is sent
 - desktop chat should support image, text-like, and PDF attachments with backend-side normalization metadata
 - desktop chat composers should present selected attachments as removable blocks before send and preserve them in message history
+- desktop chat composers should separate attachment chips, message input, and toolbar controls so attachment UI does not shift the text caret region
 - image attachments preserved in message history should render as thumbnails on desktop chat surfaces
 - desktop chat history thumbnails should open a larger local preview when clicked
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn

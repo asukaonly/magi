@@ -122,7 +122,7 @@ describe('ChatPage', () => {
     useConversationStore.getState().setCurrentSessionId('session-1');
   });
 
-  it('shows the current session workspace path in the chat header', async () => {
+  it('shows the current session workspace status bar with path and message count', async () => {
     useConversationStore.getState().hydrateSessions([
       {
         session_id: 'session-1',
@@ -135,14 +135,22 @@ describe('ChatPage', () => {
         workspace_path: '/Users/asuka/code/magi',
       },
     ], 'session-1');
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        { role: 'user', content: 'hello', timestamp: 1000, turn_id: 't-1', kind: 'user' },
+        { role: 'assistant', content: 'world', timestamp: 2000, turn_id: 't-1', kind: 'assistant' },
+      ])
+    );
 
     render(<ChatPage />);
 
     expect(await screen.findByText('chat.workspace.label')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('/Users/asuka/code/magi')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/Users/asuka/code/magi');
+    expect(screen.getByTestId('chat-workspace-message-count')).toHaveTextContent('2');
   });
 
-  it('updates and clears the current session workspace from the chat header', async () => {
+  it('updates and clears the current session workspace from the status bar', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/tmp/next-workspace');
     vi.mocked(messagesApi.updateSessionWorkspace)
@@ -194,13 +202,31 @@ describe('ChatPage', () => {
 
     await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledWith('/Users/asuka/code/magi'));
     await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenCalledWith('local_user', 'session-1', '/tmp/next-workspace'));
-    expect(screen.getByLabelText('chat.workspace.label')).toHaveValue('/tmp/next-workspace');
+    expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('/tmp/next-workspace');
 
     await user.click(screen.getByRole('button', { name: 'chat.workspace.clear' }));
 
     await waitFor(() => expect(messagesApi.updateSessionWorkspace).toHaveBeenLastCalledWith('local_user', 'session-1', null));
-    expect(screen.getByLabelText('chat.workspace.label')).toHaveValue('');
-    expect(screen.getByPlaceholderText('chat.workspace.notSet')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-workspace-path')).toHaveTextContent('~/.magi/chat-workspace');
+  });
+
+  it('shows the fallback Magi workspace path when no session directory is selected', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+
+    render(<ChatPage />);
+
+    expect(await screen.findByTestId('chat-workspace-path')).toHaveTextContent('~/.magi/chat-workspace');
   });
 
   it('shows draft attachment chips for supported image and file selections', async () => {
@@ -217,6 +243,9 @@ describe('ChatPage', () => {
     await user.upload(imageInput, new File(['image-bytes'], 'diagram.png', { type: 'image/png' }));
     await user.upload(fileInput, new File(['notes'], 'notes.md', { type: 'text/markdown' }));
 
+    expect(screen.getByTestId('chat-composer-attachments')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-composer-input')).toContainElement(screen.getByPlaceholderText('chat.inputPlaceholder'));
+    expect(screen.getByTestId('chat-composer-toolbar')).toContainElement(screen.getByRole('button', { name: 'chat.attachments.add' }));
     expect(screen.getByText('diagram.png')).toBeInTheDocument();
     expect(screen.getByText('notes.md')).toBeInTheDocument();
   });
@@ -319,12 +348,16 @@ describe('ChatPage', () => {
       workspace_path: '/Users/asuka/code/magi',
       client_turn_id: uploadedTurnId,
     });
-    expect(useConversationStore.getState().messagesBySession['session-1']?.[0]?.attachments).toEqual([
-      expect.objectContaining({
-        attachment_id: 'att-1',
-        original_name: 'notes.md',
-      }),
-    ]);
+    await waitFor(() => {
+      const pendingTurn = useConversationStore.getState().messagesBySession['session-1']
+        ?.find((message) => message.turnId === uploadedTurnId && message.role === 'user');
+      expect(pendingTurn?.attachments).toEqual([
+        expect.objectContaining({
+          attachment_id: 'att-1',
+          original_name: 'notes.md',
+        }),
+      ]);
+    });
     expect(screen.queryAllByText('notes.md')).not.toHaveLength(0);
   });
 

@@ -188,6 +188,7 @@
     "wsNotConnected": "WebSocket is not connected yet",
     "workspace": {
       "label": "Conversation Workspace",
+      "messageCount": "messages",
       "change": "Change Directory",
       "clear": "Clear Directory",
       "notSet": "Using runtime default directory",

@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..chat.workspace import get_default_chat_workspace_path
 from .schema import (
     IdentityConstraintContext,
     ProfileMemoryContext,
@@ -234,7 +235,7 @@ class PromptContextAssembler:
             timezone=str(now.tzinfo or "unknown"),
             os_name=platform.system(),
             os_version=platform.release(),
-            cwd=normalized_workspace_path or os.getcwd(),
+            cwd=normalized_workspace_path or get_default_chat_workspace_path(),
             agent_id=agent_id,
             agent_type=agent_type,
             active_attachments=list(attachments or []),

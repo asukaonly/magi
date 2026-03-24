@@ -188,6 +188,7 @@
   "wsNotConnected": "WebSocket未连接，请等待连接建立",
     "workspace": {
       "label": "当前会话目录",
+      "messageCount": "条消息",
       "change": "调整目录",
       "clear": "清空目录",
       "notSet": "使用运行时默认目录",

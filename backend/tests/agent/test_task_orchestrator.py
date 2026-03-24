@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 import pytest
 
@@ -38,8 +38,8 @@ def test_build_agent_tool_context_includes_workspace_and_agent_metadata() -> Non
     context = orchestrator._build_agent_tool_context("user-1", "session-1")
 
     assert context.agent_id == "explore:user-1"
-    expected_workspace = os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "backend" else os.getcwd()
-    assert context.workspace == expected_workspace
+    expected_workspace = Path.cwd().parent if Path.cwd().name == "backend" else Path.cwd()
+    assert context.workspace == str(expected_workspace)
     assert context.permissions == ["authenticated"]
     assert context.env_vars == {
         "user_id": "user-1",
@@ -48,7 +48,31 @@ def test_build_agent_tool_context_includes_workspace_and_agent_metadata() -> Non
         "target_task_agent_id": "user-1",
         "parent_task_agent_type": "explore",
         "parent_task_agent_id": "user-1",
+        "run_id": "",
+        "run_revision": "0",
     }
+
+
+def test_chat_default_workspace_root_uses_managed_magi_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    orchestrator = TaskOrchestrator(
+        runtime_key="explore:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+    )
+
+    expected_workspace = tmp_path / "home" / ".magi" / "chat-workspace"
+    monkeypatch.setattr(
+        task_orchestrator_module,
+        "get_default_chat_workspace_path",
+        lambda: str(expected_workspace),
+    )
+
+    resolved = orchestrator._default_workspace_root()
+
+    assert resolved == str(expected_workspace)
 
 
 def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:

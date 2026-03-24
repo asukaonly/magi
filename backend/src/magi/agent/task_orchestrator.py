@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from ..core.logger import get_logger
+from ..chat.workspace import get_default_chat_workspace_path
 from ..agent.runtime.contracts import FactRecord
 from ..tools.registry import ToolRegistry
 from ..tools.schema import ToolExecutionContext
@@ -511,6 +512,9 @@ class TaskOrchestrator:
         return default_root
 
     def _default_workspace_root(self) -> str:
+        if self._parent_task_agent_type == "chat":
+            return get_default_chat_workspace_path()
+
         cwd = Path(os.getcwd()).expanduser().resolve()
         if cwd.name == "backend":
             parent = cwd.parent

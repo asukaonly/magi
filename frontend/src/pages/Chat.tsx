@@ -13,7 +13,6 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { messagesApi } from '@/api';
 import type { ChatAttachment } from '@/api';
 import { configApi } from '@/api/modules/config';
@@ -46,6 +45,7 @@ const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const SESSION_EVENT = 'magi-session-sync';
 const USER_ID = DEFAULT_USER_ID;
 const MAX_IMAGE_ATTACHMENTS = 5;
+const DEFAULT_CHAT_WORKSPACE_DISPLAY = '~/.magi/chat-workspace';
 const IMAGE_ATTACHMENT_ACCEPT = 'image/png,image/jpeg,image/webp';
 const FILE_ATTACHMENT_ACCEPT = '.txt,.md,.json,.pdf,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.kt,.swift,.c,.cc,.cpp,.h,.hpp,.html,.css,.csv,.xml,.yaml,.yml,.toml,.ini,.log,.sh,.sql,.php,.rb';
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -219,6 +219,11 @@ const resolveHistoryImagePreviewUrl = (attachment: ChatAttachment): string | nul
   } catch {
     return storagePath || null;
   }
+};
+
+const getWorkspaceDisplayPath = (workspacePath: string | null | undefined): string => {
+  const normalizedPath = String(workspacePath || '').trim();
+  return normalizedPath || DEFAULT_CHAT_WORKSPACE_DISPLAY;
 };
 
 export const ChatPage: React.FC = () => {
@@ -944,6 +949,10 @@ export const ChatPage: React.FC = () => {
     );
   };
 
+  const visibleMessageCount = messages.filter((message) => message.kind !== 'status').length;
+  const workspaceDisplayPath = getWorkspaceDisplayPath(currentSession?.workspace_path);
+  const hasSessionWorkspaceOverride = Boolean(String(currentSession?.workspace_path || '').trim());
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -953,47 +962,51 @@ export const ChatPage: React.FC = () => {
       className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
     >
       {currentSessionId && (
-        <div className="mb-3 shrink-0 rounded-2xl border border-border/50 bg-background/80 px-4 py-3 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0 flex-1">
-              <label className="space-y-2" htmlFor="chat-session-workspace">
-                <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                  {t('chat.workspace.label')}
-                </div>
-                <Input
-                  id="chat-session-workspace"
-                  readOnly
-                  value={currentSession?.workspace_path ?? ''}
-                  placeholder={t('chat.workspace.notSet')}
-                  className="h-9 bg-background/70"
-                />
-              </label>
+        <div className="mb-3 shrink-0 rounded-2xl border border-border/50 bg-background/85 px-4 py-3 shadow-sm">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                {t('chat.workspace.label')}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-muted/60 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                <span data-testid="chat-workspace-message-count">{visibleMessageCount}</span>
+                <span className="ml-1">{t('chat.workspace.messageCount')}</span>
+              </span>
+              <div className="min-w-[220px] flex-1 rounded-full bg-muted/40 px-3 py-2 text-sm text-foreground/85">
+                <span data-testid="chat-workspace-path" className="block truncate font-medium">
+                  {workspaceDisplayPath}
+                </span>
+              </div>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void handlePickWorkspace();
-                }}
-                disabled={updatingWorkspace}
-              >
-                <FolderOpen className="mr-2 h-4 w-4" />
-                {t('chat.workspace.change')}
-              </Button>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  void persistSessionWorkspace(null);
+                  void handlePickWorkspace();
                 }}
-                disabled={updatingWorkspace || !currentSession?.workspace_path}
+                disabled={updatingWorkspace}
+                className="rounded-full px-3 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
               >
-                <X className="mr-2 h-4 w-4" />
-                {t('chat.workspace.clear')}
+                <FolderOpen className="mr-2 h-4 w-4" />
+                {t('chat.workspace.change')}
               </Button>
+              {hasSessionWorkspaceOverride && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    void persistSessionWorkspace(null);
+                  }}
+                  disabled={updatingWorkspace}
+                  className="rounded-full px-3 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                >
+                  <X className="mr-2 h-4 w-4" />
+                  {t('chat.workspace.clear')}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -1063,9 +1076,15 @@ export const ChatPage: React.FC = () => {
       </div>
 
       <div className="mt-2 shrink-0">
-        <div ref={composerRef} className="relative rounded-2xl bg-muted/40 px-3 py-3">
+        <div
+          ref={composerRef}
+          className="rounded-[28px] border border-border/60 bg-background/85 shadow-sm backdrop-blur"
+        >
           {draftAttachments.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2 px-2">
+            <div
+              data-testid="chat-composer-attachments"
+              className="flex flex-wrap gap-2 border-b border-border/50 px-4 py-3"
+            >
               {draftAttachments.map((attachment) => (
                 <div
                   key={attachment.id}
@@ -1090,7 +1109,7 @@ export const ChatPage: React.FC = () => {
                     type="button"
                     onClick={() => removeDraftAttachment(attachment.id)}
                     aria-label={t('chat.attachments.remove')}
-                    className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -1099,67 +1118,74 @@ export const ChatPage: React.FC = () => {
             </div>
           )}
 
-          <AutoResizeTextarea
-            value={inputValue}
-            onChange={(event) => setInputValue(event.target.value)}
-            onCompositionStart={() => {
-              isComposingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              isComposingRef.current = false;
-            }}
-            placeholder={t('chat.inputPlaceholder')}
-            onKeyDown={handleKeyPress}
-            onPaste={handleComposerPaste}
-            disabled={!connected}
-            minHeight={120}
-            className="max-h-72 resize-none rounded-2xl border border-transparent bg-transparent px-3 py-3 pl-14 pr-20 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-          />
-          <div className="absolute bottom-4 left-4">
+          <div data-testid="chat-composer-input" className="px-4 py-3">
+            <AutoResizeTextarea
+              value={inputValue}
+              onChange={(event) => setInputValue(event.target.value)}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                isComposingRef.current = false;
+              }}
+              placeholder={t('chat.inputPlaceholder')}
+              onKeyDown={handleKeyPress}
+              onPaste={handleComposerPaste}
+              disabled={!connected}
+              minHeight={120}
+              className="max-h-72 resize-none border-0 bg-transparent p-0 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+            />
+          </div>
+          <div
+            data-testid="chat-composer-toolbar"
+            className="flex items-center justify-between border-t border-border/50 px-3 py-3"
+          >
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAttachmentMenuOpen((open) => !open)}
+                aria-label={t('chat.attachments.add')}
+                title={t('chat.attachments.add')}
+                className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+
+              {attachmentMenuOpen && (
+                <div className="absolute bottom-full left-0 mb-2 flex w-44 flex-col gap-1 rounded-2xl border border-border/60 bg-background/95 p-2 shadow-lg backdrop-blur">
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={!coreModelSupportsVision}
+                    className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:text-muted-foreground"
+                  >
+                    <ImagePlus className="h-4 w-4" />
+                    {t('chat.attachments.addImage')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                  >
+                    <FileText className="h-4 w-4" />
+                    {t('chat.attachments.addFile')}
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               type="button"
-              onClick={() => setAttachmentMenuOpen((open) => !open)}
-              aria-label={t('chat.attachments.add')}
-              title={t('chat.attachments.add')}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-background/90 text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              onClick={() => {
+                void handleSendMessage();
+              }}
+              disabled={!connected || sendingMessage}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+              aria-label={t('chat.send')}
+              title={t('chat.send')}
             >
-              <Paperclip className="h-4 w-4" />
+              {sendingMessage ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
             </button>
-
-            {attachmentMenuOpen && (
-              <div className="absolute bottom-12 left-0 flex w-44 flex-col gap-1 rounded-2xl border border-border/60 bg-background/95 p-2 shadow-lg backdrop-blur">
-                <button
-                  type="button"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={!coreModelSupportsVision}
-                  className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:text-muted-foreground"
-                >
-                  <ImagePlus className="h-4 w-4" />
-                  {t('chat.attachments.addImage')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
-                >
-                  <FileText className="h-4 w-4" />
-                  {t('chat.attachments.addFile')}
-                </button>
-              </div>
-            )}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              void handleSendMessage();
-            }}
-            disabled={!connected || sendingMessage}
-            className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-            aria-label={t('chat.send')}
-            title={t('chat.send')}
-          >
-            {sendingMessage ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
-          </button>
           <input
             ref={imageInputRef}
             data-testid="chat-attachments-image-input"

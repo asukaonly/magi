@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 from magi.context import ContextAssemblyService, PromptContextAssembler, PromptContextRenderer
 from magi.personality.loader import PersonalityConfig
@@ -132,6 +133,33 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         session_workspace_provider.assert_awaited_once_with(user_id="u1", session_id="s1")
         self.assertEqual(package.prompt_context.runtime_system.cwd, "/Users/asuka/code/magi")
         self.assertIn("* Working Directory: /Users/asuka/code/magi", package.system_prompt)
+
+    async def test_build_prompt_package_falls_back_to_managed_default_workspace(self):
+        retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
+        managed_workspace = Path.cwd() / ".tmp-managed-chat-workspace"
+        managed_workspace.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(lambda: managed_workspace.rmdir() if managed_workspace.exists() else None)
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            other_memory=None,
+            retrieval_memory_provider=retrieval_memory_provider,
+        )
+
+        with patch("magi.context.assembler.get_default_chat_workspace_path", return_value=str(managed_workspace)):
+            package = await service.build_prompt_package(
+                user_id="u1",
+                session_id="s1",
+                user_message="看一下默认目录",
+                task_category="chat",
+                tools=[],
+            )
+
+        self.assertEqual(package.prompt_context.runtime_system.cwd, str(managed_workspace))
+        self.assertIn(f"* Working Directory: {managed_workspace}", package.system_prompt)
 
     async def test_build_prompt_package_renders_active_text_and_pdf_attachments(self):
         retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
