@@ -311,10 +311,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           </div>
         </header>
 
-        <SectionBlock
-          title={t('settings.timeline.workspace.directoryTitle')}
-          description={t('settings.timeline.workspace.directoryDesc')}
-        >
+        <section className="space-y-4 pt-4">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{t('settings.timeline.workspace.metricsSummary', { summary })}</span>
             <Button type="button" variant="ghost" size="sm" onClick={() => void onRefreshSources()}>
@@ -336,7 +333,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
               </div>
             )}
           </div>
-        </SectionBlock>
+        </section>
       </div>
     );
   }
