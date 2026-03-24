@@ -614,6 +614,26 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.llmProviders' })).not.toBeInTheDocument();
   });
 
+  it('allows collapsing the sensors navigation group after expanding it', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const sensorsGroupButton = await screen.findByRole('button', { name: 'settings.tabs.timeline' });
+
+    expect(sensorsGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('timeline-nav-overview')).not.toBeInTheDocument();
+
+    await user.click(sensorsGroupButton);
+
+    expect(sensorsGroupButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('timeline-nav-overview')).toBeInTheDocument();
+
+    await user.click(sensorsGroupButton);
+
+    expect(sensorsGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('timeline-nav-overview')).not.toBeInTheDocument();
+  });
+
   it('does not force advanced model settings open by default', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
