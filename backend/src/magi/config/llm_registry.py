@@ -558,11 +558,20 @@ def resolve_provider_model_catalog(
 def resolve_llm_profile(
     llm: LLMSelectionSettings,
     registry: LLMProviderRegistryModel,
+    provider_settings: Optional[LLMProviderSettings] = None,
 ) -> ResolvedLLMProfile:
     """Resolve effective capabilities for the active selection."""
     provider_name = str(getattr(llm.provider_id, "value", llm.provider_id) or "").strip()
     model_name = str(llm.model or "").strip()
-    model_meta = find_chat_model_meta(registry, provider_name, model_name)
+    resolved_model_meta = None
+    if provider_settings is not None:
+        resolved_catalog = resolve_provider_model_catalog(registry, provider_name, provider_settings)
+        lowered_model = model_name.lower()
+        resolved_model_meta = next(
+            (model for model in resolved_catalog.chat_models if model.id.lower() == lowered_model),
+            None,
+        )
+    model_meta = resolved_model_meta or find_chat_model_meta(registry, provider_name, model_name)
 
     if model_meta is not None:
         capabilities = LLMCapabilitiesSettings(

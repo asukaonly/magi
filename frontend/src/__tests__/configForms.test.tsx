@@ -542,6 +542,56 @@ describe('config forms', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('llm.warnings.coreVisionMissing');
   });
 
+  it('hides the core vision warning for custom models with vision metadata overrides', async () => {
+    const customValue = {
+      ...structuredClone(llmValue),
+      providers: {
+        ...structuredClone(llmValue.providers),
+        custom_proxy: {
+          enabled: true,
+          provider_type: 'custom',
+          display_name: 'Proxy',
+          api_key: 'sk-proxy',
+          base_url: 'https://proxy.example.com/v1',
+          api_format: 'openai',
+          custom_models: ['foo-vision'],
+          custom_default_model: 'foo-vision',
+          model_metadata_overrides: {
+            'foo-vision': {
+              capabilities: {
+                vision: true,
+              },
+            },
+          },
+        },
+      },
+      selections: {
+        ...structuredClone(llmValue.selections),
+        core: {
+          ...structuredClone(llmValue.selections.core),
+          provider_id: 'custom_proxy',
+          model: 'foo-vision',
+          capabilities: {
+            ...structuredClone(llmValue.selections.core.capabilities),
+            vision: false,
+          },
+        },
+      },
+    };
+
+    render(
+      <Form initialValues={{ llm: customValue }}>
+        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    await screen.findByTestId('llm-scenario-core');
+
+    await waitFor(() => {
+      expect(screen.queryByText('llm.warnings.coreVisionMissing')).not.toBeInTheDocument();
+    });
+  });
+
   it('uses custom select controls and flat cards for model selection on the settings surface', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>

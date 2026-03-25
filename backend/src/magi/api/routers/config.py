@@ -594,7 +594,11 @@ def _build_llm_config_model(
             )
             continue
 
-        resolved = resolve_llm_profile(selection, registry)
+        resolved = resolve_llm_profile(
+            selection,
+            registry,
+            provider_settings=runtime_config.llm.providers.get(selection.provider_id),
+        )
         selections[selection_id] = LLMSelectionConfigModel(
             provider_id=selection.provider_id,
             model=selection.model,
@@ -714,7 +718,11 @@ def _apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProvide
                 )
 
         if not selection.capability_override_enabled and selection.model:
-            resolved = resolve_llm_profile(selection, registry)
+            resolved = resolve_llm_profile(
+                selection,
+                registry,
+                provider_settings=config.llm.providers.get(selection.provider_id),
+            )
             config.llm.selections[selection_id] = LLMSelectionConfigModel(
                 provider_id=selection.provider_id,
                 model=selection.model,

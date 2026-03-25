@@ -347,12 +347,25 @@ const applySelectionDefaults = (
   }
 
   if (provider.provider_type === 'custom') {
-    const fallbackModel = selection.model || resolveProviderDefaultModel(registry, providerId, provider, scenario || 'core');
-    selection.model = fallbackModel;
-    if (!selection.capability_override_enabled) {
-      selection.capabilities = cloneCapabilities(registry.custom_provider.capabilities);
-      selection.limits = cloneLimits(registry.custom_provider.limits);
-      selection.provider_options = { ...(registry.custom_provider.provider_options_example || {}) };
+    const models = resolvedModels.chat_models.filter((model) => !model.hidden);
+    const preferredModelId = selection.model || resolveProviderDefaultModel(registry, providerId, provider, scenario || 'core');
+    const matchedModel = models.find((model) => model.id === preferredModelId);
+    const fallbackModel = matchedModel || models[0];
+    if (fallbackModel) {
+      selection.model = fallbackModel.id;
+      selection.embedding_dimension = null;
+      if (!selection.capability_override_enabled) {
+        selection.capabilities = cloneCapabilities(fallbackModel.capabilities);
+        selection.limits = cloneLimits(fallbackModel.limits);
+        selection.provider_options = { ...(fallbackModel.provider_options_example || {}) };
+      }
+    } else {
+      selection.model = preferredModelId;
+      if (!selection.capability_override_enabled) {
+        selection.capabilities = cloneCapabilities(registry.custom_provider.capabilities);
+        selection.limits = cloneLimits(registry.custom_provider.limits);
+        selection.provider_options = { ...(registry.custom_provider.provider_options_example || {}) };
+      }
     }
     return;
   }

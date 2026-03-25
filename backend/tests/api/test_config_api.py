@@ -380,6 +380,29 @@ def test_resolve_llm_profile_prefers_registry_defaults_until_override_enabled():
     assert resolved.capabilities.vision is True
 
 
+def test_resolve_llm_profile_applies_custom_provider_model_overrides():
+    registry = _default_llm_provider_registry()
+    selection = LLMSelectionSettings(
+        provider_id="custom_proxy",
+        model="foo-vision",
+        capability_override_enabled=False,
+    )
+    provider = LLMProviderSettings(
+        provider_type="custom",
+        display_name="Proxy",
+        custom_models=["foo-vision"],
+        model_metadata_overrides={
+            "foo-vision": LLMModelMetadataOverrideSettings(
+                capabilities=LLMCapabilityOverridesSettings(vision=True),
+            )
+        },
+    )
+
+    resolved = resolve_llm_profile(selection, registry, provider_settings=provider)
+
+    assert resolved.capabilities.vision is True
+
+
 def test_resolve_provider_model_catalog_applies_builtin_and_manual_overrides():
     registry = _default_llm_provider_registry()
     provider = LLMProviderSettings(
