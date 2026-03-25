@@ -149,6 +149,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
             message=message,
             session_id=session_id,
             attachments=attachments if isinstance(attachments, list) else attachments,
+            reply_to_message_id=str(data.get("reply_to_message_id") or "").strip() or None,
             workspace_path=str(data.get("workspace_path") or "").strip() or None,
             client_turn_id=str(data.get("client_turn_id") or "").strip() or None,
             metadata=dict(data.get("metadata") or {}),

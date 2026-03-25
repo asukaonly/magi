@@ -260,6 +260,15 @@ class ChatReadService:
         """Load display history without blocking the event loop."""
         return await self._run_threaded("get_display_history", user_id, session_id, limit)
 
+    async def aget_display_message(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> ChatDisplayMessage | None:
+        """Load one visible display message without blocking the event loop."""
+        return await self._run_threaded("get_display_message", user_id, session_id, message_id)
+
     async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
         """Clear a session history without blocking the event loop."""
         await self._run_threaded("clear_conversation_history", user_id, session_id)
@@ -594,6 +603,45 @@ class ChatReadService:
         self._attach_reply_previews(rows=display_rows, messages=display_messages)
         messages.sort(key=lambda item: item.timestamp)
         return messages[-safe_limit:]
+
+    def get_display_message(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> ChatDisplayMessage | None:
+        _ = user_id
+        if not self._chat_db_path.exists():
+            return None
+        normalized_session_id = str(session_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        if not normalized_session_id or not normalized_message_id:
+            return None
+        try:
+            row = self._get_conn().execute(
+                f"""
+                SELECT message_id, session_id, turn_id, user_id, role, message_kind,
+                       content_text, payload_json, is_final, is_visible, created_at_ms,
+                       sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
+                       label_json
+                FROM {CHAT_MESSAGES_TABLE}
+                WHERE session_id = ?
+                  AND message_id = ?
+                  AND is_visible = 1
+                LIMIT 1
+                """,
+                (normalized_session_id, normalized_message_id),
+            ).fetchone()
+        except Exception as exc:
+            logger.exception(f"Failed to query display message: {exc}")
+            return None
+        if row is None:
+            return None
+        display_message = self._row_to_display_message(row)
+        if display_message is None:
+            return None
+        self._attach_reply_previews(rows=[row], messages=[display_message])
+        return display_message
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         if not self._chat_db_path.exists():

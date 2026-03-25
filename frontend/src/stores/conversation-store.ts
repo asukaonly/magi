@@ -54,6 +54,7 @@ type ConversationState = {
   hydrateSessions: (sessions: ChatSessionListItem[], currentSessionId?: string | null) => void;
   upsertSession: (session: ChatSessionListItem) => void;
   receiveHistory: (sessionId: string, messages: ChatTimelineMessage[]) => void;
+  upsertMessage: (sessionId: string, message: ChatTimelineMessage) => void;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   applyTurnUxPlan: (payload: TurnUxPlanPayload) => void;
   receiveAgentResponse: (payload: AgentResponsePayload) => void;
@@ -116,6 +117,100 @@ const upsertSessionSummary = (
   };
 };
 
+const sortTimelineMessages = (messages: ChatTimelineMessage[]): ChatTimelineMessage[] => (
+  [...messages].sort((left, right) => {
+    const timestampDiff = Number(left.timestamp || 0) - Number(right.timestamp || 0);
+    if (timestampDiff !== 0) {
+      return timestampDiff;
+    }
+    if (left.role === right.role) {
+      return 0;
+    }
+    return left.role === 'user' ? -1 : 1;
+  })
+);
+
+const canMergeTimelineMessage = (
+  existing: ChatTimelineMessage,
+  incoming: ChatTimelineMessage,
+): boolean => {
+  const existingMessageId = String(existing.messageId || '').trim();
+  const incomingMessageId = String(incoming.messageId || '').trim();
+  if (existingMessageId && incomingMessageId) {
+    return existingMessageId === incomingMessageId;
+  }
+
+  const existingTurnId = String(existing.turnId || '').trim();
+  const incomingTurnId = String(incoming.turnId || '').trim();
+  if (!existingTurnId || !incomingTurnId || existingTurnId !== incomingTurnId || existing.role !== incoming.role) {
+    return false;
+  }
+
+  if (existing.role === 'user') {
+    return existing.kind === 'user' && incoming.kind === 'user';
+  }
+
+  const existingMessageKind = String(existing.messageKind || '').trim();
+  const incomingMessageKind = String(incoming.messageKind || '').trim();
+  return Boolean(existingMessageKind && incomingMessageKind && existingMessageKind === incomingMessageKind);
+};
+
+const mergeTimelineMessage = (
+  existing: ChatTimelineMessage,
+  incoming: ChatTimelineMessage,
+): ChatTimelineMessage => ({
+  ...existing,
+  ...incoming,
+  id: String(incoming.messageId || existing.messageId || incoming.id || existing.id),
+  messageId: incoming.messageId ?? existing.messageId,
+  messageKind: incoming.messageKind ?? existing.messageKind ?? null,
+  turnId: incoming.turnId ?? existing.turnId,
+  replyTo: incoming.replyTo ?? existing.replyTo ?? null,
+  label: incoming.label ?? existing.label ?? null,
+  reaction: incoming.reaction ?? existing.reaction ?? null,
+  attachments: incoming.attachments ?? existing.attachments,
+  traceDisplayMode: incoming.traceDisplayMode ?? existing.traceDisplayMode ?? null,
+  allowTraceCollapse: typeof incoming.allowTraceCollapse === 'boolean'
+    ? incoming.allowTraceCollapse
+    : Boolean(existing.allowTraceCollapse),
+  traceSummary: incoming.traceSummary ?? existing.traceSummary ?? null,
+  traceAvailable: typeof incoming.traceAvailable === 'boolean'
+    ? incoming.traceAvailable
+    : Boolean(existing.traceAvailable),
+});
+
+const upsertTimelineMessage = (
+  messages: ChatTimelineMessage[],
+  incoming: ChatTimelineMessage,
+): ChatTimelineMessage[] => {
+  const existingIndex = messages.findIndex((message) => canMergeTimelineMessage(message, incoming));
+  if (existingIndex < 0) {
+    return sortTimelineMessages([...messages, incoming]);
+  }
+  const nextMessages = [...messages];
+  nextMessages[existingIndex] = mergeTimelineMessage(messages[existingIndex], incoming);
+  return sortTimelineMessages(nextMessages);
+};
+
+const mergeHistorySnapshot = (
+  existingMessages: ChatTimelineMessage[],
+  snapshotMessages: ChatTimelineMessage[],
+): ChatTimelineMessage[] => {
+  const mergedSnapshot = snapshotMessages.map((message) => {
+    const existingMatch = existingMessages.find((current) => canMergeTimelineMessage(current, message));
+    return existingMatch ? mergeTimelineMessage(existingMatch, message) : message;
+  });
+
+  const localPendingMessages = existingMessages.filter((message) => {
+    if (String(message.messageId || '').trim()) {
+      return false;
+    }
+    return !snapshotMessages.some((snapshotMessage) => canMergeTimelineMessage(message, snapshotMessage));
+  });
+
+  return sortTimelineMessages([...mergedSnapshot, ...localPendingMessages]);
+};
+
 export const useConversationStore = create<ConversationState>((set) => ({
   ...emptyState,
   setCurrentSessionId: (sessionId) => set((state) => ({
@@ -163,17 +258,33 @@ export const useConversationStore = create<ConversationState>((set) => ({
   }),
   receiveHistory: (sessionId, messages) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    const previousMessages = state.messagesBySession[sessionId] || [];
     return {
       currentSessionId: sessionId,
       sessionsById: ensured.sessionsById,
       orderedSessionIds: ensured.orderedSessionIds,
       messagesBySession: {
         ...state.messagesBySession,
-        [sessionId]: messages,
+        [sessionId]: mergeHistorySnapshot(previousMessages, messages),
       },
       unreadBySession: {
         ...state.unreadBySession,
         [sessionId]: 0,
+      },
+    };
+  }),
+  upsertMessage: (sessionId, message) => set((state) => {
+    if (!sessionId) {
+      return state;
+    }
+    const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    return {
+      currentSessionId: state.currentSessionId,
+      sessionsById: ensured.sessionsById,
+      orderedSessionIds: ensured.orderedSessionIds,
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: upsertTimelineMessage(state.messagesBySession[sessionId] || [], message),
       },
     };
   }),

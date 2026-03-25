@@ -24,6 +24,7 @@ import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/sto
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
+  normalizeHistoryMessages,
   normalizeTurnUxPlan,
   normalizeTraceSnapshot,
   normalizeTraceSummary,
@@ -386,6 +387,7 @@ export const ChatPage: React.FC = () => {
   );
   const upsertSession = useConversationStore((state) => state.upsertSession);
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
+  const upsertMessage = useConversationStore((state) => state.upsertMessage);
   const applyTurnUxPlan = useConversationStore((state) => state.applyTurnUxPlan);
   const receiveAgentResponse = useConversationStore((state) => state.receiveAgentResponse);
   const applyMessageLabel = useConversationStore((state) => state.applyMessageLabel);
@@ -682,12 +684,6 @@ export const ChatPage: React.FC = () => {
       const sessionId = String(payload?.session_id || currentSessionId || '').trim();
       const turnId = String(payload?.turn_id || '').trim();
       const summary = normalizeTraceSummary(payload?.trace_summary);
-      const isTerminalTraceEvent =
-        summary?.status === 'completed' ||
-        summary?.status === 'failed';
-      if (sessionId && turnId && isTerminalTraceEvent) {
-        requestHistory(sessionId);
-      }
       if (!sessionId || !turnId || !summary) return;
       upsertSummary({
         turn_id: summary.turnId,
@@ -725,9 +721,42 @@ export const ChatPage: React.FC = () => {
       currentSessionId,
       drawerOpen,
       loadTrace,
-      requestHistory,
       upsertSummary,
     ]
+  );
+
+  const handleChatMessageUpsertEvent = useCallback(
+    (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
+      const rawMessage = payload?.message;
+      if (!sessionId || !rawMessage || typeof rawMessage !== 'object') {
+        return;
+      }
+      const normalizedMessage = normalizeHistoryMessages([rawMessage as any])[0];
+      if (!normalizedMessage) {
+        return;
+      }
+      upsertMessage(sessionId, normalizedMessage);
+      if (payload?.session_summary && typeof payload.session_summary === 'object') {
+        upsertSession(payload.session_summary as any);
+      }
+    },
+    [currentSessionId, upsertMessage, upsertSession]
+  );
+
+  const handleChatMessageHiddenEvent = useCallback(
+    (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
+      const messageId = String(payload?.message_id || '').trim();
+      if (!sessionId || !messageId) {
+        return;
+      }
+      removeMessage(sessionId, messageId);
+      if (payload?.session_summary && typeof payload.session_summary === 'object') {
+        upsertSession(payload.session_summary as any);
+      }
+    },
+    [currentSessionId, removeMessage, upsertSession]
   );
 
   const handleAgentResponseEvent = useCallback(
@@ -851,12 +880,9 @@ export const ChatPage: React.FC = () => {
 
       if (['cancelled', 'completed', 'failed', 'interrupted', 'merged'].includes(state)) {
         setCancellingTurnIds((current) => current.filter((item) => item !== turnId));
-        if (state === 'cancelled') {
-          requestHistory(sessionId);
-        }
       }
     },
-    [currentSessionId, requestHistory]
+    [currentSessionId]
   );
 
   const handleWSMessage = useCallback(
@@ -915,6 +941,16 @@ export const ChatPage: React.FC = () => {
         return;
       }
 
+      if (eventName === 'chat_message_upserted' && data.data) {
+        handleChatMessageUpsertEvent(data.data);
+        return;
+      }
+
+      if (eventName === 'chat_message_hidden' && data.data) {
+        handleChatMessageHiddenEvent(data.data);
+        return;
+      }
+
       if (eventName === 'agent_response' && data.data) {
         handleAgentResponseEvent(data.data);
       }
@@ -922,6 +958,8 @@ export const ChatPage: React.FC = () => {
     [
       currentSessionId,
       handleAgentResponseEvent,
+      handleChatMessageHiddenEvent,
+      handleChatMessageUpsertEvent,
       handleTurnExecutionControlEvent,
       handleExecutionTraceUpdate,
       handleTurnUxPlanEvent,
@@ -1119,7 +1157,7 @@ export const ChatPage: React.FC = () => {
   const getAvatar = (role: 'user' | 'assistant') => {
     if (role === 'user') {
       return (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d6a893]/70 bg-[#c96b45] text-white shadow-[0_10px_20px_rgba(168,93,62,0.18)]">
           <UserRound className="h-4 w-4" />
         </div>
       );
@@ -1453,7 +1491,7 @@ export const ChatPage: React.FC = () => {
     return (
       <div
         className={align === 'user'
-          ? 'mb-3 rounded-lg border border-accent-foreground/15 bg-background/85 px-3 py-2 text-left text-foreground'
+          ? 'mb-3 rounded-lg border border-white/70 bg-white/72 px-3 py-2 text-left text-[#5f3427] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-sm'
           : 'mb-3 rounded-lg border border-border/45 bg-background/80 px-3 py-2 text-left text-foreground'}
       >
         <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
@@ -1801,7 +1839,7 @@ export const ChatPage: React.FC = () => {
                       });
                     }}
                     className={msg.role === 'user'
-                      ? 'rounded-xl rounded-tr-sm border border-accent/15 bg-accent/75 px-4 py-2.5 text-accent-foreground'
+                      ? 'rounded-xl rounded-tr-sm border border-[#ddb29f]/60 bg-[#f6e7de] px-4 py-2.5 text-[#6f3f2d] shadow-[0_12px_28px_rgba(168,93,62,0.08)]'
                       : 'rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}
                   >
                     {renderReplyStrip(msg.replyTo, msg.role)}
