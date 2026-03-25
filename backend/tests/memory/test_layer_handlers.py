@@ -352,6 +352,77 @@ class TestL2Handler:
         assert len(results["entity_cards"]) == 0  # no entities to snapshot
         store.get_relationships.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_self_preference_binds_user_as_subject_and_weather_type(self):
+        store = AsyncMock()
+        store.get_tom_snapshot.return_value = {"entity_id": "user:u1", "entity_type": "user"}
+        store.get_relationships.return_value = [{"triple_id": "pref-1", "subject_id": "user:u1"}]
+        store.list_tom_assertions.return_value = []
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "weather_state:weather-state",
+                "entity_type": "weather_state",
+                "canonical_name": "Weather",
+                "match_source": "alias",
+            }
+        ]
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="我喜欢什么天气",
+            entities=["天气"],
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=True,
+            include_relationships=True,
+            include_assertions=True,
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        store.get_tom_snapshot.assert_called_once_with(entity_id="user:u1", entity_type="user")
+        _, relationship_kwargs = store.get_relationships.call_args
+        assert relationship_kwargs["subject_id"] == "user:u1"
+        assert relationship_kwargs["object_types"] == ["weather_state"]
+        assert relationship_kwargs.get("object_id") is None
+        assert relationship_kwargs["predicates"] == ["LIKES"]
+        assert results["trace"]["query_frame"]["chosen_subject_entity_id"] == "user:u1"
+        assert results["trace"]["query_frame"]["subject_binding_source"] == "self_anchor"
+
+    @pytest.mark.asyncio
+    async def test_explicit_subject_preference_does_not_bind_self(self):
+        store = AsyncMock()
+        store.get_relationships.return_value = [{"triple_id": "pref-1", "subject_id": "person:xiaowang"}]
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "person:xiaowang",
+                "entity_type": "person",
+                "canonical_name": "小王",
+                "match_source": "alias",
+            }
+        ]
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="我的朋友小王喜欢什么",
+            entities=["小王"],
+            subject_hint="explicit",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        _, relationship_kwargs = store.get_relationships.call_args
+        assert relationship_kwargs["subject_id"] == "person:xiaowang"
+        assert relationship_kwargs.get("object_types") is None
+        assert results["trace"]["query_frame"]["chosen_subject_entity_id"] == "person:xiaowang"
+        assert results["trace"]["query_frame"]["subject_binding_source"] == "explicit_entity"
+
 
 # -----------------------------------------------------------------------
 # L3Handler

@@ -87,6 +87,8 @@ class L2Conditions:
 
     content_query: str = ""
     entities: Optional[List[str]] = None
+    subject_hint: Optional[str] = None
+    predicate_family: Optional[str] = None
     entity_types: Optional[List[str]] = None
     predicates: Optional[List[str]] = None
     trait_families: Optional[List[str]] = None

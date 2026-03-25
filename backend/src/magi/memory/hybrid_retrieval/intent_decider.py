@@ -140,6 +140,9 @@ _RECALL_INTENT_LAYER_MAP: Dict[str, tuple[str, str]] = {
     "workflow_reuse": ("L4", "L1"),
 }
 
+_VALID_SUBJECT_HINTS = {"self", "explicit", "none"}
+_VALID_PREDICATE_FAMILIES = {"preference", "relationship", "profile_fact", "activity", "unknown"}
+
 
 # ---------------------------------------------------------------------------
 # RuleBasedIntentDecider
@@ -428,6 +431,8 @@ class RuleBasedIntentDecider:
             conditions = L2Conditions(
                 content_query=inp.query,
                 entities=entities if entities else None,
+                subject_hint=self._infer_subject_hint(inp),
+                predicate_family=self._infer_predicate_family(inp),
                 include_tom_snapshot=True,
                 include_relationships=True,
                 include_assertions=True,
@@ -473,6 +478,36 @@ class RuleBasedIntentDecider:
         # For now, we return an empty list -- the L2Handler will do full lookups.
         return []
 
+    def _infer_subject_hint(self, inp: IntentDeciderInput) -> str:
+        """Infer whether the query subject is the current user or an explicit entity."""
+        query = inp.query.lower()
+        if inp.recall_intent_hint in {"preference_recall", "profile_fact_recall"}:
+            if "我" in inp.query or " me " in f" {query} " or query.startswith("my "):
+                return "self"
+        if inp.recall_intent_hint == "relationship_recall" and ("我" in inp.query or " me " in f" {query} "):
+            return "self"
+        return "none"
+
+    def _infer_predicate_family(self, inp: IntentDeciderInput) -> str:
+        """Infer the broad predicate family for L2 graph planning."""
+        if inp.recall_intent_hint == "preference_recall":
+            return "preference"
+        if inp.recall_intent_hint == "profile_fact_recall":
+            return "profile_fact"
+        if inp.recall_intent_hint == "relationship_recall":
+            return "relationship"
+
+        query = inp.query.lower()
+        if any(token in query for token in ("喜欢", "讨厌", "不喜欢", "偏好", "like", "likes", "dislike", "dislikes")):
+            return "preference"
+        if any(token in query for token in ("关系", "认识", "谁", "relationship", "know", "knows", "friend")):
+            return "relationship"
+        if any(token in query for token in ("设置", "默认", "资料", "事实", "setting", "settings", "profile")):
+            return "profile_fact"
+        if any(token in query for token in ("访问", "浏览", "去过", "看过", "visit", "visited", "browse", "browsed")):
+            return "activity"
+        return "unknown"
+
     # -----------------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------------
@@ -509,28 +544,52 @@ class RuleBasedIntentDecider:
 # ---------------------------------------------------------------------------
 
 _LLM_SYSTEM_PROMPT = """\
-You are a memory-retrieval intent analyzer. Decide which memory layers to query and generate layer-specific retrieval conditions.
+You are a fast memory-retrieval planning agent.
 
-记忆层说明 / Memory layers:
-- L1（事件流 / event stream）：具体的历史事件、聊天记录、浏览记录、活动记录
-- L2（知识图谱 / knowledge graph）：人物关系、实体属性、用户画像
-- L3（反思摘要 / reflection summaries）：时期总结、主题回顾、洞察结论
-- L4（程序性记忆 / procedural memory）：工具使用经验、操作策略、最佳实践
+Your task is to analyze the user's query, decide which memory layers should be queried, and produce layer-specific retrieval plans.
 
-Instructions:
+Memory layers:
+- L1 (Event Stream): specific past events, chat logs, browser history, activities.
+- L2 (Knowledge Graph): entity attributes, relationships, user profile facts, personal preferences.
+- L3 (Reflection Summaries): period summaries, topic reviews, high-level insights.
+- L4 (Procedural Memory): tool usage experience, workflows, strategies, best practices.
+
+General rules:
+- Output language for all free-text fields must match the user's query language.
+- Do not hallucinate examples or expand the query with invented details.
+- Keep retrieval text tight and answer-oriented.
 - Time range parsing is handled elsewhere. Do not output time ranges.
-- You may choose multiple layers.
+- You may return multiple layer plans.
 - Plans with is_fallback=true run only when primary retrieval is insufficient.
-- For L2 queries, extract the relevant entity names when possible.
-- content_query should be optimized for retrieval, but it must stay specific enough to retrieve the answer-bearing evidence.
-- Keep quoted titles verbatim when they identify an event, workshop, webinar, book, group, or named item.
-- Do not replace a quoted title with a broad topic.
+
+Layer-specific rules:
+- For L1, L3, and L4:
+  - Use content_query as a concise retrieval phrase for vector/text search.
+  - Keep quoted titles verbatim.
+  - Do not replace a quoted title with a broad topic.
+  - Do not replace a named item with a broad topic.
+- For L2:
+  - Use content_query as a compact graph-oriented retrieval phrase.
+  - Extract entities as surface-form entity mentions from the query when possible.
+  - Entities are mention hints, not canonical database IDs.
+  - Do not put generic self references like "I", "me", "user", or "我" into entities.
+  - When the grammatical subject is the current user, set subject_hint to "self".
+  - When another explicit person or entity is the subject, set subject_hint to "explicit".
+  - Otherwise set subject_hint to "none".
+  - Use predicate_family instead of guessing one exact graph edge when the intent is broad.
+  - Allowed predicate_family values: "preference", "relationship", "profile_fact", "activity", "unknown".
+
+Routing guidance:
+- Questions about preferences, profile facts, relationships, or long-lived personal attributes should prefer L2.
+- Questions about specific events, order, attendance, browsing, or chat history should prefer L1.
+- Questions asking for summaries, recaps, or reflections should prefer L3.
+- Questions asking how something was done before should prefer L4.
 - For comparison questions, keep both candidate events explicit in the plan.
 - For temporal-distance questions, produce anchor-specific content_query text for each event anchor.
 - Do not collapse both anchors into one generic topic query.
 - If the user asks about event order, duration, or "how many days/weeks before/after", prefer L1 as the primary layer unless the query is clearly asking for a summary or procedure.
 
-Examples of good content_query behavior:
+Examples:
 - Query: Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?
   Good L1 content_query values: "Effective Time Management workshop", "Data Analysis using Python webinar"
 - Query: How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?
@@ -542,10 +601,12 @@ Return JSON only:
     {
       "layer": "L1" | "L2" | "L3" | "L4",
       "is_fallback": false | true,
-      "content_query": "layer-specific retrieval text",
-      "entities": ["entity name"],
-      "source_filters": ["chat", "browser_history"],
-      "domain_filters": ["user_authored", "external_activity"]
+      "content_query": "string",
+      "entities": ["string"],
+      "subject_hint": "self" | "explicit" | "none",
+      "predicate_family": "preference" | "relationship" | "profile_fact" | "activity" | "unknown",
+      "source_filters": ["chat", "browser_history", "profile", "terminal", "git"],
+      "domain_filters": ["user_authored", "external_activity", "system_generated"]
     }
   ],
   "reasoning": "brief explanation"
@@ -614,6 +675,12 @@ class LLMIntentDecider:
             entities = item.get("entities") or []
             source_filters = item.get("source_filters") or None
             domain_filters = item.get("domain_filters") or None
+            subject_hint = str(item.get("subject_hint") or "none").strip().lower()
+            predicate_family = str(item.get("predicate_family") or "unknown").strip().lower()
+            if subject_hint not in _VALID_SUBJECT_HINTS:
+                subject_hint = "none"
+            if predicate_family not in _VALID_PREDICATE_FAMILIES:
+                predicate_family = "unknown"
 
             if layer == "L1":
                 conditions = L1Conditions(
@@ -625,6 +692,8 @@ class LLMIntentDecider:
                 conditions = L2Conditions(
                     content_query=content_query,
                     entities=entities if entities else None,
+                    subject_hint=subject_hint,
+                    predicate_family=predicate_family,
                     include_tom_snapshot=True,
                     include_relationships=True,
                     include_assertions=True,

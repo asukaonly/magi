@@ -396,15 +396,28 @@ class L2Handler:
         results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": [], "trace": {}}
         resolved_entities = await self._resolve_entities(conditions, user_id=user_id)
         predicates = conditions.predicates or self._infer_predicates(conditions.content_query)
+        predicate_family = conditions.predicate_family or self._infer_predicate_family(
+            conditions.content_query,
+            predicates=predicates,
+        )
         status_filters = conditions.status_filter or self._infer_status_filters(conditions.content_query)
         relation_direction = conditions.relation_direction or self._infer_relation_direction(conditions.content_query)
-        target_entity_id = self._infer_target_entity_id(
+        query_frame = self._build_query_frame(
+            conditions=conditions,
             resolved_entities=resolved_entities,
+            predicates=predicates,
+            predicate_family=predicate_family,
+            user_id=user_id,
+            relation_direction=relation_direction,
+        )
+        target_entity_id = self._infer_target_entity_id(
+            query_frame=query_frame,
             predicates=predicates,
         )
 
-        if conditions.include_tom_snapshot and resolved_entities:
-            for entity in resolved_entities:
+        snapshot_entities = query_frame["snapshot_entities"] or resolved_entities
+        if conditions.include_tom_snapshot and snapshot_entities:
+            for entity in snapshot_entities:
                 snapshot = await self._store.get_tom_snapshot(
                     entity_id=entity["entity_id"],
                     entity_type=entity["entity_type"],
@@ -413,12 +426,14 @@ class L2Handler:
                     results["entity_cards"].append(snapshot)
 
         if conditions.include_assertions:
-            if resolved_entities:
-                for entity in resolved_entities:
+            assertion_entities = query_frame["assertion_entities"] or resolved_entities
+            trait_families = conditions.trait_families or self._infer_trait_families(predicate_family)
+            if assertion_entities:
+                for entity in assertion_entities:
                     assertions = await self._store.list_tom_assertions(
                         entity_id=entity["entity_id"],
                         entity_type=entity["entity_type"],
-                        trait_families=conditions.trait_families,
+                        trait_families=trait_families,
                         validation_states=self._infer_assertion_states(status_filters),
                         include_expired=False,
                         target_entity_id=target_entity_id,
@@ -427,7 +442,7 @@ class L2Handler:
                     results["assertions"].extend(assertions)
             else:
                 results["assertions"] = await self._store.list_tom_assertions(
-                    trait_families=conditions.trait_families,
+                    trait_families=trait_families,
                     validation_states=self._infer_assertion_states(status_filters),
                     include_expired=False,
                     target_entity_id=target_entity_id,
@@ -435,14 +450,18 @@ class L2Handler:
                 )
 
         if conditions.include_relationships:
-            if resolved_entities:
-                for entity in resolved_entities:
+            relationship_entities = query_frame["relationship_entities"] or resolved_entities
+            if relationship_entities:
+                for entity in relationship_entities:
                     results["relationships"].extend(
                         await self._query_relationships_for_entity(
                             entity_id=entity["entity_id"],
+                            entity_type=entity["entity_type"],
                             direction=relation_direction,
                             predicates=predicates,
                             status_filters=status_filters,
+                            object_id=query_frame["relationship_object_id"],
+                            object_types=query_frame["relationship_object_types"],
                             limit=conditions.limit,
                         )
                     )
@@ -459,6 +478,8 @@ class L2Handler:
             "requested_entities": [
                 entity["entity_id"] for entity in resolved_entities
             ] if resolved_entities else list(conditions.entities or []),
+            "subject_hint": conditions.subject_hint or "none",
+            "predicate_family": predicate_family,
             "requested_entity_types": list(conditions.entity_types or []),
             "trait_families": list(conditions.trait_families or []),
             "include_tom_snapshot": conditions.include_tom_snapshot,
@@ -466,26 +487,34 @@ class L2Handler:
             "include_assertions": conditions.include_assertions,
             "limit": conditions.limit,
             "resolved_entities": resolved_entities,
+            "query_frame": query_frame,
             "predicates": predicates or [],
             "status_filters": status_filters or [],
             "relation_direction": relation_direction,
             "target_entity_id": target_entity_id,
+            "relationship_object_id": query_frame["relationship_object_id"],
+            "relationship_object_types": query_frame["relationship_object_types"],
             "entity_card_count": len(results["entity_cards"]),
             "relationship_count": len(results["relationships"]),
             "assertion_count": len(results["assertions"]),
         }
         logger.info(
-            "L2 retrieval executed | content_query=%r requested_entities=%s resolved_entities=%s predicates=%s "
-            "status_filters=%s relation_direction=%s target_entity_id=%s include_tom_snapshot=%s "
+            "L2 retrieval executed | content_query=%r requested_entities=%s resolved_entities=%s subject_hint=%s "
+            "predicate_family=%s predicates=%s status_filters=%s relation_direction=%s target_entity_id=%s "
+            "relationship_object_id=%s relationship_object_types=%s include_tom_snapshot=%s "
             "include_relationships=%s include_assertions=%s limit=%s entity_card_count=%s "
             "relationship_count=%s assertion_count=%s",
             conditions.content_query,
             results["trace"]["requested_entities"],
             resolved_entities,
+            conditions.subject_hint or "none",
+            predicate_family,
             predicates or [],
             status_filters or [],
             relation_direction,
             target_entity_id,
+            query_frame["relationship_object_id"],
+            query_frame["relationship_object_types"],
             conditions.include_tom_snapshot,
             conditions.include_relationships,
             conditions.include_assertions,
@@ -500,9 +529,12 @@ class L2Handler:
         self,
         *,
         entity_id: str,
+        entity_type: str,
         direction: str,
         predicates: list[str] | None,
         status_filters: list[str] | None,
+        object_id: str | None,
+        object_types: list[str] | None,
         limit: int,
     ) -> list[dict[str, Any]]:
         if direction == "incoming":
@@ -517,6 +549,8 @@ class L2Handler:
                 subject_id=entity_id,
                 predicates=predicates,
                 status_filters=status_filters,
+                object_id=object_id,
+                object_types=object_types,
                 limit=limit,
             )
             incoming = await self._store.get_relationships(
@@ -539,6 +573,8 @@ class L2Handler:
             subject_id=entity_id,
             predicates=predicates,
             status_filters=status_filters,
+            object_id=object_id if self._allows_object_id_filter(entity_type=entity_type, direction=direction) else None,
+            object_types=object_types if self._allows_object_type_filter(entity_type=entity_type, direction=direction) else None,
             limit=limit,
         )
 
@@ -611,6 +647,18 @@ class L2Handler:
             unique.append(predicate)
         return unique or None
 
+    def _infer_predicate_family(self, query: str, *, predicates: list[str] | None) -> str:
+        if predicates and any(predicate in {"LIKES", "DISLIKES", "INTERESTED_IN"} for predicate in predicates):
+            return "preference"
+        query_lower = query.lower()
+        if any(token in query_lower for token in ("关系", "认识", "friend", "relationship", "know", "knows")):
+            return "relationship"
+        if any(token in query_lower for token in ("设置", "默认", "资料", "profile", "setting", "settings")):
+            return "profile_fact"
+        if any(token in query_lower for token in ("访问", "浏览", "去过", "看过", "visit", "visited", "browse", "browsed")):
+            return "activity"
+        return "unknown"
+
     def _infer_status_filters(self, query: str) -> list[str]:
         query_lower = query.lower()
         if "冲突" in query_lower or "conflict" in query_lower:
@@ -632,18 +680,24 @@ class L2Handler:
             return ["contradicted"]
         return ["stable", "corroborated", "tentative"]
 
+    def _infer_trait_families(self, predicate_family: str) -> list[str] | None:
+        if predicate_family == "preference":
+            return ["preference_profile"]
+        return None
+
     def _infer_target_entity_id(
         self,
         *,
-        resolved_entities: list[dict[str, str]],
+        query_frame: dict[str, Any],
         predicates: list[str] | None,
     ) -> str | None:
-        if not resolved_entities or not predicates:
+        if not predicates:
             return None
         if not any(predicate in {"LIKES", "DISLIKES", "INTERESTED_IN"} for predicate in predicates):
             return None
-        first = resolved_entities[0]
-        return str(first["entity_id"])
+        if query_frame["target_entity_id_exact"]:
+            return str(query_frame["target_entity_id_exact"])
+        return None
 
     def _infer_self_entities(self, query: str, *, user_id: Optional[str] = None) -> list[dict[str, str]]:
         if "我" not in query and " me " not in f" {query.lower()} ":
@@ -651,6 +705,162 @@ class L2Handler:
         if user_id:
             return [{"entity_id": f"user:{user_id}", "entity_type": "user"}]
         return []
+
+    def _build_query_frame(
+        self,
+        *,
+        conditions: L2Conditions,
+        resolved_entities: list[dict[str, str]],
+        predicates: list[str] | None,
+        predicate_family: str,
+        user_id: Optional[str],
+        relation_direction: str,
+    ) -> dict[str, Any]:
+        explicit_entities = [dict(entity) for entity in resolved_entities]
+        self_entities = self._infer_self_entities(conditions.content_query, user_id=user_id)
+        subject_entities: list[dict[str, str]] = []
+        target_entities: list[dict[str, str]] = []
+        subject_binding_source = "none"
+
+        if conditions.subject_hint == "self" and self_entities:
+            subject_entities = [dict(entity) for entity in self_entities]
+            target_entities = explicit_entities
+            subject_binding_source = "self_anchor"
+        elif conditions.subject_hint == "explicit" and explicit_entities:
+            subject_entities = [dict(explicit_entities[0])]
+            target_entities = [dict(entity) for entity in explicit_entities[1:]]
+            subject_binding_source = "explicit_entity"
+        elif predicate_family == "preference" and self_entities and self._looks_like_direct_self_preference(conditions.content_query):
+            subject_entities = [dict(entity) for entity in self_entities]
+            target_entities = explicit_entities
+            subject_binding_source = "self_anchor"
+        elif explicit_entities:
+            subject_entities = [dict(entity) for entity in explicit_entities]
+            subject_binding_source = "resolved_entity"
+
+        if relation_direction == "incoming" and self_entities:
+            subject_entities = [dict(entity) for entity in self_entities]
+            target_entities = explicit_entities
+            subject_binding_source = "self_anchor"
+
+        relationship_entities = subject_entities or explicit_entities
+        snapshot_entities = subject_entities or explicit_entities
+        assertion_entities = subject_entities or explicit_entities
+
+        target_entity_id_exact = self._select_exact_target_entity_id(
+            conditions=conditions,
+            predicate_family=predicate_family,
+            target_entities=target_entities,
+        )
+        relationship_object_types = self._select_target_entity_types(
+            conditions=conditions,
+            predicate_family=predicate_family,
+            target_entities=target_entities,
+        )
+        relationship_object_id = target_entity_id_exact
+        if relationship_object_id is not None and relationship_object_types:
+            relationship_object_types = None
+
+        chosen_subject_entity_id = subject_entities[0]["entity_id"] if subject_entities else None
+        chosen_target_entity_id = target_entities[0]["entity_id"] if target_entities else None
+        return {
+            "subject_entities": subject_entities,
+            "target_entities": target_entities,
+            "relationship_entities": relationship_entities,
+            "snapshot_entities": snapshot_entities,
+            "assertion_entities": assertion_entities,
+            "chosen_subject_entity_id": chosen_subject_entity_id,
+            "chosen_target_entity_id": chosen_target_entity_id,
+            "subject_binding_source": subject_binding_source,
+            "target_entity_id_exact": target_entity_id_exact,
+            "relationship_object_id": relationship_object_id,
+            "relationship_object_types": relationship_object_types,
+        }
+
+    def _select_exact_target_entity_id(
+        self,
+        *,
+        conditions: L2Conditions,
+        predicate_family: str,
+        target_entities: list[dict[str, str]],
+    ) -> str | None:
+        if not target_entities:
+            return None
+        if predicate_family != "preference":
+            return str(target_entities[0]["entity_id"])
+        for index, entity in enumerate(target_entities):
+            surface = ""
+            if conditions.entities and index < len(conditions.entities):
+                surface = str(conditions.entities[index] or "")
+            if not self._is_generic_surface_entity(surface) and not self._is_generic_entity_ref(entity):
+                return str(entity["entity_id"])
+        return None
+
+    def _select_target_entity_types(
+        self,
+        *,
+        conditions: L2Conditions,
+        predicate_family: str,
+        target_entities: list[dict[str, str]],
+    ) -> list[str] | None:
+        if predicate_family != "preference" or not target_entities:
+            return None
+        types: list[str] = []
+        for entity in target_entities:
+            entity_type = str(entity.get("entity_type") or "").strip()
+            if entity_type and entity_type not in types:
+                types.append(entity_type)
+        return types or None
+
+    @staticmethod
+    def _is_generic_surface_entity(surface: str) -> bool:
+        normalized = str(surface or "").strip().casefold()
+        return normalized in {
+            "天气",
+            "气候",
+            "weather",
+            "climate",
+            "食物",
+            "food",
+            "音乐",
+            "music",
+            "地方",
+            "place",
+        }
+
+    @staticmethod
+    def _is_generic_entity_ref(entity: dict[str, str]) -> bool:
+        entity_id = str(entity.get("entity_id") or "")
+        entity_type = str(entity.get("entity_type") or "")
+        _, _, suffix = entity_id.partition(":")
+        normalized_suffix = suffix.replace("_", "-").casefold()
+        normalized_type = entity_type.replace("_", "-").casefold()
+        return normalized_suffix in {
+            normalized_type,
+            f"{normalized_type}-state",
+            "weather-state",
+            "weather",
+            "food",
+            "music",
+            "place",
+            "person",
+        }
+
+    @staticmethod
+    def _looks_like_direct_self_preference(query: str) -> bool:
+        normalized = query.casefold()
+        return (
+            ("我" in query or " me " in f" {normalized} ")
+            and ("喜欢" in query or "讨厌" in query or "偏好" in query or " like " in f" {normalized} ")
+        )
+
+    @staticmethod
+    def _allows_object_id_filter(*, entity_type: str, direction: str) -> bool:
+        return direction == "outgoing" and entity_type == "user"
+
+    @staticmethod
+    def _allows_object_type_filter(*, entity_type: str, direction: str) -> bool:
+        return direction == "outgoing" and entity_type == "user"
 
 
 class L3Handler:

@@ -83,8 +83,10 @@ class TestLLMParsing:
                 {
                     "layer": "L2",
                     "is_fallback": False,
-                    "content_query": "",
+                    "content_query": "Alice 和 Bob 的关系",
                     "entities": ["Alice", "Bob"],
+                    "subject_hint": "explicit",
+                    "predicate_family": "relationship",
                 }
             ],
             "reasoning": "relationship query",
@@ -96,6 +98,8 @@ class TestLLMParsing:
         assert result.plans[0].layer == "L2"
         assert isinstance(result.plans[0].conditions, L2Conditions)
         assert result.plans[0].conditions.entities == ["Alice", "Bob"]
+        assert result.plans[0].conditions.subject_hint == "explicit"
+        assert result.plans[0].conditions.predicate_family == "relationship"
 
     @pytest.mark.asyncio
     async def test_l3_layer(self, decider: LLMIntentDecider, mock_bridge):
@@ -304,3 +308,16 @@ class TestLLMCallParams:
         assert "For comparison questions, keep both candidate events explicit" in system_prompt
         assert "For temporal-distance questions, produce anchor-specific content_query text" in system_prompt
         assert "Do not collapse both anchors into one generic topic query" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_includes_l2_subject_and_predicate_contract(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [{"layer": "L2", "is_fallback": False, "content_query": "天气偏好"}],
+            "reasoning": "ok",
+        })
+
+        await decider.evaluate(IntentDeciderInput(query="我喜欢什么天气"))
+
+        system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
+        assert 'set subject_hint to "self"' in system_prompt
+        assert "Allowed predicate_family values" in system_prompt
