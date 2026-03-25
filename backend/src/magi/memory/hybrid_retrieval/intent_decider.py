@@ -132,6 +132,14 @@ _MODE_LAYER_MAP: Dict[str, tuple[str, str]] = {
     "graph": ("L2", "L1"),
 }
 
+_RECALL_INTENT_LAYER_MAP: Dict[str, tuple[str, str]] = {
+    "event_recall": ("L1", "L3"),
+    "preference_recall": ("L2", "L1"),
+    "profile_fact_recall": ("L2", "L1"),
+    "relationship_recall": ("L2", "L1"),
+    "workflow_reuse": ("L4", "L1"),
+}
+
 
 # ---------------------------------------------------------------------------
 # RuleBasedIntentDecider
@@ -344,7 +352,15 @@ class RuleBasedIntentDecider:
 
     def _route_layers(self, inp: IntentDeciderInput) -> list[LayerQueryPlan]:
         """Determine which layers to query based on keyword signals."""
-        # 1. If query_mode hint is set, use it as strong signal
+        # 1. If recall_intent hint is set, use it as the strongest routing signal.
+        if inp.recall_intent_hint and inp.recall_intent_hint in _RECALL_INTENT_LAYER_MAP:
+            primary_layer, fallback_layer = _RECALL_INTENT_LAYER_MAP[inp.recall_intent_hint]
+            return [
+                self._make_plan(primary_layer, inp, is_fallback=False),
+                self._make_plan(fallback_layer, inp, is_fallback=True),
+            ]
+
+        # 2. If query_mode hint is set, use it as a strong signal for granularity.
         if inp.query_mode_hint and inp.query_mode_hint in _MODE_LAYER_MAP:
             primary_layer, fallback_layer = _MODE_LAYER_MAP[inp.query_mode_hint]
             return [
@@ -355,7 +371,7 @@ class RuleBasedIntentDecider:
         query_lower = inp.query.lower()
         source_filters, domain_filters = self._infer_source_domain(query_lower, inp)
 
-        # 2. Check keyword signals
+        # 3. Check keyword signals
         if any(kw in query_lower for kw in _L2_SIGNALS):
             return [
                 self._make_plan("L2", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
@@ -380,7 +396,7 @@ class RuleBasedIntentDecider:
                 self._make_plan("L3", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
             ]
 
-        # 3. Default: L1 primary + L3 fallback
+        # 4. Default: L1 primary + L3 fallback
         return [
             self._make_plan("L1", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
             self._make_plan("L3", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
@@ -547,7 +563,16 @@ class LLMIntentDecider:
 
     async def evaluate(self, inp: IntentDeciderInput) -> IntentDecision | None:
         """Call LLM for intent analysis. Returns None on any failure."""
-        user_prompt = f"用户查询：{inp.query}"
+        prompt_lines = [f"用户查询：{inp.query}"]
+        if inp.recall_intent_hint:
+            prompt_lines.append(f"recall_intent_hint: {inp.recall_intent_hint}")
+        if inp.query_mode_hint:
+            prompt_lines.append(f"query_mode_hint: {inp.query_mode_hint}")
+        if inp.source_filters:
+            prompt_lines.append(f"source_filters_hint: {json.dumps(inp.source_filters, ensure_ascii=False)}")
+        if inp.domain_filters:
+            prompt_lines.append(f"domain_filters_hint: {json.dumps(inp.domain_filters, ensure_ascii=False)}")
+        user_prompt = "\n".join(prompt_lines)
         try:
             raw = await self._bridge.chat(
                 system_prompt=_LLM_SYSTEM_PROMPT,

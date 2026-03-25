@@ -258,6 +258,32 @@ class TestLayerRouting:
         result = decider.evaluate(inp)
         assert result.plans[0].layer == "L2"
 
+    def test_recall_intent_preference_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我喜欢什么天气", recall_intent_hint="preference_recall")
+        result = decider.evaluate(inp)
+
+        assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
+        assert result.plans[0].is_fallback is False
+        assert result.plans[1].is_fallback is True
+
+    def test_recall_intent_profile_fact_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我的默认工作目录是什么", recall_intent_hint="profile_fact_recall")
+        result = decider.evaluate(inp)
+
+        assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
+
+    def test_recall_intent_relationship_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="你记得我们之前约定了什么", recall_intent_hint="relationship_recall")
+        result = decider.evaluate(inp)
+
+        assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
+
+    def test_recall_intent_workflow_prefers_l4_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="按之前那套流程修一下这个 bug", recall_intent_hint="workflow_reuse")
+        result = decider.evaluate(inp)
+
+        assert [plan.layer for plan in result.plans[:2]] == ["L4", "L1"]
+
 
 # -----------------------------------------------------------------------
 # Layer routing: keyword signals

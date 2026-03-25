@@ -145,6 +145,23 @@ class TestCombinedDecider:
         assert result.source == "rule_fallback"
 
     @pytest.mark.asyncio
+    async def test_llm_failure_keeps_rule_recall_intent_bias(self, rule_engine, mock_llm_bridge):
+        mock_llm_bridge.chat.side_effect = TimeoutError("timeout")
+        llm_decider = LLMIntentDecider(mock_llm_bridge)
+        decider = IntentDecider(
+            rule_engine=rule_engine,
+            llm_decider=llm_decider,
+            llm_enabled=True,
+            shadow_eval_enabled=False,
+        )
+
+        inp = IntentDeciderInput(query="我喜欢什么天气", recall_intent_hint="preference_recall")
+        result = await decider.decide(inp)
+
+        assert result.source == "rule_fallback"
+        assert result.plans[0].layer == "L2"
+
+    @pytest.mark.asyncio
     async def test_llm_disabled_uses_rules(self, rule_engine, mock_llm_bridge):
         llm_decider = LLMIntentDecider(mock_llm_bridge)
         decider = IntentDecider(
