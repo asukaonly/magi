@@ -14,6 +14,7 @@ class RuntimeCommandType(str, Enum):
     """Supported persisted runtime command types."""
 
     USER_MESSAGE = "user_message"
+    REFRESH_LLM_CONFIG = "refresh_llm_config"
 
 
 @dataclass(slots=True)
@@ -37,6 +38,19 @@ class UserMessageCommand:
 
 
 @dataclass(slots=True)
+class RefreshLLMConfigCommand:
+    """Persisted command payload for reloading runtime LLM configuration."""
+
+    source: str
+    reason: str | None = None
+    created_at: float = field(default_factory=time.time)
+    correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
+
+    def to_payload(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class RuntimeQueuedCommand:
     """One claimed runtime command."""
 
@@ -49,6 +63,10 @@ class RuntimeQueuedCommand:
     def as_user_message(self) -> UserMessageCommand:
         """Convert the queued payload into a typed user-message command."""
         return UserMessageCommand(**self.payload)
+
+    def as_refresh_llm_config(self) -> RefreshLLMConfigCommand:
+        """Convert the queued payload into a typed config-refresh command."""
+        return RefreshLLMConfigCommand(**self.payload)
 
 
 @dataclass(slots=True)

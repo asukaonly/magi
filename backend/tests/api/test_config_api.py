@@ -638,17 +638,25 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(monkeypatc
         assert config is get_config()
         calls.append("refresh")
 
+    async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
+        assert reason == "config_updated"
+        calls.append("enqueue")
+
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
     monkeypatch.setattr(
         "magi.api.routers.config.refresh_runtime_llm_config",
         _fake_refresh_runtime_llm_config,
     )
+    monkeypatch.setattr(
+        "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
+        _fake_enqueue_runtime_llm_refresh_command,
+    )
 
     response = client.put("/config/", json=payload.model_dump(mode="json"))
 
     assert response.status_code == 200
-    assert calls == ["save", "reload", "refresh"]
+    assert calls == ["save", "reload", "refresh", "enqueue"]
 
 
 def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences_payload(
@@ -734,11 +742,19 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
         assert config is get_config()
         calls.append("refresh")
 
+    async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
+        assert reason == "onboarding_completed"
+        calls.append("enqueue")
+
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
     monkeypatch.setattr(
         "magi.api.routers.config.refresh_runtime_llm_config",
         _fake_refresh_runtime_llm_config,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
+        _fake_enqueue_runtime_llm_refresh_command,
     )
     monkeypatch.setattr(
         "magi.api.routers.config._save_personality_to_user",
@@ -749,7 +765,7 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
     response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
 
     assert response.status_code == 200
-    assert calls == ["save", "reload", "refresh"]
+    assert calls == ["save", "reload", "refresh", "enqueue"]
 
 
 def test_complete_onboarding_quick_mode_forces_echo_01_personality(

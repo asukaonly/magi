@@ -39,6 +39,8 @@ from ...config.models import (
     LLMLimitsSettings,
     LLMSelectionLimitsSettings,
 )
+from ...core.runtime_bindings import require_runtime_command_queue
+from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
 from ...bootstrap import refresh_runtime_llm_config
@@ -854,6 +856,22 @@ def _mask_api_key(api_key: str) -> str:
     return api_key[:visible_chars] + "****"
 
 
+async def _enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
+    """Notify the runtime worker process to reload and refresh its LLM config."""
+    try:
+        queue = require_runtime_command_queue()
+    except RuntimeError:
+        logger.info("Runtime command queue unavailable during LLM refresh notification", reason=reason)
+        return
+
+    await queue.enqueue_refresh_llm_config(
+        RefreshLLMConfigCommand(
+            source="config_api",
+            reason=reason,
+        )
+    )
+
+
 def _is_masked_api_key(api_key: Optional[str]) -> bool:
     """Check if API key is a masked/placeholder value."""
     if not api_key:
@@ -976,6 +994,7 @@ async def update_config(config: SystemConfigModel):
             raise HTTPException(status_code=500, detail="Failed to save config")
         refreshed_config = reload_config()
         refresh_runtime_llm_config(refreshed_config)
+        await _enqueue_runtime_llm_refresh_command(reason="config_updated")
         return ConfigResponse(success=True, message="Configuration updated", data=_build_system_config())
     except HTTPException:
         raise
@@ -1220,6 +1239,7 @@ async def complete_onboarding(config: SystemConfigModel):
             # Not initialized, try to initialize now
             logger.info("Attempting to initialize agent runtime after onboarding")
             await initialize_agent_runtime()
+        await _enqueue_runtime_llm_refresh_command(reason="onboarding_completed")
 
         # Save the full personality config to user storage and set as current
         if config.personality:

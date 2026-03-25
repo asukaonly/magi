@@ -7,7 +7,7 @@ import pytest
 
 from magi.awareness.sensor_hub import SensorHub
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.events.contracts import UserMessageCommand
+from magi.events.contracts import RefreshLLMConfigCommand, UserMessageCommand
 from magi.events.events import EventTypes
 from magi.events.lifecycle import RuntimeCommandProcessorModule
 from magi.events.memory_backend import MemoryMessageBackend
@@ -69,6 +69,56 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp
         await sensor_hub.stop()
         await message_bus.stop()
         await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_processor_refreshes_llm_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    message_bus = MemoryMessageBackend()
+    await message_bus.start()
+
+    context = RuntimeBootstrapContext()
+    context.runtime_commands.runtime_command_queue = queue
+    context.message_bus.message_bus = message_bus
+    context.agent_runtime.agent_runtime = object()
+
+    calls: list[str] = []
+
+    def _fake_reload_config():  # type: ignore[no-untyped-def]
+        calls.append("reload")
+        return object()
+
+    def _fake_refresh_runtime_llm_config(config):  # type: ignore[no-untyped-def]
+        assert config is not None
+        calls.append("refresh")
+
+    monkeypatch.setattr("magi.config.loader.reload_config", _fake_reload_config)
+    monkeypatch.setattr("magi.bootstrap.backend.refresh_runtime_llm_config", _fake_refresh_runtime_llm_config)
+
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+    await processor.init()
+
+    try:
+        await queue.enqueue_refresh_llm_config(
+            RefreshLLMConfigCommand(
+                source="api",
+                reason="settings_saved",
+            )
+        )
+
+        for _ in range(100):
+            stats = await queue.get_stats()
+            if stats["completed_count"] == 1:
+                break
+            await asyncio.sleep(0.02)
+
+        stats = await queue.get_stats()
+        assert stats["completed_count"] == 1
+        assert calls == ["reload", "refresh"]
+    finally:
+        await processor.shutdown()
+        await message_bus.stop()
 
 
 @pytest.mark.asyncio

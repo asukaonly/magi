@@ -10,7 +10,12 @@ from typing import Iterable
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from .contracts import RuntimeCommandType, RuntimeQueuedCommand, UserMessageCommand
+from .contracts import (
+    RefreshLLMConfigCommand,
+    RuntimeCommandType,
+    RuntimeQueuedCommand,
+    UserMessageCommand,
+)
 
 STATUS_PENDING = "pending"
 STATUS_CLAIMED = "claimed"
@@ -36,6 +41,29 @@ class SQLiteRuntimeCommandQueue:
         self._started = False
 
     async def enqueue_user_message(self, command: UserMessageCommand) -> int:
+        return await self._enqueue_command(
+            command_type=RuntimeCommandType.USER_MESSAGE,
+            payload=command.to_payload(),
+            correlation_id=command.correlation_id,
+            created_at=command.created_at,
+        )
+
+    async def enqueue_refresh_llm_config(self, command: RefreshLLMConfigCommand) -> int:
+        return await self._enqueue_command(
+            command_type=RuntimeCommandType.REFRESH_LLM_CONFIG,
+            payload=command.to_payload(),
+            correlation_id=command.correlation_id,
+            created_at=command.created_at,
+        )
+
+    async def _enqueue_command(
+        self,
+        *,
+        command_type: RuntimeCommandType,
+        payload: dict[str, object],
+        correlation_id: str,
+        created_at: float,
+    ) -> int:
         await self._initialize()
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
@@ -51,12 +79,12 @@ class SQLiteRuntimeCommandQueue:
                 ) VALUES (?, ?, ?, ?, 0, ?, ?)
                 """,
                 (
-                    RuntimeCommandType.USER_MESSAGE.value,
-                    json.dumps(command.to_payload(), ensure_ascii=False),
-                    command.correlation_id,
+                    command_type.value,
+                    json.dumps(payload, ensure_ascii=False),
+                    correlation_id,
                     STATUS_PENDING,
-                    float(command.created_at),
-                    float(command.created_at),
+                    float(created_at),
+                    float(created_at),
                 ),
             )
             await db.commit()

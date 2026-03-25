@@ -133,7 +133,10 @@ class RuntimeCommandProcessorModule(LifecycleModule):
 
                 command = await queue.claim_next(
                     consumer_name="runtime_worker",
-                    command_types=(RuntimeCommandType.USER_MESSAGE,),
+                    command_types=(
+                        RuntimeCommandType.USER_MESSAGE,
+                        RuntimeCommandType.REFRESH_LLM_CONFIG,
+                    ),
                 )
                 if command is None:
                     await asyncio.sleep(self._poll_interval_seconds)
@@ -141,28 +144,39 @@ class RuntimeCommandProcessorModule(LifecycleModule):
 
                 self._active_commands += 1
                 self._idle_event.clear()
-                user_message = command.as_user_message()
-                published = await message_bus.publish(
-                    Event(
-                        type=EventTypes.USER_MESSAGE,
-                        data={
-                            "content": user_message.message,
-                            "attachments": list(user_message.attachments),
-                            "author_type": "user",
-                            "content_type": "text",
-                            "user_id": user_message.user_id,
-                            "runtime_namespace": user_message.runtime_namespace,
-                            "session_id": user_message.session_id,
-                            "turn_id": user_message.turn_id,
-                            "workspace_path": user_message.workspace_path,
-                            "timestamp": float(user_message.created_at),
-                            "metadata": dict(user_message.metadata),
-                        },
-                        source=user_message.source,
-                        level=EventLevel.INFO,
-                        correlation_id=user_message.correlation_id,
+                if command.command_type is RuntimeCommandType.USER_MESSAGE:
+                    user_message = command.as_user_message()
+                    published = await message_bus.publish(
+                        Event(
+                            type=EventTypes.USER_MESSAGE,
+                            data={
+                                "content": user_message.message,
+                                "attachments": list(user_message.attachments),
+                                "author_type": "user",
+                                "content_type": "text",
+                                "user_id": user_message.user_id,
+                                "runtime_namespace": user_message.runtime_namespace,
+                                "session_id": user_message.session_id,
+                                "turn_id": user_message.turn_id,
+                                "workspace_path": user_message.workspace_path,
+                                "timestamp": float(user_message.created_at),
+                                "metadata": dict(user_message.metadata),
+                            },
+                            source=user_message.source,
+                            level=EventLevel.INFO,
+                            correlation_id=user_message.correlation_id,
+                        )
                     )
-                )
+                elif command.command_type is RuntimeCommandType.REFRESH_LLM_CONFIG:
+                    from ..bootstrap.backend import refresh_runtime_llm_config
+                    from ..config.loader import reload_config
+
+                    refreshed_config = reload_config()
+                    refresh_runtime_llm_config(refreshed_config)
+                    published = True
+                else:
+                    raise RuntimeError(f"Unsupported runtime command type: {command.command_type}")
+
                 if published:
                     await queue.ack(command.command_id)
                 else:
