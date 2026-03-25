@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Callable
 
-from fastapi import Request, status
+from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
@@ -37,12 +37,26 @@ def get_required_desktop_session_token() -> str | None:
     return token or None
 
 
+async def _call_next_or_handle_client_disconnect(
+    request: Request,
+    call_next: Callable,
+) -> Response:
+    """Treat client disconnects as a completed empty response instead of an error."""
+    try:
+        return await call_next(request)
+    except RuntimeError as exc:
+        if str(exc) == "No response returned." and await request.is_disconnected():
+            logger.debug("Client disconnected before response completed", path=request.url.path)
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        raise
+
+
 class ErrorHandler(BaseHTTPMiddleware):
     """Global error handling middleware."""
 
     async def dispatch(self, request: Request, call_next: Callable):
         try:
-            return await call_next(request)
+            return await _call_next_or_handle_client_disconnect(request, call_next)
         except Exception as exc:
             logger.exception(f"Unhandled exception: {exc}")
             return JSONResponse(
@@ -70,13 +84,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable):
         if request.method.upper() == "OPTIONS":
-            return await call_next(request)
+            return await _call_next_or_handle_client_disconnect(request, call_next)
 
         if request.url.path in self.EXEMPT_PATHS:
-            return await call_next(request)
+            return await _call_next_or_handle_client_disconnect(request, call_next)
 
         if request.url.path.startswith(EXEMPT_PATH_PREFIXES):
-            return await call_next(request)
+            return await _call_next_or_handle_client_disconnect(request, call_next)
 
         desktop_token = get_required_desktop_session_token()
         if desktop_token:
@@ -91,7 +105,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     },
                 )
 
-        return await call_next(request)
+        return await _call_next_or_handle_client_disconnect(request, call_next)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -104,7 +118,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         if should_log:
             logger.debug(f"Request: {request.method} {request.url.path}")
 
-        response = await call_next(request)
+        response = await _call_next_or_handle_client_disconnect(request, call_next)
         process_time = time.time() - start_time
         response.headers["X-process-Time"] = str(process_time)
 
@@ -131,7 +145,7 @@ class LanguageContextMiddleware(BaseHTTPMiddleware):
         set_current_language(normalized_lang)
 
         try:
-            return await call_next(request)
+            return await _call_next_or_handle_client_disconnect(request, call_next)
         finally:
             set_current_language(None)
 
