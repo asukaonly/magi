@@ -72,6 +72,7 @@ class ChatMessageRecord:
     replaces_message_id: str | None
     replaced_by_message_id: str | None
     reply_to_message_id: str | None = None
+    label: "ChatMessageLabel | None" = None
 
 
 @dataclass(slots=True)
@@ -89,4 +90,24 @@ class ChatReplyPreview:
             "role": self.role,
             "message_kind": self.message_kind,
             "content_excerpt": self.content_excerpt,
+        }
+
+
+@dataclass(slots=True)
+class ChatMessageLabel:
+    """Compact durable label attached to one message."""
+
+    kind: str
+    text: str
+    applied_by: str
+    source: str
+    created_at_ms: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "text": self.text,
+            "applied_by": self.applied_by,
+            "source": self.source,
+            "created_at_ms": self.created_at_ms,
         }

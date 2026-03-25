@@ -192,6 +192,10 @@
       "assistant": "Replying to AI",
       "user": "Replying to user"
     },
+    "label": {
+      "quickLike": "Like",
+      "applyFailed": "Failed to update message label"
+    },
     "workspace": {
       "label": "Conversation Workspace",
       "messageCount": "messages",

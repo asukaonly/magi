@@ -2,7 +2,7 @@
 
 from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
 from .attachment_ingestion import LocalChatAttachmentIngestionService
-from .contracts import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
 from .pdf_attachment_parser import LocalPdfAttachmentParser, ParsedPdfAttachment
 from .projector import ChatProjector
 from .read_service import (
@@ -18,6 +18,7 @@ from .text_attachment_parser import LocalTextAttachmentParser, ParsedTextAttachm
 
 __all__ = [
     "ChatDisplayMessage",
+    "ChatMessageLabel",
     "ChatMessageRecord",
     "ChatProjector",
     "ChatReadService",

@@ -192,6 +192,10 @@
       "assistant": "回复 AI",
       "user": "回复用户"
     },
+    "label": {
+      "quickLike": "点赞",
+      "applyFailed": "更新消息标签失败"
+    },
     "workspace": {
       "label": "当前会话目录",
       "messageCount": "条消息",

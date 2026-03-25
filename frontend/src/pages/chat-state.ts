@@ -1,6 +1,7 @@
 import type {
   ChatAttachment,
   ChatHistoryMessage,
+  ChatMessageLabel,
   ChatReplyPreview,
   ExecutionTraceNode,
   ExecutionTraceSnapshot,
@@ -21,6 +22,7 @@ export interface ChatTimelineMessage {
   turnId?: string;
   reaction?: string | null;
   replyTo?: ChatTimelineReplyPreview | null;
+  label?: ChatTimelineMessageLabel | null;
   attachments?: ChatAttachment[];
   traceDisplayMode?: string | null;
   allowTraceCollapse?: boolean;
@@ -33,6 +35,14 @@ export interface ChatTimelineReplyPreview {
   role: 'user' | 'assistant';
   messageKind?: string | null;
   contentExcerpt: string;
+}
+
+export interface ChatTimelineMessageLabel {
+  kind: string;
+  text: string;
+  appliedBy: string;
+  source: string;
+  createdAtMs: number;
 }
 
 export interface NormalizedExecutionTraceSummary {
@@ -265,6 +275,7 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       allowTraceCollapse: Boolean(message.allow_trace_collapse),
       attachments: Array.isArray(message.attachments) ? message.attachments : undefined,
       replyTo: normalizeReplyPreview(message.reply_to),
+      label: normalizeMessageLabel(message.label),
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
     };
@@ -619,5 +630,28 @@ const normalizeReplyPreview = (
     role: preview.role === 'user' ? 'user' : 'assistant',
     messageKind: preview.message_kind || null,
     contentExcerpt: String(preview.content_excerpt || '').trim(),
+  };
+};
+
+export const normalizeMessageLabel = (
+  label: ChatMessageLabel | null | undefined,
+): ChatTimelineMessageLabel | null => {
+  if (!label || typeof label !== 'object') {
+    return null;
+  }
+  const kind = String(label.kind || '').trim();
+  const text = String(label.text || '').trim();
+  const appliedBy = String(label.applied_by || '').trim();
+  const source = String(label.source || '').trim();
+  const createdAtMs = Number(label.created_at_ms || 0);
+  if (!kind || !text || !appliedBy || !source || createdAtMs <= 0) {
+    return null;
+  }
+  return {
+    kind,
+    text,
+    appliedBy,
+    source,
+    createdAtMs,
   };
 };

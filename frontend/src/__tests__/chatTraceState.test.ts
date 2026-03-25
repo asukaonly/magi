@@ -475,6 +475,35 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it('normalizes persisted message labels from history rows', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-labeled',
+        message_kind: 'assistant_final',
+        role: 'assistant',
+        content: 'Pinned answer',
+        timestamp: 1000,
+        turn_id: 'turn_label',
+        kind: 'assistant',
+        label: {
+          kind: 'emoji',
+          text: '👍',
+          applied_by: 'user',
+          source: 'manual',
+          created_at_ms: 1100,
+        },
+      } as any,
+    ]);
+
+    expect(normalized[0].label).toEqual({
+      kind: 'emoji',
+      text: '👍',
+      appliedBy: 'user',
+      source: 'manual',
+      createdAtMs: 1100,
+    });
+  });
+
   it('flattens the planning node out of the trace tree for drawer display', () => {
     const root = flattenPlanningNodeForDisplay({
       id: 'turn_1:root',

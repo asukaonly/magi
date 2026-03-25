@@ -14,7 +14,7 @@ from ..core.sqlite import connect_sqlite
 from ..memory.l1.chat_sessions import create_chat_session_record
 from ..utils.runtime import get_runtime_paths
 from ..api.services.chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
-from .contracts import ChatReplyPreview
+from .contracts import ChatMessageLabel, ChatReplyPreview
 
 logger = get_logger(__name__)
 
@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS {CHAT_MESSAGES_TABLE} (
     sequence_no INTEGER NOT NULL,
     replaces_message_id TEXT,
     replaced_by_message_id TEXT,
-    reply_to_message_id TEXT
+    reply_to_message_id TEXT,
+    label_json TEXT
 );
 """
 
@@ -151,6 +152,7 @@ class ChatDisplayMessage:
     trace_summary: dict[str, Any] | None = None
     trace_available: bool = False
     reply_to: dict[str, Any] | None = None
+    label: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -167,6 +169,7 @@ class ChatDisplayMessage:
             "trace_summary": self.trace_summary,
             "trace_available": self.trace_available,
             "reply_to": dict(self.reply_to) if isinstance(self.reply_to, dict) else None,
+            "label": dict(self.label) if isinstance(self.label, dict) else None,
         }
 
     def to_prompt_message(self) -> dict[str, str]:
@@ -734,7 +737,8 @@ class ChatReadService:
         query = f"""
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                    content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id
+                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
+                   label_json
             FROM {CHAT_MESSAGES_TABLE}
             WHERE user_id = ?
               AND session_id = ?
@@ -795,6 +799,8 @@ class ChatReadService:
         }
         if "reply_to_message_id" not in message_column_names:
             conn.execute(f"ALTER TABLE {CHAT_MESSAGES_TABLE} ADD COLUMN reply_to_message_id TEXT")
+        if "label_json" not in message_column_names:
+            conn.execute(f"ALTER TABLE {CHAT_MESSAGES_TABLE} ADD COLUMN label_json TEXT")
 
     @staticmethod
     def _parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:
@@ -838,6 +844,7 @@ class ChatReadService:
                 message_id=str(row["message_id"]),
                 message_kind=message_kind,
                 turn_id=str(row["turn_id"] or "").strip() or None,
+                label=ChatReadService._parse_label_payload(row["label_json"]).to_dict() if ChatReadService._parse_label_payload(row["label_json"]) else None,
             )
         if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction"}:
             return ChatDisplayMessage(
@@ -848,6 +855,7 @@ class ChatReadService:
                 message_id=str(row["message_id"]),
                 message_kind=message_kind,
                 turn_id=str(row["turn_id"] or "").strip() or None,
+                label=ChatReadService._parse_label_payload(row["label_json"]).to_dict() if ChatReadService._parse_label_payload(row["label_json"]) else None,
             )
         if message_kind in {"status_note", "system_notice"}:
             return ChatDisplayMessage(
@@ -858,6 +866,7 @@ class ChatReadService:
                 message_id=str(row["message_id"]),
                 message_kind=message_kind,
                 turn_id=str(row["turn_id"] or "").strip() or None,
+                label=ChatReadService._parse_label_payload(row["label_json"]).to_dict() if ChatReadService._parse_label_payload(row["label_json"]) else None,
             )
         return None
 
@@ -923,6 +932,31 @@ class ChatReadService:
         except json.JSONDecodeError:
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _parse_label_payload(raw_label_json: str | None) -> ChatMessageLabel | None:
+        if not raw_label_json:
+            return None
+        try:
+            parsed = json.loads(raw_label_json)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        kind = str(parsed.get("kind") or "").strip()
+        text = str(parsed.get("text") or "").strip()
+        applied_by = str(parsed.get("applied_by") or "").strip()
+        source = str(parsed.get("source") or "").strip()
+        created_at_ms = int(parsed.get("created_at_ms") or 0)
+        if not kind or not text or not applied_by or not source or created_at_ms <= 0:
+            return None
+        return ChatMessageLabel(
+            kind=kind,
+            text=text,
+            applied_by=applied_by,
+            source=source,
+            created_at_ms=created_at_ms,
+        )
 
     @staticmethod
     def _normalize_workspace_path(workspace_path: str | None) -> str | None:

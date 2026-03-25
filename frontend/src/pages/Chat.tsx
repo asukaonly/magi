@@ -29,7 +29,9 @@ import {
   normalizeTraceSummary,
   shouldShowTraceEntry,
   type ChatTimelineMessage,
+  type ChatTimelineMessageLabel,
   type ChatTimelineReplyPreview,
+  normalizeMessageLabel,
 } from './chat-state';
 import { formatChatClockTime, normalizeChatTimestamp } from '@/domain/chat/timestamps';
 
@@ -338,6 +340,7 @@ export const ChatPage: React.FC = () => {
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
   const applyTurnUxPlan = useConversationStore((state) => state.applyTurnUxPlan);
   const receiveAgentResponse = useConversationStore((state) => state.receiveAgentResponse);
+  const applyMessageLabel = useConversationStore((state) => state.applyMessageLabel);
   const applyConversationTraceSummary = useConversationStore((state) => state.upsertTraceSummary);
   const resetConversation = useConversationStore((state) => state.reset);
 
@@ -896,6 +899,7 @@ export const ChatPage: React.FC = () => {
       setSendingMessage(false);
     }
   }, [
+    applyMessageLabel,
     appendPendingTurn,
     clearDraftAttachments,
     connected,
@@ -907,6 +911,28 @@ export const ChatPage: React.FC = () => {
     t,
     uploadDraftAttachments,
   ]);
+
+  const handleQuickLabel = useCallback(async (message: ChatTimelineMessage) => {
+    const messageId = String(message.messageId || '').trim();
+    if (!currentSessionId || !messageId) {
+      return;
+    }
+    try {
+      const response = await messagesApi.labelMessage(USER_ID, currentSessionId, messageId, {
+        kind: 'emoji',
+        text: '👍',
+        applied_by: 'user',
+        source: 'manual',
+      });
+      const normalizedLabel = normalizeMessageLabel(response.data?.label);
+      if (!normalizedLabel) {
+        throw new Error('missing_label');
+      }
+      applyMessageLabel(currentSessionId, messageId, normalizedLabel);
+    } catch {
+      toast.error(t('chat.label.applyFailed'));
+    }
+  }, [applyMessageLabel, currentSessionId, t]);
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (shouldSubmitOnEnter(event as React.KeyboardEvent<HTMLTextAreaElement>, isComposingRef.current)) {
@@ -1288,6 +1314,43 @@ export const ChatPage: React.FC = () => {
     );
   };
 
+  const renderMessageLabel = (
+    label: ChatTimelineMessageLabel | null | undefined,
+    align: 'user' | 'assistant',
+  ) => {
+    if (!label) {
+      return null;
+    }
+    return (
+      <div className={`mt-2 flex ${align === 'user' ? 'justify-end' : 'justify-start'}`}>
+        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">
+          {label.text}
+        </span>
+      </div>
+    );
+  };
+
+  const renderQuickLabelAction = (message: ChatTimelineMessage) => {
+    if (message.role !== 'assistant' || !String(message.messageId || '').trim()) {
+      return null;
+    }
+    return (
+      <button
+        type="button"
+        aria-label={t('chat.label.quickLike')}
+        title={t('chat.label.quickLike')}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void handleQuickLabel(message);
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
+      >
+        {t('chat.label.quickLike')}
+      </button>
+    );
+  };
+
   const renderMessageAttachments = (attachments: ChatAttachment[] | undefined, align: 'user' | 'assistant') => {
     if (!attachments || attachments.length === 0) {
       return null;
@@ -1426,6 +1489,7 @@ export const ChatPage: React.FC = () => {
                       {formatChatClockTime(msg.timestamp, i18n.language)}
                     </span>
                     {renderReplyAction(msg)}
+                    {renderQuickLabelAction(msg)}
                     {msg.role === 'assistant' && renderTraceEntry(msg)}
                   </div>
                   <div
@@ -1445,13 +1509,14 @@ export const ChatPage: React.FC = () => {
                       <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
                     ) : null}
                   </div>
-                  {msg.role === 'user' && msg.reaction && (
+                  {msg.role === 'user' && msg.reaction && msg.label?.text !== msg.reaction && (
                     <div className="mt-2 flex justify-end">
                       <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">
                         {msg.reaction}
                       </span>
                     </div>
                   )}
+                  {renderMessageLabel(msg.label, msg.role)}
                   {msg.role === 'user' && renderUserTurnTraceStatus(msg)}
                 </div>
               </div>

@@ -879,6 +879,51 @@ def test_clear_conversation_history_bumps_history_version(tmp_path):
     assert after_version == before_version + 1
 
 
+def test_update_message_label_persists_and_display_history_returns_label(tmp_path):
+    chat_db_path = tmp_path / "chat.db"
+    store = ChatStore(db_path=str(chat_db_path))
+    __import__("asyncio").run(store.initialize())
+
+    user_message = __import__("asyncio").run(
+        store.create_user_turn(
+            session_id="s-label",
+            user_id="u1",
+            turn_id="turn-label",
+            message_text="Useful answer",
+            created_at_ms=100,
+        )
+    )
+
+    __import__("asyncio").run(
+        store.update_message_label(
+            session_id="s-label",
+            message_id=user_message.message_id,
+            label={
+                "kind": "emoji",
+                "text": "👍",
+                "applied_by": "user",
+                "source": "manual",
+                "created_at_ms": 200,
+            },
+        )
+    )
+
+    service = ChatReadService()
+    service._chat_db_path = chat_db_path
+    service._l1_db_path = tmp_path / "l1.sqlite3"
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+
+    history = service.get_display_history("u1", "s-label", limit=20)
+
+    assert history[-1].to_dict()["label"] == {
+        "kind": "emoji",
+        "text": "👍",
+        "applied_by": "user",
+        "source": "manual",
+        "created_at_ms": 200,
+    }
+
+
 def test_delete_session_bumps_history_version(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)

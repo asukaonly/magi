@@ -151,6 +151,51 @@ async def test_get_conversation_history_uses_async_read_service(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
+async def test_set_message_label_route_updates_message_without_creating_new_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeChatStore:
+        async def update_message_label(self, *, session_id: str, message_id: str, label: dict[str, object]):
+            captured["session_id"] = session_id
+            captured["message_id"] = message_id
+            captured["label"] = label
+            return {
+                "message_id": message_id,
+                "label": label,
+            }
+
+    monkeypatch.setattr(messages_router, "require_chat_store", lambda: _FakeChatStore())
+
+    response = await messages_router.set_message_label(
+        session_id="s1",
+        message_id="msg-1",
+        request=messages_router.MessageLabelRequest(
+            user_id="u1",
+            kind="emoji",
+            text="👍",
+            applied_by="user",
+            source="manual",
+            created_at_ms=123,
+        ),
+    )
+
+    assert response["success"] is True
+    assert captured == {
+        "session_id": "s1",
+        "message_id": "msg-1",
+        "label": {
+            "kind": "emoji",
+            "text": "👍",
+            "applied_by": "user",
+            "source": "manual",
+            "created_at_ms": 123,
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_execution_trace_uses_async_trace_service(monkeypatch: pytest.MonkeyPatch) -> None:
     class _FakeReadService:
         pass

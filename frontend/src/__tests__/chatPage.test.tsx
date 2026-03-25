@@ -76,6 +76,7 @@ vi.mock('@/api', () => ({
     uploadAttachment: vi.fn(),
     updateSessionWorkspace: vi.fn(),
     cancelRun: vi.fn(),
+    labelMessage: vi.fn(),
   },
 }));
 
@@ -124,6 +125,7 @@ describe('ChatPage', () => {
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
     toastWarningMock.mockReset();
+    vi.mocked(messagesApi.labelMessage).mockReset();
     vi.mocked(configApi.get).mockResolvedValue(buildConfigWithVision(true) as any);
     Element.prototype.scrollIntoView = vi.fn();
     URL.createObjectURL = vi.fn(() => 'blob:chat-attachment');
@@ -572,6 +574,87 @@ describe('ChatPage', () => {
     expect(screen.queryByTestId('chat-composer-reply-preview')).not.toBeInTheDocument();
   });
 
+  it('renders persisted labels and applies a quick label without adding a new bubble', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.labelMessage).mockResolvedValue({
+      success: true,
+      data: {
+        message_id: 'msg-assistant-plain',
+        label: {
+          kind: 'emoji',
+          text: '👍',
+          applied_by: 'user',
+          source: 'manual',
+          created_at_ms: 1200,
+        },
+      },
+    } as any);
+
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-assistant-labeled',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: 'Already labeled',
+          timestamp: 1000,
+          turn_id: 'turn-labeled',
+          kind: 'assistant',
+          label: {
+            kind: 'emoji',
+            text: '👌',
+            applied_by: 'assistant',
+            source: 'manual',
+            created_at_ms: 1001,
+          },
+        } as any,
+        {
+          message_id: 'msg-assistant-plain',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: 'Needs a label',
+          timestamp: 1100,
+          turn_id: 'turn-plain',
+          kind: 'assistant',
+        },
+      ])
+    );
+
+    render(<ChatPage />);
+
+    expect(screen.getByText('👌')).toBeInTheDocument();
+
+    const beforeCount = useConversationStore.getState().messagesBySession['session-1']?.length;
+    const quickLabelButtons = screen.getAllByRole('button', { name: 'chat.label.quickLike' });
+    await user.click(quickLabelButtons[1]);
+
+    await waitFor(() => {
+      expect(messagesApi.labelMessage).toHaveBeenCalledWith('local_user', 'session-1', 'msg-assistant-plain', {
+        kind: 'emoji',
+        text: '👍',
+        applied_by: 'user',
+        source: 'manual',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('👍').length).toBeGreaterThan(0);
+    });
+
+    const afterMessages = useConversationStore.getState().messagesBySession['session-1'] || [];
+    const labeledMessage = afterMessages.find((message) => message.messageId === 'msg-assistant-plain');
+
+    expect(afterMessages).toHaveLength(beforeCount || 0);
+    expect(labeledMessage?.label).toEqual({
+      kind: 'emoji',
+      text: '👍',
+      appliedBy: 'user',
+      source: 'manual',
+      createdAtMs: 1200,
+    });
+  });
+
   it('renders trace entry when an agent response arrives through chat subscription', async () => {
     render(<ChatPage />);
 
@@ -794,7 +877,7 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('👌')).toBeInTheDocument();
+      expect(screen.getAllByText('👌').length).toBeGreaterThan(0);
     });
 
     act(() => {
@@ -851,7 +934,7 @@ describe('ChatPage', () => {
       expect(screen.getByText('嗯')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('👌')).toBeInTheDocument();
+    expect(screen.getAllByText('👌').length).toBeGreaterThan(0);
     expect(screen.queryByText('msg-reaction-only')).not.toBeInTheDocument();
     expect(
       useConversationStore.getState().messagesBySession['session-1']?.filter((message) => message.turnId === 'turn-reaction-history')

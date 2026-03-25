@@ -4,6 +4,7 @@ import {
   applyAgentResponse,
   applyTurnUxPlan as applyTurnUxPlanUpdate,
   createPendingTurn,
+  type ChatTimelineMessageLabel,
   type ChatTimelineMessage,
   type ChatTimelineReplyPreview,
   type NormalizedExecutionTraceSummary,
@@ -56,6 +57,7 @@ type ConversationState = {
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   applyTurnUxPlan: (payload: TurnUxPlanPayload) => void;
   receiveAgentResponse: (payload: AgentResponsePayload) => void;
+  applyMessageLabel: (sessionId: string, messageId: string, label: ChatTimelineMessageLabel) => void;
   upsertTraceSummary: (sessionId: string, turnId: string, summary: NormalizedExecutionTraceSummary | null) => void;
   reset: () => void;
 };
@@ -280,6 +282,32 @@ export const useConversationStore = create<ConversationState>((set) => ({
         [sessionId]: shouldIncrementUnread
           ? (state.unreadBySession[sessionId] || 0) + 1
           : 0,
+      },
+    };
+  }),
+  applyMessageLabel: (sessionId, messageId, label) => set((state) => {
+    if (!sessionId || !messageId) {
+      return state;
+    }
+    const previousMessages = state.messagesBySession[sessionId] || [];
+    let updated = false;
+    const nextMessages = previousMessages.map((message) => {
+      if (message.messageId !== messageId) {
+        return message;
+      }
+      updated = true;
+      return {
+        ...message,
+        label,
+      };
+    });
+    if (!updated) {
+      return state;
+    }
+    return {
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: nextMessages,
       },
     };
   }),

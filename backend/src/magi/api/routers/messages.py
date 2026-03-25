@@ -16,7 +16,7 @@ from ...chat import (
 )
 from ...utils.agent_logger import get_agent_logger
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_agent_runtime
+from ...core.runtime_bindings import require_agent_runtime, require_chat_store
 from ...agent.runtime.types import TaskAgentType
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
 
@@ -66,6 +66,17 @@ class CancelSessionRunRequest(BaseModel):
     requested_by: str = Field(default="user", description="Cancellation initiator")
     reason: str = Field(default="user_cancel", description="Cancellation reason")
     turn_id: Optional[str] = Field(default=None, description="Optional turn id that triggered cancellation")
+
+
+class MessageLabelRequest(BaseModel):
+    """Single-label mutation payload for one chat message."""
+
+    user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
+    kind: str = Field(..., description="Label kind")
+    text: str = Field(..., description="Label text")
+    applied_by: str = Field(..., description="Who applied the label")
+    source: str = Field(..., description="How the label was created")
+    created_at_ms: Optional[int] = Field(default=None, description="Client timestamp in milliseconds")
 
 
 # ============ API Endpoints ============
@@ -384,6 +395,46 @@ async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
             "user_id": request.user_id,
             "session_id": session_id,
             **dict(outcome),
+        },
+    }
+
+
+@user_messages_router.post("/session/{session_id}/message/{message_id}/label", response_model=Dict[str, Any])
+async def set_message_label(
+    session_id: str,
+    message_id: str,
+    request: MessageLabelRequest,
+):
+    """Persist one compact label on an existing chat message."""
+    try:
+        chat_store = require_chat_store()
+        created_at_ms = int(request.created_at_ms or int(time.time() * 1000))
+        label = {
+            "kind": str(request.kind).strip(),
+            "text": str(request.text).strip(),
+            "applied_by": str(request.applied_by).strip(),
+            "source": str(request.source).strip(),
+            "created_at_ms": created_at_ms,
+        }
+        message = await chat_store.update_message_label(
+            session_id=session_id,
+            message_id=message_id,
+            label=label,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    return {
+        "success": True,
+        "message": "Message label updated",
+        "data": {
+            "user_id": request.user_id,
+            "session_id": session_id,
+            "message_id": message_id,
+            "label": label,
         },
     }
 
