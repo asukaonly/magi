@@ -9,7 +9,7 @@ import uuid
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from .contracts import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
 
 
 class ChatStore:
@@ -89,7 +89,9 @@ class ChatStore:
                     created_at_ms INTEGER NOT NULL,
                     sequence_no INTEGER NOT NULL,
                     replaces_message_id TEXT,
-                    replaced_by_message_id TEXT
+                    replaced_by_message_id TEXT,
+                    reply_to_message_id TEXT,
+                    label_json TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
                     ON chat_messages(session_id, created_at_ms ASC, sequence_no ASC);
@@ -99,6 +101,7 @@ class ChatStore:
             )
             await self._ensure_chat_session_columns(db)
             await self._ensure_chat_turn_columns(db)
+            await self._ensure_chat_message_columns(db)
             await db.commit()
         self._initialized = True
 
@@ -162,6 +165,7 @@ class ChatStore:
         message_text: str,
         attachment_payloads: list[dict[str, object]] | None = None,
         created_at_ms: int,
+        reply_to_message_id: str | None = None,
         run_id: str | None = None,
         run_revision: int = 0,
         run_disposition: str | None = None,
@@ -184,6 +188,7 @@ class ChatStore:
             sequence_no=1,
             replaces_message_id=None,
             replaced_by_message_id=None,
+            reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             db.row_factory = aiosqlite.Row
@@ -274,9 +279,11 @@ class ChatStore:
                     created_at_ms,
                     sequence_no,
                     replaces_message_id,
-                    replaced_by_message_id
+                    replaced_by_message_id,
+                    reply_to_message_id,
+                    label_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.message_id,
@@ -293,6 +300,8 @@ class ChatStore:
                     message.sequence_no,
                     None,
                     None,
+                    message.reply_to_message_id,
+                    self._serialize_message_label(message.label),
                 ),
             )
             await db.commit()
@@ -395,9 +404,11 @@ class ChatStore:
                     created_at_ms,
                     sequence_no,
                     replaces_message_id,
-                    replaced_by_message_id
+                    replaced_by_message_id,
+                    reply_to_message_id,
+                    label_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.message_id,
@@ -414,6 +425,8 @@ class ChatStore:
                     record.sequence_no,
                     record.replaces_message_id,
                     record.replaced_by_message_id,
+                    record.reply_to_message_id,
+                    self._serialize_message_label(record.label),
                 ),
             )
             await db.commit()
@@ -442,7 +455,8 @@ class ChatStore:
         sql = """
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                    content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id
+                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
+                   label_json
             FROM chat_messages
             WHERE turn_id = ?
         """
@@ -578,13 +592,23 @@ class ChatStore:
         if "workspace_path" not in column_names:
             await db.execute("ALTER TABLE chat_sessions ADD COLUMN workspace_path TEXT")
 
+    async def _ensure_chat_message_columns(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(chat_messages)")
+        rows = await cursor.fetchall()
+        column_names = {str(row[1]) for row in rows}
+        if "reply_to_message_id" not in column_names:
+            await db.execute("ALTER TABLE chat_messages ADD COLUMN reply_to_message_id TEXT")
+        if "label_json" not in column_names:
+            await db.execute("ALTER TABLE chat_messages ADD COLUMN label_json TEXT")
+
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""
         row = await self._fetchone(
             """
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                    content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id
+                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
+                   label_json
             FROM chat_messages
             WHERE message_id = ?
             """,
@@ -603,7 +627,8 @@ class ChatStore:
                 """
                 SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                        content_text, payload_json, is_final, is_visible, created_at_ms,
-                       sequence_no, replaces_message_id, replaced_by_message_id
+                       sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
+                       label_json
                 FROM chat_messages
                 WHERE session_id = ?
                 ORDER BY created_at_ms ASC, sequence_no ASC
@@ -612,6 +637,41 @@ class ChatStore:
             )
             rows = await cur.fetchall()
         return [self._row_to_message(row) for row in rows]
+
+    async def update_message_label(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        label: dict[str, object] | ChatMessageLabel | None,
+    ) -> ChatMessageRecord | None:
+        """Replace the durable label payload for one message and return the updated row."""
+        await self.initialize()
+        normalized_label = self._normalize_message_label(label)
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            await db.execute(
+                """
+                UPDATE chat_messages
+                SET label_json = ?
+                WHERE session_id = ?
+                  AND message_id = ?
+                """,
+                (
+                    self._serialize_message_label(normalized_label),
+                    session_id,
+                    message_id,
+                ),
+            )
+            await db.execute(
+                """
+                UPDATE chat_sessions
+                SET history_version = history_version + 1
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            await db.commit()
+        return await self.get_message(message_id)
 
     async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
         await self.initialize()
@@ -710,4 +770,50 @@ class ChatStore:
             sequence_no=int(row["sequence_no"]),
             replaces_message_id=str(row["replaces_message_id"]) if row["replaces_message_id"] is not None else None,
             replaced_by_message_id=str(row["replaced_by_message_id"]) if row["replaced_by_message_id"] is not None else None,
+            reply_to_message_id=str(row["reply_to_message_id"]) if row["reply_to_message_id"] is not None else None,
+            label=ChatStore._parse_message_label(row["label_json"] if "label_json" in row.keys() else None),
         )
+
+    @staticmethod
+    def _normalize_message_label(
+        label: dict[str, object] | ChatMessageLabel | None,
+    ) -> ChatMessageLabel | None:
+        if label is None:
+            return None
+        if isinstance(label, ChatMessageLabel):
+            return label
+        kind = str(label.get("kind") or "").strip()
+        text = str(label.get("text") or "").strip()
+        applied_by = str(label.get("applied_by") or "").strip()
+        source = str(label.get("source") or "").strip()
+        created_at_ms = int(label.get("created_at_ms") or 0)
+        if not kind or not text or not applied_by or not source or created_at_ms <= 0:
+            return None
+        return ChatMessageLabel(
+            kind=kind,
+            text=text,
+            applied_by=applied_by,
+            source=source,
+            created_at_ms=created_at_ms,
+        )
+
+    @staticmethod
+    def _serialize_message_label(label: ChatMessageLabel | None) -> str | None:
+        if label is None:
+            return None
+        return json.dumps(label.to_dict(), ensure_ascii=False)
+
+    @staticmethod
+    def _parse_message_label(raw_label_json: object) -> ChatMessageLabel | None:
+        if raw_label_json is None:
+            return None
+        raw_text = str(raw_label_json or "").strip()
+        if not raw_text:
+            return None
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return ChatStore._normalize_message_label(parsed)

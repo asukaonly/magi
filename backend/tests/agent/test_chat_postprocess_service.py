@@ -269,6 +269,90 @@ async def test_outcome_writer_bumps_history_version_for_assistant_final(chat_sto
 
 
 @pytest.mark.asyncio
+async def test_handle_worker_result_persists_reply_anchor_to_original_message(
+    chat_store: ChatStore,
+) -> None:
+    original_user_message = await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-a",
+        message_text="Please audit the release checklist.",
+        created_at_ms=1710000000000,
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-b",
+        message_text="Unrelated question while that runs.",
+        created_at_ms=1710000001000,
+    )
+
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: _FakeActionEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type="WORKER_AGENT_COMPLETED",
+        payload={
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-a",
+            "worker_id": "worker-1",
+            "stage": "completed",
+            "orchestration_id": "orch-1",
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000002.0,
+        correlation_id="worker-corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Please audit the release checklist.",
+        incoming_fact_kind=IncomingFactKind.WORKER_UPDATE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="Please audit the release checklist.",
+            turn_id="turn-a",
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.ORCHESTRATION_UPDATE,
+        response_text="Here is the completed audit.",
+        correlation_id="worker-corr-1",
+        orchestration_id="orch-1",
+        turn_id="turn-a",
+    )
+
+    await service.handle(context, result)
+
+    messages = await chat_store.list_messages(session_id="session-1")
+
+    assert [message.turn_id for message in messages] == ["turn-a", "turn-b", "turn-a"]
+    assert messages[-1].message_kind == "assistant_final"
+    assert messages[-1].reply_to_message_id == original_user_message.message_id
+
+
+@pytest.mark.asyncio
 async def test_runtime_notifier_appends_response_and_trace_notifications(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
@@ -699,11 +783,18 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
 
     assert turn is not None
     assert json.loads(turn.ux_plan_json)["assistant_surface_mode"] == "reaction_only"
-    assert [message.message_kind for message in messages] == ["user_text", "assistant_reaction"]
-    assert messages[-1].content_text == "👌"
+    assert [message.message_kind for message in messages] == ["user_text"]
+    assert messages[-1].label is not None
+    assert messages[-1].label.to_dict() == {
+        "kind": "emoji",
+        "text": "👌",
+        "applied_by": "assistant",
+        "source": "reaction_only",
+        "created_at_ms": 1710000000000,
+    }
     payload = json.loads(notifications[0].payload_json)
-    assert payload["message_id"] == messages[-1].message_id
-    assert payload["message_kind"] == "assistant_reaction"
+    assert payload["message_id"] is None
+    assert payload["message_kind"] is None
 
 
 @pytest.mark.asyncio
@@ -1356,7 +1447,7 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
 
 
 @pytest.mark.asyncio
-async def test_handle_keeps_reaction_only_turn_as_reaction_message(
+async def test_handle_maps_reaction_only_turn_to_user_label(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
@@ -1458,10 +1549,19 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
 
     assert turn is not None
     assert turn.status == "completed"
-    assert [message.message_kind for message in messages] == ["user_text", "assistant_reaction"]
+    assert [message.message_kind for message in messages] == ["user_text"]
+    assert messages[-1].label is not None
+    assert messages[-1].label.to_dict() == {
+        "kind": "emoji",
+        "text": "👌",
+        "applied_by": "assistant",
+        "source": "reaction_only",
+        "created_at_ms": 1710000000000,
+    }
     assert chat_projector.assistant_messages == []
     payload = json.loads(notifications[-1].payload_json)
     assert payload["message_kind"] == "assistant_reaction"
+    assert payload["content"] == "👌"
 
 
 @pytest.mark.asyncio
@@ -1650,7 +1750,15 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
 
     assert turn is not None
     assert turn.status == "completed"
-    assert [message.message_kind for message in messages] == ["user_text", "assistant_reaction"]
+    assert [message.message_kind for message in messages] == ["user_text"]
+    assert messages[-1].label is not None
+    assert messages[-1].label.to_dict() == {
+        "kind": "emoji",
+        "text": "👌",
+        "applied_by": "assistant",
+        "source": "reaction_only",
+        "created_at_ms": 1710000000000,
+    }
 
 
 @pytest.mark.asyncio

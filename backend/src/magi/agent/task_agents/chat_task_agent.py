@@ -6,7 +6,7 @@ from typing import Optional
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
-from ...chat import ChatProjector, ChatStore, get_chat_read_service
+from ...chat import ChatMessageRecord, ChatProjector, ChatStore, get_chat_read_service
 from ...config import get_config
 from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
@@ -27,6 +27,7 @@ from .chat import (
     ChatPlanningService,
     ChatPostProcessService,
     ChatPromptService,
+    ChatReplyContext,
     ChatRuntimeContext,
     ExecutionHandlerRegistry,
     ExecutionRequest,
@@ -75,6 +76,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         self.other_memory = other_memory
         self.unified_memory = unified_memory
         self.memory_integration = memory_integration
+        self._chat_store = chat_store
         self.context_decider = ContextDecider(
             tool_registry=tool_registry,
             llm_adapter=llm_adapter,
@@ -252,6 +254,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             session_id=session_id,
             statuses=["running", "aggregating"],
         )
+        reply_context = await self._resolve_reply_context(run_decision.latest_payload)
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),
@@ -277,6 +280,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             planner_fact_kind=run_decision.planner_fact_kind,
             planner_payload=run_decision.latest_payload,
             pending_turns=list(run_decision.checkpoint_pending_turns),
+            reply_context=reply_context,
         )
 
     async def match_intent(self, context: ChatRuntimeContext):
@@ -311,6 +315,48 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             return int(get_config().llm.max_tokens)
         except Exception:
             return 4096
+
+    async def _resolve_reply_context(self, latest_payload: object) -> ChatReplyContext | None:
+        if self._chat_store is None:
+            return None
+        current_turn_id = str(getattr(latest_payload, "turn_id", "") or "").strip()
+        reply_to_message_id = str(getattr(latest_payload, "reply_to_message_id", "") or "").strip()
+        if current_turn_id:
+            current_user_message = await self._chat_store.get_latest_message_for_turn(
+                current_turn_id,
+                message_kind="user_text",
+            )
+            if current_user_message is not None:
+                reply_to_message_id = str(current_user_message.reply_to_message_id or reply_to_message_id or "").strip()
+        if not reply_to_message_id:
+            return None
+        reply_target = await self._chat_store.get_message(reply_to_message_id)
+        if reply_target is None:
+            return None
+        return self._build_reply_context(
+            current_turn_id=current_turn_id,
+            reply_target=reply_target,
+        )
+
+    @staticmethod
+    def _build_reply_context(
+        *,
+        current_turn_id: str,
+        reply_target: ChatMessageRecord,
+    ) -> ChatReplyContext:
+        content_excerpt = str(reply_target.content_text or "").strip()
+        if len(content_excerpt) > 280:
+            content_excerpt = f"{content_excerpt[:277]}..."
+        return ChatReplyContext(
+            message_id=reply_target.message_id,
+            role=reply_target.role,
+            content_excerpt=content_excerpt,
+            references_prior_turn=bool(
+                current_turn_id
+                and reply_target.turn_id
+                and str(reply_target.turn_id).strip() != current_turn_id
+            ),
+        )
 
     async def request_session_cancel(
         self,

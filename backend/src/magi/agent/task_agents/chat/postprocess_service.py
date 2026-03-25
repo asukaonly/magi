@@ -232,12 +232,23 @@ class ChatPostProcessService:
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
+            reply_to_message_id=await self._resolve_result_reply_anchor_message_id(
+                context=context,
+                turn_id=turn_id,
+            ),
         )
         await self._finalize_session_run(context)
         notification_message = await self._get_notification_chat_message(
             turn_id=turn_id,
             ux_plan=ux_plan,
         )
+        notification_message_id = notification_message.message_id if notification_message is not None else None
+        notification_message_kind = notification_message.message_kind if notification_message is not None else None
+        notification_response_text = response_text
+        if str((ux_plan or {}).get("assistant_surface_mode") or "").strip() == "reaction_only":
+            notification_response_text = self._resolve_reaction_notification_text(ux_plan, fallback=response_text)
+            notification_message_id = None
+            notification_message_kind = "assistant_reaction"
         final_message = notification_message if notification_message and notification_message.message_kind == "assistant_final" else None
         await self._project_final_chat_message(context=context, final_message=final_message)
 
@@ -245,13 +256,13 @@ class ChatPostProcessService:
             user_id=context.user_id,
             session_id=context.session_id,
             turn_id=turn_id,
-            response_text=response_text,
+            response_text=notification_response_text,
             orchestration_id=result.orchestration_id,
             trace_summary=trace_summary,
             trace_available=trace_available,
             ux_plan=result.ux_plan,
-            message_id=notification_message.message_id if notification_message is not None else None,
-            message_kind=notification_message.message_kind if notification_message is not None else None,
+            message_id=notification_message_id,
+            message_kind=notification_message_kind,
         )
 
         await action_emitter.emit_chat_response_event(
@@ -323,6 +334,10 @@ class ChatPostProcessService:
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
+            reply_to_message_id=await self._resolve_result_reply_anchor_message_id(
+                context=context,
+                turn_id=turn_id,
+            ),
         )
         await self._finalize_session_run(context)
         return True
@@ -752,6 +767,7 @@ class ChatPostProcessService:
         run_id: str | None = None,
         run_revision: int = 0,
         run_disposition: str | None = None,
+        reply_to_message_id: str | None = None,
     ) -> None:
         await self._chat_outcome_writer.persist_final_chat_outcome(
             turn_id=turn_id,
@@ -764,7 +780,36 @@ class ChatPostProcessService:
             run_id=run_id,
             run_revision=run_revision,
             run_disposition=run_disposition,
+            reply_to_message_id=reply_to_message_id,
         )
+
+    async def _resolve_result_reply_anchor_message_id(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        turn_id: str | None,
+    ) -> str | None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._chat_store is None or not normalized_turn_id:
+            return None
+        if context.incoming_fact_kind not in {
+            IncomingFactKind.WORKER_UPDATE,
+            IncomingFactKind.EXPLORE_TASK_COMPLETED,
+        }:
+            return None
+        turn = await self._chat_store.get_turn(normalized_turn_id)
+        anchor_turn_id = str(
+            (turn.response_anchor_turn_id if turn is not None else normalized_turn_id) or normalized_turn_id
+        ).strip()
+        if not anchor_turn_id:
+            return None
+        anchor_message = await self._chat_store.get_latest_message_for_turn(
+            anchor_turn_id,
+            message_kind="user_text",
+        )
+        if anchor_message is None:
+            return None
+        return anchor_message.message_id
 
     async def _get_chat_message(
         self,
@@ -1136,6 +1181,15 @@ class ChatPostProcessService:
             payload = to_dict()
             return payload if isinstance(payload, dict) else None
         return plan if isinstance(plan, dict) else None
+
+    @staticmethod
+    def _resolve_reaction_notification_text(
+        ux_plan: dict[str, Any] | None,
+        *,
+        fallback: str,
+    ) -> str:
+        reaction_text = ChatOutcomeWriter.resolve_reaction_text(ux_plan)
+        return reaction_text or fallback
 
     @staticmethod
     def _resolve_started_at_ms(result: ExecutionResult | None, latest_fact: FactRecord) -> int:

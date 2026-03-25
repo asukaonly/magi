@@ -23,9 +23,25 @@ export interface UserMessageRequest {
   user_id?: string;
   session_id: string;
   attachments?: ChatAttachment[];
+  reply_to_message_id?: string | null;
   workspace_path?: string | null;
   client_turn_id?: string;
   metadata?: Record<string, any>;
+}
+
+export interface ChatReplyPreview {
+  message_id: string;
+  role: 'user' | 'assistant';
+  message_kind?: string | null;
+  content_excerpt: string;
+}
+
+export interface ChatMessageLabel {
+  kind: string;
+  text: string;
+  applied_by: string;
+  source: string;
+  created_at_ms: number;
 }
 
 // Backend response data shape
@@ -49,6 +65,8 @@ export interface ChatHistoryMessage {
   trace_summary?: Record<string, any> | null;
   trace_available?: boolean;
   attachments?: ChatAttachment[];
+  reply_to?: ChatReplyPreview | null;
+  label?: ChatMessageLabel | null;
 }
 
 export interface ConversationHistory {
@@ -228,6 +246,22 @@ export const messagesApi = {
         reason: options.reason || 'user_cancel',
         turn_id: options.turnId || null,
         requested_by: options.requestedBy || 'user',
+      }
+    );
+    return response;
+  },
+
+  labelMessage: async (
+    userId: string = DEFAULT_USER_ID,
+    sessionId: string,
+    messageId: string,
+    label: Omit<ChatMessageLabel, 'created_at_ms'> & { created_at_ms?: number },
+  ): Promise<{ success: boolean; message?: string; data?: { message_id: string; label: ChatMessageLabel } }> => {
+    const response = await api.post<{ message_id: string; label: ChatMessageLabel }>(
+      `/messages/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}/label`,
+      {
+        user_id: userId,
+        ...label,
       }
     );
     return response;

@@ -353,6 +353,33 @@ describe('chat trace state helpers', () => {
     ]);
   });
 
+  it('normalizes reply previews from history payloads', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-reply',
+        message_kind: 'user_text',
+        role: 'user',
+        content: 'Can you expand on that?',
+        timestamp: 1000,
+        turn_id: 'turn_reply',
+        kind: 'user',
+        reply_to: {
+          message_id: 'msg-assistant-root',
+          role: 'assistant',
+          message_kind: 'assistant_final',
+          content_excerpt: 'Run the desktop dev script from the repo root.',
+        },
+      },
+    ]);
+
+    expect(normalized[0].replyTo).toEqual({
+      messageId: 'msg-assistant-root',
+      role: 'assistant',
+      messageKind: 'assistant_final',
+      contentExcerpt: 'Run the desktop dev script from the repo root.',
+    });
+  });
+
   it('attaches a terminal trace summary back onto the user turn when no assistant row exists', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_user_only', 1000, 'Thinking');
     const next = upsertTraceSummary(
@@ -445,6 +472,35 @@ describe('chat trace state helpers', () => {
       traceDisplayMode: 'none',
       allowTraceCollapse: false,
       traceAvailable: true,
+    });
+  });
+
+  it('normalizes persisted message labels from history rows', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-labeled',
+        message_kind: 'assistant_final',
+        role: 'assistant',
+        content: 'Pinned answer',
+        timestamp: 1000,
+        turn_id: 'turn_label',
+        kind: 'assistant',
+        label: {
+          kind: 'emoji',
+          text: '👍',
+          applied_by: 'user',
+          source: 'manual',
+          created_at_ms: 1100,
+        },
+      } as any,
+    ]);
+
+    expect(normalized[0].label).toEqual({
+      kind: 'emoji',
+      text: '👍',
+      appliedBy: 'user',
+      source: 'manual',
+      createdAtMs: 1100,
     });
   });
 

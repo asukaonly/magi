@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, FileText, FolderOpen, ImagePlus, Loader2, Paperclip, Sparkles, UserRound, X } from 'lucide-react';
+import { ArrowUp, CornerUpLeft, FileText, FolderOpen, ImagePlus, Loader2, Paperclip, Sparkles, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -29,6 +29,9 @@ import {
   normalizeTraceSummary,
   shouldShowTraceEntry,
   type ChatTimelineMessage,
+  type ChatTimelineMessageLabel,
+  type ChatTimelineReplyPreview,
+  normalizeMessageLabel,
 } from './chat-state';
 import { formatChatClockTime, normalizeChatTimestamp } from '@/domain/chat/timestamps';
 
@@ -115,6 +118,20 @@ const SUPPORTED_TEXT_EXTENSIONS = new Set([
   '.yaml',
   '.yml',
 ]);
+
+const buildReplyPreviewFromMessage = (message: ChatTimelineMessage): ChatTimelineReplyPreview | null => {
+  const messageId = String(message.messageId || '').trim();
+  if (!messageId) {
+    return null;
+  }
+  const excerpt = String(message.content || '').trim();
+  return {
+    messageId,
+    role: message.role,
+    messageKind: message.messageKind || null,
+    contentExcerpt: excerpt.length > 140 ? `${excerpt.slice(0, 137)}...` : excerpt,
+  };
+};
 
 type DraftAttachmentKind = 'image' | 'file';
 
@@ -323,6 +340,7 @@ export const ChatPage: React.FC = () => {
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
   const applyTurnUxPlan = useConversationStore((state) => state.applyTurnUxPlan);
   const receiveAgentResponse = useConversationStore((state) => state.receiveAgentResponse);
+  const applyMessageLabel = useConversationStore((state) => state.applyMessageLabel);
   const applyConversationTraceSummary = useConversationStore((state) => state.upsertTraceSummary);
   const resetConversation = useConversationStore((state) => state.reset);
 
@@ -348,6 +366,7 @@ export const ChatPage: React.FC = () => {
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
   const [cancellingTurnIds, setCancellingTurnIds] = useState<string[]>([]);
   const [executionControlByTurnId, setExecutionControlByTurnId] = useState<Record<string, TurnExecutionControlState>>({});
+  const [composerReplyTarget, setComposerReplyTarget] = useState<ChatTimelineReplyPreview | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
@@ -426,6 +445,7 @@ export const ChatPage: React.FC = () => {
   useEffect(() => {
     clearDraftAttachments();
     setAttachmentMenuOpen(false);
+    setComposerReplyTarget(null);
   }, [clearDraftAttachments, currentSessionId]);
 
   useEffect(() => {
@@ -846,6 +866,7 @@ export const ChatPage: React.FC = () => {
     const messageContent = trimmedMessage;
     const turnId = createClientTurnId();
     const now = Date.now();
+    const replyTarget = composerReplyTarget;
     setSendingMessage(true);
     try {
       const uploadedAttachments = await uploadDraftAttachments(currentSessionId, turnId, queuedAttachments);
@@ -856,15 +877,18 @@ export const ChatPage: React.FC = () => {
         timestamp: now,
         pendingLabel: t('chat.trace.pending'),
         attachments: uploadedAttachments,
+        replyTo: replyTarget,
       });
       setInputValue('');
       clearDraftAttachments();
+      setComposerReplyTarget(null);
       send({
         type: 'send_message',
         user_id: USER_ID,
         session_id: currentSessionId,
         message: messageContent,
         attachments: uploadedAttachments,
+        reply_to_message_id: replyTarget?.messageId,
         workspace_path: currentSession?.workspace_path ?? null,
         client_turn_id: turnId,
       });
@@ -875,16 +899,40 @@ export const ChatPage: React.FC = () => {
       setSendingMessage(false);
     }
   }, [
+    applyMessageLabel,
     appendPendingTurn,
     clearDraftAttachments,
     connected,
     currentSession?.workspace_path,
     currentSessionId,
+    composerReplyTarget,
     inputValue,
     send,
     t,
     uploadDraftAttachments,
   ]);
+
+  const handleQuickLabel = useCallback(async (message: ChatTimelineMessage) => {
+    const messageId = String(message.messageId || '').trim();
+    if (!currentSessionId || !messageId) {
+      return;
+    }
+    try {
+      const response = await messagesApi.labelMessage(USER_ID, currentSessionId, messageId, {
+        kind: 'emoji',
+        text: '👍',
+        applied_by: 'user',
+        source: 'manual',
+      });
+      const normalizedLabel = normalizeMessageLabel(response.data?.label);
+      if (!normalizedLabel) {
+        throw new Error('missing_label');
+      }
+      applyMessageLabel(currentSessionId, messageId, normalizedLabel);
+    } catch {
+      toast.error(t('chat.label.applyFailed'));
+    }
+  }, [applyMessageLabel, currentSessionId, t]);
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (shouldSubmitOnEnter(event as React.KeyboardEvent<HTMLTextAreaElement>, isComposingRef.current)) {
@@ -1220,6 +1268,89 @@ export const ChatPage: React.FC = () => {
     );
   };
 
+  const renderReplyStrip = (
+    replyTo: ChatTimelineReplyPreview | null | undefined,
+    align: 'user' | 'assistant',
+  ) => {
+    if (!replyTo) {
+      return null;
+    }
+    return (
+      <div
+        className={align === 'user'
+          ? 'mb-3 rounded-lg border border-accent-foreground/15 bg-background/85 px-3 py-2 text-left text-foreground'
+          : 'mb-3 rounded-lg border border-border/45 bg-background/80 px-3 py-2 text-left text-foreground'}
+      >
+        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          {replyTo.role === 'assistant' ? t('chat.reply.assistant') : t('chat.reply.user')}
+        </div>
+        <div className="mt-1 line-clamp-2 text-xs leading-5 text-foreground/85">
+          {replyTo.contentExcerpt}
+        </div>
+      </div>
+    );
+  };
+
+  const renderReplyAction = (message: ChatTimelineMessage) => {
+    const replyPreview = buildReplyPreviewFromMessage(message);
+    if (!replyPreview) {
+      return null;
+    }
+    return (
+      <button
+        type="button"
+        aria-label={t('chat.reply.action')}
+        title={t('chat.reply.action')}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setComposerReplyTarget(replyPreview);
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
+      >
+        <CornerUpLeft className="h-3 w-3" />
+        {t('chat.reply.action')}
+      </button>
+    );
+  };
+
+  const renderMessageLabel = (
+    label: ChatTimelineMessageLabel | null | undefined,
+    align: 'user' | 'assistant',
+  ) => {
+    if (!label) {
+      return null;
+    }
+    return (
+      <div className={`mt-2 flex ${align === 'user' ? 'justify-end' : 'justify-start'}`}>
+        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">
+          {label.text}
+        </span>
+      </div>
+    );
+  };
+
+  const renderQuickLabelAction = (message: ChatTimelineMessage) => {
+    if (message.role !== 'assistant' || !String(message.messageId || '').trim()) {
+      return null;
+    }
+    return (
+      <button
+        type="button"
+        aria-label={t('chat.label.quickLike')}
+        title={t('chat.label.quickLike')}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void handleQuickLabel(message);
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
+      >
+        {t('chat.label.quickLike')}
+      </button>
+    );
+  };
+
   const renderMessageAttachments = (attachments: ChatAttachment[] | undefined, align: 'user' | 'assistant') => {
     if (!attachments || attachments.length === 0) {
       return null;
@@ -1357,6 +1488,8 @@ export const ChatPage: React.FC = () => {
                     <span className="text-[11px] text-muted-foreground">
                       {formatChatClockTime(msg.timestamp, i18n.language)}
                     </span>
+                    {renderReplyAction(msg)}
+                    {renderQuickLabelAction(msg)}
                     {msg.role === 'assistant' && renderTraceEntry(msg)}
                   </div>
                   <div
@@ -1364,6 +1497,7 @@ export const ChatPage: React.FC = () => {
                       ? 'rounded-xl rounded-tr-sm border border-accent/15 bg-accent/75 px-4 py-2.5 text-accent-foreground'
                       : 'rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}
                   >
+                    {renderReplyStrip(msg.replyTo, msg.role)}
                     {renderMessageAttachments(msg.attachments, msg.role)}
                     {msg.role === 'assistant' ? (
                       <div className="max-w-none text-current">
@@ -1375,13 +1509,14 @@ export const ChatPage: React.FC = () => {
                       <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
                     ) : null}
                   </div>
-                  {msg.role === 'user' && msg.reaction && (
+                  {msg.role === 'user' && msg.reaction && msg.label?.text !== msg.reaction && (
                     <div className="mt-2 flex justify-end">
                       <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">
                         {msg.reaction}
                       </span>
                     </div>
                   )}
+                  {renderMessageLabel(msg.label, msg.role)}
                   {msg.role === 'user' && renderUserTurnTraceStatus(msg)}
                 </div>
               </div>
@@ -1403,10 +1538,35 @@ export const ChatPage: React.FC = () => {
           ref={composerRef}
           className="overflow-hidden rounded-2xl border border-border/45 bg-background shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
         >
+          {composerReplyTarget && (
+            <div
+              data-testid="chat-composer-reply-preview"
+              className="mx-5 mt-4 rounded-xl border border-border/50 bg-muted/25 px-3 py-2"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                    {composerReplyTarget.role === 'assistant' ? t('chat.reply.assistant') : t('chat.reply.user')}
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-sm text-foreground/85">
+                    {composerReplyTarget.contentExcerpt}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label={t('chat.reply.cancel')}
+                  onClick={() => setComposerReplyTarget(null)}
+                  className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
           {draftAttachments.length > 0 && (
             <div
               data-testid="chat-composer-attachments"
-              className="flex flex-wrap gap-2 px-5 pt-4"
+              className={`flex flex-wrap gap-2 px-5 ${composerReplyTarget ? 'pt-3' : 'pt-4'}`}
             >
               {draftAttachments.map((attachment) => (
                 <div

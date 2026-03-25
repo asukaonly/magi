@@ -7,6 +7,8 @@ export type { ApiResponse, ApiError, PaginatedResponse } from './client';
 export { messagesApi } from './modules/messages';
 export type {
   ChatAttachment,
+  ChatMessageLabel,
+  ChatReplyPreview,
   UserMessageRequest,
   MessageData,
   ConversationHistory,

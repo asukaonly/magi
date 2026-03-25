@@ -2,6 +2,7 @@
 
 from .contracts import (
     ChatParseOutcome,
+    ChatReplyContext,
     ChatRuntimeContext,
     IntentDecision,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "ChatPlanningService",
     "ChatPostProcessService",
     "ChatPromptService",
+    "ChatReplyContext",
     "ChatRuntimeContext",
     "ChatHistoryService",
     "ExecutionHandlerRegistry",
