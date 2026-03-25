@@ -236,7 +236,10 @@
         "completedTitle": "Run completed",
         "completedBody": "The plan finished and the final answer will appear in the conversation.",
         "failedTitle": "Run failed",
-        "failedBody": "This run stopped because part of the execution failed."
+        "failedBody": "This run stopped because part of the execution failed.",
+        "footerCancelled": "No new final reply will be generated for this cancelled run.",
+        "footerCompleted": "The finished output is available in the conversation and full trace.",
+        "footerFailed": "Open the call trace to inspect the failed step and captured error details."
       },
       "active": "{{count}} active",
       "done": "{{count}} done",
@@ -245,7 +248,23 @@
         "parallel": "Parallel plan",
         "sequential": "Sequential plan",
         "totalSteps": "{{count}} steps",
-        "moreSteps": "+{{count}} more steps"
+        "moreSteps": "+{{count}} more steps",
+        "stage": {
+          "runningStep": "Working on step {{current}}/{{total}}.",
+          "runningParallel": "{{active}} steps are running now, with {{completed}}/{{total}} already completed.",
+          "runningFallback": "{{completed}}/{{total}} steps completed so far.",
+          "cancelling": "Stopping the remaining work after {{completed}}/{{total}} completed steps.",
+          "cancelled": "Stopped at {{completed}}/{{total}} completed steps, leaving the rest unfinished.",
+          "completed": "{{completed}}/{{total}} steps completed.",
+          "failedStep": "Execution stopped around step {{current}}/{{total}}.",
+          "failedFallback": "Execution stopped after {{completed}} completed steps and {{failed}} failed steps."
+        },
+        "stepStatus": {
+          "completed": "Done",
+          "running": "Running",
+          "pending": "Queued",
+          "failed": "Failed"
+        }
       },
       "summaryStatus": "Status",
       "summaryDuration": "Duration",

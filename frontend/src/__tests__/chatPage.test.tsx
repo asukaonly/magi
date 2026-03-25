@@ -1055,6 +1055,7 @@ describe('ChatPage', () => {
       const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
       expect(within(runningCard).getByText('Run cancelled')).toBeInTheDocument();
       expect(within(runningCard).getByText('chat.trace.execution.cancelledBody')).toBeInTheDocument();
+      expect(within(runningCard).getByText('chat.trace.execution.footerCancelled')).toBeInTheDocument();
       expect(within(runningCard).queryByRole('button', { name: 'chat.trace.cancelRun' })).not.toBeInTheDocument();
       expect(sendMock).toHaveBeenCalledWith({
         type: 'get_history',
@@ -1116,7 +1117,11 @@ describe('ChatPage', () => {
 
     expect(screen.getByText('盘点代码结构与运行方式')).toBeInTheDocument();
     expect(screen.getByText('整理 MVP 验收清单')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.stage.runningParallel')).toBeInTheDocument();
     expect(screen.getByText('chat.trace.plan.parallel')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.stepStatus.completed')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.stepStatus.running')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.stepStatus.pending')).toBeInTheDocument();
     expect(screen.getByText('chat.trace.plan.moreSteps')).toBeInTheDocument();
   });
 

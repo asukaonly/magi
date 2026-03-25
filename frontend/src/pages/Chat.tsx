@@ -218,6 +218,14 @@ const formatAttachmentKindLabel = (attachment: ChatAttachment, t: (key: string) 
   return t('chat.attachments.addFile');
 };
 
+const normalizeStepStatus = (value: string | null | undefined): string => {
+  const normalized = String(value || '').trim();
+  if (['completed', 'failed', 'running', 'pending'].includes(normalized)) {
+    return normalized;
+  }
+  return 'pending';
+};
+
 const resolveHistoryImagePreviewUrl = (attachment: ChatAttachment): string | null => {
   if (attachment.kind !== 'image') {
     return null;
@@ -1011,6 +1019,71 @@ export const ChatPage: React.FC = () => {
     const indicator = executionState === 'cancelled'
       ? <X className="h-4 w-4 text-muted-foreground" />
       : <Loader2 className={`h-4 w-4 text-primary ${executionState === 'running' || executionState === 'cancelling' ? 'animate-spin' : ''}`} />;
+    const runningStepIndex = planSummary?.steps.findIndex((step) => normalizeStepStatus(step.status) === 'running') ?? -1;
+    const resolvedRunningStep = runningStepIndex >= 0 ? runningStepIndex + 1 : 0;
+    const planStageSummary = planSummary
+      ? (() => {
+        const totalSteps = Math.max(planSummary.totalSteps, planSummary.steps.length, message.traceSummary?.completedSteps || 0);
+        if (!totalSteps) return null;
+        switch (executionState) {
+          case 'cancelling':
+            return t('chat.trace.plan.stage.cancelling', {
+              completed: message.traceSummary?.completedSteps || 0,
+              total: totalSteps,
+            });
+          case 'cancelled':
+            return t('chat.trace.plan.stage.cancelled', {
+              completed: message.traceSummary?.completedSteps || 0,
+              total: totalSteps,
+            });
+          case 'completed':
+            return t('chat.trace.plan.stage.completed', {
+              completed: Math.max(message.traceSummary?.completedSteps || 0, totalSteps),
+              total: totalSteps,
+            });
+          case 'failed':
+            return resolvedRunningStep > 0
+              ? t('chat.trace.plan.stage.failedStep', {
+                current: resolvedRunningStep,
+                total: totalSteps,
+              })
+              : t('chat.trace.plan.stage.failedFallback', {
+                completed: message.traceSummary?.completedSteps || 0,
+                failed: message.traceSummary?.failedSteps || 0,
+              });
+          default:
+            if (planSummary.parallelMode === 'parallel' && (message.traceSummary?.activeSteps || 0) > 1) {
+              return t('chat.trace.plan.stage.runningParallel', {
+                active: message.traceSummary?.activeSteps || 0,
+                completed: message.traceSummary?.completedSteps || 0,
+                total: totalSteps,
+              });
+            }
+            if (resolvedRunningStep > 0) {
+              return t('chat.trace.plan.stage.runningStep', {
+                current: resolvedRunningStep,
+                total: totalSteps,
+              });
+            }
+            return t('chat.trace.plan.stage.runningFallback', {
+              completed: message.traceSummary?.completedSteps || 0,
+              total: totalSteps,
+            });
+        }
+      })()
+      : null;
+    const footerKey = (() => {
+      switch (executionState) {
+        case 'cancelled':
+          return 'chat.trace.execution.footerCancelled';
+        case 'completed':
+          return 'chat.trace.execution.footerCompleted';
+        case 'failed':
+          return 'chat.trace.execution.footerFailed';
+        default:
+          return null;
+      }
+    })();
 
     return (
       <motion.div
@@ -1029,6 +1102,11 @@ export const ChatPage: React.FC = () => {
               <span className="text-sm font-medium text-foreground">{statusTitle}</span>
             </div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">{t(subtitleKey)}</div>
+            {planStageSummary && (
+              <div className="mt-3 rounded-lg border border-border/50 bg-background/70 px-3 py-2 text-xs font-medium text-foreground/80">
+                {planStageSummary}
+              </div>
+            )}
             {message.traceSummary && (
               <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                 <span className="rounded-full bg-muted px-2.5 py-1">
@@ -1058,7 +1136,7 @@ export const ChatPage: React.FC = () => {
                 </div>
                 <div className="mt-3 space-y-2">
                   {planSummary.steps.map((step) => {
-                    const stepStatus = String(step.status || '').trim();
+                    const stepStatus = normalizeStepStatus(step.status);
                     const stepDotClass = stepStatus === 'completed'
                       ? 'bg-emerald-500'
                       : stepStatus === 'failed'
@@ -1066,10 +1144,25 @@ export const ChatPage: React.FC = () => {
                         : stepStatus === 'running'
                           ? 'bg-primary'
                           : 'bg-muted-foreground/60';
+                    const stepContainerClass = stepStatus === 'running'
+                      ? 'border-primary/30 bg-primary/5'
+                      : stepStatus === 'completed'
+                        ? 'border-emerald-200 bg-emerald-50/60'
+                        : stepStatus === 'failed'
+                          ? 'border-rose-200 bg-rose-50/70'
+                          : 'border-border/40 bg-background/70';
                     return (
-                      <div key={step.subtaskId || step.label} className="flex items-start gap-2">
-                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${stepDotClass}`} />
-                        <span className="text-sm leading-6 text-foreground">{step.label}</span>
+                      <div
+                        key={step.subtaskId || step.label}
+                        className={`flex items-start justify-between gap-3 rounded-md border px-3 py-2 ${stepContainerClass}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${stepDotClass}`} />
+                          <span className="text-sm leading-6 text-foreground">{step.label}</span>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {t(`chat.trace.plan.stepStatus.${stepStatus}`)}
+                        </span>
                       </div>
                     );
                   })}
@@ -1079,6 +1172,11 @@ export const ChatPage: React.FC = () => {
                     {t('chat.trace.plan.moreSteps', { count: planSummary.remainingSteps })}
                   </div>
                 )}
+              </div>
+            )}
+            {footerKey && (
+              <div className="mt-3 text-[11px] text-muted-foreground">
+                {t(footerKey)}
               </div>
             )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
