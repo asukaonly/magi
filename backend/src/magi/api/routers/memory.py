@@ -158,6 +158,13 @@ def _resolve_scenario_llm_pool():
         return None
 
 
+def _canonical_self_id(unified_memory: Any) -> str:
+    resolver = getattr(unified_memory, "identity_resolver", None)
+    if resolver is None:
+        return "user:self"
+    return str(getattr(resolver, "default_memory_owner_id", "user:self"))
+
+
 def _build_clear_result(count: int) -> Dict[str, Any]:
     return {
         "cleared": True,
@@ -544,6 +551,21 @@ async def list_l2_conflict_rules():
     if not unified_memory or not unified_memory.l2:
         return []
     return await unified_memory.l2.list_graph_conflict_rules()
+
+
+@memory_router.get("/identity/links")
+async def list_memory_identity_links():
+    """List runtime-to-memory identity mappings for frontend debugging views."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not hasattr(unified_memory, "list_identity_links"):
+        return {
+            "canonical_self_id": "user:self",
+            "links": [],
+        }
+    return {
+        "canonical_self_id": _canonical_self_id(unified_memory),
+        "links": await unified_memory.list_identity_links(),
+    }
 
 
 @memory_router.put("/l2/conflict-rules/{predicate}")

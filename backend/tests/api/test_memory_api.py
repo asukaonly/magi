@@ -1836,6 +1836,23 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     assert update_rule_response.json()["exclusive_group"] == "stance"
 
 
+def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_is_unavailable(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/identity/links")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "canonical_self_id": "user:self",
+        "links": [],
+    }
+
+
 def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
