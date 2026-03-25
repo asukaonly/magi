@@ -496,11 +496,14 @@ export function useSettings(): UseSettingsReturn {
       const pluginsDirty = serialize(savedPluginDrafts) !== serialize(draftPluginDrafts);
       const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
       const themeDirty = savedThemeMode !== draftThemeMode;
+      let persistedConfig = structuredClone(draftConfig);
 
       if (configDirty) {
-        await configApi.update(draftConfig);
-        await syncCloseToTrayPreference(draftConfig.preferences.close_to_tray_enabled);
-        setSavedConfig(structuredClone(draftConfig));
+        const response = await configApi.update(draftConfig);
+        persistedConfig = structuredClone(response.data || draftConfig);
+        await syncCloseToTrayPreference(persistedConfig.preferences.close_to_tray_enabled);
+        setSavedConfig(structuredClone(persistedConfig));
+        setDraftConfig(structuredClone(persistedConfig));
       }
 
       if (toolsDirty) {
@@ -536,7 +539,7 @@ export function useSettings(): UseSettingsReturn {
         setThemeMode(draftThemeMode, { persist: true });
         setSavedThemeMode(draftThemeMode);
       }
-      persistLanguageSelection(draftConfig.preferences.language);
+      persistLanguageSelection(persistedConfig.preferences.language);
 
       await Promise.all([
         fetchTimelineStatuses(),

@@ -66,6 +66,7 @@ vi.mock('@/components/config-forms/LLMForm', () => ({
       <div>
         {llmFormMock({ value, onChange, view, showAdvancedByDefault })}
         <div>{`llm-view:${view || 'all'}`}</div>
+        {value?.normalized ? <div>llm-normalized</div> : null}
         <button type="button" onClick={() => onChange({ ...value, model: 'gpt-5' })}>
           change-llm
         </button>
@@ -501,10 +502,10 @@ describe('settings page draft saving', () => {
     vi.mocked(configApi.get).mockResolvedValue({
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
     } as any);
-    vi.mocked(configApi.update).mockResolvedValue({
+    vi.mocked(configApi.update).mockImplementation(async (nextConfig: any) => ({
       success: true,
-      data: structuredClone(DEFAULT_SYSTEM_CONFIG),
-    } as any);
+      data: structuredClone(nextConfig),
+    }) as any);
     vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
       sources: [chromeTimelineSourceFixture, timelineSourceFixture],
     } as any);
@@ -664,6 +665,35 @@ describe('settings page draft saving', () => {
       expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
+  });
+
+  it('reloads llm settings from the saved server response after saving', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.update).mockResolvedValue({
+      success: true,
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        llm: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm),
+          normalized: true,
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.llm' }));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.llmProviders' }));
+    await screen.findByText('llm-view:providers');
+
+    await user.click(screen.getByRole('button', { name: 'change-llm' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled());
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('llm-normalized')).toBeInTheDocument();
+    });
   });
 
   it('saves a picked default chat workspace path in preferences', async () => {

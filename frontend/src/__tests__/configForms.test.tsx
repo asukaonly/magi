@@ -592,6 +592,66 @@ describe('config forms', () => {
     });
   });
 
+  it('respects vision overrides for custom models whose ids include provider prefixes', async () => {
+    const customValue = {
+      ...structuredClone(llmValue),
+      providers: {
+        ...structuredClone(llmValue.providers),
+        custom_proxy: {
+          enabled: true,
+          provider_type: 'custom',
+          display_name: 'Zen',
+          api_key: 'sk-zen',
+          base_url: 'https://proxy.example.com/v1',
+          api_format: 'openai',
+          custom_models: ['openai/gpt-5.2'],
+          custom_default_model: 'openai/gpt-5.2',
+          model_metadata_overrides: {
+            'openai/gpt-5.2': {
+              capabilities: {
+                vision: true,
+              },
+            },
+          },
+        },
+      },
+      selections: {
+        ...structuredClone(llmValue.selections),
+        core: {
+          ...structuredClone(llmValue.selections.core),
+          provider_id: 'custom_proxy',
+          model: 'openai/gpt-5.2',
+          capabilities: {
+            ...structuredClone(llmValue.selections.core.capabilities),
+            vision: false,
+          },
+        },
+      },
+    };
+
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: customValue }}>
+        <LLMForm quickMode={false} surface="settings" view="all" showSectionIntro={false} />
+      </Form>
+    );
+
+    const coreCard = await screen.findByTestId('llm-scenario-core');
+    await waitFor(() => {
+      expect(within(coreCard).getByLabelText('llm.fields.model')).toHaveTextContent('openai/gpt-5.2');
+    });
+    expect(screen.queryByText('llm.warnings.coreVisionMissing')).not.toBeInTheDocument();
+
+    const providerList = await screen.findByTestId('llm-provider-list-pane');
+    await user.click((within(providerList).getByText('Zen') as HTMLElement).closest('button') as HTMLButtonElement);
+    const modelList = await screen.findByTestId('llm-provider-model-list-pane');
+    await user.click((within(modelList).getAllByText('openai/gpt-5.2')[0] as HTMLElement).closest('button') as HTMLButtonElement);
+
+    const editor = screen.getByTestId('llm-provider-model-editor');
+    expect(within(editor).getByRole('switch', { name: 'llm.modelFields.vision' })).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('uses custom select controls and flat cards for model selection on the settings surface', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
