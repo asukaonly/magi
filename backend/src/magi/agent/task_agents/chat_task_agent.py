@@ -161,6 +161,11 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
                 run_id=run_id,
                 revision=revision,
             ),
+            resolve_session_run_status=lambda session_id, run_id, revision: self._session_run_coordinator.get_run_status(
+                session_id=session_id,
+                run_id=run_id,
+                revision=revision,
+            ),
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,

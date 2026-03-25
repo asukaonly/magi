@@ -160,7 +160,7 @@ class SessionRunCoordinator:
         """Apply a user turn to the session run and return the visible decision."""
         active_run = self._run_store.get_active_run(payload.session_id)
         turn_id = self._resolve_turn_id(payload=payload, source_fact=source_fact)
-        if active_run is None:
+        if active_run is None or active_run.status == "cancelled":
             active_run = self._run_store.create_active_run(
                 payload.session_id,
                 root_turn_id=turn_id,
@@ -246,6 +246,42 @@ class SessionRunCoordinator:
         """Return the current active run for one session."""
         return self._run_store.get_active_run(session_id)
 
+    def get_run_status(
+        self,
+        *,
+        session_id: str,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> str | None:
+        """Return the current status for the requested session run."""
+        active_run = self._run_store.get_active_run(session_id)
+        if active_run is None:
+            return None
+        if run_id is not None and active_run.run_id != run_id:
+            return None
+        if revision is not None and active_run.revision != int(revision):
+            return None
+        return active_run.status
+
+    def request_cancel(
+        self,
+        *,
+        session_id: str,
+        requested_by: str,
+        reason: str = "user_cancel",
+        anchor_turn_id: str | None = None,
+    ) -> ActiveRun | None:
+        """Mark the active run as cancelling when one exists."""
+        active_run = self._run_store.get_active_run(session_id)
+        if active_run is None:
+            return None
+        return self._run_store.request_cancel(
+            session_id,
+            requested_by=requested_by,
+            reason=reason,
+            anchor_turn_id=anchor_turn_id,
+        )
+
     def record_result(
         self,
         *,
@@ -272,6 +308,22 @@ class SessionRunCoordinator:
         revision: int | None = None,
     ) -> bool:
         """Complete the active run if it still matches the expected identity."""
+        active_run = self._run_store.get_active_run(session_id)
+        if active_run is None:
+            return False
+        if run_id is not None and active_run.run_id != run_id:
+            return False
+        if revision is not None and active_run.revision != int(revision):
+            return False
+        if active_run.status == "cancelling":
+            self._run_store.mark_cancelled(
+                session_id,
+                run_id=run_id,
+                revision=revision,
+            )
+            return True
+        if active_run.status == "cancelled":
+            return True
         return self._run_store.complete_active_run(
             session_id,
             run_id=run_id,

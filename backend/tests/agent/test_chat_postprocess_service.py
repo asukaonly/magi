@@ -1253,6 +1253,98 @@ async def test_handle_commits_final_chat_message_before_notification(
 
 
 @pytest.mark.asyncio
+async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
+    runtime_trace_store: RuntimeTraceStore,
+    chat_store: ChatStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    completed_runs: list[tuple[str, str, int]] = []
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        complete_session_run=lambda session_id, run_id, revision: completed_runs.append(
+            (session_id, run_id, revision)
+        ),
+        resolve_session_run_status=lambda session_id, run_id, revision: "cancelling",
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "hello",
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-cancelled",
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-cancelled",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        session_run_id="run-cancelled",
+        session_run_revision=0,
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="hello",
+            turn_id="turn-cancelled",
+        ),
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-cancelled",
+        message_text="hello",
+        created_at_ms=1710000000000,
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="this should be suppressed",
+        correlation_id="corr-cancelled",
+        turn_id="turn-cancelled",
+        ux_plan={
+            "assistant_surface_mode": "final_only",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+        },
+    )
+
+    outcome = await service.handle(context, result)
+
+    messages = await chat_store.list_messages(session_id="session-1")
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+
+    assert outcome.emitted is False
+    assert [message.message_kind for message in messages] == ["user_text"]
+    assert action_emitter.chat_response_events == []
+    assert notifications == []
+    assert completed_runs == [("session-1", "run-cancelled", 0)]
+
+
+@pytest.mark.asyncio
 async def test_handle_keeps_reaction_only_turn_as_reaction_message(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,

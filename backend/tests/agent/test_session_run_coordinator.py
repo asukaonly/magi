@@ -204,3 +204,41 @@ def test_augment_is_visible_at_next_checkpoint() -> None:
     assert [item.content for item in routed.checkpoint_pending_turns] == [
         "Also, use the staging endpoint."
     ]
+
+
+def test_request_cancel_marks_active_run_cancelling_and_complete_run_marks_cancelled() -> None:
+    classifier = ChatFactClassifier()
+    coordinator = SessionRunCoordinator()
+    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
+    routed = coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=first_fact,
+            batch_facts=[first_fact],
+        )
+    )
+    assert routed.active_run is not None
+
+    cancelling_run = coordinator.request_cancel(
+        session_id="s-chat",
+        requested_by="user",
+        reason="explicit_cancel",
+        anchor_turn_id="turn-cancel",
+    )
+
+    assert cancelling_run is not None
+    assert cancelling_run.status == "cancelling"
+    assert cancelling_run.cancel_requested_by == "user"
+    assert cancelling_run.cancel_reason == "explicit_cancel"
+    assert cancelling_run.cancel_anchor_turn_id == "turn-cancel"
+
+    completed = coordinator.complete_run(
+        session_id="s-chat",
+        run_id=cancelling_run.run_id,
+        revision=cancelling_run.revision,
+    )
+    refreshed = coordinator.get_active_run("s-chat")
+
+    assert completed is True
+    assert refreshed is not None
+    assert refreshed.status == "cancelled"
