@@ -7,7 +7,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
-from magi.llm.provider_bridge import ProviderResponse
+from magi.llm.provider_bridge import ProviderResponse, ProviderToolCall
 from magi.agent.execution.function_calling_postprocessor import FunctionCallingPostprocessor
 from magi.agent.execution import function_calling as function_calling_module
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
@@ -880,6 +880,65 @@ async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest
     assert captured["raw_message"]["reasoning_content"] == "partial"
     assert result["llm_trace"]["model"] == "dummy-model"
     assert result["llm_trace"]["thinking_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_tools_logs_json_response_without_ascii_escaping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_chat_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return ProviderResponse(
+            content="",
+            assistant_message={
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "memory_query",
+                            "arguments": '{"query":"我喜欢什么天气","note":"用户喜欢下雨天"}',
+                        },
+                    }
+                ],
+            },
+            tool_calls=[
+                ProviderToolCall(
+                    id="call_1",
+                    name="memory_query",
+                    arguments={"query": "我喜欢什么天气", "note": "用户喜欢下雨天"},
+                )
+            ],
+        )
+
+    def _fake_log_llm_response(logger, request_id, response, success=True, error=None, duration_ms=None, truncate=True, response_max_length=3000, **metadata):  # type: ignore[no-untyped-def]
+        _ = (logger, request_id, success, error, duration_ms, truncate, response_max_length, metadata)
+        captured["response"] = response
+
+    executor.provider_bridge.chat_with_tools = _fake_chat_with_tools  # type: ignore[method-assign]
+    monkeypatch.setattr(function_calling_module, "log_llm_response", _fake_log_llm_response)
+
+    await executor._call_llm_with_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "我喜欢什么天气"}],
+        tools=[],
+        disable_thinking=True,
+        timeout_seconds=30.0,
+    )
+
+    assert '"assistant_message"' in captured["response"]
+    assert '"tool_calls"' in captured["response"]
+    assert "用户喜欢下雨天" in captured["response"]
+    assert "\\u7528\\u6237" not in captured["response"]
 
 
 @pytest.mark.asyncio

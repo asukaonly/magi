@@ -3,11 +3,12 @@ LLM call logging configuration.
 
 Logs LLM request prompts and response outputs.
 """
+import json
 import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
-from typing import Optional
+from typing import Any, Optional
 
 LLM_CALL_LOGGER_BASE = "magi.llm.calls"
 
@@ -106,8 +107,33 @@ def truncate_text(text: str, max_length: int = 5000) -> str:
     return text[:max_length] + f"... (truncated, total {len(text)} chars)"
 
 
-def _format_log_text(text: str, max_length: int, truncate: bool) -> str:
+def _try_pretty_json(text: str) -> str:
+    """Pretty-print JSON strings for human-readable logs when possible."""
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "{[":
+        return text
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        return text
+    return json.dumps(parsed, ensure_ascii=False, indent=2).replace("\\n", "\n")
+
+
+def _format_message_content(role: str, content: Any) -> str:
+    """Render message content for logs with special handling for tool payloads."""
+    if isinstance(content, (dict, list)):
+        return json.dumps(content, ensure_ascii=False, indent=2)
+
+    normalized = "" if content is None else str(content)
+    if role == "tool":
+        return _try_pretty_json(normalized)
+    return normalized
+
+
+def _format_log_text(text: Any, max_length: int, truncate: bool) -> str:
     """Format text for logging with optional truncation."""
+    if not isinstance(text, str):
+        text = str(text)
     if not truncate:
         return text
     return truncate_text(text, max_length)
@@ -142,9 +168,13 @@ def log_llm_request(
     logger.debug("-" * 80)
     logger.debug("Messages:")
     for i, msg in enumerate(messages):
+        rendered_content = _format_message_content(
+            str(msg.get("role", "")),
+            msg.get("content", ""),
+        )
         logger.debug(
             f"  [{i}] {msg.get('role')}: "
-            f"{_format_log_text(msg.get('content', ''), message_max_length, truncate)}"
+            f"{_format_log_text(rendered_content, message_max_length, truncate)}"
         )
     if kwargs:
         logger.debug(f"Parameters: {kwargs}")
@@ -185,5 +215,5 @@ def log_llm_response(
         logger.debug(f"Metadata: {metadata}")
     logger.debug("-" * 80)
     if success and response:
-        logger.debug(f"Response:\n{_format_log_text(response, response_max_length, truncate)}")
+        logger.debug(f"Response:\n{_format_log_text(_try_pretty_json(response), response_max_length, truncate)}")
     logger.debug("=" * 80)

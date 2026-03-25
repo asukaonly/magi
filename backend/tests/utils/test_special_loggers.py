@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from logging.handlers import RotatingFileHandler
+from unittest.mock import MagicMock
 
 from magi.utils import agent_logger as agent_logger_module
 from magi.utils import llm_logger as llm_logger_module
@@ -85,3 +86,28 @@ def test_llm_logger_uses_rotating_file_handler_with_unified_format(tmp_path, mon
         r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO\] \[magi\.llm\.calls\] llm test message$",
         stream_rendered,
     )
+
+
+def test_log_llm_request_pretty_prints_tool_json_content() -> None:
+    logger = MagicMock()
+
+    llm_logger_module.log_llm_request(
+        logger,
+        request_id="req-1",
+        model="test-model",
+        system_prompt="sys",
+        messages=[
+            {
+                "role": "tool",
+                "content": (
+                    '{"success": true, "data": {"memory_context": "用户喜欢下雨天\\n也喜欢阴天", '
+                    '"meta": {"intent_source": "llm"}}}'
+                ),
+            }
+        ],
+    )
+
+    rendered_messages = "\n".join(call.args[0] for call in logger.debug.call_args_list)
+    assert "用户喜欢下雨天" in rendered_messages
+    assert "\\u7528\\u6237" not in rendered_messages
+    assert '"memory_context": "用户喜欢下雨天\\n也喜欢阴天"' not in rendered_messages

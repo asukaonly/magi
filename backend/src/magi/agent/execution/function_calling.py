@@ -922,7 +922,7 @@ class FunctionCallingOrchestrator:
             log_llm_response(
                 llm_logger,
                 request_id=request_id,
-                response=str(result),
+                response=json.dumps(result, ensure_ascii=False, default=str),
                 success=True,
                 duration_ms=duration_ms,
             )
