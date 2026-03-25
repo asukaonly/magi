@@ -75,6 +75,18 @@ export interface SessionListResponse {
   count: number;
 }
 
+export interface CancelRunData {
+  user_id: string;
+  session_id: string;
+  run_id?: string;
+  revision?: number;
+  status?: string;
+  cancel_reason?: string | null;
+  cancel_requested_by?: string | null;
+  cancel_anchor_turn_id?: string | null;
+  cancelled_orchestration_ids?: string[];
+}
+
 export interface ExecutionTraceSummary {
   turn_id: string;
   mode: string;
@@ -183,6 +195,27 @@ export const messagesApi = {
       }
     );
     return (response.data || response) as { success: boolean; user_id: string; session: ChatSessionListItem };
+  },
+
+  cancelRun: async (
+    userId: string = DEFAULT_USER_ID,
+    sessionId: string,
+    options: {
+      reason?: string;
+      turnId?: string;
+      requestedBy?: string;
+    } = {},
+  ): Promise<{ success: boolean; message: string; data?: CancelRunData }> => {
+    const response = await api.post<CancelRunData>(
+      `/messages/session/${encodeURIComponent(sessionId)}/cancel-run`,
+      {
+        user_id: userId,
+        reason: options.reason || 'user_cancel',
+        turn_id: options.turnId || null,
+        requested_by: options.requestedBy || 'user',
+      }
+    );
+    return response;
   },
 
   uploadAttachment: async (

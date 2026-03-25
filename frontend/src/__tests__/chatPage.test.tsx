@@ -695,7 +695,7 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(screen.getByText('已经查好了')).toBeInTheDocument();
     });
-    expect(screen.queryByText('稍等我查一下')).not.toBeInTheDocument();
+    expect(screen.getByText('稍等我查一下')).toBeInTheDocument();
   });
 
   it('renders a reaction-only acknowledgement without an assistant bubble', async () => {

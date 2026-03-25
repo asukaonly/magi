@@ -247,7 +247,7 @@ describe('chat trace state helpers', () => {
     expect(next[1].content).toBe('正在思考');
   });
 
-  it('replaces the interim assistant card with the final assistant answer', () => {
+  it('keeps the interim assistant card and appends the final assistant answer', () => {
     const initial = applyTurnUxPlan(
       createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking'),
       'turn_1',
@@ -275,10 +275,12 @@ describe('chat trace state helpers', () => {
       traceAvailable: true,
     });
 
-    expect(next).toHaveLength(2);
-    expect(next[1].kind).toBe('assistant');
-    expect(next[1].content).toContain('final answer');
-    expect(next[1].traceAvailable).toBe(true);
+    expect(next).toHaveLength(3);
+    expect(next[1].messageKind).toBe('assistant_interim');
+    expect(next[1].content).toContain('稍等我查一下');
+    expect(next[2].messageKind).toBe('assistant_final');
+    expect(next[2].content).toContain('final answer');
+    expect(next[2].traceAvailable).toBe(true);
   });
 
   it('reuses the pending turn id when the final response arrives without turn metadata', () => {
