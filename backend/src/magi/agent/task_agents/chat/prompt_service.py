@@ -85,11 +85,19 @@ class ChatPromptService:
             ],
         }
 
-    def build_aggregation_user_message(self, state, payload: dict[str, Any]) -> str:
+    def build_aggregation_system_prompt(
+        self,
+        *,
+        base_system_prompt: str,
+        state,
+        payload: dict[str, Any],
+    ) -> str:
         payload_json = json.dumps(payload, ensure_ascii=False)
         research_requirements = self._build_research_aggregation_requirements(state.root_user_message)
         if self.prefers_chinese_response(state.root_user_message):
             lines = [
+                base_system_prompt.strip(),
+                "",
                 f"用户原始请求：{state.root_user_message}",
                 "你已经拿到了内部子任务的结构化结果。现在请直接面向用户回答原始请求。",
                 "要求：",
@@ -101,8 +109,10 @@ class ChatPromptService:
             ]
             lines.extend(research_requirements["zh"])
             lines.extend(["", f"内部结果(JSON): {payload_json}"])
-            return "\n".join(lines)
+            return "\n".join(lines).strip()
         lines = [
+            base_system_prompt.strip(),
+            "",
             f"Original user request: {state.root_user_message}",
             "You already have the structured results from internal leaf tasks. Now answer the original request directly to the user.",
             "Requirements:",
@@ -114,7 +124,7 @@ class ChatPromptService:
         ]
         lines.extend(research_requirements["en"])
         lines.extend(["", f"Internal results (JSON): {payload_json}"])
-        return "\n".join(lines)
+        return "\n".join(lines).strip()
 
     def build_explore_render_message(self, root_user_message: str, dossier: str) -> str:
         if self.prefers_chinese_response(root_user_message):

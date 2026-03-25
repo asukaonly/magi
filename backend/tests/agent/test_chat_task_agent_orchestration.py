@@ -308,6 +308,7 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     history_key = "u-chat::s-chat"
     agent._history_service.append_user_message(history_key, "看下代码架构")
+    agent._history_service.append_user_message(history_key, "搞错了，不用做了")
     agent._history_service.append_assistant_message(history_key, "[Worker:abc] Started (Explore)")
 
     calls: dict[str, object] = {}
@@ -392,15 +393,15 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
 
     llm_call = calls["call_llm"]
     assert isinstance(llm_call, dict)
-    assert llm_call["system_prompt"] == "persona-system-prompt"
+    assert "persona-system-prompt" in llm_call["system_prompt"]
+    assert "直接面向用户回答原始请求" in llm_call["system_prompt"]
+    assert "不要暴露子任务、worker、编排、JSON" in llm_call["system_prompt"]
+    assert '"completed_subtasks"' in llm_call["system_prompt"]
     assert llm_call["disable_thinking"] is False
     messages = llm_call["messages"]
     assert isinstance(messages, list)
     assert messages[0] == {"role": "user", "content": "看下代码架构"}
-    final_message = messages[-1]
-    assert "直接面向用户回答原始请求" in final_message["content"]
-    assert "不要暴露子任务、worker、编排、JSON" in final_message["content"]
-    assert '"completed_subtasks"' in final_message["content"]
+    assert messages[-1] == {"role": "user", "content": "搞错了，不用做了"}
 
 
 @pytest.mark.asyncio

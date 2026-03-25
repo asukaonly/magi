@@ -18,6 +18,7 @@ from ...tools.registry import tool_registry
 from ...runtime_trace import RuntimeTraceStore
 from ...utils.runtime import get_runtime_paths
 from ..execution.function_calling import FunctionCallingOrchestrator
+from .chat.interruption_classifier import InterruptionClassifier
 from .chat import (
     ChatExecutionCoordinator,
     ChatFactClassifier,
@@ -115,7 +116,11 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         self._session_run_coordinator = SessionRunCoordinator(
             run_store=SessionRunStore(
                 l0_store=(unified_memory.l0 if unified_memory is not None else None),
-            )
+            ),
+            interruption_classifier=InterruptionClassifier(
+                llm_adapter=llm_adapter,
+                llm_pool=llm_pool,
+            ),
         )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
@@ -230,7 +235,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             latest_fact=latest_fact,
             batch_facts=batch_facts,
         )
-        run_decision = self._session_run_coordinator.route(classified)
+        run_decision = await self._session_run_coordinator.aroute(classified)
         if run_decision.superseded_turns:
             updated_at_ms = int(latest_fact.timestamp * 1000) if isinstance(latest_fact, FactRecord) else now_wall_ms()
             await self._postprocess_service.persist_turn_supersessions(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier
 from magi.agent.task_agents.chat.interruption_classifier import InterruptionDisposition
@@ -242,3 +244,49 @@ def test_request_cancel_marks_active_run_cancelling_and_complete_run_marks_cance
     assert completed is True
     assert refreshed is not None
     assert refreshed.status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_async_route_uses_model_interrupt_for_chinese_cancel_text() -> None:
+    classifier = ChatFactClassifier()
+    captured: dict[str, object] = {}
+
+    class _AsyncInterruptClassifier:
+        def classify(self, context):  # type: ignore[no-untyped-def]
+            captured["sync_user_text"] = context.user_text
+            return InterruptionDisposition.DEFER
+
+        async def aclassify(self, context):  # type: ignore[no-untyped-def]
+            captured["root_user_message"] = context.root_user_message
+            captured["pending_turns"] = list(context.pending_turns)
+            captured["user_text"] = context.user_text
+            return InterruptionDisposition.INTERRUPT
+
+    coordinator = SessionRunCoordinator(interruption_classifier=_AsyncInterruptClassifier())
+    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=first_fact,
+            batch_facts=[first_fact],
+        )
+    )
+    interrupt_fact = _user_fact("搞错了，不用做了", turn_id="turn-2")
+
+    classified = classifier.classify(
+        agent_id="u-chat",
+        latest_fact=interrupt_fact,
+        batch_facts=[interrupt_fact],
+    )
+
+    routed = await coordinator.aroute(classified)
+
+    assert captured == {
+        "root_user_message": "Inspect the login flow.",
+        "pending_turns": [],
+        "user_text": "搞错了，不用做了",
+    }
+    assert routed.interruption_disposition == InterruptionDisposition.INTERRUPT
+    assert routed.active_run is not None
+    assert routed.active_run.revision == 1
+    assert routed.active_run.root_user_message == "搞错了，不用做了"

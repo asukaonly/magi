@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.agent.task_agents.chat.interruption_classifier import (
     InterruptionClassifier,
     InterruptionContext,
@@ -92,3 +94,34 @@ def test_side_effecting_step_state_defers_interrupting_text() -> None:
     )
 
     assert disposition == InterruptionDisposition.DEFER
+
+
+@pytest.mark.asyncio
+async def test_async_classifier_uses_fast_model_for_chinese_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
+    classifier = InterruptionClassifier(llm_pool=object())
+
+    async def _fake_call(*, system_prompt, messages, disable_thinking, json_mode, timeout_seconds):  # type: ignore[no-untyped-def]
+        assert "interrupt" in system_prompt
+        assert disable_thinking is True
+        assert json_mode is True
+        assert timeout_seconds == 8.0
+        assert messages == [
+            {
+                "role": "user",
+                "content": '{"active_request": "看下目前的项目文档和规划", "pending_user_messages": ["补充一下，顺便看下接口"], "new_user_message": "搞错了，不用做了"}',
+            }
+        ]
+        return '{"disposition":"interrupt"}'
+
+    monkeypatch.setattr(classifier, "_can_use_model_classifier", lambda: True)
+    monkeypatch.setattr(classifier._llm_service, "call", _fake_call)
+
+    disposition = await classifier.aclassify(
+        InterruptionContext(
+            user_text="搞错了，不用做了",
+            root_user_message="看下目前的项目文档和规划",
+            pending_turns=["补充一下，顺便看下接口"],
+        )
+    )
+
+    assert disposition == InterruptionDisposition.INTERRUPT
