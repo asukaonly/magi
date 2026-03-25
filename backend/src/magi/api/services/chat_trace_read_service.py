@@ -18,6 +18,7 @@ FACT_EVENTS_TABLE = "fact_events"
 USER_EVENT_TYPES = ("UserMessage",)
 AI_RESPONSE_EVENT_TYPES = ("AIResponse",)
 FACT_DISPLAY_EVENT_TYPES = USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES
+MAX_PLAN_PREVIEW_STEPS = 3
 
 
 @dataclass(slots=True)
@@ -64,6 +65,7 @@ class ExecutionTraceSummary:
     duration_seconds: float = 0.0
     trace_available: bool = False
     orchestration_id: Optional[str] = None
+    plan_summary: Optional["ExecutionPlanSummary"] = None
     continued_from_turn_id: Optional[str] = None
     continued_from_trace_id: Optional[str] = None
     superseded_by_turn_id: Optional[str] = None
@@ -81,10 +83,47 @@ class ExecutionTraceSummary:
             "duration_seconds": self.duration_seconds,
             "trace_available": self.trace_available,
             "orchestration_id": self.orchestration_id,
+            "plan_summary": self.plan_summary.to_dict() if self.plan_summary is not None else None,
             "continued_from_turn_id": self.continued_from_turn_id,
             "continued_from_trace_id": self.continued_from_trace_id,
             "superseded_by_turn_id": self.superseded_by_turn_id,
             "supersession_reason": self.supersession_reason,
+        }
+
+
+@dataclass(slots=True)
+class ExecutionPlanStepSummary:
+    """Compact step preview for orchestration summaries."""
+
+    subtask_id: Optional[str]
+    label: str
+    status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "subtask_id": self.subtask_id,
+            "label": self.label,
+            "status": self.status,
+        }
+
+
+@dataclass(slots=True)
+class ExecutionPlanSummary:
+    """Preview payload used by the chat execution card."""
+
+    planner: Optional[str]
+    parallel_mode: str
+    total_steps: int
+    remaining_steps: int
+    steps: list[ExecutionPlanStepSummary] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "planner": self.planner,
+            "parallel_mode": self.parallel_mode,
+            "total_steps": self.total_steps,
+            "remaining_steps": self.remaining_steps,
+            "steps": [step.to_dict() for step in self.steps],
         }
 
 
@@ -148,6 +187,8 @@ class ChatTraceReadService:
         turn = self._load_trace_turn(user_id=user_id, session_id=session_id, turn_id=normalized_turn_id)
         if turn is None:
             return None
+        orchestration_id = str(turn.get("orchestration_id") or "").strip() or None
+        orchestration_state = self._load_orchestration_state(orchestration_id) if orchestration_id else None
         spans = self._load_trace_spans(trace_id=str(turn.get("trace_id") or ""))
         llm_calls = self._load_detail_rows(table="trace_llm_calls", trace_id=str(turn.get("trace_id") or ""))
         tool_calls = self._load_detail_rows(table="trace_tools", trace_id=str(turn.get("trace_id") or ""))
@@ -158,6 +199,7 @@ class ChatTraceReadService:
             spans=spans,
             llm_calls=llm_calls,
             tool_calls=tool_calls,
+            orchestration_state=orchestration_state,
         )
         return snapshot.to_dict() if snapshot is not None else None
 
@@ -240,6 +282,7 @@ class ChatTraceReadService:
         spans: list[dict[str, Any]],
         llm_calls: list[dict[str, Any]],
         tool_calls: list[dict[str, Any]],
+        orchestration_state: Optional[dict[str, Any]],
     ) -> Optional[ExecutionTraceSnapshot]:
         turn_id = str(turn.get("turn_id") or "").strip()
         if not turn_id:
@@ -267,7 +310,7 @@ class ChatTraceReadService:
                 status=status,
                 active_steps=active_steps,
                 completed_steps=completed_steps,
-                orchestration_state=None,
+                orchestration_state=orchestration_state,
             ),
             active_steps=active_steps,
             completed_steps=completed_steps,
@@ -278,6 +321,7 @@ class ChatTraceReadService:
             ),
             trace_available=bool(root.children),
             orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
+            plan_summary=self._build_plan_summary(orchestration_state),
             continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
             continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
             superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
@@ -602,6 +646,7 @@ class ChatTraceReadService:
             duration_seconds=round(max(0.0, ended_at - started_at), 3),
             trace_available=bool(root.children),
             orchestration_id=orchestration_id,
+            plan_summary=self._build_plan_summary(orchestration_state),
         )
 
         return ExecutionTraceSnapshot(
@@ -1139,6 +1184,44 @@ class ChatTraceReadService:
             else:
                 completed += 1
         return active, completed, failed
+
+    def _build_plan_summary(self, orchestration_state: Optional[dict[str, Any]]) -> Optional[ExecutionPlanSummary]:
+        if not isinstance(orchestration_state, dict):
+            return None
+        raw_subtasks = orchestration_state.get("subtasks")
+        if not isinstance(raw_subtasks, list):
+            return None
+
+        steps: list[ExecutionPlanStepSummary] = []
+        for raw_subtask in raw_subtasks:
+            if not isinstance(raw_subtask, dict):
+                continue
+            label = (
+                self._optional_text(raw_subtask.get("description"))
+                or self._optional_text(raw_subtask.get("title"))
+                or self._optional_text(raw_subtask.get("subtask_id"))
+            )
+            if label is None:
+                continue
+            steps.append(
+                ExecutionPlanStepSummary(
+                    subtask_id=self._optional_text(raw_subtask.get("subtask_id")),
+                    label=label,
+                    status=self._normalize_status(str(raw_subtask.get("status") or "pending")),
+                )
+            )
+
+        if not steps:
+            return None
+
+        preview_steps = steps[:MAX_PLAN_PREVIEW_STEPS]
+        return ExecutionPlanSummary(
+            planner=self._optional_text(orchestration_state.get("planner")),
+            parallel_mode="parallel" if bool(orchestration_state.get("allow_parallel", True)) else "sequential",
+            total_steps=len(steps),
+            remaining_steps=max(0, len(steps) - len(preview_steps)),
+            steps=preview_steps,
+        )
 
     def _build_headline(
         self,

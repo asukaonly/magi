@@ -62,6 +62,7 @@ class ChatPostProcessService:
         chat_store: ChatStore | None = None,
         chat_projector: ChatProjector | None = None,
         complete_session_run: Callable[[str, str, int], Any] | None = None,
+        resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._history_service = history_service
@@ -84,6 +85,7 @@ class ChatPostProcessService:
         self._runtime_notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
         self._started_turn_traces: set[str] = set()
         self._complete_session_run = complete_session_run
+        self._resolve_session_run_status = resolve_session_run_status
 
     async def persist_turn_supersessions(
         self,
@@ -149,6 +151,10 @@ class ChatPostProcessService:
                 ux_plan=ux_plan,
             ):
                 return ChatParseOutcome(False, False, False, False)
+            return ChatParseOutcome(False, False, False, False)
+
+        if self._session_run_status(context) in {"cancelling", "cancelled"}:
+            await self._finalize_session_run(context)
             return ChatParseOutcome(False, False, False, False)
 
         history_stored = False
@@ -344,6 +350,56 @@ class ChatPostProcessService:
                 revision=revision,
                 error=str(exc),
             )
+            return
+        status = self._session_run_status(context)
+        if status == "cancelled":
+            active_run = context.active_run
+            await self.emit_execution_control_notification(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=(
+                    str((active_run.cancel_anchor_turn_id if active_run is not None else None) or "").strip()
+                    or str((active_run.root_turn_id if active_run is not None else None) or "").strip()
+                    or None
+                ),
+                run_id=run_id,
+                orchestration_id=(
+                    str(context.active_orchestrations[0].get("orchestration_id") or "").strip()
+                    if context.active_orchestrations
+                    and isinstance(context.active_orchestrations[0], dict)
+                    else None
+                ),
+                state="cancelled",
+                can_cancel=False,
+                label="Run cancelled",
+            )
+
+    def _session_run_status(self, context: ChatRuntimeContext) -> str | None:
+        if self._resolve_session_run_status is None:
+            return None
+        run_id = str(context.session_run_id or "").strip()
+        if not run_id:
+            return None
+        revision = int(context.session_run_revision or 0)
+        try:
+            status = self._resolve_session_run_status(
+                context.session_id,
+                run_id,
+                revision,
+            )
+            if inspect.isawaitable(status):
+                return None
+        except Exception as exc:
+            logger.warning(
+                "Failed to resolve chat session run status",
+                session_id=context.session_id,
+                run_id=run_id,
+                revision=revision,
+                error=str(exc),
+            )
+            return None
+        normalized = str(status or "").strip()
+        return normalized or None
 
     async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
         latest_fact = context.latest_fact
@@ -1033,6 +1089,29 @@ class ChatPostProcessService:
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
+        )
+
+    async def emit_execution_control_notification(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        run_id: str | None,
+        orchestration_id: str | None,
+        state: str,
+        can_cancel: bool,
+        label: str | None = None,
+    ) -> None:
+        await self._runtime_notifier.emit_execution_control(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            run_id=run_id,
+            orchestration_id=orchestration_id,
+            state=state,
+            can_cancel=can_cancel,
+            label=label,
         )
 
     @staticmethod

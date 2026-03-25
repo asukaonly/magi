@@ -54,6 +54,11 @@ export interface WSExecutionTraceUpdateMessage {
   data: ExecutionTraceUpdateData;
 }
 
+export interface WSTurnExecutionControlMessage {
+  type: 'turn_execution_control';
+  data: TurnExecutionControlData;
+}
+
 export interface WSAgentResponseMessage {
   type: 'agent_response';
   data: AgentResponseData;
@@ -95,6 +100,17 @@ export interface TraceSummaryData {
   duration_seconds: number;
   trace_available: boolean;
   orchestration_id?: string | null;
+  plan_summary?: {
+    planner?: string | null;
+    parallel_mode: string;
+    total_steps: number;
+    remaining_steps: number;
+    steps: Array<{
+      subtask_id?: string | null;
+      label: string;
+      status: string;
+    }>;
+  } | null;
 }
 
 export interface ExecutionTraceUpdateData {
@@ -111,6 +127,16 @@ export interface AgentResponseData {
   content: string;
   trace_summary?: TraceSummaryData;
   trace_available?: boolean;
+}
+
+export interface TurnExecutionControlData {
+  session_id?: string;
+  turn_id: string;
+  run_id?: string | null;
+  orchestration_id?: string | null;
+  state: string;
+  can_cancel: boolean;
+  label?: string | null;
 }
 
 // ============================================================================
@@ -155,6 +181,7 @@ export type WSServerMessage =
   | WSPersonalityInfoMessage
   | WSMessageSentMessage
   | WSExecutionTraceUpdateMessage
+  | WSTurnExecutionControlMessage
   | WSAgentResponseMessage
   | WSErrorMessage;
 

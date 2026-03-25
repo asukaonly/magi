@@ -110,10 +110,15 @@ class ChatPlanningService:
             task_category="chat",
             scenario=Scenario.CHAT,
         )
-        messages = filtered_history + [
+        system_prompt = self._prompt_service.build_aggregation_system_prompt(
+            base_system_prompt=system_prompt,
+            state=state,
+            payload=payload,
+        )
+        messages = filtered_history or [
             {
                 "role": "user",
-                "content": self._prompt_service.build_aggregation_user_message(state, payload),
+                "content": state.root_user_message,
             }
         ]
         try:

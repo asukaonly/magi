@@ -18,6 +18,7 @@ from ...tools.registry import tool_registry
 from ...runtime_trace import RuntimeTraceStore
 from ...utils.runtime import get_runtime_paths
 from ..execution.function_calling import FunctionCallingOrchestrator
+from .chat.interruption_classifier import InterruptionClassifier
 from .chat import (
     ChatExecutionCoordinator,
     ChatFactClassifier,
@@ -115,7 +116,11 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         self._session_run_coordinator = SessionRunCoordinator(
             run_store=SessionRunStore(
                 l0_store=(unified_memory.l0 if unified_memory is not None else None),
-            )
+            ),
+            interruption_classifier=InterruptionClassifier(
+                llm_adapter=llm_adapter,
+                llm_pool=llm_pool,
+            ),
         )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
@@ -157,6 +162,11 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             chat_store=chat_store,
             chat_projector=chat_projector,
             complete_session_run=lambda session_id, run_id, revision: self._session_run_coordinator.complete_run(
+                session_id=session_id,
+                run_id=run_id,
+                revision=revision,
+            ),
+            resolve_session_run_status=lambda session_id, run_id, revision: self._session_run_coordinator.get_run_status(
                 session_id=session_id,
                 run_id=run_id,
                 revision=revision,
@@ -225,7 +235,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             latest_fact=latest_fact,
             batch_facts=batch_facts,
         )
-        run_decision = self._session_run_coordinator.route(classified)
+        run_decision = await self._session_run_coordinator.aroute(classified)
         if run_decision.superseded_turns:
             updated_at_ms = int(latest_fact.timestamp * 1000) if isinstance(latest_fact, FactRecord) else now_wall_ms()
             await self._postprocess_service.persist_turn_supersessions(
@@ -301,3 +311,46 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             return int(get_config().llm.max_tokens)
         except Exception:
             return 4096
+
+    async def request_session_cancel(
+        self,
+        *,
+        session_id: str,
+        requested_by: str,
+        reason: str = "user_cancel",
+        anchor_turn_id: str | None = None,
+    ) -> dict[str, object] | None:
+        """Request strong cancellation for the active session run."""
+        active_run = self._session_run_coordinator.request_cancel(
+            session_id=session_id,
+            requested_by=requested_by,
+            reason=reason,
+            anchor_turn_id=anchor_turn_id,
+        )
+        if active_run is None:
+            return None
+        cancelled_orchestration_ids = await self._task_orchestrator.cancel_run(
+            session_id=session_id,
+            run_id=active_run.run_id,
+            run_revision=active_run.revision,
+        )
+        await self._postprocess_service.emit_execution_control_notification(
+            user_id=self.agent_id,
+            session_id=session_id,
+            turn_id=active_run.cancel_anchor_turn_id or active_run.root_turn_id,
+            run_id=active_run.run_id,
+            orchestration_id=(cancelled_orchestration_ids[0] if cancelled_orchestration_ids else None),
+            state="cancelling",
+            can_cancel=False,
+            label="Cancelling run",
+        )
+        return {
+            "session_id": session_id,
+            "run_id": active_run.run_id,
+            "revision": active_run.revision,
+            "status": active_run.status,
+            "cancel_reason": active_run.cancel_reason,
+            "cancel_requested_by": active_run.cancel_requested_by,
+            "cancel_anchor_turn_id": active_run.cancel_anchor_turn_id,
+            "cancelled_orchestration_ids": cancelled_orchestration_ids,
+        }

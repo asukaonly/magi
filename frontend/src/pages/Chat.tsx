@@ -41,6 +41,11 @@ interface WSMessage {
   message?: string;
 }
 
+interface TurnExecutionControlState {
+  state: string;
+  label: string | null;
+}
+
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const SESSION_EVENT = 'magi-session-sync';
 const USER_ID = DEFAULT_USER_ID;
@@ -213,6 +218,14 @@ const formatAttachmentKindLabel = (attachment: ChatAttachment, t: (key: string) 
   return t('chat.attachments.addFile');
 };
 
+const normalizeStepStatus = (value: string | null | undefined): string => {
+  const normalized = String(value || '').trim();
+  if (['completed', 'failed', 'running', 'pending'].includes(normalized)) {
+    return normalized;
+  }
+  return 'pending';
+};
+
 const resolveHistoryImagePreviewUrl = (attachment: ChatAttachment): string | null => {
   if (attachment.kind !== 'image') {
     return null;
@@ -333,6 +346,8 @@ export const ChatPage: React.FC = () => {
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
+  const [cancellingTurnIds, setCancellingTurnIds] = useState<string[]>([]);
+  const [executionControlByTurnId, setExecutionControlByTurnId] = useState<Record<string, TurnExecutionControlState>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
@@ -412,6 +427,11 @@ export const ChatPage: React.FC = () => {
     clearDraftAttachments();
     setAttachmentMenuOpen(false);
   }, [clearDraftAttachments, currentSessionId]);
+
+  useEffect(() => {
+    setCancellingTurnIds([]);
+    setExecutionControlByTurnId({});
+  }, [currentSessionId]);
 
   const persistSessionWorkspace = useCallback(async (workspacePath: string | null) => {
     if (!currentSessionId) {
@@ -541,6 +561,19 @@ export const ChatPage: React.FC = () => {
         duration_seconds: summary.durationSeconds,
         trace_available: summary.traceAvailable,
         orchestration_id: summary.orchestrationId || null,
+        plan_summary: summary.planSummary
+          ? {
+            planner: summary.planSummary.planner || null,
+            parallel_mode: summary.planSummary.parallelMode,
+            total_steps: summary.planSummary.totalSteps,
+            remaining_steps: summary.planSummary.remainingSteps,
+            steps: summary.planSummary.steps.map((step) => ({
+              subtask_id: step.subtaskId || null,
+              label: step.label,
+              status: step.status,
+            })),
+          }
+          : null,
       });
       applyConversationTraceSummary(sessionId, turnId, summary);
       if (drawerOpen && activeTurnId === turnId) {
@@ -602,6 +635,19 @@ export const ChatPage: React.FC = () => {
           duration_seconds: summary.durationSeconds,
           trace_available: summary.traceAvailable,
           orchestration_id: summary.orchestrationId || null,
+          plan_summary: summary.planSummary
+            ? {
+              planner: summary.planSummary.planner || null,
+              parallel_mode: summary.planSummary.parallelMode,
+              total_steps: summary.planSummary.totalSteps,
+              remaining_steps: summary.planSummary.remainingSteps,
+              steps: summary.planSummary.steps.map((step) => ({
+                subtask_id: step.subtaskId || null,
+                label: step.label,
+                status: step.status,
+              })),
+            }
+            : null,
         });
         if (sessionId) {
           applyConversationTraceSummary(sessionId, summary.turnId, summary);
@@ -642,6 +688,36 @@ export const ChatPage: React.FC = () => {
       });
     },
     [applyTurnUxPlan, currentSessionId, t]
+  );
+
+  const handleTurnExecutionControlEvent = useCallback(
+    (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
+      const turnId = String(payload?.turn_id || '').trim();
+      const state = String(payload?.state || '').trim();
+      if (!sessionId || !turnId || !state) return;
+
+      setExecutionControlByTurnId((current) => ({
+        ...current,
+        [turnId]: {
+          state,
+          label: payload?.label ? String(payload.label).trim() || null : null,
+        },
+      }));
+
+      if (state === 'cancelling') {
+        setCancellingTurnIds((current) => (current.includes(turnId) ? current : [...current, turnId]));
+        return;
+      }
+
+      if (['cancelled', 'completed', 'failed', 'interrupted', 'merged'].includes(state)) {
+        setCancellingTurnIds((current) => current.filter((item) => item !== turnId));
+        if (state === 'cancelled') {
+          requestHistory(sessionId);
+        }
+      }
+    },
+    [currentSessionId, requestHistory]
   );
 
   const handleWSMessage = useCallback(
@@ -695,6 +771,11 @@ export const ChatPage: React.FC = () => {
         return;
       }
 
+      if (eventName === 'turn_execution_control' && data.data) {
+        handleTurnExecutionControlEvent(data.data);
+        return;
+      }
+
       if (eventName === 'agent_response' && data.data) {
         handleAgentResponseEvent(data.data);
       }
@@ -702,6 +783,7 @@ export const ChatPage: React.FC = () => {
     [
       currentSessionId,
       handleAgentResponseEvent,
+      handleTurnExecutionControlEvent,
       handleExecutionTraceUpdate,
       handleTurnUxPlanEvent,
       messages.length,
@@ -848,6 +930,24 @@ export const ChatPage: React.FC = () => {
     }, 0);
   }, [loadTrace, openDrawer]);
 
+  const requestRunCancel = useCallback(async (turnId: string) => {
+    const normalizedTurnId = String(turnId || '').trim();
+    if (!currentSessionId || !normalizedTurnId) return;
+    if (cancellingTurnIds.includes(normalizedTurnId)) return;
+    setCancellingTurnIds((current) => [...current, normalizedTurnId]);
+    try {
+      await messagesApi.cancelRun(USER_ID, currentSessionId, {
+        reason: 'user_cancel',
+        turnId: normalizedTurnId,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error(t('chat.trace.cancelFailed'));
+    } finally {
+      setCancellingTurnIds((current) => current.filter((item) => item !== normalizedTurnId));
+    }
+  }, [cancellingTurnIds, currentSessionId, t]);
+
   const renderTraceEntry = (message: ChatTimelineMessage) => {
     const turnId = message.turnId;
     const traceSummary = turnId ? summaries[turnId] : undefined;
@@ -877,40 +977,232 @@ export const ChatPage: React.FC = () => {
     );
   };
 
-  const renderStatusCard = (message: ChatTimelineMessage) => (
-    <motion.div
-      key={message.id}
-      initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
-      className="mb-4 flex justify-start"
-    >
-      <div className="flex max-w-[76%] gap-3">
-        {getAvatar('assistant')}
-        <div className="rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>
-          </div>
-          {message.traceSummary && (
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-              <span className="rounded-full bg-muted px-2.5 py-1">
-                {t('chat.trace.active', { count: message.traceSummary.activeSteps })}
-              </span>
-              <span className="rounded-full bg-muted px-2.5 py-1">
-                {t('chat.trace.done', { count: message.traceSummary.completedSteps })}
-              </span>
-              {message.traceSummary.failedSteps > 0 && (
-                <span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-600">
-                  {t('chat.trace.failedCount', { count: message.traceSummary.failedSteps })}
+  const renderStatusCard = (message: ChatTimelineMessage) => {
+    const turnId = String(message.turnId || '').trim();
+    const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
+    const traceStatus = String(message.traceSummary?.status || '').trim() || 'running';
+    const executionState = executionControl?.state || traceStatus;
+    const isCancelling = executionState === 'cancelling' || (turnId ? cancellingTurnIds.includes(turnId) : false);
+    const showCancelButton = Boolean(turnId) && (executionState === 'running' || executionState === 'cancelling');
+    const planSummary = message.traceSummary?.planSummary;
+    const defaultExecutionTitleKey = (() => {
+      switch (executionState) {
+        case 'cancelling':
+          return 'chat.trace.execution.cancellingTitle';
+        case 'cancelled':
+          return 'chat.trace.execution.cancelledTitle';
+        case 'completed':
+          return 'chat.trace.execution.completedTitle';
+        case 'failed':
+          return 'chat.trace.execution.failedTitle';
+        default:
+          return 'chat.trace.execution.runningTitle';
+      }
+    })();
+    const subtitleKey = (() => {
+      switch (executionState) {
+        case 'cancelling':
+          return 'chat.trace.execution.cancellingBody';
+        case 'cancelled':
+          return 'chat.trace.execution.cancelledBody';
+        case 'completed':
+          return 'chat.trace.execution.completedBody';
+        case 'failed':
+          return 'chat.trace.execution.failedBody';
+        default:
+          return 'chat.trace.execution.runningBody';
+      }
+    })();
+    const statusTitle = executionControl?.label
+      || (executionState === 'running' ? (message.traceSummary?.headline || message.content) : '')
+      || t(defaultExecutionTitleKey);
+    const indicator = executionState === 'cancelled'
+      ? <X className="h-4 w-4 text-muted-foreground" />
+      : <Loader2 className={`h-4 w-4 text-primary ${executionState === 'running' || executionState === 'cancelling' ? 'animate-spin' : ''}`} />;
+    const runningStepIndex = planSummary?.steps.findIndex((step) => normalizeStepStatus(step.status) === 'running') ?? -1;
+    const resolvedRunningStep = runningStepIndex >= 0 ? runningStepIndex + 1 : 0;
+    const planStageSummary = planSummary
+      ? (() => {
+        const totalSteps = Math.max(planSummary.totalSteps, planSummary.steps.length, message.traceSummary?.completedSteps || 0);
+        if (!totalSteps) return null;
+        switch (executionState) {
+          case 'cancelling':
+            return t('chat.trace.plan.stage.cancelling', {
+              completed: message.traceSummary?.completedSteps || 0,
+              total: totalSteps,
+            });
+          case 'cancelled':
+            return t('chat.trace.plan.stage.cancelled', {
+              completed: message.traceSummary?.completedSteps || 0,
+              total: totalSteps,
+            });
+          case 'completed':
+            return t('chat.trace.plan.stage.completed', {
+              completed: Math.max(message.traceSummary?.completedSteps || 0, totalSteps),
+              total: totalSteps,
+            });
+          case 'failed':
+            return resolvedRunningStep > 0
+              ? t('chat.trace.plan.stage.failedStep', {
+                current: resolvedRunningStep,
+                total: totalSteps,
+              })
+              : t('chat.trace.plan.stage.failedFallback', {
+                completed: message.traceSummary?.completedSteps || 0,
+                failed: message.traceSummary?.failedSteps || 0,
+              });
+          default:
+            if (planSummary.parallelMode === 'parallel' && (message.traceSummary?.activeSteps || 0) > 1) {
+              return t('chat.trace.plan.stage.runningParallel', {
+                active: message.traceSummary?.activeSteps || 0,
+                completed: message.traceSummary?.completedSteps || 0,
+                total: totalSteps,
+              });
+            }
+            if (resolvedRunningStep > 0) {
+              return t('chat.trace.plan.stage.runningStep', {
+                current: resolvedRunningStep,
+                total: totalSteps,
+              });
+            }
+            return t('chat.trace.plan.stage.runningFallback', {
+              completed: message.traceSummary?.completedSteps || 0,
+              total: totalSteps,
+            });
+        }
+      })()
+      : null;
+    const footerKey = (() => {
+      switch (executionState) {
+        case 'cancelled':
+          return 'chat.trace.execution.footerCancelled';
+        case 'completed':
+          return 'chat.trace.execution.footerCompleted';
+        case 'failed':
+          return 'chat.trace.execution.footerFailed';
+        default:
+          return null;
+      }
+    })();
+
+    return (
+      <motion.div
+        key={message.id}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+        className="mb-4 flex justify-start"
+        data-testid={turnId ? `chat-trace-status-card-${turnId}` : undefined}
+      >
+        <div className="flex max-w-[76%] gap-3">
+          {getAvatar('assistant')}
+          <div className="rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              {indicator}
+              <span className="text-sm font-medium text-foreground">{statusTitle}</span>
+            </div>
+            <div className="mt-1 text-xs leading-5 text-muted-foreground">{t(subtitleKey)}</div>
+            {planStageSummary && (
+              <div className="mt-3 rounded-lg border border-border/50 bg-background/70 px-3 py-2 text-xs font-medium text-foreground/80">
+                {planStageSummary}
+              </div>
+            )}
+            {message.traceSummary && (
+              <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                <span className="rounded-full bg-muted px-2.5 py-1">
+                  {t('chat.trace.active', { count: message.traceSummary.activeSteps })}
                 </span>
+                <span className="rounded-full bg-muted px-2.5 py-1">
+                  {t('chat.trace.done', { count: message.traceSummary.completedSteps })}
+                </span>
+                {message.traceSummary.failedSteps > 0 && (
+                  <span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-600">
+                    {t('chat.trace.failedCount', { count: message.traceSummary.failedSteps })}
+                  </span>
+                )}
+              </div>
+            )}
+            {planSummary && planSummary.steps.length > 0 && (
+              <div className="mt-3 rounded-lg border border-border/50 bg-background/80 p-3">
+                <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                  <span className="rounded-full bg-muted px-2.5 py-1">
+                    {planSummary.parallelMode === 'parallel'
+                      ? t('chat.trace.plan.parallel')
+                      : t('chat.trace.plan.sequential')}
+                  </span>
+                  <span className="rounded-full bg-muted px-2.5 py-1">
+                    {t('chat.trace.plan.totalSteps', { count: planSummary.totalSteps })}
+                  </span>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {planSummary.steps.map((step) => {
+                    const stepStatus = normalizeStepStatus(step.status);
+                    const stepDotClass = stepStatus === 'completed'
+                      ? 'bg-emerald-500'
+                      : stepStatus === 'failed'
+                        ? 'bg-rose-500'
+                        : stepStatus === 'running'
+                          ? 'bg-primary'
+                          : 'bg-muted-foreground/60';
+                    const stepContainerClass = stepStatus === 'running'
+                      ? 'border-primary/30 bg-primary/5'
+                      : stepStatus === 'completed'
+                        ? 'border-emerald-200 bg-emerald-50/60'
+                        : stepStatus === 'failed'
+                          ? 'border-rose-200 bg-rose-50/70'
+                          : 'border-border/40 bg-background/70';
+                    return (
+                      <div
+                        key={step.subtaskId || step.label}
+                        className={`flex items-start justify-between gap-3 rounded-md border px-3 py-2 ${stepContainerClass}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${stepDotClass}`} />
+                          <span className="text-sm leading-6 text-foreground">{step.label}</span>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {t(`chat.trace.plan.stepStatus.${stepStatus}`)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {planSummary.remainingSteps > 0 && (
+                  <div className="mt-3 text-[11px] text-muted-foreground">
+                    {t('chat.trace.plan.moreSteps', { count: planSummary.remainingSteps })}
+                  </div>
+                )}
+              </div>
+            )}
+            {footerKey && (
+              <div className="mt-3 text-[11px] text-muted-foreground">
+                {t(footerKey)}
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {renderTraceEntry(message)}
+              {showCancelButton && turnId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={isCancelling}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void requestRunCancel(turnId);
+                  }}
+                  className="h-7 rounded-full px-2.5 text-[11px]"
+                >
+                  {t('chat.trace.cancelRun')}
+                </Button>
               )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
-    </motion.div>
-  );
+      </motion.div>
+    );
+  };
 
   const renderUserTurnTraceStatus = (message: ChatTimelineMessage) => {
     if (message.role !== 'user' || !message.traceSummary) return null;

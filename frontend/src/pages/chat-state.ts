@@ -31,10 +31,25 @@ export interface NormalizedExecutionTraceSummary {
   durationSeconds: number;
   traceAvailable: boolean;
   orchestrationId?: string | null;
+  planSummary?: NormalizedExecutionPlanSummary | null;
   continuedFromTurnId?: string | null;
   continuedFromTraceId?: string | null;
   supersededByTurnId?: string | null;
   supersessionReason?: string | null;
+}
+
+export interface NormalizedExecutionPlanSummary {
+  planner?: string | null;
+  parallelMode: string;
+  totalSteps: number;
+  remainingSteps: number;
+  steps: NormalizedExecutionPlanStep[];
+}
+
+export interface NormalizedExecutionPlanStep {
+  subtaskId?: string | null;
+  label: string;
+  status: string;
 }
 
 export interface NormalizedExecutionTraceNode {
@@ -103,6 +118,25 @@ export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSum
   const summary = raw as ExecutionTraceSummary;
   const turnId = String(summary.turn_id || '').trim();
   if (!turnId) return null;
+  const rawPlanSummary = summary.plan_summary;
+  const normalizedPlanSummary = rawPlanSummary && typeof rawPlanSummary === 'object'
+    ? {
+      planner: rawPlanSummary.planner || null,
+      parallelMode: String(rawPlanSummary.parallel_mode || 'parallel'),
+      totalSteps: Number(rawPlanSummary.total_steps || 0),
+      remainingSteps: Number(rawPlanSummary.remaining_steps || 0),
+      steps: Array.isArray(rawPlanSummary.steps)
+        ? rawPlanSummary.steps
+          .filter((step): step is NonNullable<typeof rawPlanSummary.steps>[number] => Boolean(step && typeof step === 'object'))
+          .map((step) => ({
+            subtaskId: step.subtask_id || null,
+            label: String(step.label || ''),
+            status: String(step.status || 'pending'),
+          }))
+          .filter((step) => step.label.length > 0)
+        : [],
+    }
+    : null;
   return {
     turnId,
     mode: String(summary.mode || 'function_calling'),
@@ -114,6 +148,7 @@ export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSum
     durationSeconds: Number(summary.duration_seconds || 0),
     traceAvailable: Boolean(summary.trace_available),
     orchestrationId: summary.orchestration_id || null,
+    planSummary: normalizedPlanSummary,
     continuedFromTurnId: summary.continued_from_turn_id || null,
     continuedFromTraceId: summary.continued_from_trace_id || null,
     supersededByTurnId: summary.superseded_by_turn_id || null,
@@ -300,7 +335,7 @@ export const applyTurnUxPlan = (
     let replaced = false;
     const nextMessages = messages.map((message) => {
       if (message.turnId !== resolvedTurnId) return message;
-      if (message.kind === 'assistant' || message.kind === 'status') {
+      if (message.messageKind === 'assistant_interim' || message.kind === 'status') {
         replaced = true;
         return applyUxMetadata({
           ...message,
@@ -482,6 +517,15 @@ export const applyAgentResponse = (
     traceAvailable,
   });
 
+  const hasInterimAssistant = turnId
+    ? messages.some(
+      (message) =>
+        message.turnId === turnId
+        && message.kind === 'assistant'
+        && message.messageKind === 'assistant_interim'
+    )
+    : false;
+
   if (!turnId) {
     const lastStatusIndex = [...messages].map((message) => message.kind).lastIndexOf('status');
     if (lastStatusIndex >= 0) {
@@ -501,11 +545,26 @@ export const applyAgentResponse = (
   }
 
   let replaced = false;
+  if (hasInterimAssistant) {
+    const existingFinalIndex = messages.findIndex(
+      (message) =>
+        message.turnId === turnId
+        && message.kind === 'assistant'
+        && message.messageKind !== 'assistant_interim'
+    );
+    if (existingFinalIndex >= 0) {
+      return messages.map((message, index) =>
+        index === existingFinalIndex ? buildAssistantMessage(turnId) : message
+      );
+    }
+    return [...messages, buildAssistantMessage(turnId)];
+  }
+
   const nextMessages = messages.map((message) => {
     if (message.turnId !== turnId) return message;
     if (message.kind === 'status' || message.kind === 'assistant') {
       replaced = true;
-      return { ...buildAssistantMessage(turnId), id: String(payload.messageId || `${turnId}-assistant`), turnId };
+      return { ...buildAssistantMessage(turnId), turnId };
     }
     return message;
   });
@@ -520,9 +579,9 @@ export const applyAgentResponse = (
 
   if (fallbackStatusIndex !== undefined) {
     return messages.map((message, index) =>
-      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId), id: String(payload.messageId || `${turnId}-assistant`), turnId } : message
+      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId), turnId } : message
     );
   }
 
-  return [...messages, { ...buildAssistantMessage(turnId), id: String(payload.messageId || `${turnId}-assistant`), turnId }];
+  return [...messages, { ...buildAssistantMessage(turnId), turnId }];
 };

@@ -75,6 +75,7 @@ vi.mock('@/api', () => ({
     getTrace: vi.fn(),
     uploadAttachment: vi.fn(),
     updateSessionWorkspace: vi.fn(),
+    cancelRun: vi.fn(),
   },
 }));
 
@@ -695,7 +696,7 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(screen.getByText('已经查好了')).toBeInTheDocument();
     });
-    expect(screen.queryByText('稍等我查一下')).not.toBeInTheDocument();
+    expect(screen.getByText('稍等我查一下')).toBeInTheDocument();
   });
 
   it('renders a reaction-only acknowledgement without an assistant bubble', async () => {
@@ -936,6 +937,192 @@ describe('ChatPage', () => {
     });
 
     expect(screen.getAllByRole('button', { name: 'chat.trace.view' }).length).toBeGreaterThan(0);
+  });
+
+  it('requests run cancellation from the running trace status card', async () => {
+    vi.mocked(messagesApi.cancelRun).mockResolvedValue({
+      success: true,
+      message: 'cancelled',
+      data: {
+        user_id: 'local_user',
+        session_id: 'session-1',
+        run_id: 'run-1',
+        status: 'cancelling',
+      },
+    });
+
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-running',
+          trace_summary: {
+            turn_id: 'turn-running',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.4,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('正在分析项目')).toBeInTheDocument();
+    });
+
+    const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+    await userEvent.click(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' }));
+
+    await waitFor(() => {
+      expect(messagesApi.cancelRun).toHaveBeenCalledWith('local_user', 'session-1', {
+        reason: 'user_cancel',
+        turnId: 'turn-running',
+      });
+    });
+  });
+
+  it('updates the running trace status card from execution control websocket events', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-running',
+          trace_summary: {
+            turn_id: 'turn-running',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.4,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+      expect(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeEnabled();
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'turn_execution_control',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-running',
+          state: 'cancelling',
+          can_cancel: false,
+          label: 'Cancelling run',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+      expect(within(runningCard).getByText('Cancelling run')).toBeInTheDocument();
+      expect(within(runningCard).getByText('chat.trace.execution.cancellingBody')).toBeInTheDocument();
+      expect(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeDisabled();
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'turn_execution_control',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-running',
+          state: 'cancelled',
+          can_cancel: false,
+          label: 'Run cancelled',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+      expect(within(runningCard).getByText('Run cancelled')).toBeInTheDocument();
+      expect(within(runningCard).getByText('chat.trace.execution.cancelledBody')).toBeInTheDocument();
+      expect(within(runningCard).getByText('chat.trace.execution.footerCancelled')).toBeInTheDocument();
+      expect(within(runningCard).queryByRole('button', { name: 'chat.trace.cancelRun' })).not.toBeInTheDocument();
+      expect(sendMock).toHaveBeenCalledWith({
+        type: 'get_history',
+        session_id: 'session-1',
+      });
+    });
+  });
+
+  it('renders a richer orchestration plan preview on the running trace status card', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-plan-preview',
+          trace_summary: {
+            turn_id: 'turn-plan-preview',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.4,
+            trace_available: true,
+            plan_summary: {
+              planner: 'task_agent',
+              parallel_mode: 'parallel',
+              total_steps: 4,
+              remaining_steps: 1,
+              steps: [
+                {
+                  subtask_id: 'subtask_1',
+                  label: '梳理现有文档和范围',
+                  status: 'completed',
+                },
+                {
+                  subtask_id: 'subtask_2',
+                  label: '盘点代码结构与运行方式',
+                  status: 'running',
+                },
+                {
+                  subtask_id: 'subtask_3',
+                  label: '整理 MVP 验收清单',
+                  status: 'pending',
+                },
+              ],
+            },
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('梳理现有文档和范围')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('盘点代码结构与运行方式')).toBeInTheDocument();
+    expect(screen.getByText('整理 MVP 验收清单')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.stage.runningParallel')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.parallel')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.stepStatus.completed')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.stepStatus.running')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.stepStatus.pending')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.moreSteps')).toBeInTheDocument();
   });
 
   it('does not ask the backend for a current session after websocket subscribe', () => {

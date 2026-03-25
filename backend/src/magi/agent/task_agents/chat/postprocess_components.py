@@ -448,3 +448,41 @@ class ChatRuntimeNotifier:
                 created_at_ms=now_wall_ms(),
             )
         )
+
+    async def emit_execution_control(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        run_id: str | None,
+        orchestration_id: str | None,
+        state: str,
+        can_cancel: bool,
+        label: str | None = None,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._runtime_trace_store is None or not normalized_turn_id:
+            return
+        payload = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": normalized_turn_id,
+            "run_id": run_id,
+            "orchestration_id": orchestration_id,
+            "state": state,
+            "can_cancel": can_cancel,
+            "label": label,
+            "timestamp": time.time(),
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="execution_control",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=normalized_turn_id,
+                payload_json=json.dumps(payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )

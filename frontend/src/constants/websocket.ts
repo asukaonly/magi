@@ -29,6 +29,7 @@ export const WS_MESSAGE_TYPES = {
   PERSONALITY_INFO: 'personality_info',
   MESSAGE_SENT: 'message_sent',
   EXECUTION_TRACE_UPDATE: 'execution_trace_update',
+  TURN_EXECUTION_CONTROL: 'turn_execution_control',
   AGENT_RESPONSE: 'agent_response',
   ERROR: 'error',
   // Client message types (also used in server responses)

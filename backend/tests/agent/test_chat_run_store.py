@@ -46,6 +46,35 @@ def test_bump_revision_increments_active_run_revision() -> None:
     assert store.get_active_run("session-1") == bumped_run
 
 
+def test_request_cancel_marks_active_run_cancelling() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1", root_turn_id="turn-1")
+
+    cancelling_run = store.request_cancel(
+        "session-1",
+        requested_by="local_user",
+        reason="user_cancel",
+        anchor_turn_id="turn-2",
+    )
+
+    assert cancelling_run.status == "cancelling"
+    assert cancelling_run.cancel_requested_by == "local_user"
+    assert cancelling_run.cancel_reason == "user_cancel"
+    assert cancelling_run.cancel_anchor_turn_id == "turn-2"
+    assert cancelling_run.cancel_requested_at is not None
+
+
+def test_mark_cancelled_updates_run_status() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+    store.request_cancel("session-1", requested_by="local_user")
+
+    cancelled_run = store.mark_cancelled("session-1", run_id="run-1", revision=0)
+
+    assert cancelled_run.status == "cancelled"
+    assert cancelled_run.cancel_requested_by == "local_user"
+
+
 def test_complete_active_run_clears_session_state() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1")
@@ -143,6 +172,27 @@ def test_record_result_routes_by_run_identity_and_revision() -> None:
     assert [item.result_id for item in active_run.stale_results] == ["result-2"]
 
 
+def test_record_result_after_cancel_is_forced_stale() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+    store.request_cancel("session-1", requested_by="local_user", reason="user_cancel")
+
+    stale_result = store.record_result(
+        session_id="session-1",
+        run_id="run-1",
+        result_id="result-1",
+        revision=0,
+        payload={"content": "late but same revision"},
+    )
+
+    active_run = store.get_active_run("session-1")
+
+    assert stale_result.disposition == RunResultDisposition.STALE
+    assert active_run is not None
+    assert active_run.accepted_results == []
+    assert [item.result_id for item in active_run.stale_results] == ["result-1"]
+
+
 def test_record_result_rejects_late_result_from_superseded_run() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1")
@@ -206,5 +256,44 @@ async def test_session_run_store_restores_active_run_from_l0_checkpoint(tmp_path
     assert active_run is not None
     assert active_run.run_id == "run-1"
     assert active_run.root_turn_id == "turn-1"
+    assert active_run.status == "running"
     assert [item.turn_id for item in active_run.pending_turns] == ["turn-2"]
     assert [item.result_id for item in active_run.accepted_results] == ["result-1"]
+
+
+@pytest.mark.asyncio
+async def test_session_run_store_restores_cancel_metadata_from_l0_checkpoint(tmp_path) -> None:
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    checkpoint_path = tmp_path / "l0_execution_state.db"
+    l0_store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        restore_on_restart=True,
+    )
+    await l0_store.initialize()
+
+    store = SessionRunStore(l0_store=l0_store)
+    store.create_active_run(session_id="session-1", run_id="run-1", root_turn_id="turn-1")
+    store.request_cancel(
+        "session-1",
+        requested_by="local_user",
+        reason="user_cancel",
+        anchor_turn_id="turn-2",
+    )
+    await l0_store.checkpoint_session("session-1")
+
+    restored_l0 = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        restore_on_restart=True,
+    )
+    await restored_l0.initialize()
+    restored_store = SessionRunStore(l0_store=restored_l0)
+
+    active_run = restored_store.get_active_run("session-1")
+
+    assert active_run is not None
+    assert active_run.status == "cancelling"
+    assert active_run.cancel_requested_by == "local_user"
+    assert active_run.cancel_reason == "user_cancel"
+    assert active_run.cancel_anchor_turn_id == "turn-2"
+    assert active_run.cancel_requested_at is not None
