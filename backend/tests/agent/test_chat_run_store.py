@@ -46,6 +46,25 @@ def test_bump_revision_increments_active_run_revision() -> None:
     assert store.get_active_run("session-1") == bumped_run
 
 
+def test_complete_active_run_clears_session_state() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+    store.append_pending_turn(
+        session_id="session-1",
+        turn_id="turn-2",
+        content="follow-up message",
+    )
+
+    completed = store.complete_active_run(
+        "session-1",
+        run_id="run-1",
+        revision=0,
+    )
+
+    assert completed is True
+    assert store.get_active_run("session-1") is None
+
+
 def test_consume_pending_turns_only_clears_requested_revision() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1")

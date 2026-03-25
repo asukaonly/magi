@@ -6,8 +6,11 @@ from threading import RLock
 from typing import Any
 from uuid import uuid4
 
+from ....core.logger import get_logger
 from ....memory.l0.working_memory import L0WorkingMemoryStore
 from .run_contracts import ActiveRun, PendingTurn, RunResult, RunResultDisposition
+
+logger = get_logger(__name__)
 
 
 class SessionRunStore:
@@ -39,6 +42,13 @@ class SessionRunStore:
                 response_anchor_turn_id=root_turn_id,
             )
             active_run = self._require_run(session_id)
+            logger.info(
+                "Chat session run created",
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+                root_turn_id=active_run.root_turn_id,
+            )
             return deepcopy(active_run)
 
     def get_active_run(self, session_id: str) -> ActiveRun | None:
@@ -59,6 +69,13 @@ class SessionRunStore:
                 revision=active_run.revision,
             )
             pending_turn = self._to_pending_turn(pending_payload)
+            logger.info(
+                "Chat session run queued pending turn",
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+                turn_id=pending_turn.turn_id,
+            )
             return deepcopy(pending_turn)
 
     def set_root_turn(
@@ -81,7 +98,39 @@ class SessionRunStore:
                 response_anchor_turn_id=turn_id,
             )
             active_run = self._require_run(session_id)
+            logger.info(
+                "Chat session run root turn updated",
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+                root_turn_id=active_run.root_turn_id,
+            )
             return deepcopy(active_run)
+
+    def complete_active_run(
+        self,
+        session_id: str,
+        *,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> bool:
+        """Clear the active run when the expected run/revision is still current."""
+        with self._lock:
+            active_run = self._get_run(session_id)
+            if active_run is None:
+                return False
+            if run_id is not None and active_run.run_id != run_id:
+                return False
+            if revision is not None and active_run.revision != int(revision):
+                return False
+            self._l0_store.clear_execution_state_sync(session_id)
+            logger.info(
+                "Chat session run completed",
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+            )
+            return True
 
     def consume_pending_turns(self, session_id: str, *, revision: int | None = None) -> list[PendingTurn]:
         """Return and clear pending turns for the active run."""
@@ -120,6 +169,13 @@ class SessionRunStore:
                 response_anchor_turn_id=active_run.root_turn_id,
             )
             active_run = self._require_run(session_id)
+            logger.info(
+                "Chat session run revised",
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+                clear_pending_turns=clear_pending_turns,
+            )
             return deepcopy(active_run)
 
     def mark_stale_result(

@@ -1,6 +1,7 @@
 """Post-processing and side effects for chat execution results."""
 from __future__ import annotations
 
+import inspect
 import json
 import time
 import uuid
@@ -60,6 +61,7 @@ class ChatPostProcessService:
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
         chat_projector: ChatProjector | None = None,
+        complete_session_run: Callable[[str, str, int], Any] | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._history_service = history_service
@@ -81,6 +83,7 @@ class ChatPostProcessService:
         )
         self._runtime_notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
         self._started_turn_traces: set[str] = set()
+        self._complete_session_run = complete_session_run
 
     async def persist_turn_supersessions(
         self,
@@ -224,6 +227,7 @@ class ChatPostProcessService:
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
         )
+        await self._finalize_session_run(context)
         notification_message = await self._get_notification_chat_message(
             turn_id=turn_id,
             ux_plan=ux_plan,
@@ -314,7 +318,32 @@ class ChatPostProcessService:
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
         )
+        await self._finalize_session_run(context)
         return True
+
+    async def _finalize_session_run(self, context: ChatRuntimeContext) -> None:
+        if self._complete_session_run is None:
+            return
+        run_id = str(context.session_run_id or "").strip()
+        if not run_id:
+            return
+        revision = int(context.session_run_revision or 0)
+        try:
+            completion = self._complete_session_run(
+                context.session_id,
+                run_id,
+                revision,
+            )
+            if inspect.isawaitable(completion):
+                await completion
+        except Exception as exc:
+            logger.warning(
+                "Failed to complete chat session run",
+                session_id=context.session_id,
+                run_id=run_id,
+                revision=revision,
+                error=str(exc),
+            )
 
     async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
         latest_fact = context.latest_fact

@@ -264,6 +264,20 @@ class SessionRunCoordinator:
             payload=payload,
         )
 
+    def complete_run(
+        self,
+        *,
+        session_id: str,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> bool:
+        """Complete the active run if it still matches the expected identity."""
+        return self._run_store.complete_active_run(
+            session_id,
+            run_id=run_id,
+            revision=revision,
+        )
+
     def _record_classified_result(
         self,
         *,

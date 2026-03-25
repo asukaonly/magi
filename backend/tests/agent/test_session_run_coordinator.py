@@ -94,6 +94,44 @@ def test_interjection_during_active_run_is_classified_and_stored() -> None:
     ]
 
 
+def test_second_turn_starts_fresh_run_after_previous_run_completes() -> None:
+    classifier = ChatFactClassifier()
+    coordinator = SessionRunCoordinator()
+    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
+    first_routed = coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=first_fact,
+            batch_facts=[first_fact],
+        )
+    )
+    assert first_routed.active_run is not None
+
+    completed = coordinator.complete_run(
+        session_id="s-chat",
+        run_id=first_routed.active_run.run_id,
+        revision=first_routed.active_run.revision,
+    )
+
+    second_fact = _user_fact("杭州啥天气", turn_id="turn-2")
+    second_routed = coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=second_fact,
+            batch_facts=[second_fact],
+        )
+    )
+
+    assert completed is True
+    assert second_routed.active_run is not None
+    assert second_routed.run_disposition == "root"
+    assert second_routed.planner_fact == second_fact
+    assert second_routed.planner_fact_kind == IncomingFactKind.USER_MESSAGE
+    assert second_routed.planner_user_message == "杭州啥天气"
+    assert second_routed.active_run.root_turn_id == "turn-2"
+    assert second_routed.active_run.pending_turns == []
+
+
 def test_interrupt_bumps_revision() -> None:
     classifier = ChatFactClassifier()
     coordinator = SessionRunCoordinator()

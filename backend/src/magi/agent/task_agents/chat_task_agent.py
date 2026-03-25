@@ -156,6 +156,11 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             runtime_trace_store=runtime_trace_store,
             chat_store=chat_store,
             chat_projector=chat_projector,
+            complete_session_run=lambda session_id, run_id, revision: self._session_run_coordinator.complete_run(
+                session_id=session_id,
+                run_id=run_id,
+                revision=revision,
+            ),
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,

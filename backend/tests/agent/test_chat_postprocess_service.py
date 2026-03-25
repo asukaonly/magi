@@ -1047,6 +1047,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
     action_emitter = _FakeActionEmitter()
+    completed_runs: list[tuple[str, str, int]] = []
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
@@ -1054,6 +1055,9 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
+        complete_session_run=lambda session_id, run_id, revision: completed_runs.append(
+            (session_id, run_id, revision)
+        ),
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
@@ -1084,6 +1088,8 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         conversation_history=[],
         active_orchestrations=[],
         recent_tool_errors=[],
+        session_run_id="run-1",
+        session_run_revision=0,
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload(
@@ -1139,6 +1145,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     assert root_span is not None
     assert root_span.status == "completed"
     assert len(notifications) == 1
+    assert completed_runs == [("session-1", "run-1", 0)]
     payload = json.loads(notifications[0].payload_json)
     assert payload["ux_plan"]["assistant_surface_mode"] == "final_only"
 
