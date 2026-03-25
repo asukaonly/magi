@@ -1090,6 +1090,26 @@ describe('config forms', () => {
     expect(within(editor).getByRole('switch', { name: 'llm.modelFields.vision' })).toHaveAttribute('aria-checked', 'true');
   });
 
+  it('keeps the provider workbench focused on name, capabilities, and limits', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const modelList = await screen.findByTestId('llm-provider-model-list-pane');
+    await user.click((within(modelList).getByText('GPT-5.2') as HTMLElement).closest('button') as HTMLButtonElement);
+
+    const editor = screen.getByTestId('llm-provider-model-editor');
+    expect(within(editor).getByLabelText('llm.fields.displayName')).toBeInTheDocument();
+    expect(within(editor).queryByLabelText('llm.modelFields.icon')).not.toBeInTheDocument();
+    expect(within(editor).queryByLabelText('llm.modelFields.description')).not.toBeInTheDocument();
+    expect(within(editor).queryByRole('switch', { name: 'llm.modelFields.hidden' })).not.toBeInTheDocument();
+    expect(within(editor).queryByRole('switch', { name: 'llm.modelFields.preferred' })).not.toBeInTheDocument();
+  });
+
   it('lets users remove a custom provider and falls back to builtin providers', async () => {
     const user = userEvent.setup();
 

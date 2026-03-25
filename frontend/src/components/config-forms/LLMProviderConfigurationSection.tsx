@@ -54,10 +54,6 @@ interface ProviderWorkbenchModelItem {
   id: string;
   label: string;
   source: 'builtin' | 'manual';
-  description?: string;
-  icon?: string;
-  hidden: boolean;
-  preferred: boolean;
   capabilities: {
     vision: boolean;
     image_output: boolean;
@@ -90,10 +86,6 @@ const buildProviderWorkbenchModels = (
       id: model.id,
       label: model.label || model.id,
       source: model.source,
-      description: model.description,
-      icon: model.icon,
-      hidden: model.hidden,
-      preferred: model.preferred,
       capabilities: {
         vision: model.capabilities.vision,
         image_output: model.capabilities.image_output,
@@ -111,10 +103,6 @@ const buildProviderWorkbenchModels = (
     if (existing) {
       existing.kinds = Array.from(new Set([...existing.kinds, 'embedding']));
       existing.capabilities = model.capabilities;
-      existing.hidden = model.hidden;
-      existing.preferred = model.preferred;
-      existing.description = model.description || existing.description;
-      existing.icon = model.icon || existing.icon;
       existing.limits = model.limits || {};
       continue;
     }
@@ -123,10 +111,6 @@ const buildProviderWorkbenchModels = (
       id: model.id,
       label: model.label || model.id,
       source: model.source,
-      description: model.description,
-      icon: model.icon,
-      hidden: model.hidden,
-      preferred: model.preferred,
       capabilities: model.capabilities,
       limits: model.limits || {},
       kinds: ['embedding'],
@@ -162,15 +146,11 @@ const isModelOverrideEmpty = (value: LLMModelMetadataOverride): boolean => {
   const limits = Object.values(value.limits || {}).every((item) => item === null || item === undefined);
 
   return !value.label &&
-    !value.description &&
-    !value.icon &&
     capabilities &&
     limits &&
     (value.input_modalities === undefined || value.input_modalities === null) &&
     (value.output_modalities === undefined || value.output_modalities === null) &&
     (value.provider_options_example === undefined || value.provider_options_example === null) &&
-    (value.hidden === undefined || value.hidden === null) &&
-    (value.preferred === undefined || value.preferred === null) &&
     !value.source_note;
 };
 
@@ -804,7 +784,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             </div>
                           </div>
 
-                          <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-2')}>
+                          <div className="grid gap-4">
                             <label className="space-y-2">
                               <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
                               <input
@@ -818,34 +798,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                 }
                               />
                             </label>
-
-                            <label className="space-y-2">
-                              <span className="text-sm font-medium">{t('llm.modelFields.icon')}</span>
-                              <input
-                                aria-label={t('llm.modelFields.icon')}
-                                className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                value={activeModelOverride?.icon ?? activeWorkbenchModel.icon ?? ''}
-                                onChange={(event) =>
-                                  updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                    draft.icon = event.target.value.trim() || undefined;
-                                  })
-                                }
-                              />
-                            </label>
-
-                            <label className={cn('space-y-2', !isSettingsSurface && 'lg:col-span-2')}>
-                              <span className="text-sm font-medium">{t('llm.modelFields.description')}</span>
-                              <input
-                                aria-label={t('llm.modelFields.description')}
-                                className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                value={activeModelOverride?.description ?? activeWorkbenchModel.description ?? ''}
-                                onChange={(event) =>
-                                  updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                    draft.description = event.target.value.trim() || undefined;
-                                  })
-                                }
-                              />
-                            </label>
                           </div>
 
                           <div className={cn('grid gap-3', !isSettingsSurface && 'md:grid-cols-2 xl:grid-cols-3')}>
@@ -855,13 +807,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                               ['tool_calling', t('llm.modelFields.toolCalling')],
                               ['reasoning', t('llm.modelFields.reasoning')],
                               ['image_output', t('llm.modelFields.imageOutput')],
-                              ['hidden', t('llm.modelFields.hidden')],
-                              ['preferred', t('llm.modelFields.preferred')],
                             ] as const).map(([field, label]) => {
-                              const checked =
-                                field === 'hidden' || field === 'preferred'
-                                  ? Boolean(activeModelOverride?.[field] ?? activeWorkbenchModel[field])
-                                  : Boolean(activeModelOverride?.capabilities?.[field] ?? activeWorkbenchModel.capabilities[field]);
+                              const checked = Boolean(
+                                activeModelOverride?.capabilities?.[field] ?? activeWorkbenchModel.capabilities[field]
+                              );
 
                               return (
                                 <div
@@ -874,10 +823,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                                     checked={checked}
                                     onCheckedChange={(nextValue) =>
                                       updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                        if (field === 'hidden' || field === 'preferred') {
-                                          draft[field] = nextValue;
-                                          return;
-                                        }
                                         draft.capabilities = { ...(draft.capabilities || {}), [field]: nextValue };
                                       })
                                     }

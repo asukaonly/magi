@@ -638,6 +638,34 @@ describe('settings page draft saving', () => {
     expect(screen.getByText('settings.allChangesSaved')).toBeInTheDocument();
   });
 
+  it('keeps llm edits dirty when a later normalization pass refines the draft', async () => {
+    const user = userEvent.setup();
+
+    llmFormAutoChangeRef.current = ({ value, view }) => {
+      if (view !== 'providers' || !value?.model || value.normalized) {
+        return null;
+      }
+
+      return {
+        ...value,
+        normalized: true,
+      };
+    };
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.llm' }));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.llmProviders' }));
+    await screen.findByText('llm-view:providers');
+
+    await user.click(screen.getByRole('button', { name: 'change-llm' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
+  });
+
   it('saves a picked default chat workspace path in preferences', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/Users/asuka/code/magi');

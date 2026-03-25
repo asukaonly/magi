@@ -222,17 +222,23 @@ export function useSettings(): UseSettingsReturn {
   }, []);
 
   const syncNormalizedLlmConfig = useCallback((nextLlmConfig: SystemConfig['llm']) => {
-    setSavedConfig((prev) => {
-      const next = structuredClone(prev);
-      next.llm = structuredClone(nextLlmConfig);
-      return next;
-    });
+    const nextSnapshot = structuredClone(nextLlmConfig);
+    const draftWasPristine = serialize(savedConfig.llm) === serialize(draftConfig.llm);
+
+    if (draftWasPristine) {
+      setSavedConfig((prev) => {
+        const next = structuredClone(prev);
+        next.llm = structuredClone(nextSnapshot);
+        return next;
+      });
+    }
+
     setDraftConfig((prev) => {
       const next = structuredClone(prev);
-      next.llm = structuredClone(nextLlmConfig);
+      next.llm = structuredClone(nextSnapshot);
       return next;
     });
-  }, []);
+  }, [draftConfig.llm, savedConfig.llm]);
 
   // ========================================
   // Data Loading Functions
