@@ -388,6 +388,24 @@ class ChatPostProcessService:
                 can_cancel=False,
                 label="Run cancelled",
             )
+        await self._notify_memory_session_end(context.session_id)
+
+    async def _notify_memory_session_end(self, session_id: str | None) -> None:
+        """Fire-and-forget L2 session-end review so memory can flush remaining
+        staged events and reconcile all entities touched during the session."""
+        if not session_id or self._unified_memory is None:
+            return
+        on_session_end = getattr(self._unified_memory, "on_session_end", None)
+        if on_session_end is None:
+            return
+        try:
+            await on_session_end(session_id)
+        except Exception:
+            logger.warning(
+                "L2 session-end review failed",
+                session_id=session_id,
+                exc_info=True,
+            )
 
     def _session_run_status(self, context: ChatRuntimeContext) -> str | None:
         if self._resolve_session_run_status is None:

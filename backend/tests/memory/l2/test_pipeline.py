@@ -3009,3 +3009,120 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
             assert any("L2 snapshot refreshed" in message for message in messages)
         finally:
             await store.shutdown()
+
+
+# ── Session-end review tests ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_flush_session_flushes_bucket_and_returns_empty_when_no_entities_accumulated():
+    """flush_session should flush the session bucket even when no entities have
+    been accumulated yet (e.g. first turn with only staged events)."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=9999)
+
+        event = _make_memory_event(event_id="evt-1", session_id="s-flush", content="hello")
+        await pipeline.enqueue_event(event)
+
+        # Bucket should exist before flush
+        assert "session:s-flush" in pipeline._staging_buckets
+
+        result = await pipeline.flush_session("s-flush")
+
+        # Bucket should be drained
+        assert "session:s-flush" not in pipeline._staging_buckets
+        # No entities accumulated yet → empty list
+        assert result == []
+        # An extract job should have been enqueued
+        assert pipeline._stats.extract_enqueued >= 1
+        stats = pipeline.get_statistics()
+        assert stats["batch_flush_by_reason"].get("session_end", 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_flush_session_returns_accumulated_entities():
+    """After extraction populates touched entities, flush_session should return
+    and enqueue them for reconciliation."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=9999)
+
+        # Simulate entities accumulated during prior extractions
+        pipeline._session_touched_entities["s-review"] = {"user:u1", "person:alice"}
+
+        result = await pipeline.flush_session("s-review")
+
+        assert sorted(result) == ["person:alice", "user:u1"]
+        # Session tracking should be cleared
+        assert "s-review" not in pipeline._session_touched_entities
+        # Entities should be enqueued for reconcile + snapshot
+        assert pipeline._stats.reconcile_enqueued >= 1
+        assert pipeline._stats.snapshot_enqueued >= 1
+
+
+@pytest.mark.asyncio
+async def test_flush_session_noop_for_unknown_session():
+    """flush_session for a session with no bucket and no entities is a no-op."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        result = await pipeline.flush_session("nonexistent")
+
+        assert result == []
+        assert pipeline._stats.reconcile_enqueued == 0
+
+
+@pytest.mark.asyncio
+async def test_accumulate_session_entities_aggregates_across_batches():
+    """_accumulate_session_entities should merge entity sets across calls."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        pipeline._accumulate_session_entities("s1", ["user:u1", "person:alice"])
+        pipeline._accumulate_session_entities("s1", ["person:alice", "place:tokyo"])
+
+        assert pipeline._session_touched_entities["s1"] == {"user:u1", "person:alice", "place:tokyo"}
+
+
+@pytest.mark.asyncio
+async def test_accumulate_session_entities_ignores_empty_inputs():
+    """_accumulate_session_entities should skip None session_id or empty lists."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        pipeline._accumulate_session_entities(None, ["user:u1"])
+        pipeline._accumulate_session_entities("s1", [])
+
+        assert pipeline._session_touched_entities == {}
+
+
+@pytest.mark.asyncio
+async def test_unified_memory_on_session_end_delegates_to_pipeline():
+    """UnifiedMemoryStore.on_session_end should call l2_pipeline.flush_session."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        memory_db = str(Path(temp_dir) / "memory.db")
+        store = UnifiedMemoryStore(db_path=memory_db, enable_l2=True)
+        await store.initialize()
+        try:
+            # Inject pre-accumulated entities
+            store.l2_pipeline._session_touched_entities["s-end"] = {"user:u1"}
+
+            result = await store.on_session_end("s-end")
+
+            assert result == ["user:u1"]
+            assert "s-end" not in store.l2_pipeline._session_touched_entities
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_unified_memory_on_session_end_noop_without_l2():
+    """on_session_end should return [] when L2 pipeline is disabled."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        memory_db = str(Path(temp_dir) / "memory.db")
+        store = UnifiedMemoryStore(db_path=memory_db, enable_l2=False)
+        await store.initialize()
+        try:
+            result = await store.on_session_end("s-end")
+            assert result == []
+        finally:
+            await store.shutdown()

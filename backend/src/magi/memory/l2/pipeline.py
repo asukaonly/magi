@@ -148,6 +148,7 @@ class L2Pipeline:
         self._snapshot_worker: asyncio.Task[None] | None = None
         self._staging_buckets: dict[str, L2PendingBatchBucket] = {}
         self._staging_lock = asyncio.Lock()
+        self._session_touched_entities: dict[str, set[str]] = {}
         self._stats = L2PipelineStats()
 
     async def start(self) -> None:
@@ -250,6 +251,47 @@ class L2Pipeline:
         await self._snapshot_queue.put(normalized)
         self._stats.snapshot_enqueued += 1
         return True
+
+    async def flush_session(self, session_id: str) -> list[str]:
+        """Flush remaining staged events for *session_id* and enqueue a
+        comprehensive reconciliation of all entities touched during the session.
+
+        Returns the list of entity_ids scheduled for session-end reconciliation.
+        """
+        if not session_id or self._cognition_store is None:
+            return []
+
+        bucket_key = build_l2_batch_bucket_key(session_id=session_id, user_id=None)
+        job: L2BatchJob | None = None
+        if bucket_key is not None:
+            async with self._staging_lock:
+                job = self._build_and_remove_bucket_job_locked(
+                    bucket_key=bucket_key, flush_reason="session_end",
+                )
+        if job is not None:
+            await self._enqueue_extract_job(job)
+
+        accumulated = sorted(self._session_touched_entities.pop(session_id, set()))
+        if accumulated:
+            logger.info(
+                "L2 session-end review enqueued",
+                session_id=session_id,
+                entity_count=len(accumulated),
+            )
+            await self.enqueue_entities(accumulated)
+            await self.enqueue_snapshot_refresh(accumulated)
+        return accumulated
+
+    def _accumulate_session_entities(
+        self, session_id: str | None, entity_ids: list[str],
+    ) -> None:
+        if not session_id or not entity_ids:
+            return
+        bucket = self._session_touched_entities.get(session_id)
+        if bucket is None:
+            bucket = set()
+            self._session_touched_entities[session_id] = bucket
+        bucket.update(entity_ids)
 
     def get_statistics(self) -> dict[str, int | bool]:
         return asdict(self._stats)
@@ -402,6 +444,7 @@ class L2Pipeline:
                 self._stats.assertions_written += int(result["assertion_count"])
                 touched_entity_ids = result.get("touched_entity_ids", [])
                 if isinstance(touched_entity_ids, list) and touched_entity_ids:
+                    self._accumulate_session_entities(job.session_id, touched_entity_ids)
                     await self.enqueue_entities(touched_entity_ids)
                 snapshot_refresh_entity_ids = result.get("snapshot_refresh_entity_ids", [])
                 if isinstance(snapshot_refresh_entity_ids, list) and snapshot_refresh_entity_ids:

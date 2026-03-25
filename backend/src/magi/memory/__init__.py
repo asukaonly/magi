@@ -500,6 +500,17 @@ class UnifiedMemoryStore:
             if store is None or not hasattr(store, "shutdown"):
                 continue
             await store.shutdown()
+
+    async def on_session_end(self, session_id: str) -> list[str]:
+        """Notify that a chat session run has completed.
+
+        Flushes any remaining L2 staged events for *session_id* and enqueues a
+        comprehensive reconciliation of all entities touched during the session.
+        Returns the entity_ids scheduled for session-end reconciliation.
+        """
+        if not session_id or self.l2_pipeline is None:
+            return []
+        return await self.l2_pipeline.flush_session(session_id)
     def get_l2_pipeline_stats(self) -> Dict[str, Any]:
         """Expose current background L2 pipeline counters."""
         if self.l2_pipeline is None:
