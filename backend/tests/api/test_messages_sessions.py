@@ -10,6 +10,7 @@ if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
 from magi.api.routers import messages
+from magi.chat import ChatStore
 from magi.chat.read_service import (
     ChatDisplayMessage,
     ChatReadService,
@@ -744,6 +745,82 @@ def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path
     assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
     assert messages[0].message_id == "msg-user"
     assert messages[1].message_kind == "assistant_final"
+
+
+def test_create_user_turn_persists_reply_target_and_display_history_returns_preview(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-reply",
+        user_id="u1",
+        title="Reply Chat",
+        created_at=1000,
+        updated_at=1050,
+        message_count=2,
+        last_message_at=1050,
+        last_user_message_at=1000,
+        last_message_preview="Can you clarify the build step?",
+        last_user_message_preview="How should I package this?",
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-assistant",
+        session_id="s-reply",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1050,
+        completed_at_ms=1050,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user-root",
+        session_id="s-reply",
+        turn_id="turn-assistant",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="How should I package this?",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-assistant-root",
+        session_id="s-reply",
+        turn_id="turn-assistant",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="Can you clarify the build step?",
+        created_at_ms=1050,
+        sequence_no=2,
+    )
+
+    store = ChatStore(db_path=str(service._chat_db_path))
+    __import__("asyncio").run(
+        store.create_user_turn(
+            session_id="s-reply",
+            user_id="u1",
+            turn_id="turn-reply",
+            message_text="I mean the release artifact format.",
+            created_at_ms=1100,
+            reply_to_message_id="msg-assistant-root",
+        )
+    )
+
+    history = service.get_display_history("u1", "s-reply", limit=10)
+
+    assert [item.content for item in history][-1] == "I mean the release artifact format."
+    assert history[-1].to_dict()["reply_to"] == {
+        "message_id": "msg-assistant-root",
+        "role": "assistant",
+        "message_kind": "assistant_final",
+        "content_excerpt": "Can you clarify the build step?",
+    }
+    assert history[0].to_dict().get("reply_to") is None
 
 
 def test_clear_conversation_history_bumps_history_version(tmp_path):

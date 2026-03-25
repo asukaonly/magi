@@ -14,6 +14,7 @@ from ..core.sqlite import connect_sqlite
 from ..memory.l1.chat_sessions import create_chat_session_record
 from ..utils.runtime import get_runtime_paths
 from ..api.services.chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
+from .contracts import ChatReplyPreview
 
 logger = get_logger(__name__)
 
@@ -73,7 +74,8 @@ CREATE TABLE IF NOT EXISTS {CHAT_MESSAGES_TABLE} (
     created_at_ms INTEGER NOT NULL,
     sequence_no INTEGER NOT NULL,
     replaces_message_id TEXT,
-    replaced_by_message_id TEXT
+    replaced_by_message_id TEXT,
+    reply_to_message_id TEXT
 );
 """
 
@@ -148,6 +150,7 @@ class ChatDisplayMessage:
     allow_trace_collapse: bool = False
     trace_summary: dict[str, Any] | None = None
     trace_available: bool = False
+    reply_to: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -163,6 +166,7 @@ class ChatDisplayMessage:
             "allow_trace_collapse": self.allow_trace_collapse,
             "trace_summary": self.trace_summary,
             "trace_available": self.trace_available,
+            "reply_to": dict(self.reply_to) if isinstance(self.reply_to, dict) else None,
         }
 
     def to_prompt_message(self) -> dict[str, str]:
@@ -487,14 +491,18 @@ class ChatReadService:
             logger.exception(f"Failed to query chat history: {exc}")
             return []
 
+        selected_rows = rows[-safe_limit:]
+        selected_message_rows: list[sqlite3.Row] = []
         messages: list[ChatDisplayMessage] = []
-        for row in rows[-safe_limit:]:
+        for row in selected_rows:
             display_message = self._row_to_display_message(row)
             if display_message is None or display_message.kind == "status":
                 continue
             if display_message.kind == "assistant" and row["message_kind"] != "assistant_final":
                 continue
+            selected_message_rows.append(row)
             messages.append(display_message)
+        self._attach_reply_previews(rows=selected_message_rows, messages=messages)
         return messages
 
     def get_display_history(self, user_id: str, session_id: str, limit: int = 200) -> list[ChatDisplayMessage]:
@@ -526,10 +534,14 @@ class ChatReadService:
             for row in turn_rows
         }
 
+        display_rows: list[sqlite3.Row] = []
+        display_messages: list[ChatDisplayMessage] = []
         for row in message_rows:
             display_message = self._row_to_display_message(row)
             if display_message is None:
                 continue
+            display_rows.append(row)
+            display_messages.append(display_message)
             turn_id = str(row["turn_id"] or "").strip()
             if not turn_id:
                 legacy_messages.append(display_message)
@@ -576,6 +588,7 @@ class ChatReadService:
                     )
                 )
         messages.extend(legacy_messages)
+        self._attach_reply_previews(rows=display_rows, messages=display_messages)
         messages.sort(key=lambda item: item.timestamp)
         return messages[-safe_limit:]
 
@@ -721,7 +734,7 @@ class ChatReadService:
         query = f"""
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                    content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id
+                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id
             FROM {CHAT_MESSAGES_TABLE}
             WHERE user_id = ?
               AND session_id = ?
@@ -776,6 +789,12 @@ class ChatReadService:
             )
         if "workspace_path" not in session_column_names:
             conn.execute(f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN workspace_path TEXT")
+        message_column_names = {
+            str(row[1])
+            for row in conn.execute(f"PRAGMA table_info({CHAT_MESSAGES_TABLE})").fetchall()
+        }
+        if "reply_to_message_id" not in message_column_names:
+            conn.execute(f"ALTER TABLE {CHAT_MESSAGES_TABLE} ADD COLUMN reply_to_message_id TEXT")
 
     @staticmethod
     def _parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:
@@ -841,6 +860,46 @@ class ChatReadService:
                 turn_id=str(row["turn_id"] or "").strip() or None,
             )
         return None
+
+    @staticmethod
+    def _build_reply_preview(target_row: sqlite3.Row | None) -> dict[str, Any] | None:
+        if target_row is None:
+            return None
+        content = str(target_row["content_text"] or "").strip()
+        return ChatReplyPreview(
+            message_id=str(target_row["message_id"]),
+            role=str(target_row["role"] or "assistant"),
+            message_kind=str(target_row["message_kind"] or "").strip() or None,
+            content_excerpt=content[:160],
+        ).to_dict()
+
+    def _attach_reply_previews(
+        self,
+        *,
+        rows: list[sqlite3.Row],
+        messages: list[ChatDisplayMessage],
+    ) -> None:
+        rows_by_message_id = {
+            str(row["message_id"]): row
+            for row in rows
+            if row["message_id"] is not None
+        }
+        for row, message in zip(rows, messages):
+            reply_to_message_id = str(row["reply_to_message_id"] or "").strip()
+            if not reply_to_message_id:
+                message.reply_to = None
+                continue
+            target_row = rows_by_message_id.get(reply_to_message_id)
+            if target_row is None:
+                target_row = self._get_conn().execute(
+                    f"""
+                    SELECT message_id, role, message_kind, content_text
+                    FROM {CHAT_MESSAGES_TABLE}
+                    WHERE message_id = ?
+                    """,
+                    (reply_to_message_id,),
+                ).fetchone()
+            message.reply_to = self._build_reply_preview(target_row)
 
     @staticmethod
     def _row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:

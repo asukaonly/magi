@@ -33,6 +33,7 @@ class UserMessageRequest(BaseModel):
     user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
     session_id: Optional[str] = Field(None, description="Session ID")
     attachments: List[Dict[str, Any]] = Field(default_factory=list, description="Structured attachment metadata")
+    reply_to_message_id: Optional[str] = Field(None, description="Optional replied-to message id")
     workspace_path: Optional[str] = Field(None, description="Effective workspace path for this turn")
     client_turn_id: Optional[str] = Field(None, description="Optional client-generated turn id")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
@@ -94,16 +95,21 @@ async def send_user_message(
     request: UserMessageRequest,
 ):
     try:
+        normalized_metadata = dict(request.metadata or {})
+        normalized_reply_to_message_id = str(request.reply_to_message_id or "").strip() or None
+        if normalized_reply_to_message_id is not None:
+            normalized_metadata["reply_to_message_id"] = normalized_reply_to_message_id
         outcome = await dispatch_user_message(
             source="api",
             user_id=request.user_id,
             message=request.message,
             session_id=request.session_id,
             attachments=list(request.attachments or []),
+            reply_to_message_id=normalized_reply_to_message_id,
             workspace_path=request.workspace_path,
             client_turn_id=request.client_turn_id,
-            metadata=request.metadata or {},
-            runtime_namespace=str((request.metadata or {}).get("runtime_namespace") or DEFAULT_RUNTIME_NAMESPACE),
+            metadata=normalized_metadata,
+            runtime_namespace=str(normalized_metadata.get("runtime_namespace") or DEFAULT_RUNTIME_NAMESPACE),
         )
         if not outcome.success:
             agent_logger.warning(

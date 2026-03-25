@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -70,3 +71,22 @@ class ChatMessageRecord:
     sequence_no: int
     replaces_message_id: str | None
     replaced_by_message_id: str | None
+    reply_to_message_id: str | None = None
+
+
+@dataclass(slots=True)
+class ChatReplyPreview:
+    """Compact display preview for one replied-to message."""
+
+    message_id: str
+    role: str
+    message_kind: str | None
+    content_excerpt: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "message_id": self.message_id,
+            "role": self.role,
+            "message_kind": self.message_kind,
+            "content_excerpt": self.content_excerpt,
+        }

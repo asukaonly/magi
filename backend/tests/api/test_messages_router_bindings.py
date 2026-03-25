@@ -91,6 +91,33 @@ async def test_send_user_message_passes_attachments_and_workspace_path(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_send_user_message_forwards_reply_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+
+    response = await messages_router.send_user_message(
+        messages_router.UserMessageRequest(
+            message="Replying here",
+            session_id="session-1",
+            reply_to_message_id="msg-assistant-1",
+        )
+    )
+
+    assert response.success is True
+    assert captured["metadata"] == {"reply_to_message_id": "msg-assistant-1"}
+
+
+@pytest.mark.asyncio
 async def test_get_conversation_history_uses_async_read_service(monkeypatch: pytest.MonkeyPatch) -> None:
     class _AsyncOnlyReadService:
         def get_display_history(self, user_id: str, session_id: str):  # type: ignore[no-untyped-def]
@@ -105,6 +132,12 @@ async def test_get_conversation_history_uses_async_read_service(monkeypatch: pyt
                     content="hello",
                     timestamp=1,
                     kind="assistant",
+                    reply_to={
+                        "message_id": "msg-root",
+                        "role": "user",
+                        "message_kind": "user_text",
+                        "content_excerpt": "Need the release plan",
+                    },
                 )
             ]
 
@@ -114,6 +147,7 @@ async def test_get_conversation_history_uses_async_read_service(monkeypatch: pyt
 
     assert response["count"] == 1
     assert response["messages"][0]["content"] == "hello"
+    assert response["messages"][0]["reply_to"]["message_id"] == "msg-root"
 
 
 @pytest.mark.asyncio

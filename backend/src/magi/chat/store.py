@@ -89,7 +89,8 @@ class ChatStore:
                     created_at_ms INTEGER NOT NULL,
                     sequence_no INTEGER NOT NULL,
                     replaces_message_id TEXT,
-                    replaced_by_message_id TEXT
+                    replaced_by_message_id TEXT,
+                    reply_to_message_id TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
                     ON chat_messages(session_id, created_at_ms ASC, sequence_no ASC);
@@ -99,6 +100,7 @@ class ChatStore:
             )
             await self._ensure_chat_session_columns(db)
             await self._ensure_chat_turn_columns(db)
+            await self._ensure_chat_message_columns(db)
             await db.commit()
         self._initialized = True
 
@@ -162,6 +164,7 @@ class ChatStore:
         message_text: str,
         attachment_payloads: list[dict[str, object]] | None = None,
         created_at_ms: int,
+        reply_to_message_id: str | None = None,
         run_id: str | None = None,
         run_revision: int = 0,
         run_disposition: str | None = None,
@@ -184,6 +187,7 @@ class ChatStore:
             sequence_no=1,
             replaces_message_id=None,
             replaced_by_message_id=None,
+            reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             db.row_factory = aiosqlite.Row
@@ -274,9 +278,10 @@ class ChatStore:
                     created_at_ms,
                     sequence_no,
                     replaces_message_id,
-                    replaced_by_message_id
+                    replaced_by_message_id,
+                    reply_to_message_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.message_id,
@@ -293,6 +298,7 @@ class ChatStore:
                     message.sequence_no,
                     None,
                     None,
+                    message.reply_to_message_id,
                 ),
             )
             await db.commit()
@@ -395,9 +401,10 @@ class ChatStore:
                     created_at_ms,
                     sequence_no,
                     replaces_message_id,
-                    replaced_by_message_id
+                    replaced_by_message_id,
+                    reply_to_message_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.message_id,
@@ -414,6 +421,7 @@ class ChatStore:
                     record.sequence_no,
                     record.replaces_message_id,
                     record.replaced_by_message_id,
+                    record.reply_to_message_id,
                 ),
             )
             await db.commit()
@@ -442,7 +450,7 @@ class ChatStore:
         sql = """
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                    content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id
+                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id
             FROM chat_messages
             WHERE turn_id = ?
         """
@@ -578,13 +586,20 @@ class ChatStore:
         if "workspace_path" not in column_names:
             await db.execute("ALTER TABLE chat_sessions ADD COLUMN workspace_path TEXT")
 
+    async def _ensure_chat_message_columns(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(chat_messages)")
+        rows = await cursor.fetchall()
+        column_names = {str(row[1]) for row in rows}
+        if "reply_to_message_id" not in column_names:
+            await db.execute("ALTER TABLE chat_messages ADD COLUMN reply_to_message_id TEXT")
+
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""
         row = await self._fetchone(
             """
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                    content_text, payload_json, is_final, is_visible, created_at_ms,
-                   sequence_no, replaces_message_id, replaced_by_message_id
+                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id
             FROM chat_messages
             WHERE message_id = ?
             """,
@@ -603,7 +618,7 @@ class ChatStore:
                 """
                 SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                        content_text, payload_json, is_final, is_visible, created_at_ms,
-                       sequence_no, replaces_message_id, replaced_by_message_id
+                       sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id
                 FROM chat_messages
                 WHERE session_id = ?
                 ORDER BY created_at_ms ASC, sequence_no ASC
@@ -710,4 +725,5 @@ class ChatStore:
             sequence_no=int(row["sequence_no"]),
             replaces_message_id=str(row["replaces_message_id"]) if row["replaces_message_id"] is not None else None,
             replaced_by_message_id=str(row["replaced_by_message_id"]) if row["replaced_by_message_id"] is not None else None,
+            reply_to_message_id=str(row["reply_to_message_id"]) if row["reply_to_message_id"] is not None else None,
         )

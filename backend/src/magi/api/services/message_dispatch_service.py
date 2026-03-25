@@ -42,6 +42,7 @@ async def dispatch_user_message(
     message: str,
     session_id: str | None = None,
     attachments: list[dict[str, Any]] | None = None,
+    reply_to_message_id: str | None = None,
     workspace_path: str | None = None,
     client_turn_id: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -96,6 +97,10 @@ async def dispatch_user_message(
             error_message="Message text or attachments are required.",
         )
     normalized_workspace_path = str(workspace_path or "").strip() or None
+    normalized_reply_to_message_id = str(reply_to_message_id or "").strip() or None
+    normalized_metadata = dict(metadata or {})
+    if normalized_reply_to_message_id is not None:
+        normalized_metadata["reply_to_message_id"] = normalized_reply_to_message_id
     created_at = time.time()
     created_at_ms = int(created_at * 1000)
     turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
@@ -107,6 +112,7 @@ async def dispatch_user_message(
             message_text=normalized_message,
             attachment_payloads=normalized_attachments,
             created_at_ms=created_at_ms,
+            reply_to_message_id=normalized_reply_to_message_id,
         )
     except Exception:
         return MessageDispatchOutcome(
@@ -144,7 +150,7 @@ async def dispatch_user_message(
                 attachments=normalized_attachments,
                 workspace_path=normalized_workspace_path,
                 runtime_namespace=str(runtime_namespace or "").strip() or DEFAULT_RUNTIME_NAMESPACE,
-                metadata=dict(metadata or {}),
+                metadata=normalized_metadata,
                 created_at=created_at,
             )
         )
