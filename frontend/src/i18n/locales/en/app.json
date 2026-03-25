@@ -226,6 +226,18 @@
       "loadFailed": "Failed to load call trace",
       "loading": "Loading call trace...",
       "empty": "No call trace details yet",
+      "execution": {
+        "runningTitle": "Running",
+        "runningBody": "Magi is working through the current plan and will stream the final answer here.",
+        "cancellingTitle": "Cancelling run",
+        "cancellingBody": "Stopping the remaining plan steps. Completed work stays visible in the trace.",
+        "cancelledTitle": "Run cancelled",
+        "cancelledBody": "This plan was stopped before a final answer was produced.",
+        "completedTitle": "Run completed",
+        "completedBody": "The plan finished and the final answer will appear in the conversation.",
+        "failedTitle": "Run failed",
+        "failedBody": "This run stopped because part of the execution failed."
+      },
       "active": "{{count}} active",
       "done": "{{count}} done",
       "failedCount": "{{count}} failed",

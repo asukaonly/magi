@@ -978,7 +978,8 @@ describe('ChatPage', () => {
       expect(screen.getByText('正在分析项目')).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByRole('button', { name: 'chat.trace.cancelRun' }));
+    const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+    await userEvent.click(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' }));
 
     await waitFor(() => {
       expect(messagesApi.cancelRun).toHaveBeenCalledWith('local_user', 'session-1', {
@@ -1013,7 +1014,8 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'chat.trace.cancelRun' })).toBeEnabled();
+      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+      expect(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeEnabled();
     });
 
     act(() => {
@@ -1030,7 +1032,10 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'chat.trace.cancelRun' })).toBeDisabled();
+      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+      expect(within(runningCard).getByText('Cancelling run')).toBeInTheDocument();
+      expect(within(runningCard).getByText('chat.trace.execution.cancellingBody')).toBeInTheDocument();
+      expect(within(runningCard).getByRole('button', { name: 'chat.trace.cancelRun' })).toBeDisabled();
     });
 
     act(() => {
@@ -1047,6 +1052,10 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
+      const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+      expect(within(runningCard).getByText('Run cancelled')).toBeInTheDocument();
+      expect(within(runningCard).getByText('chat.trace.execution.cancelledBody')).toBeInTheDocument();
+      expect(within(runningCard).queryByRole('button', { name: 'chat.trace.cancelRun' })).not.toBeInTheDocument();
       expect(sendMock).toHaveBeenCalledWith({
         type: 'get_history',
         session_id: 'session-1',

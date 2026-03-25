@@ -41,6 +41,11 @@ interface WSMessage {
   message?: string;
 }
 
+interface TurnExecutionControlState {
+  state: string;
+  label: string | null;
+}
+
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const SESSION_EVENT = 'magi-session-sync';
 const USER_ID = DEFAULT_USER_ID;
@@ -334,6 +339,7 @@ export const ChatPage: React.FC = () => {
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
   const [cancellingTurnIds, setCancellingTurnIds] = useState<string[]>([]);
+  const [executionControlByTurnId, setExecutionControlByTurnId] = useState<Record<string, TurnExecutionControlState>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
@@ -413,6 +419,11 @@ export const ChatPage: React.FC = () => {
     clearDraftAttachments();
     setAttachmentMenuOpen(false);
   }, [clearDraftAttachments, currentSessionId]);
+
+  useEffect(() => {
+    setCancellingTurnIds([]);
+    setExecutionControlByTurnId({});
+  }, [currentSessionId]);
 
   const persistSessionWorkspace = useCallback(async (workspacePath: string | null) => {
     if (!currentSessionId) {
@@ -677,6 +688,14 @@ export const ChatPage: React.FC = () => {
       const turnId = String(payload?.turn_id || '').trim();
       const state = String(payload?.state || '').trim();
       if (!sessionId || !turnId || !state) return;
+
+      setExecutionControlByTurnId((current) => ({
+        ...current,
+        [turnId]: {
+          state,
+          label: payload?.label ? String(payload.label).trim() || null : null,
+        },
+      }));
 
       if (state === 'cancelling') {
         setCancellingTurnIds((current) => (current.includes(turnId) ? current : [...current, turnId]));
@@ -952,9 +971,46 @@ export const ChatPage: React.FC = () => {
 
   const renderStatusCard = (message: ChatTimelineMessage) => {
     const turnId = String(message.turnId || '').trim();
-    const isRunning = String(message.traceSummary?.status || '').trim() === 'running';
-    const isCancelling = turnId ? cancellingTurnIds.includes(turnId) : false;
+    const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
+    const traceStatus = String(message.traceSummary?.status || '').trim() || 'running';
+    const executionState = executionControl?.state || traceStatus;
+    const isCancelling = executionState === 'cancelling' || (turnId ? cancellingTurnIds.includes(turnId) : false);
+    const showCancelButton = Boolean(turnId) && (executionState === 'running' || executionState === 'cancelling');
     const planSummary = message.traceSummary?.planSummary;
+    const defaultExecutionTitleKey = (() => {
+      switch (executionState) {
+        case 'cancelling':
+          return 'chat.trace.execution.cancellingTitle';
+        case 'cancelled':
+          return 'chat.trace.execution.cancelledTitle';
+        case 'completed':
+          return 'chat.trace.execution.completedTitle';
+        case 'failed':
+          return 'chat.trace.execution.failedTitle';
+        default:
+          return 'chat.trace.execution.runningTitle';
+      }
+    })();
+    const subtitleKey = (() => {
+      switch (executionState) {
+        case 'cancelling':
+          return 'chat.trace.execution.cancellingBody';
+        case 'cancelled':
+          return 'chat.trace.execution.cancelledBody';
+        case 'completed':
+          return 'chat.trace.execution.completedBody';
+        case 'failed':
+          return 'chat.trace.execution.failedBody';
+        default:
+          return 'chat.trace.execution.runningBody';
+      }
+    })();
+    const statusTitle = executionControl?.label
+      || (executionState === 'running' ? (message.traceSummary?.headline || message.content) : '')
+      || t(defaultExecutionTitleKey);
+    const indicator = executionState === 'cancelled'
+      ? <X className="h-4 w-4 text-muted-foreground" />
+      : <Loader2 className={`h-4 w-4 text-primary ${executionState === 'running' || executionState === 'cancelling' ? 'animate-spin' : ''}`} />;
 
     return (
       <motion.div
@@ -963,14 +1019,16 @@ export const ChatPage: React.FC = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
         className="mb-4 flex justify-start"
+        data-testid={turnId ? `chat-trace-status-card-${turnId}` : undefined}
       >
         <div className="flex max-w-[76%] gap-3">
           {getAvatar('assistant')}
           <div className="rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5">
             <div className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>
+              {indicator}
+              <span className="text-sm font-medium text-foreground">{statusTitle}</span>
             </div>
+            <div className="mt-1 text-xs leading-5 text-muted-foreground">{t(subtitleKey)}</div>
             {message.traceSummary && (
               <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                 <span className="rounded-full bg-muted px-2.5 py-1">
@@ -1025,7 +1083,7 @@ export const ChatPage: React.FC = () => {
             )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {renderTraceEntry(message)}
-              {isRunning && turnId && (
+              {showCancelButton && turnId && (
                 <Button
                   type="button"
                   variant="ghost"

@@ -226,6 +226,18 @@
       "loadFailed": "加载调用链路失败",
       "loading": "正在加载调用链路...",
       "empty": "暂无调用链路详情",
+      "execution": {
+        "runningTitle": "执行中",
+        "runningBody": "Magi 正在按当前计划执行，完成后会把最终结果显示在这里。",
+        "cancellingTitle": "正在取消",
+        "cancellingBody": "正在停止剩余步骤，已完成的执行记录会保留在调用链路中。",
+        "cancelledTitle": "已取消执行",
+        "cancelledBody": "这次计划已停止，不会再生成新的最终回复。",
+        "completedTitle": "执行完成",
+        "completedBody": "计划已经执行完成，最终回复会显示在对话里。",
+        "failedTitle": "执行失败",
+        "failedBody": "本次执行因为部分步骤失败而提前结束。"
+      },
       "active": "{{count}} 个进行中",
       "done": "{{count}} 个已完成",
       "failedCount": "{{count}} 个失败",
