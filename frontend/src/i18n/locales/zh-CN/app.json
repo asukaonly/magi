@@ -186,6 +186,12 @@
   "emptyInput": "请输入消息内容",
   "sessionRequired": "请先选择或创建一个会话",
   "wsNotConnected": "WebSocket未连接，请等待连接建立",
+    "reply": {
+      "action": "回复",
+      "cancel": "取消回复",
+      "assistant": "回复 AI",
+      "user": "回复用户"
+    },
     "workspace": {
       "label": "当前会话目录",
       "messageCount": "条消息",

@@ -353,6 +353,33 @@ describe('chat trace state helpers', () => {
     ]);
   });
 
+  it('normalizes reply previews from history payloads', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-reply',
+        message_kind: 'user_text',
+        role: 'user',
+        content: 'Can you expand on that?',
+        timestamp: 1000,
+        turn_id: 'turn_reply',
+        kind: 'user',
+        reply_to: {
+          message_id: 'msg-assistant-root',
+          role: 'assistant',
+          message_kind: 'assistant_final',
+          content_excerpt: 'Run the desktop dev script from the repo root.',
+        },
+      },
+    ]);
+
+    expect(normalized[0].replyTo).toEqual({
+      messageId: 'msg-assistant-root',
+      role: 'assistant',
+      messageKind: 'assistant_final',
+      contentExcerpt: 'Run the desktop dev script from the repo root.',
+    });
+  });
+
   it('attaches a terminal trace summary back onto the user turn when no assistant row exists', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_user_only', 1000, 'Thinking');
     const next = upsertTraceSummary(

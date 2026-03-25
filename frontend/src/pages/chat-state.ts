@@ -1,4 +1,11 @@
-import type { ChatAttachment, ChatHistoryMessage, ExecutionTraceNode, ExecutionTraceSnapshot, ExecutionTraceSummary } from '@/api';
+import type {
+  ChatAttachment,
+  ChatHistoryMessage,
+  ChatReplyPreview,
+  ExecutionTraceNode,
+  ExecutionTraceSnapshot,
+  ExecutionTraceSummary,
+} from '@/api';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 
 export type ChatMessageKind = 'user' | 'assistant' | 'status';
@@ -13,11 +20,19 @@ export interface ChatTimelineMessage {
   messageKind?: string | null;
   turnId?: string;
   reaction?: string | null;
+  replyTo?: ChatTimelineReplyPreview | null;
   attachments?: ChatAttachment[];
   traceDisplayMode?: string | null;
   allowTraceCollapse?: boolean;
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
+}
+
+export interface ChatTimelineReplyPreview {
+  messageId: string;
+  role: 'user' | 'assistant';
+  messageKind?: string | null;
+  contentExcerpt: string;
 }
 
 export interface NormalizedExecutionTraceSummary {
@@ -249,6 +264,7 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       traceDisplayMode: message.trace_display_mode || null,
       allowTraceCollapse: Boolean(message.allow_trace_collapse),
       attachments: Array.isArray(message.attachments) ? message.attachments : undefined,
+      replyTo: normalizeReplyPreview(message.reply_to),
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
     };
@@ -281,6 +297,7 @@ export const createPendingTurn = (
   timestamp: number,
   _pendingLabel: string,
   attachments: ChatAttachment[] = [],
+  replyTo: ChatTimelineReplyPreview | null = null,
 ): ChatTimelineMessage[] => [
   {
     id: `${turnId}-user`,
@@ -289,6 +306,7 @@ export const createPendingTurn = (
     content: input,
     timestamp,
     turnId,
+    replyTo,
     attachments: attachments.length > 0 ? attachments : undefined,
     traceDisplayMode: null,
     allowTraceCollapse: false,
@@ -584,4 +602,22 @@ export const applyAgentResponse = (
   }
 
   return [...messages, { ...buildAssistantMessage(turnId), turnId }];
+};
+
+const normalizeReplyPreview = (
+  preview: ChatReplyPreview | null | undefined,
+): ChatTimelineReplyPreview | null => {
+  if (!preview || typeof preview !== 'object') {
+    return null;
+  }
+  const messageId = String(preview.message_id || '').trim();
+  if (!messageId) {
+    return null;
+  }
+  return {
+    messageId,
+    role: preview.role === 'user' ? 'user' : 'assistant',
+    messageKind: preview.message_kind || null,
+    contentExcerpt: String(preview.content_excerpt || '').trim(),
+  };
 };

@@ -5,6 +5,7 @@ import {
   applyTurnUxPlan as applyTurnUxPlanUpdate,
   createPendingTurn,
   type ChatTimelineMessage,
+  type ChatTimelineReplyPreview,
   type NormalizedExecutionTraceSummary,
   type NormalizedTurnUxPlan,
   upsertTraceSummary as applyTraceSummaryUpdate,
@@ -29,6 +30,7 @@ type PendingTurnPayload = {
   timestamp: number;
   pendingLabel: string;
   attachments?: ChatAttachment[];
+  replyTo?: ChatTimelineReplyPreview | null;
 };
 
 type TurnUxPlanPayload = {
@@ -172,13 +174,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendPendingTurn: ({ sessionId, input, turnId, timestamp, pendingLabel, attachments }) => set((state) => {
+  appendPendingTurn: ({ sessionId, input, turnId, timestamp, pendingLabel, attachments, replyTo }) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
     const previewText = input.trim() || (attachments || []).map((attachment) => attachment.original_name).join(', ').trim();
     const nextMessages = [
       ...previousMessages,
-      ...createPendingTurn(input, turnId, timestamp, pendingLabel, attachments || []),
+      ...createPendingTurn(input, turnId, timestamp, pendingLabel, attachments || [], replyTo || null),
     ];
     return {
       currentSessionId: sessionId,

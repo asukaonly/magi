@@ -186,6 +186,12 @@
   "emptyInput": "Please enter a message",
     "sessionRequired": "Please choose or create a session first",
     "wsNotConnected": "WebSocket is not connected yet",
+    "reply": {
+      "action": "Reply",
+      "cancel": "Cancel reply",
+      "assistant": "Replying to AI",
+      "user": "Replying to user"
+    },
     "workspace": {
       "label": "Conversation Workspace",
       "messageCount": "messages",

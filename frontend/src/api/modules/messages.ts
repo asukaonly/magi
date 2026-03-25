@@ -23,9 +23,17 @@ export interface UserMessageRequest {
   user_id?: string;
   session_id: string;
   attachments?: ChatAttachment[];
+  reply_to_message_id?: string | null;
   workspace_path?: string | null;
   client_turn_id?: string;
   metadata?: Record<string, any>;
+}
+
+export interface ChatReplyPreview {
+  message_id: string;
+  role: 'user' | 'assistant';
+  message_kind?: string | null;
+  content_excerpt: string;
 }
 
 // Backend response data shape
@@ -49,6 +57,7 @@ export interface ChatHistoryMessage {
   trace_summary?: Record<string, any> | null;
   trace_available?: boolean;
   attachments?: ChatAttachment[];
+  reply_to?: ChatReplyPreview | null;
 }
 
 export interface ConversationHistory {

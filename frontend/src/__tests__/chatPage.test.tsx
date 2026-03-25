@@ -505,6 +505,73 @@ describe('ChatPage', () => {
     expect(within(dialog).getAllByText('diagram.png').length).toBeGreaterThan(0);
   });
 
+  it('enters reply mode, shows quote strips, and sends reply target metadata', async () => {
+    const user = userEvent.setup();
+
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-assistant-root',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: 'Root assistant answer',
+          timestamp: 1000,
+          turn_id: 'turn-root',
+          kind: 'assistant',
+        },
+        {
+          message_id: 'msg-user-reply',
+          message_kind: 'user_text',
+          role: 'user',
+          content: 'Follow-up question',
+          timestamp: 1100,
+          turn_id: 'turn-reply',
+          kind: 'user',
+          reply_to: {
+            message_id: 'msg-assistant-root',
+            role: 'assistant',
+            message_kind: 'assistant_final',
+            content_excerpt: 'reply-source-excerpt',
+          },
+        },
+      ])
+    );
+
+    render(<ChatPage />);
+
+    expect(screen.getByText('reply-source-excerpt')).toBeInTheDocument();
+
+    const assistantBubble = screen.getByText('Root assistant answer').closest('div');
+    expect(assistantBubble).not.toBeNull();
+    const replyButtons = screen.getAllByRole('button', { name: 'chat.reply.action' });
+    await user.click(replyButtons[0]);
+
+    expect(screen.getByTestId('chat-composer-reply-preview')).toHaveTextContent('Root assistant answer');
+
+    await user.type(screen.getByPlaceholderText('chat.inputPlaceholder'), 'Reply from composer');
+    await user.click(screen.getByRole('button', { name: 'chat.send' }));
+
+    await waitFor(() => {
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'send_message',
+        message: 'Reply from composer',
+        reply_to_message_id: 'msg-assistant-root',
+      }));
+    });
+
+    const pendingReply = useConversationStore.getState().messagesBySession['session-1']
+      ?.find((message) => message.turnId && message.content === 'Reply from composer');
+
+    expect(pendingReply?.replyTo).toEqual({
+      messageId: 'msg-assistant-root',
+      role: 'assistant',
+      messageKind: 'assistant_final',
+      contentExcerpt: 'Root assistant answer',
+    });
+    expect(screen.queryByTestId('chat-composer-reply-preview')).not.toBeInTheDocument();
+  });
+
   it('renders trace entry when an agent response arrives through chat subscription', async () => {
     render(<ChatPage />);
 
