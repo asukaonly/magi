@@ -84,10 +84,12 @@ class MemoryQueryTool(Tool):
     ) -> ToolResult:
         """Execute a hybrid retrieval query."""
         try:
+            user_id = parameters.get("user_id") or context.env_vars.get("user_id")
+            session_id = parameters.get("session_id") or context.env_vars.get("session_id")
             request = build_query(
                 query=parameters["query"],
-                user_id=parameters.get("user_id"),
-                session_id=parameters.get("session_id"),
+                user_id=user_id,
+                session_id=session_id,
                 time_range=parameters.get("time_range", {}),
                 recall_intent=parameters.get("recall_intent"),
                 query_mode=parameters.get("query_mode"),

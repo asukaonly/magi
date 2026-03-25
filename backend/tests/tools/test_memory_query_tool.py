@@ -114,6 +114,42 @@ class TestMemoryQueryTool:
         assert request.recall_intent == "preference_recall"
 
     @pytest.mark.asyncio
+    async def test_tool_execution_uses_context_user_and_session(self, monkeypatch):
+        """Should inherit runtime user/session from the tool execution context."""
+        import magi.tools.builtin.memory_query_tool as memory_query_module
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+        from magi.tools.schema import ToolExecutionContext
+
+        fake_service = MagicMock(name="retrieval_service")
+        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", lambda: fake_service)
+        tool = MemoryQueryTool()
+        fake_service.query = AsyncMock(
+            return_value=MagicMock(
+                l0_workbench=[],
+                l1_events=[],
+                l2_entity_cards=[],
+                l2_relationships=[],
+                l3_reflections=[],
+                l4_procedures=[],
+                trace={"query_mode": "detail"},
+            )
+        )
+        context = ToolExecutionContext(
+            agent_id="test",
+            env_vars={
+                "user_id": "local_user",
+                "session_id": "session-123",
+            },
+        )
+
+        result = await tool.execute({"query": "我喜欢什么天气", "recall_intent": "preference_recall"}, context)
+
+        assert result.success is True
+        request = fake_service.query.await_args.args[0]
+        assert request.user_id == "local_user"
+        assert request.session_id == "session-123"
+
+    @pytest.mark.asyncio
     async def test_tool_to_claude_format(self):
         """Should export to Claude tool format."""
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
