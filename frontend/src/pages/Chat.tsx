@@ -24,6 +24,7 @@ import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/sto
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
+  normalizeHistoryMessages,
   normalizeTurnUxPlan,
   normalizeTraceSnapshot,
   normalizeTraceSummary,
@@ -386,6 +387,7 @@ export const ChatPage: React.FC = () => {
   );
   const upsertSession = useConversationStore((state) => state.upsertSession);
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
+  const upsertMessage = useConversationStore((state) => state.upsertMessage);
   const applyTurnUxPlan = useConversationStore((state) => state.applyTurnUxPlan);
   const receiveAgentResponse = useConversationStore((state) => state.receiveAgentResponse);
   const applyMessageLabel = useConversationStore((state) => state.applyMessageLabel);
@@ -682,12 +684,6 @@ export const ChatPage: React.FC = () => {
       const sessionId = String(payload?.session_id || currentSessionId || '').trim();
       const turnId = String(payload?.turn_id || '').trim();
       const summary = normalizeTraceSummary(payload?.trace_summary);
-      const isTerminalTraceEvent =
-        summary?.status === 'completed' ||
-        summary?.status === 'failed';
-      if (sessionId && turnId && isTerminalTraceEvent) {
-        requestHistory(sessionId);
-      }
       if (!sessionId || !turnId || !summary) return;
       upsertSummary({
         turn_id: summary.turnId,
@@ -725,9 +721,42 @@ export const ChatPage: React.FC = () => {
       currentSessionId,
       drawerOpen,
       loadTrace,
-      requestHistory,
       upsertSummary,
     ]
+  );
+
+  const handleChatMessageUpsertEvent = useCallback(
+    (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
+      const rawMessage = payload?.message;
+      if (!sessionId || !rawMessage || typeof rawMessage !== 'object') {
+        return;
+      }
+      const normalizedMessage = normalizeHistoryMessages([rawMessage as any])[0];
+      if (!normalizedMessage) {
+        return;
+      }
+      upsertMessage(sessionId, normalizedMessage);
+      if (payload?.session_summary && typeof payload.session_summary === 'object') {
+        upsertSession(payload.session_summary as any);
+      }
+    },
+    [currentSessionId, upsertMessage, upsertSession]
+  );
+
+  const handleChatMessageHiddenEvent = useCallback(
+    (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
+      const messageId = String(payload?.message_id || '').trim();
+      if (!sessionId || !messageId) {
+        return;
+      }
+      removeMessage(sessionId, messageId);
+      if (payload?.session_summary && typeof payload.session_summary === 'object') {
+        upsertSession(payload.session_summary as any);
+      }
+    },
+    [currentSessionId, removeMessage, upsertSession]
   );
 
   const handleAgentResponseEvent = useCallback(
@@ -851,12 +880,9 @@ export const ChatPage: React.FC = () => {
 
       if (['cancelled', 'completed', 'failed', 'interrupted', 'merged'].includes(state)) {
         setCancellingTurnIds((current) => current.filter((item) => item !== turnId));
-        if (state === 'cancelled') {
-          requestHistory(sessionId);
-        }
       }
     },
-    [currentSessionId, requestHistory]
+    [currentSessionId]
   );
 
   const handleWSMessage = useCallback(
@@ -915,6 +941,16 @@ export const ChatPage: React.FC = () => {
         return;
       }
 
+      if (eventName === 'chat_message_upserted' && data.data) {
+        handleChatMessageUpsertEvent(data.data);
+        return;
+      }
+
+      if (eventName === 'chat_message_hidden' && data.data) {
+        handleChatMessageHiddenEvent(data.data);
+        return;
+      }
+
       if (eventName === 'agent_response' && data.data) {
         handleAgentResponseEvent(data.data);
       }
@@ -922,6 +958,8 @@ export const ChatPage: React.FC = () => {
     [
       currentSessionId,
       handleAgentResponseEvent,
+      handleChatMessageHiddenEvent,
+      handleChatMessageUpsertEvent,
       handleTurnExecutionControlEvent,
       handleExecutionTraceUpdate,
       handleTurnUxPlanEvent,

@@ -87,6 +87,35 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
         return;
       }
 
+      if (eventName === 'chat_message_upserted' && message.data && typeof message.data === 'object') {
+        const payload = message.data as Record<string, unknown>;
+        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+        const rawMessage = payload.message;
+        if (sessionId && rawMessage && typeof rawMessage === 'object') {
+          const normalizedMessage = normalizeHistoryMessages([rawMessage as any])[0];
+          if (normalizedMessage) {
+            conversationStore.upsertMessage(sessionId, normalizedMessage);
+          }
+        }
+        if (payload.session_summary && typeof payload.session_summary === 'object') {
+          conversationStore.upsertSession(payload.session_summary as any);
+        }
+        return;
+      }
+
+      if (eventName === 'chat_message_hidden' && message.data && typeof message.data === 'object') {
+        const payload = message.data as Record<string, unknown>;
+        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+        const messageId = String(payload.message_id || '').trim();
+        if (sessionId && messageId) {
+          conversationStore.removeMessage(sessionId, messageId);
+        }
+        if (payload.session_summary && typeof payload.session_summary === 'object') {
+          conversationStore.upsertSession(payload.session_summary as any);
+        }
+        return;
+      }
+
       if (eventName === 'execution_trace_update' && message.data && typeof message.data === 'object') {
         const payload = message.data as Record<string, unknown>;
         const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();

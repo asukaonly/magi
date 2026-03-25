@@ -92,7 +92,7 @@ describe('conversation store', () => {
     expect(useConversationStore.getState().currentSessionId).toBe('session-a');
   });
 
-  it('trusts persisted history when refresh returns a status placeholder', () => {
+  it('keeps the richer local final answer when a history refresh only returns a status placeholder', () => {
     const store = useConversationStore.getState();
 
     store.receiveHistory('session-a', [
@@ -160,6 +160,64 @@ describe('conversation store', () => {
         turnId: 'turn-1',
         traceAvailable: true,
       }),
+      expect.objectContaining({
+        role: 'assistant',
+        kind: 'assistant',
+        content: 'final answer',
+        turnId: 'turn-1',
+        messageKind: 'assistant_final',
+      }),
     ]);
+  });
+
+  it('merges a durable user message into the local pending reply without dropping the quote', () => {
+    const store = useConversationStore.getState();
+
+    store.appendPendingTurn({
+      sessionId: 'session-a',
+      input: 'Follow-up question',
+      turnId: 'turn-reply',
+      timestamp: 1000,
+      pendingLabel: 'Thinking...',
+      replyTo: {
+        messageId: 'msg-root',
+        role: 'assistant',
+        messageKind: 'assistant_final',
+        contentExcerpt: 'Root answer',
+      },
+    });
+
+    store.upsertMessage('session-a', {
+      id: 'msg-user-reply',
+      role: 'user',
+      kind: 'user',
+      content: 'Follow-up question',
+      timestamp: 1000,
+      messageId: 'msg-user-reply',
+      messageKind: 'user_text',
+      turnId: 'turn-reply',
+      replyTo: {
+        messageId: 'msg-root',
+        role: 'assistant',
+        messageKind: 'assistant_final',
+        contentExcerpt: 'Root answer',
+      },
+    });
+
+    const mergedReply = useConversationStore.getState().messagesBySession['session-a']
+      ?.find((message) => message.turnId === 'turn-reply' && message.role === 'user');
+
+    expect(mergedReply).toEqual(expect.objectContaining({
+      id: 'msg-user-reply',
+      messageId: 'msg-user-reply',
+      turnId: 'turn-reply',
+      content: 'Follow-up question',
+      replyTo: {
+        messageId: 'msg-root',
+        role: 'assistant',
+        messageKind: 'assistant_final',
+        contentExcerpt: 'Root answer',
+      },
+    }));
   });
 });

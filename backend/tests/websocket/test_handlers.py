@@ -93,6 +93,41 @@ async def test_handle_send_message_passes_attachments_and_workspace_path(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_handle_send_message_passes_reply_target_to_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr("magi.api.services.dispatch_user_message", _fake_dispatch_user_message)
+
+    ctx = WebSocketContext(
+        sid="sid-1",
+        websocket=_DummyWebSocket(),  # type: ignore[arg-type]
+        manager=_DummyManager(),  # type: ignore[arg-type]
+    )
+
+    response = await handle_send_message(
+        ctx,
+        {
+            "user_id": "asuka_main",
+            "message": "hello",
+            "session_id": "session-1",
+            "reply_to_message_id": "msg-root",
+        },
+    )
+
+    assert response["type"] == "message_sent"
+    assert captured["reply_to_message_id"] == "msg-root"
+
+
+@pytest.mark.asyncio
 async def test_handle_get_history_uses_async_read_service(monkeypatch: pytest.MonkeyPatch) -> None:
     class _AsyncOnlyReadService:
         def get_display_history(self, user_id: str, session_id: str):  # type: ignore[no-untyped-def]
