@@ -99,6 +99,7 @@ class TestContextDeciderMemoryGuidance:
             "query": "What did I browse yesterday?",
             "query_mode": "detail",
             "sources": ["timeline"],
+            "recall_intent": "event_recall",
             "time_range": {"relative": "1d"},
         }
 
@@ -181,3 +182,138 @@ class TestContextDeciderMemoryGuidance:
         assert "memory_query" not in decision.tools
         assert decision.memory_route == "none"
         assert decision.routing_memory_hint is None
+
+    @pytest.mark.asyncio
+    async def test_decide_routes_preference_recall_to_memory_query(self):
+        """Preference recall should promote memory_query with recall intent."""
+        from magi.tools.context_decider import ContextDecider
+
+        tool_registry = MagicMock()
+        tool_registry.get_all_tools_info.return_value = [
+            {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
+        ]
+        tool_registry.list_tools.return_value = ["memory_query"]
+        tool_registry.is_skill.return_value = False
+
+        llm_adapter = MagicMock()
+        llm_adapter.model_name = "dummy-model"
+        decider = ContextDecider(tool_registry, llm_adapter)
+
+        async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return SimpleNamespace(
+                content=(
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"preference question",'
+                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                ),
+                metadata={},
+            )
+
+        decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
+
+        decision = await decider.decide(
+            "我喜欢什么天气",
+            ContextDeciderContext(
+                current_datetime="2024-01-15T10:00:00+08:00",
+                timezone="Asia/Shanghai",
+            ),
+        )
+
+        assert "memory_query" in decision.tools
+        assert decision.memory_route == "explicit_query"
+        assert decision.routing_memory_hint == {
+            "query": "我喜欢什么天气",
+            "query_mode": "detail",
+            "sources": ["profile", "chat"],
+            "recall_intent": "preference_recall",
+        }
+
+    @pytest.mark.asyncio
+    async def test_decide_routes_profile_fact_recall_to_memory_query(self):
+        """Profile-fact recall should promote memory_query with profile-biased sources."""
+        from magi.tools.context_decider import ContextDecider
+
+        tool_registry = MagicMock()
+        tool_registry.get_all_tools_info.return_value = [
+            {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
+        ]
+        tool_registry.list_tools.return_value = ["memory_query"]
+        tool_registry.is_skill.return_value = False
+
+        llm_adapter = MagicMock()
+        llm_adapter.model_name = "dummy-model"
+        decider = ContextDecider(tool_registry, llm_adapter)
+
+        async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return SimpleNamespace(
+                content=(
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"profile question",'
+                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                ),
+                metadata={},
+            )
+
+        decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
+
+        decision = await decider.decide(
+            "我的默认工作目录是什么",
+            ContextDeciderContext(
+                current_datetime="2024-01-15T10:00:00+08:00",
+                timezone="Asia/Shanghai",
+            ),
+        )
+
+        assert "memory_query" in decision.tools
+        assert decision.memory_route == "explicit_query"
+        assert decision.routing_memory_hint == {
+            "query": "我的默认工作目录是什么",
+            "query_mode": "detail",
+            "sources": ["profile", "settings"],
+            "recall_intent": "profile_fact_recall",
+        }
+
+    @pytest.mark.asyncio
+    async def test_decide_routes_relationship_recall_to_memory_query(self):
+        """Relationship recall should promote memory_query with relationship intent."""
+        from magi.tools.context_decider import ContextDecider
+
+        tool_registry = MagicMock()
+        tool_registry.get_all_tools_info.return_value = [
+            {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
+        ]
+        tool_registry.list_tools.return_value = ["memory_query"]
+        tool_registry.is_skill.return_value = False
+
+        llm_adapter = MagicMock()
+        llm_adapter.model_name = "dummy-model"
+        decider = ContextDecider(tool_registry, llm_adapter)
+
+        async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return SimpleNamespace(
+                content=(
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"relationship question",'
+                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                ),
+                metadata={},
+            )
+
+        decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
+
+        decision = await decider.decide(
+            "你记得我们之前约定了什么",
+            ContextDeciderContext(
+                current_datetime="2024-01-15T10:00:00+08:00",
+                timezone="Asia/Shanghai",
+            ),
+        )
+
+        assert "memory_query" in decision.tools
+        assert decision.memory_route == "explicit_query"
+        assert decision.routing_memory_hint == {
+            "query": "你记得我们之前约定了什么",
+            "query_mode": "detail",
+            "sources": ["chat", "relationship"],
+            "recall_intent": "relationship_recall",
+        }
