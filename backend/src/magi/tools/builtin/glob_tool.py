@@ -74,6 +74,7 @@ class GlobTool(Tool):
                 ToolParameter(
                     name="exclude",
                     type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.STRING,
                     description="Path patterns to exclude from traversal",
                     required=False,
                     default=list(DEFAULT_EXCLUDE_PATTERNS),

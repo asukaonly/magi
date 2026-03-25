@@ -39,6 +39,7 @@ class MemoryQueryTool(Tool):
                 ToolParameter(
                     name="sources",
                     type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.STRING,
                     description="Optional source filters such as ['chat', 'timeline', 'worker'].",
                     required=False,
                 ),

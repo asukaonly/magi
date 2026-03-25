@@ -110,6 +110,10 @@ class ToolParameter(BaseModel):
     enum: Optional[List[Any]] = Field(None, description="Enum values")
     min_value: Optional[float] = Field(None, description="Minimum value (numeric)")
     max_value: Optional[float] = Field(None, description="Maximum value (numeric)")
+    array_item_type: Optional[ParameterType] = Field(
+        None,
+        description="Array item type when parameter type is array",
+    )
 
 
 class ToolSchema(BaseModel):
@@ -302,7 +306,7 @@ class Tool(ABC):
             "name": self.schema.name if self.schema else "Unknown",
             "description": self.schema.description if self.schema else "",
             "category": self.schema.category if self.schema else "unknown",
-            "parameters": [p.dict() for p in self.schema.parameters] if self.schema else [],
+            "parameters": [p.model_dump(mode="json") for p in self.schema.parameters] if self.schema else [],
             "examples": self.schema.examples if self.schema else [],
             "version": self.schema.version if self.schema else "1.0.0",
             "dangerous": self.schema.dangerous if self.schema else False,
@@ -340,6 +344,9 @@ class Tool(ABC):
                 "type": param.type.value,
                 "description": param.description,
             }
+            if param.type == ParameterType.ARRAY:
+                item_type = param.array_item_type or ParameterType.STRING
+                prop_def["items"] = {"type": item_type.value}
 
             # Add default value
             if param.default is not None:
@@ -469,6 +476,13 @@ class Tool(ABC):
                 enum=param_def.get("enum"),
                 min_value=param_def.get("min"),
                 max_value=param_def.get("max"),
+                array_item_type=(
+                    ParameterType(param_def["items"]["type"])
+                    if param_type == ParameterType.ARRAY
+                    and isinstance(param_def.get("items"), dict)
+                    and param_def["items"].get("type") in ParameterType._value2member_map_
+                    else None
+                ),
             ))
 
         return ToolSchema(

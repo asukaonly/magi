@@ -820,6 +820,10 @@ class FunctionCallingOrchestrator:
                     continue
 
                 prop_def = {"type": param.get("type", "string")}
+                if param.get("type") == "array":
+                    prop_def["items"] = {
+                        "type": param.get("array_item_type", "string"),
+                    }
                 if param.get("description"):
                     prop_def["description"] = param["description"]
                 if param.get("enum"):

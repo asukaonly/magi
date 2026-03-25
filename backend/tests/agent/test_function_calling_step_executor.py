@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
+from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
 
 class _FakeToolRegistry:
@@ -13,6 +14,13 @@ class _FakeToolRegistry:
 
     def get_tool_info(self, _tool_name: str):  # type: ignore[no-untyped-def]
         return None
+
+
+class _MemoryToolRegistry(_FakeToolRegistry):
+    def get_tool_info(self, tool_name: str):  # type: ignore[no-untyped-def]
+        if tool_name != "memory_query":
+            return None
+        return MemoryQueryTool().get_info()
 
 
 def _build_orchestrator() -> FunctionCallingOrchestrator:
@@ -33,6 +41,22 @@ def test_build_step_state_does_not_duplicate_latest_user_message_from_history() 
     )
 
     assert step_state.messages == [{"role": "user", "content": "Inspect the repository."}]
+
+
+def test_build_tools_parameter_includes_array_items_schema_for_openai_tools() -> None:
+    orchestrator = FunctionCallingOrchestrator(
+        tool_registry=_MemoryToolRegistry(),
+        llm_adapter=SimpleNamespace(model_name="fake-model", provider_name="fake-provider"),
+    )
+
+    tools = orchestrator._build_tools_parameter(["memory_query"])
+
+    assert tools[0]["function"]["name"] == "memory_query"
+    assert tools[0]["function"]["parameters"]["properties"]["sources"] == {
+        "type": "array",
+        "description": "Optional source filters such as ['chat', 'timeline', 'worker'].",
+        "items": {"type": "string"},
+    }
 
 
 @pytest.mark.asyncio

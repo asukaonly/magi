@@ -75,6 +75,7 @@ class AgentTool(Tool):
                 ToolParameter(
                     name="worker_ids",
                     type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.STRING,
                     description="Multiple worker ids for batch status/await actions",
                     required=False,
                 ),
@@ -107,6 +108,7 @@ class AgentTool(Tool):
                 ToolParameter(
                     name="workers",
                     type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.OBJECT,
                     description=(
                         "Batch worker definitions. Each item: "
                         "{subagent_type, description, prompt, target_task_agent_type?, "

@@ -124,3 +124,5 @@ class TestMemoryQueryTool:
         assert claude_format["name"] == "memory_query"
         assert "input_schema" in claude_format
         assert "properties" in claude_format["input_schema"]
+        assert claude_format["input_schema"]["properties"]["sources"]["type"] == "array"
+        assert claude_format["input_schema"]["properties"]["sources"]["items"] == {"type": "string"}
