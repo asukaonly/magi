@@ -186,6 +186,23 @@ def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
     assert "require_skill_runner" in runtime_bindings
 
 
+def test_api_runtime_exports_expose_only_api_consumed_bindings() -> None:
+    api_builder_source = (BACKEND_SRC / "bootstrap/api_builder.py").read_text(encoding="utf-8")
+
+    assert "container.message_bus.override" not in api_builder_source
+    assert "container.other_memory.override" not in api_builder_source
+    assert "container.action_registry.override" not in api_builder_source
+    assert "container.skill_loader.override" not in api_builder_source
+    assert "container.skill_runner.override" not in api_builder_source
+    assert "container.message_bus.reset_override" not in api_builder_source
+    assert "container.other_memory.reset_override" not in api_builder_source
+    assert "container.action_registry.reset_override" not in api_builder_source
+    assert "container.skill_loader.reset_override" not in api_builder_source
+    assert "container.skill_runner.reset_override" not in api_builder_source
+    assert '"runtime_message_bus"' not in api_builder_source
+    assert '"runtime_personality"' not in api_builder_source
+
+
 def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> None:
     plugins_init = (BACKEND_SRC / "plugins/__init__.py").read_text(encoding="utf-8")
     plugins_lifecycle = (BACKEND_SRC / "plugins/lifecycle.py").read_text(encoding="utf-8")

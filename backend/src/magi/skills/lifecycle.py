@@ -16,7 +16,7 @@ class SkillsModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_skills",
-            dependencies=("runtime_tools", "runtime_llm", "runtime_configuration"),
+            dependencies=("runtime_llm", "runtime_configuration"),
         )
         self._context = context
 
