@@ -90,6 +90,8 @@ export interface L2Assertion {
   inference_depth: string;
   first_inferred_at: number;
   last_validated_at: number;
+  user_feedback: string | null;
+  user_feedback_at: number | null;
 }
 
 export interface L2Entity {
@@ -271,6 +273,8 @@ export const memoryApi = {
     api.get<L2Relation[]>('/memory/l2/relations', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Relation[]>,
   getL2Assertions: (limit?: number) =>
     api.get<L2Assertion[]>('/memory/l2/assertions', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Assertion[]>,
+  submitAssertionFeedback: (assertionId: string, feedback: 'confirmed' | 'rejected') =>
+    api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback }) as unknown as Promise<L2Assertion>,
   getL2Entities: (limit?: number) =>
     api.get<L2Entity[]>('/memory/l2/entities', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Entity[]>,
   getL2Mentions: (limit?: number) =>

@@ -50,6 +50,7 @@ const EventsPage: React.FC = () => {
     runL2Reconcile,
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
+    submitAssertionFeedback,
     l3Summaries,
     l4Skills,
     searchQuery,
@@ -153,6 +154,7 @@ const EventsPage: React.FC = () => {
               onRunReconcile={runL2Reconcile}
               onRunSnapshotRefresh={runL2SnapshotRefresh}
               onUpsertGraphConflictRule={upsertL2GraphConflictRule}
+              onSubmitAssertionFeedback={submitAssertionFeedback}
             />
           )}
         </TabsContent>

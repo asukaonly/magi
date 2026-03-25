@@ -67,6 +67,7 @@ export interface UseMemoryReturn {
   runL2Reconcile: (entityIds: string[]) => Promise<void>;
   runL2SnapshotRefresh: (entityIds: string[]) => Promise<void>;
   upsertL2GraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
+  submitAssertionFeedback: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
 
   // L3 data
   l3Summaries: L3Summary[];
@@ -338,6 +339,23 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     [refreshL2Lab, t]
   );
 
+  const submitAssertionFeedback = useCallback(
+    async (assertionId: string, feedback: 'confirmed' | 'rejected') => {
+      setL2ActionLoading(true);
+      try {
+        await memoryApi.submitAssertionFeedback(assertionId, feedback);
+        await refreshL2Lab();
+        toast.success(t(feedback === 'confirmed' ? 'memory.l2.feedbackConfirmed' : 'memory.l2.feedbackRejected'));
+      } catch (error) {
+        console.error('Failed to submit assertion feedback:', error);
+        toast.error(t('memory.l2.lab.actionFailed'));
+      } finally {
+        setL2ActionLoading(false);
+      }
+    },
+    [refreshL2Lab, t]
+  );
+
   const loadL3Summaries = useCallback(async () => {
     try {
       const data = await memoryApi.getL3Summaries({ limit: 100 });
@@ -538,6 +556,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     runL2Reconcile,
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
+    submitAssertionFeedback,
 
     // L3 data
     l3Summaries,

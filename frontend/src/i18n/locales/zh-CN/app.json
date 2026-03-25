@@ -1288,6 +1288,12 @@
       "noRelations": "暂无关系记录",
       "assertions": "心智理论",
       "noAssertions": "暂无断言记录",
+      "confirmAssertion": "确认此断言",
+      "rejectAssertion": "否认此断言",
+      "confirmed": "已确认",
+      "rejected": "已否认",
+      "feedbackConfirmed": "断言已确认",
+      "feedbackRejected": "断言已否认",
       "lab": {
         "title": "L2 实验台",
         "skippedCount": "策略拦截数",

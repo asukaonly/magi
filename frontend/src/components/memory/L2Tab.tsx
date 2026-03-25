@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Brain, DatabaseZap, GitMerge, Network, Orbit, RefreshCcw } from 'lucide-react';
+import { Brain, Check, DatabaseZap, GitMerge, Network, Orbit, RefreshCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -53,6 +53,7 @@ interface L2TabProps {
   onRunReconcile: (entityIds: string[]) => Promise<void>;
   onRunSnapshotRefresh: (entityIds: string[]) => Promise<void>;
   onUpsertGraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
 }
 
 const defaultManualState: ManualL2EventPayload = {
@@ -96,6 +97,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
   onRunReconcile,
   onRunSnapshotRefresh,
   onUpsertGraphConflictRule,
+  onSubmitAssertionFeedback,
 }) => {
   const { t } = useTranslation('app');
   const [manualEvent, setManualEvent] = useState<ManualL2EventPayload>(defaultManualState);
@@ -340,9 +342,40 @@ export const L2Tab: React.FC<L2TabProps> = ({
               <div className="mt-2 text-[hsl(var(--memory-body))]">
                 {assertion.trait_name}: {assertion.trait_value}
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge variant="secondary">{`${(assertion.confidence_score * 100).toFixed(0)}%`}</Badge>
-                <Badge variant="outline">{assertion.inference_depth}</Badge>
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">{`${(assertion.confidence_score * 100).toFixed(0)}%`}</Badge>
+                  <Badge variant="outline">{assertion.inference_depth}</Badge>
+                  {assertion.user_feedback && (
+                    <Badge variant={assertion.user_feedback === 'confirmed' ? 'default' : 'destructive'}>
+                      {assertion.user_feedback === 'confirmed' ? t('memory.l2.confirmed') : t('memory.l2.rejected')}
+                    </Badge>
+                  )}
+                </div>
+                {onSubmitAssertionFeedback && (
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30"
+                      disabled={actionLoading || assertion.user_feedback === 'confirmed'}
+                      onClick={() => onSubmitAssertionFeedback(assertion.assertion_id, 'confirmed')}
+                      title={t('memory.l2.confirmAssertion')}
+                    >
+                      <Check className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30"
+                      disabled={actionLoading || assertion.user_feedback === 'rejected'}
+                      onClick={() => onSubmitAssertionFeedback(assertion.assertion_id, 'rejected')}
+                      title={t('memory.l2.rejectAssertion')}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           ))}

@@ -126,6 +126,8 @@ class L2CognitionStore:
                     decay_anchor_at REAL,
                     context_ref_id TEXT NOT NULL DEFAULT '',
                     expires_at REAL,
+                    user_feedback TEXT,
+                    user_feedback_at REAL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
                     UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
@@ -204,6 +206,12 @@ class L2CognitionStore:
             "updated_at",
         }
         if required_columns.issubset(existing_columns):
+            # Schema is up-to-date for the core columns; ensure newer optional
+            # columns are present (added after the original full-recreation migration).
+            if "user_feedback" not in existing_columns:
+                await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN user_feedback TEXT")
+            if "user_feedback_at" not in existing_columns:
+                await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN user_feedback_at REAL")
             return
 
         await db.executescript(
@@ -232,6 +240,8 @@ class L2CognitionStore:
                 decay_anchor_at REAL,
                 context_ref_id TEXT NOT NULL DEFAULT '',
                 expires_at REAL,
+                user_feedback TEXT,
+                user_feedback_at REAL,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL,
                 UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
@@ -546,6 +556,70 @@ class L2CognitionStore:
                 row = await cursor.fetchone()
         return self._assertion_row_to_dict(row) if row else None
 
+    async def apply_user_feedback(
+        self,
+        *,
+        assertion_id: str,
+        feedback: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Apply user confirmation or rejection to an assertion.
+
+        Args:
+            assertion_id: The assertion to update.
+            feedback: ``"confirmed"`` or ``"rejected"``.
+
+        Returns:
+            The updated assertion dict, or ``None`` if not found.
+        """
+        if feedback not in {"confirmed", "rejected"}:
+            raise ValueError(f"Invalid feedback value: {feedback!r}")
+
+        await self.initialize()
+        now = time.time()
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+                (assertion_id,),
+            ) as cursor:
+                existing = await cursor.fetchone()
+
+            if existing is None:
+                return None
+
+            current_confidence = float(existing["confidence_score"])
+            current_state = str(existing["validation_state"])
+
+            if feedback == "confirmed":
+                new_confidence = min(0.95, current_confidence + 0.20)
+                new_state = "stable" if current_state != "contradicted" else current_state
+            else:
+                new_confidence = 0.10
+                new_state = "user_rejected"
+
+            await db.execute(
+                """
+                UPDATE tom_trait_assertions
+                SET user_feedback = ?, user_feedback_at = ?,
+                    confidence_score = ?, validation_state = ?, updated_at = ?
+                WHERE assertion_id = ?
+                """,
+                (feedback, now, new_confidence, new_state, now, assertion_id),
+            )
+            await db.commit()
+
+        logger.info(
+            "L2 user feedback applied",
+            assertion_id=assertion_id,
+            feedback=feedback,
+            old_confidence=current_confidence,
+            new_confidence=new_confidence,
+            old_state=current_state,
+            new_state=new_state,
+        )
+        return await self.get_tom_assertion(assertion_id=assertion_id)
+
     async def list_tom_snapshots(
         self,
         *,
@@ -806,6 +880,7 @@ class L2CognitionStore:
                     evidence_count=evidence_count,
                     time_span_hours=time_span_hours,
                     trait_name=str(assertion["trait_name"]),
+                    user_feedback=assertion.get("user_feedback"),
                 )
                 snapshot_field = self._recommend_snapshot_field(
                     trait_name=str(assertion["trait_name"]),
@@ -878,7 +953,9 @@ class L2CognitionStore:
         active_assertions = [
             item
             for item in assertions
-            if item["validation_state"] in {"stable", "corroborated"} and not self._is_assertion_expired(item)
+            if item["validation_state"] in {"stable", "corroborated"}
+            and not self._is_assertion_expired(item)
+            and item.get("user_feedback") != "rejected"
         ]
         if not assertions and not outgoing and not incoming and not superseded_outgoing and not superseded_incoming:
             return None
@@ -1680,7 +1757,17 @@ class L2CognitionStore:
         evidence_count: int,
         time_span_hours: float,
         trait_name: str,
+        user_feedback: Optional[str] = None,
     ) -> tuple[str, float, str]:
+        # User-rejected assertions stay rejected.
+        if user_feedback == "rejected":
+            return ("user_rejected", 0.10, "volatile_pattern")
+
+        # User-confirmed assertions are promoted to stable with a confidence floor.
+        if user_feedback == "confirmed":
+            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "stable_trait"
+            return ("stable", max(current_confidence, 0.85), stability_kind)
+
         if current_state == "contradicted":
             return ("contradicted", min(current_confidence, 0.35), "volatile_pattern")
 
@@ -1878,6 +1965,7 @@ class L2CognitionStore:
         return (None, None)
 
     def _assertion_row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
+        columns = set(row.keys())
         return {
             "assertion_id": str(row["assertion_id"]),
             "entity_id": str(row["entity_id"]),
@@ -1901,6 +1989,8 @@ class L2CognitionStore:
             "decay_anchor_at": float(row["decay_anchor_at"]) if row["decay_anchor_at"] else None,
             "context_ref_id": str(row["context_ref_id"] or ""),
             "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
+            "user_feedback": str(row["user_feedback"]) if "user_feedback" in columns and row["user_feedback"] else None,
+            "user_feedback_at": float(row["user_feedback_at"]) if "user_feedback_at" in columns and row["user_feedback_at"] else None,
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }

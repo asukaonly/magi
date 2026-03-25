@@ -804,3 +804,120 @@ async def test_upsert_graph_conflict_rule_rejects_invalid_combinations(tmp_path,
 
     with pytest.raises(ValueError, match=message):
         await store.upsert_graph_conflict_rule(payload)
+
+
+@pytest.mark.asyncio
+async def test_apply_user_feedback_confirmed_promotes_confidence(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message("I have been really stressed.", correlation_id="evt-fb-1", timestamp=1710000000.0)
+    await _apply_rule_candidates(store, event)
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    assert len(assertions) == 1
+    assert assertions[0]["validation_state"] == "tentative"
+    original_confidence = assertions[0]["confidence_score"]
+
+    result = await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="confirmed")
+
+    assert result is not None
+    assert result["user_feedback"] == "confirmed"
+    assert result["user_feedback_at"] is not None
+    assert result["validation_state"] == "stable"
+    assert result["confidence_score"] >= original_confidence + 0.20 - 0.01
+
+
+@pytest.mark.asyncio
+async def test_apply_user_feedback_rejected_drops_confidence(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message("I have been really stressed.", correlation_id="evt-fb-2", timestamp=1710000000.0)
+    await _apply_rule_candidates(store, event)
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+
+    result = await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="rejected")
+
+    assert result is not None
+    assert result["user_feedback"] == "rejected"
+    assert result["validation_state"] == "user_rejected"
+    assert result["confidence_score"] == pytest.approx(0.10)
+
+
+@pytest.mark.asyncio
+async def test_apply_user_feedback_not_found_returns_none(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    result = await store.apply_user_feedback(assertion_id="nonexistent", feedback="confirmed")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_apply_user_feedback_invalid_value_raises(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    with pytest.raises(ValueError, match="Invalid feedback"):
+        await store.apply_user_feedback(assertion_id="any", feedback="maybe")
+
+
+@pytest.mark.asyncio
+async def test_reconcile_respects_user_confirmed_feedback(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message("I have been really stressed.", correlation_id="evt-rc-1", timestamp=1710000000.0)
+    await _apply_rule_candidates(store, event)
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+
+    await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="confirmed")
+
+    outcomes = await store.reconcile_entity(entity_id="user:u1")
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "stable"
+    assert outcomes[0].confidence >= 0.85
+
+
+@pytest.mark.asyncio
+async def test_reconcile_respects_user_rejected_feedback(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message("I have been really stressed.", correlation_id="evt-rc-2", timestamp=1710000000.0)
+    await _apply_rule_candidates(store, event)
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+
+    await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="rejected")
+
+    outcomes = await store.reconcile_entity(entity_id="user:u1")
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "user_rejected"
+    assert outcomes[0].confidence == pytest.approx(0.10)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_excludes_user_rejected_assertions(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    now = time.time()
+    # Create two assertions — one will be rejected
+    for i, text in enumerate(["I have been really stressed.", "I have been really stressed."], start=1):
+        event = await _build_user_message(text, correlation_id=f"evt-snap-{i}", timestamp=now + i * 100)
+        await _apply_rule_candidates(store, event)
+
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    assert len(assertions) >= 1
+
+    # Reject the assertion
+    await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="rejected")
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1")
+    # The rejected assertion should not appear in the active snapshot traits
+    if snapshot and snapshot.get("core_traits"):
+        assert "stress_level" not in snapshot["core_traits"]

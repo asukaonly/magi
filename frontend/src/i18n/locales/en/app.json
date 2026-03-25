@@ -1288,6 +1288,12 @@
       "noRelations": "No relations found",
       "assertions": "Theory of Mind",
       "noAssertions": "No assertions found",
+      "confirmAssertion": "Confirm this assertion",
+      "rejectAssertion": "Reject this assertion",
+      "confirmed": "Confirmed",
+      "rejected": "Rejected",
+      "feedbackConfirmed": "Assertion confirmed",
+      "feedbackRejected": "Assertion rejected",
       "lab": {
         "title": "L2 Lab",
         "skippedCount": "Skipped By Policy",

@@ -517,6 +517,22 @@ async def list_l2_assertions(limit: int = Query(default=100, ge=1, le=500)):
     return await unified_memory.l2.list_tom_assertions(limit=limit)
 
 
+class AssertionFeedbackRequest(BaseModel):
+    feedback: Literal["confirmed", "rejected"]
+
+
+@memory_router.patch("/l2/assertions/{assertion_id}/feedback")
+async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRequest):
+    """Apply user confirmation or rejection to an L2 assertion."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+    result = await unified_memory.l2.apply_user_feedback(assertion_id=assertion_id, feedback=body.feedback)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assertion not found")
+    return result
+
+
 @memory_router.get("/l2/entities")
 async def list_l2_entities(limit: int = Query(default=100, ge=1, le=500)):
     """List canonical L2 entities for the frontend lab picker."""

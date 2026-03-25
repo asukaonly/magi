@@ -42,6 +42,7 @@ export const MemoryKnowledgePage = () => {
     runL2Reconcile,
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
+    submitAssertionFeedback,
     refresh,
   } = useMemory({ initialLoadScope: 'l2' });
   const [activeSection, setActiveSection] = useState<KnowledgeSection>('overview');
@@ -222,6 +223,7 @@ export const MemoryKnowledgePage = () => {
                 onRunReconcile={runL2Reconcile}
                 onRunSnapshotRefresh={runL2SnapshotRefresh}
                 onUpsertGraphConflictRule={upsertL2GraphConflictRule}
+                onSubmitAssertionFeedback={submitAssertionFeedback}
               />
             </TabsContent>
           ))}
