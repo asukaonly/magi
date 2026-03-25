@@ -429,6 +429,7 @@ export const ChatPage: React.FC = () => {
   const draftAttachmentsRef = useRef<DraftAttachment[]>([]);
   const labelPopoverRef = useRef<HTMLDivElement>(null);
   const messageContextMenuRef = useRef<HTMLDivElement>(null);
+  const labelInputComposingRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1091,6 +1092,23 @@ export const ChatPage: React.FC = () => {
     }
   }, [t]);
 
+  const handleLabelDraftChange = useCallback((value: string) => {
+    if (labelInputComposingRef.current) {
+      setLabelPopoverDraft(value);
+      return;
+    }
+    setLabelPopoverDraft(truncateCustomLabel(value));
+  }, []);
+
+  const handleLabelDraftCompositionStart = useCallback(() => {
+    labelInputComposingRef.current = true;
+  }, []);
+
+  const handleLabelDraftCompositionEnd = useCallback((value: string) => {
+    labelInputComposingRef.current = false;
+    setLabelPopoverDraft(truncateCustomLabel(value));
+  }, []);
+
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (shouldSubmitOnEnter(event as React.KeyboardEvent<HTMLTextAreaElement>, isComposingRef.current)) {
       event.preventDefault();
@@ -1551,9 +1569,10 @@ export const ChatPage: React.FC = () => {
                 <input
                   type="text"
                   value={labelPopoverDraft}
-                  maxLength={MAX_CUSTOM_LABEL_LENGTH}
                   placeholder={t('chat.label.customPlaceholder')}
-                  onChange={(event) => setLabelPopoverDraft(truncateCustomLabel(event.target.value))}
+                  onChange={(event) => handleLabelDraftChange(event.target.value)}
+                  onCompositionStart={handleLabelDraftCompositionStart}
+                  onCompositionEnd={(event) => handleLabelDraftCompositionEnd(event.currentTarget.value)}
                   className="h-10 flex-1 rounded-xl border border-border/60 bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary/45"
                 />
                 <Button

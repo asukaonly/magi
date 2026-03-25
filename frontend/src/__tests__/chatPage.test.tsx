@@ -712,6 +712,38 @@ describe('ChatPage', () => {
     expect(screen.getByText('记一下')).toBeInTheDocument();
   });
 
+  it('does not truncate the custom label while IME composition is still active', async () => {
+    const user = userEvent.setup();
+
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-assistant-ime-label',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: 'IME label target',
+          timestamp: 2200,
+          turn_id: 'turn-ime',
+          kind: 'assistant',
+        } as any,
+      ])
+    );
+
+    render(<ChatPage />);
+
+    await user.click(screen.getByRole('button', { name: 'chat.label.action' }));
+    const input = screen.getByPlaceholderText('chat.label.customPlaceholder') as HTMLInputElement;
+
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: 'nishabi' } });
+    expect(input.value).toBe('nishabi');
+
+    fireEvent.compositionEnd(input, { data: '你好吗朋友' });
+    fireEvent.change(input, { target: { value: '你好吗朋友' } });
+    expect(input.value).toBe('你好吗朋');
+  });
+
   it('opens a message context menu with reply, copy, and delete actions', async () => {
     const user = userEvent.setup();
     const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
