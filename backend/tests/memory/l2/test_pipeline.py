@@ -1004,32 +1004,6 @@ async def test_build_focal_entities_returns_typed_refs():
 
 
 @pytest.mark.asyncio
-async def test_build_graph_candidates_skips_interrogative_preference_queries():
-    from magi.memory.l2.models import ResolvedEntityMention
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            event = _make_memory_event(event_id="evt-pref-question", content="你觉得我喜欢什么天气？")
-            candidates = pipeline._build_graph_candidates(
-                event,
-                [
-                    ResolvedEntityMention(
-                        mention_text="我",
-                        normalized_surface="我",
-                        entity_type="person",
-                        resolved_entity_id="person:u1",
-                        confidence=0.95,
-                    )
-                ],
-            )
-
-            assert candidates == []
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
 async def test_prepare_unified_graph_candidates_rejects_generic_preference_domain_questions():
     from magi.memory.l2.evidence_policy import PolicyDecision
     from magi.memory.l2.extraction_profiles import ExtractionProfile

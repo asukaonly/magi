@@ -222,6 +222,60 @@ async def test_group_content_avoids_deep_psychology(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upsert_knowledge_edge_accumulates_confidence_on_repeat(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.3,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+    edges = await store.get_relationships(subject_id="user:u1", limit=10)
+    assert abs(edges[0]["confidence"] - 0.3) < 1e-6
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-2"],
+        confidence=0.3,
+        observed_at=1710010000.0,
+        source_type="chat",
+    )
+    edges = await store.get_relationships(subject_id="user:u1", limit=10)
+    # noisy-OR: 1 - (1-0.3)*(1-0.3) = 0.51
+    assert edges[0]["confidence"] > 0.3
+    assert abs(edges[0]["confidence"] - 0.51) < 1e-6
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-3"],
+        confidence=0.3,
+        observed_at=1710020000.0,
+        source_type="chat",
+    )
+    edges = await store.get_relationships(subject_id="user:u1", limit=10)
+    # noisy-OR: 1 - (1-0.51)*(1-0.3) = 0.657
+    assert edges[0]["confidence"] > 0.51
+    assert edges[0]["confidence"] <= 0.99
+
+
+@pytest.mark.asyncio
 async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 

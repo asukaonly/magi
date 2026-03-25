@@ -52,39 +52,13 @@ from .ontology import (
     validate_graph_candidate,
 )
 
-_POSITIVE_PREFERENCE_MARKERS = (" like ", " likes ", "喜欢", "love ", "loves ")
-_NEGATIVE_PREFERENCE_MARKERS = (" dislike ", " dislikes ", "不喜欢", "do not like", "don't like")
 _PREFERENCE_PREDICATES = {"LIKES", "DISLIKES", "INTERESTED_IN"}
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
-_GRAPH_ELIGIBLE_ENTITY_TYPES = {
-    "place",
-    "person",
-    "organization",
-    "group",
-    "product",
-    "food",
-    "topic",
-    "event",
-    "media",
-    "other",
-}
 _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "weather",
     "weather-state",
     "food",
     "music",
-    "place",
-}
-_GENERIC_PREFERENCE_SURFACES = {
-    "天气",
-    "气候",
-    "weather",
-    "climate",
-    "食物",
-    "food",
-    "音乐",
-    "music",
-    "地方",
     "place",
 }
 logger = get_logger(__name__)
@@ -1476,56 +1450,6 @@ class L2Pipeline:
             )
         return (entity_id, mention_confidence)
 
-    def _build_graph_candidates(
-        self,
-        event: MemoryEvent,
-        resolved_mentions: list[ResolvedEntityMention],
-    ) -> list[dict[str, Any]]:
-        subject_id = self._resolve_self_entity_id(event)
-        if subject_id is None:
-            return []
-        if self._looks_like_interrogative_preference_query(event.content):
-            return []
-
-        text = event.content.casefold()
-        predicate: Optional[str] = None
-        if any(marker in text for marker in _NEGATIVE_PREFERENCE_MARKERS):
-            predicate = "DISLIKES"
-        elif any(marker in text for marker in _POSITIVE_PREFERENCE_MARKERS):
-            predicate = "LIKES"
-        if predicate is None:
-            return []
-
-        for mention in resolved_mentions:
-            entity_type = self._normalize_entity_type(mention.entity_type)
-            if entity_type not in _GRAPH_ELIGIBLE_ENTITY_TYPES:
-                continue
-            if self._is_self_reference_preference_object(event=event, mention=mention):
-                continue
-            if self._is_generic_preference_surface(mention.normalized_surface or mention.mention_text):
-                continue
-            object_id = mention.resolved_entity_id or self._build_concept_node(
-                entity_type=entity_type,
-                normalized_surface=mention.normalized_surface or mention.mention_text,
-            )
-            if not object_id:
-                continue
-            return [
-                {
-                    "subject_id": subject_id,
-                    "subject_type": "user",
-                    "predicate": predicate,
-                    "object_id": object_id,
-                    "object_type": entity_type,
-                    "evidence_event_ids": [event.event_id],
-                    "confidence": 0.78 if mention.resolved_entity_id else 0.66,
-                    "observed_at": event.timestamp,
-                    "source_type": event.source,
-                    "extraction_method": "pipeline_preference_rule",
-                }
-            ]
-        return []
-
     def _build_focal_entities(
         self,
         event: MemoryEvent,
@@ -1950,10 +1874,6 @@ class L2Pipeline:
             return True
         return False
 
-    def _is_generic_preference_surface(self, surface: str | None) -> bool:
-        normalized = str(surface or "").strip().casefold()
-        return normalized in _GENERIC_PREFERENCE_SURFACES
-
     def _is_generic_preference_object_id(self, value: str | None) -> bool:
         normalized = str(value or "").strip().casefold()
         if not normalized:
@@ -1972,26 +1892,6 @@ class L2Pipeline:
         if subject_prefix != "user" or object_prefix != "person" or not subject_suffix or not object_suffix:
             return False
         return self._slugify(subject_suffix) == object_suffix
-
-    def _is_self_reference_preference_object(
-        self,
-        *,
-        event: MemoryEvent,
-        mention: ResolvedEntityMention,
-    ) -> bool:
-        surface = str(mention.normalized_surface or mention.mention_text or "").strip().casefold()
-        if surface in {"我", "自己", "本人", "i", "me", "myself"}:
-            return True
-        subject_id = self._resolve_self_entity_id(event)
-        resolved_entity_id = str(mention.resolved_entity_id or "").strip()
-        entity_type = self._normalize_entity_type(mention.entity_type) or ""
-        if not subject_id or not resolved_entity_id:
-            return False
-        return self._is_self_like_preference_object(
-            subject_id=subject_id,
-            object_id=resolved_entity_id,
-            object_type=entity_type,
-        )
 
     def _build_canonical_entity_id(self, *, entity_type: str, canonical_name: str) -> str:
         slug = self._slugify(canonical_name)

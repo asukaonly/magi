@@ -47,6 +47,15 @@ def _normalize_store_entity_ref(entity_id: str | None, entity_type: str | None) 
     return f"{entity_type}:{suffix}"
 
 
+def _accumulate_confidence(old: float, new: float) -> float:
+    """Combine old and new confidence using noisy-OR (independent evidence).
+
+    Result = 1 - (1 - old) * (1 - new), clamped to [0.0, 0.99].
+    """
+    combined = 1.0 - (1.0 - max(0.0, old)) * (1.0 - max(0.0, new))
+    return min(combined, 0.99)
+
+
 class L2CognitionStore:
     """Persists structured cognition artifacts derived from L1 events."""
 
@@ -384,7 +393,7 @@ class L2CognitionStore:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT evidence_event_ids, observation_count, first_observed_at FROM knowledge_graph WHERE triple_id = ?",
+                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at FROM knowledge_graph WHERE triple_id = ?",
                 (triple_id,),
             ) as cursor:
                 existing = await cursor.fetchone()
@@ -395,6 +404,8 @@ class L2CognitionStore:
                 )
                 observation_count = int(existing["observation_count"]) + 1
                 first_observed_at = float(existing["first_observed_at"])
+                old_confidence = float(existing["confidence"])
+                accumulated_confidence = _accumulate_confidence(old_confidence, float(confidence))
                 await db.execute(
                     """
                     UPDATE knowledge_graph
@@ -404,7 +415,7 @@ class L2CognitionStore:
                     WHERE triple_id = ?
                     """,
                     (
-                        float(confidence),
+                        accumulated_confidence,
                         json.dumps(merged_evidence, ensure_ascii=False),
                         observation_count,
                         float(observed_at),
