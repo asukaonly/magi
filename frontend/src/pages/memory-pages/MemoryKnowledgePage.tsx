@@ -43,7 +43,7 @@ export const MemoryKnowledgePage = () => {
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
     refresh,
-  } = useMemory();
+  } = useMemory({ initialLoadScope: 'l2' });
   const [activeSection, setActiveSection] = useState<KnowledgeSection>('overview');
   const [graphStatusFilter, setGraphStatusFilter] = useState('all');
   const [graphEntityFilter, setGraphEntityFilter] = useState('all');

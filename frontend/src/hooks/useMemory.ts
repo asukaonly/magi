@@ -93,6 +93,12 @@ export interface UseMemoryReturn {
   refreshAll: () => Promise<void>;
 }
 
+export type MemoryInitialLoadScope = 'all' | 'overview' | 'l0' | 'l1' | 'l2' | 'l3' | 'l4';
+
+export interface UseMemoryOptions {
+  initialLoadScope?: MemoryInitialLoadScope;
+}
+
 const DEFAULT_STATS: MemoryStatistics = {
   l0: { active_sessions: 0, total_goals: 0, total_entities: 0, total_tactics: 0 },
   l1: { event_count: 0 },
@@ -125,7 +131,8 @@ const DEFAULT_SEARCH_RESULTS: MemorySearchResultPayload = {
 // Hook Implementation
 // ============================================================================
 
-export function useMemory(): UseMemoryReturn {
+export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
+  const { initialLoadScope = 'all' } = options;
   const { t } = useTranslation('app');
 
   // Loading state
@@ -349,6 +356,35 @@ export function useMemory(): UseMemoryReturn {
     }
   }, []);
 
+  const loadInitialScope = useCallback(async () => {
+    const jobs: Promise<unknown>[] = [loadStatistics()];
+
+    switch (initialLoadScope) {
+      case 'all':
+        jobs.push(loadL0Sessions(), loadL1Events(), loadL2Data(), loadL3Summaries(), loadL4Skills());
+        break;
+      case 'overview':
+        break;
+      case 'l0':
+        jobs.push(loadL0Sessions());
+        break;
+      case 'l1':
+        jobs.push(loadL1Events());
+        break;
+      case 'l2':
+        jobs.push(loadL1Events(), loadL2Data());
+        break;
+      case 'l3':
+        jobs.push(loadL3Summaries());
+        break;
+      case 'l4':
+        jobs.push(loadL4Skills());
+        break;
+    }
+
+    await Promise.all(jobs);
+  }, [initialLoadScope, loadStatistics, loadL0Sessions, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills]);
+
   // ============================================================================
   // Initial Load
   // ============================================================================
@@ -356,18 +392,11 @@ export function useMemory(): UseMemoryReturn {
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true);
-      await Promise.all([
-        loadStatistics(),
-        loadL0Sessions(),
-        loadL1Events(),
-        loadL2Data(),
-        loadL3Summaries(),
-        loadL4Skills(),
-      ]);
+      await loadInitialScope();
       setLoading(false);
     };
-    loadAll();
-  }, [loadStatistics, loadL0Sessions, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills]);
+    void loadAll();
+  }, [loadInitialScope]);
 
   // ============================================================================
   // Session Selection

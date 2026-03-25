@@ -35,7 +35,7 @@ export const MemoryOverviewPage = () => {
     clearing,
     handleClearRequest,
     handleClearConfirm,
-  } = useMemory();
+  } = useMemory({ initialLoadScope: 'overview' });
 
   const overviewLinks = [
     { label: t('memory.nav.workbench'), path: '/memory/workbench', stat: stats.l0.active_sessions },

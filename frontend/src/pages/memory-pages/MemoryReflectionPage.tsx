@@ -14,7 +14,7 @@ import MemoryPageFrame, {
 
 export const MemoryReflectionPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l3Summaries, refresh } = useMemory();
+  const { loading, stats, l3Summaries, refresh } = useMemory({ initialLoadScope: 'l3' });
   const [query, setQuery] = useState('');
 
   const filteredSummaries = useMemo(

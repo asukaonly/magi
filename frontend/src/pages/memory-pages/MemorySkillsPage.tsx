@@ -17,7 +17,7 @@ import MemoryPageFrame, {
 
 export const MemorySkillsPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l4Skills, refresh } = useMemory();
+  const { loading, stats, l4Skills, refresh } = useMemory({ initialLoadScope: 'l4' });
   const [query, setQuery] = useState('');
   const [breakerFilter, setBreakerFilter] = useState('all');
 

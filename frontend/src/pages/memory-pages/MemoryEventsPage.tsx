@@ -17,7 +17,7 @@ import MemoryPageFrame, {
 
 export const MemoryEventsPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l1Events, refresh } = useMemory();
+  const { loading, stats, l1Events, refresh } = useMemory({ initialLoadScope: 'l1' });
   const [query, setQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
 

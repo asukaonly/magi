@@ -17,7 +17,9 @@ import MemoryPageFrame, {
 
 export const MemoryWorkbenchPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l0Sessions, l0Workbench, selectedSessionId, selectSession, refresh } = useMemory();
+  const { loading, stats, l0Sessions, l0Workbench, selectedSessionId, selectSession, refresh } = useMemory({
+    initialLoadScope: 'l0',
+  });
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
