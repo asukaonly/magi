@@ -8,6 +8,7 @@ import pytest
 from magi.llm.base import LLMAdapter
 from magi.config.models import LLMScenario
 from magi.tools.context_decider import ContextDecider
+from magi.tools.context_decider_context import ContextDeciderContext
 
 
 class _DummyLLMAdapter(LLMAdapter):
@@ -120,7 +121,15 @@ async def test_context_decider_always_disables_thinking() -> None:
 
     decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
-    await decider.decide("hello", {"os": "Darwin"})
+    await decider.decide(
+        "hello",
+        ContextDeciderContext(
+            os_name="Darwin",
+            os_version="25.0.0",
+            current_datetime="2026-03-25T12:00:00+08:00",
+            timezone="Asia/Shanghai",
+        ),
+    )
 
     assert seen["disable_thinking"] is True
 
@@ -160,7 +169,15 @@ async def test_context_decider_ignores_context_toggle_and_keeps_disable_thinking
 
     decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
-    await decider.decide("hello", {"disable_thinking": False, "deep_thinking": True})
+    await decider.decide(
+        "hello",
+        ContextDeciderContext(
+            os_name="Darwin",
+            os_version="25.0.0",
+            current_datetime="2026-03-25T12:00:00+08:00",
+            timezone="Asia/Shanghai",
+        ),
+    )
 
     assert seen["disable_thinking"] is True
 
@@ -184,9 +201,12 @@ def test_context_decider_prompt_includes_recent_tool_error_config_path() -> None
     prompt = decider._build_prompt(
         "要配什么key",
         [{"name": "weather", "description": "Weather tool", "type": "tool"}],
-        {
-            "os": "Darwin",
-            "recent_tool_errors": [
+        ContextDeciderContext(
+            os_name="Darwin",
+            os_version="25.0.0",
+            current_datetime="2026-03-25T12:00:00+08:00",
+            timezone="Asia/Shanghai",
+            recent_tool_errors=[
                 {
                     "tool_name": "weather",
                     "error_code": "PROVIDER_NOT_CONFIGURED",
@@ -195,11 +215,14 @@ def test_context_decider_prompt_includes_recent_tool_error_config_path() -> None
                     "next_action": "configure_qweather_api_key",
                 }
             ],
-        },
+        ),
     )
 
     assert "config_path=tool.weather.providers.qweather.api_key" in prompt
     assert "next_action=configure_qweather_api_key" in prompt
+    assert "- OS: Darwin 25.0.0" in prompt
+    assert "- Current datetime: 2026-03-25T12:00:00+08:00" in prompt
+    assert "- Timezone: Asia/Shanghai" in prompt
 
 
 def test_context_decider_prompt_excludes_latest_user_message_from_recent_conversation() -> None:
@@ -208,12 +231,15 @@ def test_context_decider_prompt_excludes_latest_user_message_from_recent_convers
     prompt = decider._build_prompt(
         "你是谁啊",
         [{"name": "agent", "description": "worker launch", "type": "tool"}],
-        {
-            "os": "Darwin",
-            "recent_messages": [
+        ContextDeciderContext(
+            os_name="Darwin",
+            os_version="25.0.0",
+            current_datetime="2026-03-25T12:00:00+08:00",
+            timezone="Asia/Shanghai",
+            recent_messages=[
                 {"role": "user", "content": "你是谁啊"},
             ],
-        },
+        ),
     )
 
     assert prompt.count("- user: 你是谁啊") == 0
@@ -249,9 +275,40 @@ async def test_context_decider_overrides_llm_direct_news_with_research_guardrail
 
     decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
-    decision = await decider.decide("搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接", {"os": "Darwin"})
+    decision = await decider.decide(
+        "搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接",
+        ContextDeciderContext(
+            os_name="Darwin",
+            os_version="25.0.0",
+            current_datetime="2026-03-25T12:00:00+08:00",
+            timezone="Asia/Shanghai",
+        ),
+    )
 
     assert decision.intent == "planning"
     assert decision.deep_thinking is True
     assert decision.orchestration_strategy["mode"] == "decompose"
     assert decision.orchestration_strategy["default_leaf_type"] == "general-purpose"
+
+
+def test_context_decider_prompt_includes_routing_environment_fields() -> None:
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+
+    prompt = decider._build_prompt(
+        "hello",
+        [{"name": "agent", "description": "worker launch", "type": "tool"}],
+        ContextDeciderContext(
+            os_name="Darwin",
+            os_version="25.0.0",
+            current_datetime="2026-03-25T12:00:00+08:00",
+            timezone="Asia/Shanghai",
+            workspace_path="/tmp/workspace",
+            home_dir="/Users/asuka",
+        ),
+    )
+
+    assert "- OS: Darwin 25.0.0" in prompt
+    assert "- Current datetime: 2026-03-25T12:00:00+08:00" in prompt
+    assert "- Timezone: Asia/Shanghai" in prompt
+    assert "- Workspace path: /tmp/workspace" in prompt
+    assert "- Home directory: /Users/asuka" in prompt

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 import platform
 from datetime import datetime
 from typing import Any, Awaitable, Callable
@@ -9,6 +10,7 @@ from typing import Any, Awaitable, Callable
 from ....agent.message_utils import build_recent_messages
 from ....core.logger import get_logger
 from ....tools.context_decider import ContextDecider
+from ....tools.context_decider_context import ContextDeciderContext
 from ..common import (
     ExecutionMode,
     ExecutionRequest,
@@ -113,15 +115,18 @@ class ChatExecutionCoordinator:
             exclude_latest_user_message=context.latest_user_message,
         )
 
-        now = datetime.now()
-        decision_context = {
-            "os": platform.system(),
-            "os_version": platform.release(),
-            "current_datetime": now.isoformat(timespec="seconds"),
-            "current_user": "unknown",
-            "recent_messages": recent_messages,
-            "recent_tool_errors": list(context.recent_tool_errors),
-        }
+        now = datetime.now().astimezone()
+        decision_context = ContextDeciderContext(
+            os_name=platform.system(),
+            os_version=platform.release(),
+            current_datetime=now.isoformat(timespec="seconds"),
+            timezone=str(now.tzinfo or "unknown"),
+            workspace_path=str(getattr(context.latest_payload, "workspace_path", "") or ""),
+            home_dir=os.path.expanduser("~"),
+            current_user="unknown",
+            recent_messages=recent_messages,
+            recent_tool_errors=list(context.recent_tool_errors),
+        )
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
         orchestration_plan = self._normalize_orchestration_plan(
             user_message=context.latest_user_message,

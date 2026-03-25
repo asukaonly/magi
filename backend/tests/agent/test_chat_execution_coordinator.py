@@ -242,6 +242,67 @@ async def test_coordinator_excludes_latest_user_message_from_recent_messages_con
 
 
 @pytest.mark.asyncio
+async def test_coordinator_builds_typed_routing_environment_context() -> None:
+    fake_decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="chat",
+            tools=[],
+            deep_thinking=False,
+            reasoning="direct response",
+            orchestration_strategy={
+                "mode": "direct",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": False,
+            },
+        )
+    )
+    coordinator = ChatExecutionCoordinator(
+        context_decider=fake_decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "你好"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="你好",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="你好",
+            workspace_path="/tmp/workspace",
+            turn_id="turn-1",
+        ),
+    )
+
+    await coordinator.match_intent(context)
+
+    assert fake_decider.last_decision_context is not None
+    assert fake_decider.last_decision_context["os_name"]
+    assert fake_decider.last_decision_context["os_version"]
+    assert fake_decider.last_decision_context["current_datetime"]
+    assert fake_decider.last_decision_context["timezone"]
+    assert fake_decider.last_decision_context["workspace_path"] == "/tmp/workspace"
+
+
+@pytest.mark.asyncio
 async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_launch() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(

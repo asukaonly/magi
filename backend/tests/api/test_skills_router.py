@@ -10,6 +10,7 @@ from magi.api.routers import skills as skills_router_module
 from magi.core.container import get_container
 from magi.skills import service_access as skills_runtime_service
 from magi.tools.context_decider import ContextDecider
+from magi.tools.context_decider_context import ContextDeciderContext
 from magi.tools.registry import tool_registry
 
 
@@ -87,7 +88,12 @@ def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_stat
     prompt = decider._build_prompt(  # noqa: SLF001 - direct contract verification for routing prompt
         user_message="Use a skill",
         available_tools=decider._get_available_tools(),  # noqa: SLF001
-        context={"os": "Darwin"},
+        context=ContextDeciderContext(
+            os_name="Darwin",
+            os_version="25.0.0",
+            current_datetime="2026-03-25T12:00:00+08:00",
+            timezone="Asia/Shanghai",
+        ),
     )
 
     assert "## Available Skills" in prompt

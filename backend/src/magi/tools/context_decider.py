@@ -19,6 +19,7 @@ from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from .registry import ToolRegistry
+from .context_decider_context import ContextDeciderContext
 from .memory_query_hint_resolver import MemoryQueryHintResolver
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
@@ -206,7 +207,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
     async def decide(
         self,
         user_message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[ContextDeciderContext] = None,
     ) -> ContextDecision:
         """
         Analyze user request and decide on tools
@@ -364,7 +365,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         self,
         user_message: str,
         available_tools: List[Dict[str, Any]],
-        context: Optional[Dict[str, Any]],
+        context: Optional[ContextDeciderContext],
     ) -> str:
         """Build the prompt for context decision"""
         prompt = """## Available Tools
@@ -395,15 +396,20 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 
 """
         if context:
-            if "os" in context:
-                prompt += f"- OS: {context['os']}\n"
-            if "current_date" in context:
-                prompt += f"- Current date: {context['current_date']}\n"
-            if "current_dir" in context:
-                prompt += f"- Current directory: {context['current_dir']}\n"
-            if "home_dir" in context:
-                prompt += f"- Home directory: {context['home_dir']}\n"
-            recent_messages = context.get("recent_messages")
+            if context.os_name:
+                os_line = context.os_name
+                if context.os_version:
+                    os_line = f"{os_line} {context.os_version}"
+                prompt += f"- OS: {os_line}\n"
+            if context.current_datetime:
+                prompt += f"- Current datetime: {context.current_datetime}\n"
+            if context.timezone:
+                prompt += f"- Timezone: {context.timezone}\n"
+            if context.workspace_path:
+                prompt += f"- Workspace path: {context.workspace_path}\n"
+            if context.home_dir:
+                prompt += f"- Home directory: {context.home_dir}\n"
+            recent_messages = context.recent_messages
             if isinstance(recent_messages, list) and recent_messages:
                 recent_messages = trim_latest_user_message(recent_messages, user_message)
             if isinstance(recent_messages, list) and recent_messages:
@@ -414,7 +420,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     role = str(item.get("role", "unknown"))
                     content = str(item.get("content", ""))
                     prompt += f"- {role}: {content}\n"
-            recent_tool_errors = context.get("recent_tool_errors")
+            recent_tool_errors = context.recent_tool_errors
             if isinstance(recent_tool_errors, list) and recent_tool_errors:
                 prompt += "\n## Recent Tool Errors\n\n"
                 for item in recent_tool_errors[:3]:
