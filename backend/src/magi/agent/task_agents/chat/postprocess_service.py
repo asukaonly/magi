@@ -232,6 +232,10 @@ class ChatPostProcessService:
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
+            reply_to_message_id=await self._resolve_result_reply_anchor_message_id(
+                context=context,
+                turn_id=turn_id,
+            ),
         )
         await self._finalize_session_run(context)
         notification_message = await self._get_notification_chat_message(
@@ -323,6 +327,10 @@ class ChatPostProcessService:
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
+            reply_to_message_id=await self._resolve_result_reply_anchor_message_id(
+                context=context,
+                turn_id=turn_id,
+            ),
         )
         await self._finalize_session_run(context)
         return True
@@ -752,6 +760,7 @@ class ChatPostProcessService:
         run_id: str | None = None,
         run_revision: int = 0,
         run_disposition: str | None = None,
+        reply_to_message_id: str | None = None,
     ) -> None:
         await self._chat_outcome_writer.persist_final_chat_outcome(
             turn_id=turn_id,
@@ -764,7 +773,36 @@ class ChatPostProcessService:
             run_id=run_id,
             run_revision=run_revision,
             run_disposition=run_disposition,
+            reply_to_message_id=reply_to_message_id,
         )
+
+    async def _resolve_result_reply_anchor_message_id(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        turn_id: str | None,
+    ) -> str | None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._chat_store is None or not normalized_turn_id:
+            return None
+        if context.incoming_fact_kind not in {
+            IncomingFactKind.WORKER_UPDATE,
+            IncomingFactKind.EXPLORE_TASK_COMPLETED,
+        }:
+            return None
+        turn = await self._chat_store.get_turn(normalized_turn_id)
+        anchor_turn_id = str(
+            (turn.response_anchor_turn_id if turn is not None else normalized_turn_id) or normalized_turn_id
+        ).strip()
+        if not anchor_turn_id:
+            return None
+        anchor_message = await self._chat_store.get_latest_message_for_turn(
+            anchor_turn_id,
+            message_kind="user_text",
+        )
+        if anchor_message is None:
+            return None
+        return anchor_message.message_id
 
     async def _get_chat_message(
         self,

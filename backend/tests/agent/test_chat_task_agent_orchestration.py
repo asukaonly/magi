@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from magi.chat import ChatStore
+from magi.chat import ChatMessageRecord, ChatStore
 from magi.agent.orchestration import (
     OrchestrationStore,
     PlannedSubtask,
@@ -22,6 +22,7 @@ from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.explore_task_agent import EXPLORE_TASK_COMPLETED
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.types import TaskAgentType
+from magi.context.contracts import PromptPackage
 from magi.events.events import EventTypes
 
 
@@ -161,6 +162,98 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
 
     assert first_history == []
     assert second_history == [{"role": "user", "content": "hello"}]
+
+
+@pytest.mark.asyncio
+async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path) -> None:
+    chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await chat_store.initialize()
+    original_user_message = await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-1",
+        message_text="Can you clarify the build step?",
+        created_at_ms=100,
+    )
+    assistant_message = ChatMessageRecord(
+        message_id="msg-assistant-root",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u-chat",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="Run the desktop dev script from the repo root.",
+        payload_json="{}",
+        is_final=True,
+        is_visible=True,
+        created_at_ms=150,
+        sequence_no=2,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+    )
+    await chat_store.append_message(assistant_message)
+    await chat_store.bump_history_version("s-chat")
+    await chat_store.create_user_turn(
+        session_id="s-chat",
+        user_id="u-chat",
+        turn_id="turn-2",
+        message_text="What if I only want the backend?",
+        created_at_ms=200,
+        reply_to_message_id=assistant_message.message_id,
+    )
+
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter(), chat_store=chat_store)
+
+    async def _fake_build_prompt_package(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return PromptPackage(prompt_context=None, system_prompt="BASE SYSTEM PROMPT")
+
+    agent._context_service.build_prompt_package = _fake_build_prompt_package  # type: ignore[method-assign]
+
+    reply_fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "What if I only want the backend?",
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "turn_id": "turn-2",
+            "metadata": {
+                "reply_to_message_id": assistant_message.message_id,
+            },
+        },
+        agent_type="chat",
+        agent_instance_id="u-chat",
+        correlation_id="corr_reply_1",
+    )
+
+    context = await agent.build_context(await agent.merge_facts([reply_fact]))
+
+    assert getattr(context, "reply_context", None) is not None
+    assert context.reply_context.message_id == assistant_message.message_id
+    assert context.reply_context.role == "assistant"
+    assert context.reply_context.content_excerpt == "Run the desktop dev script from the repo root."
+    assert context.reply_context.references_prior_turn is True
+
+    request = await agent._handler_registry.get(ExecutionMode.DIRECT_LLM).build_request(
+        ExecutionRequest(
+            mode=ExecutionMode.DIRECT_LLM,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+            ),
+            tool_selection=ToolSelection(),
+        )
+    )
+
+    assert "BASE SYSTEM PROMPT" in request.system_prompt
+    assert "Current message is replying to:" in request.system_prompt
+    assert "- speaker: assistant" in request.system_prompt
+    assert 'Run the desktop dev script from the repo root.' in request.system_prompt
+    assert request.messages[-1] == {"role": "user", "content": "What if I only want the backend?"}
+    assert original_user_message.reply_to_message_id is None
 
 
 @pytest.mark.asyncio

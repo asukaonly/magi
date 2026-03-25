@@ -74,6 +74,7 @@ class UserMessagePayload:
     attachments: list[dict[str, Any]] = field(default_factory=list)
     workspace_path: Optional[str] = None
     turn_id: Optional[str] = None
+    reply_to_message_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -86,10 +87,13 @@ class UserMessagePayload:
             payload["workspace_path"] = self.workspace_path
         if self.turn_id is not None:
             payload["turn_id"] = self.turn_id
+        if self.reply_to_message_id is not None:
+            payload["reply_to_message_id"] = self.reply_to_message_id
         return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "UserMessagePayload":
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
@@ -97,6 +101,10 @@ class UserMessagePayload:
             attachments=payload.get("attachments") if isinstance(payload.get("attachments"), list) else [],
             workspace_path=_optional_string(payload.get("workspace_path")),
             turn_id=_optional_string(payload.get("turn_id")),
+            reply_to_message_id=(
+                _optional_string(payload.get("reply_to_message_id"))
+                or _optional_string(metadata.get("reply_to_message_id"))
+            ),
         )
 
 

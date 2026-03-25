@@ -8,6 +8,7 @@ from typing import Any
 from ....config.models import LLMScenario
 from ...orchestration import WorkerResult
 from ..common import TaskAgentLLMService
+from .contracts import ChatReplyContext
 
 
 class ChatPromptService:
@@ -165,6 +166,29 @@ class ChatPromptService:
         if self.prefers_chinese_response(root_user_message):
             return "这次探索报告已经完成，但最终整理回答时没有拿到可用文本结果。"
         return "The exploration dossier completed, but the final rendering step did not return usable text."
+
+    def augment_system_prompt_with_reply_context(
+        self,
+        *,
+        system_prompt: str,
+        reply_context: ChatReplyContext | None,
+    ) -> str:
+        reply_block = self.build_reply_context_block(reply_context)
+        if not reply_block:
+            return system_prompt
+        return f"{system_prompt}\n\n{reply_block}"
+
+    def build_reply_context_block(self, reply_context: ChatReplyContext | None) -> str:
+        if reply_context is None:
+            return ""
+        lines = [
+            "Current message is replying to:",
+            f"- speaker: {reply_context.role}",
+            f'- message: "{reply_context.content_excerpt}"',
+        ]
+        if reply_context.references_prior_turn:
+            lines.append("- note: this reply points to an earlier turn, so keep that thread continuity explicit.")
+        return "\n".join(lines)
 
     def format_explore_render_response(self, response_text: str) -> str:
         text = str(response_text or "").replace("\r\n", "\n").strip()

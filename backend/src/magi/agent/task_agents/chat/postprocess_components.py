@@ -98,6 +98,7 @@ class ChatOutcomeWriter:
         run_id: str | None = None,
         run_revision: int = 0,
         run_disposition: str | None = None,
+        reply_to_message_id: str | None = None,
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._chat_store is None or not normalized_turn_id:
@@ -163,6 +164,7 @@ class ChatOutcomeWriter:
             sequence_no=await self._chat_store.next_sequence_no(session_id=existing_turn.session_id),
             replaces_message_id=interim_message.message_id if interim_message is not None else None,
             replaced_by_message_id=None,
+            reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
         await self._chat_store.append_message(final_message)
         await self._chat_store.bump_history_version(existing_turn.session_id)

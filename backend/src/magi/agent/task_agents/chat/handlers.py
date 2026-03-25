@@ -119,7 +119,10 @@ class DirectLLMHandler(BaseExecutionHandler):
             intent=request.intent,
             tool_selection=request.tool_selection,
             prompt_context=prompt_package.prompt_context,
-            system_prompt=prompt_package.system_prompt,
+            system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
+                system_prompt=prompt_package.system_prompt,
+                reply_context=getattr(request.context, "reply_context", None),
+            ),
             messages=append_latest_user_message(
                 request.context.history,
                 request.context.latest_user_message,
@@ -178,7 +181,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
             intent=request.intent,
             tool_selection=request.tool_selection,
             prompt_context=prompt_package.prompt_context,
-            system_prompt=prompt_package.system_prompt,
+            system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
+                system_prompt=prompt_package.system_prompt,
+                reply_context=getattr(request.context, "reply_context", None),
+            ),
             selected_tools=selected_tools,
             disable_thinking=not request.intent.deep_thinking,
         )

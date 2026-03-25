@@ -76,6 +76,17 @@ class ChatRuntimeContext(BaseRuntimeContext):
     planner_fact_kind: IncomingFactKind = IncomingFactKind.OTHER_FACT
     planner_payload: TaskFactPayload = field(default_factory=GenericFactPayload)
     pending_turns: list[PendingTurn] = field(default_factory=list)
+    reply_context: "ChatReplyContext | None" = None
+
+
+@dataclass(slots=True)
+class ChatReplyContext:
+    """Compact runtime context for one replied-to message."""
+
+    message_id: str
+    role: str
+    content_excerpt: str
+    references_prior_turn: bool
 
 
 @dataclass(slots=True, kw_only=True)
