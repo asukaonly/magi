@@ -724,15 +724,24 @@ class L2Handler:
 
         if conditions.subject_hint == "self" and self_entities:
             subject_entities = [dict(entity) for entity in self_entities]
-            target_entities = explicit_entities
+            target_entities = self._filter_target_entities_for_family(
+                entities=explicit_entities,
+                predicate_family=predicate_family,
+            )
             subject_binding_source = "self_anchor"
         elif conditions.subject_hint == "explicit" and explicit_entities:
             subject_entities = [dict(explicit_entities[0])]
-            target_entities = [dict(entity) for entity in explicit_entities[1:]]
+            target_entities = self._filter_target_entities_for_family(
+                entities=[dict(entity) for entity in explicit_entities[1:]],
+                predicate_family=predicate_family,
+            )
             subject_binding_source = "explicit_entity"
         elif predicate_family == "preference" and self_entities and self._looks_like_direct_self_preference(conditions.content_query):
             subject_entities = [dict(entity) for entity in self_entities]
-            target_entities = explicit_entities
+            target_entities = self._filter_target_entities_for_family(
+                entities=explicit_entities,
+                predicate_family=predicate_family,
+            )
             subject_binding_source = "self_anchor"
         elif explicit_entities:
             subject_entities = [dict(entity) for entity in explicit_entities]
@@ -776,6 +785,21 @@ class L2Handler:
             "relationship_object_id": relationship_object_id,
             "relationship_object_types": relationship_object_types,
         }
+
+    def _filter_target_entities_for_family(
+        self,
+        *,
+        entities: list[dict[str, str]],
+        predicate_family: str,
+    ) -> list[dict[str, str]]:
+        if predicate_family != "preference":
+            return [dict(entity) for entity in entities]
+        filtered = [
+            dict(entity)
+            for entity in entities
+            if str(entity.get("entity_type") or "").strip() not in {"person", "user"}
+        ]
+        return filtered or [dict(entity) for entity in entities]
 
     def _select_exact_target_entity_id(
         self,

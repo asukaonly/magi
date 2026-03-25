@@ -423,6 +423,54 @@ class TestL2Handler:
         assert results["trace"]["query_frame"]["chosen_subject_entity_id"] == "person:xiaowang"
         assert results["trace"]["query_frame"]["subject_binding_source"] == "explicit_entity"
 
+    @pytest.mark.asyncio
+    async def test_self_preference_filters_person_noise_from_targets(self):
+        store = AsyncMock()
+        store.get_tom_snapshot.return_value = {"entity_id": "user:local_user", "entity_type": "user"}
+        store.get_relationships.return_value = []
+        store.list_tom_assertions.return_value = []
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "weather_state:weather-state",
+                "entity_type": "weather_state",
+                "canonical_name": "Weather",
+                "match_source": "alias",
+            },
+            {
+                "entity_id": "person:219ba6d80c59",
+                "entity_type": "person",
+                "canonical_name": "Someone",
+                "match_source": "context",
+            },
+            {
+                "entity_id": "person:local-user",
+                "entity_type": "person",
+                "canonical_name": "Local User Person",
+                "match_source": "context",
+            },
+        ]
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="你觉得我喜欢什么天气",
+            entities=None,
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=True,
+            include_relationships=True,
+            include_assertions=True,
+        )
+
+        results = await handler.execute(conds, user_id="local_user")
+
+        _, relationship_kwargs = store.get_relationships.call_args
+        assert relationship_kwargs["subject_id"] == "user:local_user"
+        assert relationship_kwargs["object_types"] == ["weather_state"]
+        assert relationship_kwargs.get("object_id") is None
+        assert results["trace"]["query_frame"]["chosen_target_entity_id"] == "weather_state:weather-state"
+        assert results["trace"]["query_frame"]["target_entity_id_exact"] is None
+
 
 # -----------------------------------------------------------------------
 # L3Handler
