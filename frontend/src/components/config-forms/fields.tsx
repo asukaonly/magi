@@ -20,6 +20,10 @@ export function SelectField({
   triggerClassName,
   menuClassName,
   ariaLabel,
+  searchable = false,
+  searchThreshold = 10,
+  searchPlaceholder = 'Search...',
+  noResultsText = 'No results',
 }: {
   value?: string;
   onChange?: (value: string) => void;
@@ -31,17 +35,37 @@ export function SelectField({
   triggerClassName?: string;
   menuClassName?: string;
   ariaLabel?: string;
+  searchable?: boolean;
+  searchThreshold?: number;
+  searchPlaceholder?: string;
+  noResultsText?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
   const [openUpward, setOpenUpward] = useState(false);
+  const showSearch = searchable && options.length > searchThreshold;
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleOptions = normalizedQuery
+    ? options.filter((opt) => {
+        const label = opt.label.toLowerCase();
+        const optionValue = opt.value.toLowerCase();
+        return label.includes(normalizedQuery) || optionValue.includes(normalizedQuery);
+      })
+    : options;
   // Case-insensitive matching for selected option
   const selectedOption = options.find(
     (opt) => opt.value.toLowerCase() === (value || '').toLowerCase()
   );
+
+  useEffect(() => {
+    if (!open && searchQuery) {
+      setSearchQuery('');
+    }
+  }, [open, searchQuery]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -106,6 +130,7 @@ export function SelectField({
 
   const handleSelect = (optValue: string) => {
     onChange?.(optValue);
+    setSearchQuery('');
     setOpen(false);
   };
 
@@ -141,6 +166,17 @@ export function SelectField({
               menuClassName
             )}
           >
+            {showSearch ? (
+              <div className="sticky top-0 z-[1] border-b border-border bg-background p-2">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                />
+              </div>
+            ) : null}
             {allowEmpty && (
               <button
                 type="button"
@@ -151,7 +187,7 @@ export function SelectField({
                 {!value && <Check className="h-4 w-4 text-primary-600" />}
               </button>
             )}
-            {options.map((opt) => (
+            {visibleOptions.map((opt) => (
               <button
                 type="button"
                 key={opt.value}
@@ -172,6 +208,9 @@ export function SelectField({
                 {value === opt.value && <Check className="h-4 w-4 text-primary-600" />}
               </button>
             ))}
+            {visibleOptions.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-muted-foreground">{noResultsText}</div>
+            ) : null}
           </div>,
           document.body
         )

@@ -35,6 +35,14 @@ interface LLMModelSelectionSectionProps {
 
 const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
 
+const compareOptionLabels = (left: { label: string; value: string }, right: { label: string; value: string }) => {
+  const labelComparison = left.label.localeCompare(right.label, 'en', { sensitivity: 'base' });
+  if (labelComparison !== 0) {
+    return labelComparison;
+  }
+  return left.value.localeCompare(right.value, 'en', { sensitivity: 'base' });
+};
+
 export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> = ({
   registry,
   value,
@@ -87,7 +95,18 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         });
       }
     }
-    return models;
+    return models.sort((left, right) =>
+      compareOptionLabels(
+        {
+          label: `${left.modelLabel} (${left.providerName})`,
+          value: `${left.providerId}::${left.modelId}`,
+        },
+        {
+          label: `${right.modelLabel} (${right.providerName})`,
+          value: `${right.providerId}::${right.modelId}`,
+        }
+      )
+    );
   }, [enabledProviders, registry.providers]);
 
   if (enabledProviders.length === 0) {
@@ -240,6 +259,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                       value={selection.provider_id && selection.model ? `${selection.provider_id}::${selection.model}` : ''}
                       allowEmpty={false}
                       placeholder={t('llm.modelSelection.selectEmbeddingModel')}
+                      searchable
+                      searchThreshold={10}
+                      searchPlaceholder={t('llm.modelSelection.searchPlaceholder')}
+                      noResultsText={t('llm.modelSelection.noSearchResults')}
                       options={allEmbeddingModels.map((m) => ({
                         label: `${m.modelLabel} (${m.providerName})`,
                         value: `${m.providerId}::${m.modelId}`,
@@ -306,6 +329,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           const models = provider
             ? resolveProviderModels(registry, selection.provider_id, provider).chat_models.filter((model) => !model.hidden)
             : [];
+          const modelOptions = models
+            .map((model) => ({
+              label: model.label || model.id,
+              value: model.id,
+            }))
+            .sort(compareOptionLabels);
 
           return (
           <article
@@ -356,10 +385,11 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                       triggerClassName={inputClassName}
                       value={selection.model}
                       allowEmpty={false}
-                      options={models.map((model) => ({
-                        label: model.label || model.id,
-                        value: model.id,
-                      }))}
+                      searchable
+                      searchThreshold={10}
+                      searchPlaceholder={t('llm.modelSelection.searchPlaceholder')}
+                      noResultsText={t('llm.modelSelection.noSearchResults')}
+                      options={modelOptions}
                       onChange={(nextValue) => onScenarioModelChange(scenario, nextValue)}
                     />
                   ) : (

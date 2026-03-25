@@ -61,6 +61,8 @@
       "empty": "请先启用至少一个供应商，再回来选择模型。",
       "selectEmbeddingModel": "选择向量模型",
       "selectEmbeddingDimension": "选择向量维度",
+      "searchPlaceholder": "搜索模型",
+      "noSearchResults": "没有匹配的模型",
       "noEmbeddingModels": "当前已启用的供应商没有向量模型，请启用支持向量的供应商（如 OpenAI）。",
       "maxConcurrencyPlaceholder": "使用模型默认值",
       "maxConcurrencyHelp": "这个并发上限会被所有使用同一运行时模型的场景共享。",

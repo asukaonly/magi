@@ -559,6 +559,176 @@ describe('config forms', () => {
     expect(coreCard.className).not.toContain('bg-muted/18');
   });
 
+  it('sorts model options alphabetically in the scenario model menu', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    const coreCard = await screen.findByTestId('llm-scenario-core');
+    await user.click(within(coreCard).getByLabelText('llm.fields.model'));
+
+    const menu = document.querySelector('[data-select-field-menu]');
+    expect(menu).toBeTruthy();
+
+    const firstModelButton = within(menu as HTMLElement).getByRole('button', { name: 'GPT-4.1 Mini' });
+    const secondModelButton = within(menu as HTMLElement).getByRole('button', { name: 'GPT-5.2' });
+
+    expect(
+      firstModelButton.compareDocumentPosition(secondModelButton) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('shows a search box for model menus with more than ten options and filters the list', async () => {
+    const user = userEvent.setup();
+    const manyModels = [
+      'zeta-model',
+      'alpha-model',
+      'lambda-model',
+      'beta-model',
+      'omega-model',
+      'delta-model',
+      'sigma-model',
+      'theta-model',
+      'eta-model',
+      'gamma-model',
+      'kappa-model',
+    ].map((id) => ({
+      id,
+      label: id,
+      capabilities: {
+        vision: true,
+        image_output: false,
+        tool_calling: true,
+        reasoning: true,
+        embedding: false,
+      },
+      limits: {
+        context_window: 128000,
+        max_output_tokens: 32000,
+      },
+      provider_options_example: {},
+    }));
+
+    vi.mocked(configApi.getLLMProviders).mockResolvedValueOnce({
+      success: true,
+      message: '',
+      data: {
+        providers: [
+          {
+            id: 'openai',
+            display_name: 'OpenAI',
+            description: 'General purpose',
+            icon: 'openai',
+            default_model: 'alpha-model',
+            default_classify_model: 'alpha-model',
+            default_base_url: 'https://api.openai.com/v1',
+            chat_models: manyModels,
+            embedding_models: [],
+            fields: {
+              api_key: { visible: true, required: true },
+              base_url: { visible: true, required: false },
+            },
+          },
+        ],
+        custom_provider: {
+          enabled: true,
+          display_name: 'Custom Provider',
+          fields: {
+            custom_name: { visible: true, required: true },
+            api_format: { visible: true, required: true, options: ['openai', 'anthropic'] },
+            model: { visible: true, required: true },
+            api_key: { visible: true, required: true },
+            base_url: { visible: true, required: false },
+          },
+          capabilities: {
+            vision: false,
+            image_output: false,
+            tool_calling: true,
+            reasoning: true,
+            embedding: false,
+          },
+          limits: {
+            context_window: null,
+            max_output_tokens: null,
+          },
+          provider_options_example: {},
+        },
+      },
+    });
+
+    const manyModelValue = {
+      providers: {
+        openai: {
+          enabled: true,
+          provider_type: 'openai',
+          display_name: 'OpenAI',
+          api_key: 'sk-openai',
+          base_url: 'https://api.openai.com/v1',
+        },
+      },
+      selections: {
+        context_decider: {
+          provider_id: 'openai',
+          model: 'alpha-model',
+          capability_override_enabled: false,
+          capabilities: {
+            vision: true,
+            image_output: false,
+            tool_calling: true,
+            reasoning: true,
+            embedding: false,
+          },
+          limits: {
+            context_window: 128000,
+            max_output_tokens: 32000,
+          },
+          provider_options: {},
+        },
+        core: {
+          provider_id: 'openai',
+          model: 'alpha-model',
+          capability_override_enabled: false,
+          capabilities: {
+            vision: true,
+            image_output: false,
+            tool_calling: true,
+            reasoning: true,
+            embedding: false,
+          },
+          limits: {
+            context_window: 128000,
+            max_output_tokens: 32000,
+          },
+          provider_options: {},
+        },
+      },
+      model_runtime_overrides: {},
+    } as unknown as LLMConfig;
+
+    render(
+      <Form initialValues={{ llm: manyModelValue }}>
+        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    const coreCard = await screen.findByTestId('llm-scenario-core');
+    await user.click(within(coreCard).getByLabelText('llm.fields.model'));
+
+    const searchInput = screen.getByPlaceholderText('llm.modelSelection.searchPlaceholder');
+    expect(searchInput).toBeInTheDocument();
+
+    await user.type(searchInput, 'omega');
+
+    const menu = document.querySelector('[data-select-field-menu]');
+    expect(menu).toBeTruthy();
+    expect(within(menu as HTMLElement).getByRole('button', { name: 'omega-model' })).toBeInTheDocument();
+    expect(within(menu as HTMLElement).queryByRole('button', { name: 'alpha-model' })).not.toBeInTheDocument();
+  });
+
   it('asks for confirmation before changing embedding dimension on the settings surface', async () => {
     const user = userEvent.setup();
     const controlledValue = {

@@ -60,6 +60,8 @@
       "empty": "Enable at least one provider first, then come back to assign models.",
       "selectEmbeddingModel": "Select embedding model",
       "selectEmbeddingDimension": "Select embedding dimension",
+      "searchPlaceholder": "Search models",
+      "noSearchResults": "No matching models",
       "noEmbeddingModels": "No embedding models available from enabled providers. Enable a provider with embedding support (e.g., OpenAI).",
       "maxConcurrencyPlaceholder": "Use model default",
       "maxConcurrencyHelp": "This concurrency cap is shared by all scenarios that use the same runtime model.",
