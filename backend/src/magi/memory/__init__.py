@@ -65,6 +65,7 @@ class UnifiedMemoryStore:
         memory_config_getter: Callable[[], Any] | None = None,
         async_embeddings: bool = True,
         enable_l1_vectors: bool = True,
+        enable_l2_vectors: bool = True,
         enable_l3_vectors: bool = True,
         enable_l4_vectors: bool = True,
         enable_l3_llm_summary: bool = True,
@@ -119,7 +120,12 @@ class UnifiedMemoryStore:
             )
         if enable_l2:
             self.l2 = L2CognitionStore(db_path=shared_memory_db)
-            self.l2_entity_catalog = L2EntityCatalog(db_path=shared_memory_db)
+            self.l2_entity_catalog = L2EntityCatalog(
+                db_path=shared_memory_db,
+                embedding_service=embedding_service,
+                memory_config_getter=memory_config_getter,
+                vector_enabled=enable_l2_vectors,
+            )
             self.l2_llm_service = L2LLMService(scenario_llm_pool)
             self.l2_pipeline = L2Pipeline(
                 self.l2,

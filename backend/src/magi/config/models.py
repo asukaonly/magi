@@ -248,6 +248,7 @@ class MemoryL2Settings(BaseModel):
     """L2 structured cognition settings."""
 
     enabled: bool = Field(default=True)
+    vectors_enabled: bool = Field(default=True)
     batch_flush_interval_seconds: int = Field(default=60, ge=30)
     llm_extraction_enabled: bool = Field(default=True)
     auto_extract_relations: bool = Field(default=True)

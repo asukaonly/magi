@@ -336,6 +336,26 @@ export const MemoryForm: React.FC = () => {
                     />
                   </label>
 
+                  <label className={cn(
+                    "flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5",
+                    !hasEmbeddingModel && "opacity-50"
+                  )}>
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_vectorization.label')}</div>
+                      <div className="text-[11px] leading-4 text-muted-foreground">
+                        {hasEmbeddingModel
+                          ? t('settings.memory.fields.enable_l2_vectorization.description')
+                          : t('settings.memory.fields.enable_l2_vectorization.description_disabled')}
+                      </div>
+                    </div>
+                    <SwitchField
+                      checked={l2.vectors_enabled === true}
+                      disabled={!l2Enabled || !hasEmbeddingModel}
+                      onChange={(checked) => patchLayer('l2', { vectors_enabled: checked })}
+                      ariaLabel={t('settings.memory.fields.enable_l2_vectorization.label')}
+                    />
+                  </label>
+
                   <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
                     <div className="space-y-0.5">
                       <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_conflict_arbitration.label')}</div>

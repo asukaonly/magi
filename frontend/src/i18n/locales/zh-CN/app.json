@@ -593,6 +593,11 @@
           "label": "启用 LLM 知识抽取",
           "description": "使用模型从原始事件中抽取实体、关系和 ToM 断言。"
         },
+        "enable_l2_vectorization": {
+          "label": "启用向量化（语义搜索）",
+          "description": "将实体目录条目向量化以便支持语义相似性匹配。",
+          "description_disabled": "需要先在模型配置中选择向量模型。"
+        },
         "l2_batch_flush_interval_seconds": {
           "label": "L2 批次刷新间隔（秒）",
           "description": "L2 在冲刷暂存微批之前允许等待的时间，最小 30 秒。"

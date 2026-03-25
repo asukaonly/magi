@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import aiosqlite
 
+from ...config.models import EmbeddingBackend
 from ...core.sqlite import sqlite_connection_async
+from ..embedding_service import MemoryEmbeddingService
+from ..sqlite_vec_index import SqliteVecIndex
 from .ontology import coerce_unknown_entity_type
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_alias(text: str) -> str:
@@ -38,8 +44,28 @@ def _normalize_entity_ref(entity_id: Optional[str], entity_type: Optional[str]) 
 class L2EntityCatalog:
     """Stores canonical entities, aliases, and mention evidence."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/memories/memory.db") -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str = "~/.magi/data/memories/memory.db",
+        embedding_service: MemoryEmbeddingService | None = None,
+        memory_config_getter: Callable[[], Any] | None = None,
+        vector_enabled: bool = True,
+    ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self._embedding_service = embedding_service
+        self._memory_config_getter = memory_config_getter
+        self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
+        self._vector_index = (
+            SqliteVecIndex(
+                db_path=self.db_path,
+                registry_table="l2_entity_vectors",
+                entity_column="entity_id",
+                vec_table_prefix="l2_entity_vec",
+            )
+            if embedding_service is not None or vector_enabled
+            else None
+        )
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -114,6 +140,7 @@ class L2EntityCatalog:
                 (normalized_entity_id, canonical_name, normalized_entity_type, now, now),
             )
             await db.commit()
+        await self._maybe_embed_entity(normalized_entity_id, f"{normalized_entity_type}: {canonical_name}")
         return normalized_entity_id
 
     async def add_alias(self, *, entity_id: str, alias_text: str, confidence: float = 1.0) -> None:
@@ -308,7 +335,11 @@ class L2EntityCatalog:
         limit: int = 10,
         entity_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Resolve natural-language query text into matching canonical entities."""
+        """Resolve natural-language query text into matching canonical entities.
+
+        Uses text substring matching, supplemented by vector similarity when
+        an embedding model is available and L2 vectors are enabled.
+        """
         await self.initialize()
         normalized_query = _normalize_alias(query_text)
         if not normalized_query:
@@ -347,6 +378,27 @@ class L2EntityCatalog:
                     }
                 )
                 break
+
+        # Merge vector similarity results when available
+        semantic_hits = await self.search_entities_semantic(query_text, limit=limit)
+        text_match_ids = {str(m["entity_id"]) for m in matches}
+        for hit in semantic_hits:
+            entity_id = str(hit["entity_id"])
+            if entity_id in text_match_ids:
+                continue
+            entity_type = str(hit.get("entity_type") or "").strip()
+            if type_filter and entity_type not in type_filter:
+                continue
+            matches.append(
+                {
+                    "entity_id": entity_id,
+                    "entity_type": entity_type,
+                    "canonical_name": str(hit.get("canonical_name") or ""),
+                    "match_source": "vector",
+                    "matched_text": str(hit.get("canonical_name") or ""),
+                    "confidence": 0.8,
+                }
+            )
 
         matches.sort(
             key=lambda item: (
@@ -390,20 +442,98 @@ class L2EntityCatalog:
             await db.commit()
         return count
 
+    # ------------------------------------------------------------------
+    # Vector helpers
+    # ------------------------------------------------------------------
+
+    def _vectors_enabled(self) -> bool:
+        if self._embedding_service is None:
+            return False
+        config = self._current_memory_config()
+        if config is None:
+            return self._default_vector_enabled
+        return bool(
+            config.embedding.backend == EmbeddingBackend.SQLITE_VEC
+            and config.l2.enabled
+            and config.l2.vectors_enabled
+        )
+
+    def _current_memory_config(self) -> Any:
+        if self._memory_config_getter is None:
+            return None
+        try:
+            return self._memory_config_getter()
+        except Exception:
+            return None
+
+    async def _maybe_embed_entity(self, entity_id: str, text: str) -> None:
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+            return
+        try:
+            embedding = await self._embedding_service.embed_text(text)
+            if embedding is None:
+                return
+            await self._vector_index.upsert(
+                entity_id=entity_id,
+                embedding=embedding,
+                metadata={"kind": "entity"},
+            )
+        except Exception as exc:
+            logger.debug("Failed to embed L2 entity %s: %s", entity_id, exc)
+
+    async def search_entities_semantic(
+        self,
+        query_text: str,
+        *,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search entities using vector similarity. Returns [] if vectors are disabled."""
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+            return []
+        query_text = query_text.strip()
+        if not query_text:
+            return []
+        try:
+            embedding = await self._embedding_service.embed_text(query_text)
+            if embedding is None:
+                return []
+            hits = await self._vector_index.search(embedding=embedding, limit=limit)
+        except Exception as exc:
+            logger.debug("L2 entity semantic search failed: %s", exc)
+            return []
+        if not hits:
+            return []
+
+        hit_ids = [hit.entity_id for hit in hits]
+        distance_by_id = {hit.entity_id: hit.distance for hit in hits}
+        entities = await self._list_entities(limit=len(hit_ids), entity_ids=hit_ids)
+        for entity in entities:
+            entity["distance"] = distance_by_id.get(entity["entity_id"])
+        entities.sort(key=lambda e: e.get("distance") or float("inf"))
+        return entities[:limit]
+
     async def _list_entities(
         self,
         *,
         limit: int,
         entity_type: Optional[str] = None,
+        entity_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         query = """
             SELECT entity_id, canonical_name, entity_type
             FROM entity_catalog
         """
         args: list[Any] = []
+        conditions: list[str] = []
         if entity_type:
-            query += " WHERE entity_type = ?"
+            conditions.append("entity_type = ?")
             args.append(entity_type)
+        if entity_ids is not None:
+            placeholders = ", ".join("?" for _ in entity_ids)
+            conditions.append(f"entity_id IN ({placeholders})")
+            args.extend(entity_ids)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY entity_id ASC LIMIT ?"
         args.append(int(limit))
 

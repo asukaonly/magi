@@ -275,6 +275,7 @@ export interface MemoryL1Config {
 
 export interface MemoryL2Config {
   enabled: boolean;
+  vectors_enabled: boolean;
   batch_flush_interval_seconds: number;
   llm_extraction_enabled: boolean;
   auto_extract_relations: boolean;
@@ -664,6 +665,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     l2: {
       enabled: true,
+      vectors_enabled: true,
       batch_flush_interval_seconds: 60,
       llm_extraction_enabled: true,
       auto_extract_relations: true,

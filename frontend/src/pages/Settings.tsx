@@ -399,6 +399,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             draftConfig={draftConfig}
             patchDraftConfig={patchDraftConfig}
             updateMemoryToggle={updateMemoryToggle}
+            hasEmbeddingModel={hasEmbeddingModel}
           />
         );
 

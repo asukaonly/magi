@@ -266,7 +266,8 @@ export function MemoryKnowledgeSettingsSection({
   draftConfig,
   patchDraftConfig,
   updateMemoryToggle,
-}: Pick<MemorySettingsSectionProps, 'draftConfig' | 'patchDraftConfig' | 'updateMemoryToggle'>) {
+  hasEmbeddingModel,
+}: Pick<MemorySettingsSectionProps, 'draftConfig' | 'patchDraftConfig' | 'updateMemoryToggle' | 'hasEmbeddingModel'>) {
   const { t } = useTranslation('app');
 
   return (
@@ -295,6 +296,19 @@ export function MemoryKnowledgeSettingsSection({
           disabled={!draftConfig.memory.l2.enabled}
           onCheckedChange={(checked) => patchDraftConfig((draft) => {
             draft.memory.l2.llm_extraction_enabled = checked;
+          })}
+        />
+        <MemorySwitchRow
+          label={t('settings.memory.fields.enable_l2_vectorization.label')}
+          description={
+            hasEmbeddingModel
+              ? t('settings.memory.fields.enable_l2_vectorization.description')
+              : t('settings.memory.fields.enable_l2_vectorization.description_disabled')
+          }
+          checked={draftConfig.memory.l2.vectors_enabled ?? false}
+          disabled={!draftConfig.memory.l2.enabled || !hasEmbeddingModel}
+          onCheckedChange={(checked) => patchDraftConfig((draft) => {
+            draft.memory.l2.vectors_enabled = checked;
           })}
         />
       </MemoryGroup>

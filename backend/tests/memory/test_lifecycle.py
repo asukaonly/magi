@@ -84,6 +84,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
                 ),
                 l2=SimpleNamespace(
                     enabled=True,
+                    vectors_enabled=True,
                     batch_flush_interval_seconds=90,
                     llm_extraction_enabled=True,
                     auto_extract_relations=True,

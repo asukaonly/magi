@@ -61,6 +61,7 @@ class MemoryStoreModule(LifecycleModule):
             memory_config_getter=lambda: get_config().agent.memory,
             async_embeddings=memory_config.async_embeddings,
             enable_l1_vectors=memory_config.l1.vectors_enabled,
+            enable_l2_vectors=memory_config.l2.vectors_enabled,
             enable_l3_vectors=memory_config.l3.vectors_enabled,
             enable_l4_vectors=memory_config.l4.vectors_enabled,
             enable_l0=memory_config.l0.enabled,

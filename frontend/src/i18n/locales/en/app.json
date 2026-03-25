@@ -593,6 +593,11 @@
           "label": "Enable LLM knowledge extraction",
           "description": "Use the model to derive entities, relations, and ToM assertions from raw events."
         },
+        "enable_l2_vectorization": {
+          "label": "Enable vectorization (semantic search)",
+          "description": "Vectorize entity catalog entries to enable semantic similarity matching.",
+          "description_disabled": "Requires an embedding model to be configured first."
+        },
         "l2_batch_flush_interval_seconds": {
           "label": "L2 batch flush interval (seconds)",
           "description": "How long L2 may wait before flushing a staged microbatch. Minimum 30 seconds."
