@@ -42,9 +42,14 @@ class ActiveRun:
 
     session_id: str
     run_id: str
+    status: str = "running"
     root_turn_id: str | None = None
     root_user_message: str = ""
     revision: int = 0
+    cancel_requested_at: float | None = None
+    cancel_reason: str | None = None
+    cancel_requested_by: str | None = None
+    cancel_anchor_turn_id: str | None = None
     pending_turns: list[PendingTurn] = field(default_factory=list)
     accepted_results: list[RunResult] = field(default_factory=list)
     stale_results: list[RunResult] = field(default_factory=list)

@@ -187,7 +187,7 @@ class TaskOrchestrator:
             state = touched_states.get(orchestration_id)
             if state is None:
                 state = await self._orchestration_store.get_orchestration(orchestration_id)
-            if state is None or state.status in {"completed", "failed"}:
+            if state is None or state.status in {"completed", "failed", "cancelled"}:
                 continue
 
             subtask = state.get_subtask(subtask_id)
@@ -247,6 +247,12 @@ class TaskOrchestrator:
         for state in touched_states.values():
             if not self._is_terminal(state):
                 continue
+            if state.status == "cancelling":
+                self._mark_remaining_subtasks_cancelled(state)
+                state.status = "cancelled"
+                state.updated_at = time.time()
+                await self._orchestration_store.save_orchestration(state)
+                continue
             if state.status == "completed":
                 continue
             state.status = "aggregating"
@@ -303,6 +309,13 @@ class TaskOrchestrator:
         run_id: str | None = None,
         run_revision: int = 0,
     ) -> Optional[str]:
+        if state.status == "cancelling":
+            self._mark_remaining_subtasks_cancelled(state)
+            state.status = "cancelled"
+            state.updated_at = time.time()
+            await self._orchestration_store.save_orchestration(state)
+            return None
+
         context = self._build_agent_tool_context(
             state.user_id,
             state.session_id,
@@ -365,6 +378,8 @@ class TaskOrchestrator:
         subtask: SubtaskDefinition,
         failure_reason: str,
     ) -> bool:
+        if state.status in {"cancelling", "cancelled"}:
+            return False
         if failure_reason not in RETRIABLE_WORKER_FAILURES:
             return False
         retry_budget = self._retry_budget_for_failure(failure_reason, state.retry_budget)
@@ -551,5 +566,16 @@ class TaskOrchestrator:
             return str(candidate if candidate.is_dir() else candidate.parent)
         return None
 
+    def _mark_remaining_subtasks_cancelled(self, state: TaskOrchestrationState) -> None:
+        now = time.time()
+        for subtask in state.subtasks:
+            if subtask.status in {"completed", "failed", "cancelled"}:
+                continue
+            subtask.status = "cancelled"
+            subtask.updated_at = now
+
     def _is_terminal(self, state: TaskOrchestrationState) -> bool:
-        return bool(state.subtasks) and all(item.status in {"completed", "failed"} for item in state.subtasks)
+        return bool(state.subtasks) and all(
+            item.status in {"completed", "failed", "cancelled"}
+            for item in state.subtasks
+        )

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from threading import RLock
+from time import time
 from typing import Any
 from uuid import uuid4
 
@@ -96,6 +97,10 @@ class SessionRunStore:
                 root_turn_id=turn_id,
                 root_user_message=content,
                 response_anchor_turn_id=turn_id,
+                cancel_requested_at=None,
+                cancel_reason=None,
+                cancel_requested_by=None,
+                cancel_anchor_turn_id=None,
             )
             active_run = self._require_run(session_id)
             logger.info(
@@ -131,6 +136,78 @@ class SessionRunStore:
                 revision=active_run.revision,
             )
             return True
+
+    def request_cancel(
+        self,
+        session_id: str,
+        *,
+        requested_by: str,
+        reason: str = "user_cancel",
+        anchor_turn_id: str | None = None,
+    ) -> ActiveRun:
+        """Mark the active run as cancelling and persist cancel metadata."""
+        with self._lock:
+            active_run = self._require_run(session_id)
+            self._l0_store.upsert_execution_run_sync(
+                session_id=session_id,
+                run_id=active_run.run_id,
+                status="cancelling",
+                revision=active_run.revision,
+                root_turn_id=active_run.root_turn_id,
+                root_user_message=active_run.root_user_message,
+                response_anchor_turn_id=active_run.root_turn_id,
+                cancel_requested_at=time(),
+                cancel_reason=reason,
+                cancel_requested_by=requested_by,
+                cancel_anchor_turn_id=anchor_turn_id,
+            )
+            active_run = self._require_run(session_id)
+            logger.info(
+                "Chat session run cancelling",
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+                cancel_requested_by=active_run.cancel_requested_by,
+                cancel_reason=active_run.cancel_reason,
+                cancel_anchor_turn_id=active_run.cancel_anchor_turn_id,
+            )
+            return deepcopy(active_run)
+
+    def mark_cancelled(
+        self,
+        session_id: str,
+        *,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> ActiveRun:
+        """Transition the active run from cancelling to cancelled."""
+        with self._lock:
+            active_run = self._require_run(session_id)
+            if run_id is not None and active_run.run_id != run_id:
+                raise ValueError(f"Active run mismatch for session_id={session_id!r}")
+            if revision is not None and active_run.revision != int(revision):
+                raise ValueError(f"Active revision mismatch for session_id={session_id!r}")
+            self._l0_store.upsert_execution_run_sync(
+                session_id=session_id,
+                run_id=active_run.run_id,
+                status="cancelled",
+                revision=active_run.revision,
+                root_turn_id=active_run.root_turn_id,
+                root_user_message=active_run.root_user_message,
+                response_anchor_turn_id=active_run.root_turn_id,
+                cancel_requested_at=active_run.cancel_requested_at,
+                cancel_reason=active_run.cancel_reason,
+                cancel_requested_by=active_run.cancel_requested_by,
+                cancel_anchor_turn_id=active_run.cancel_anchor_turn_id,
+            )
+            active_run = self._require_run(session_id)
+            logger.info(
+                "Chat session run cancelled",
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+            )
+            return deepcopy(active_run)
 
     def consume_pending_turns(self, session_id: str, *, revision: int | None = None) -> list[PendingTurn]:
         """Return and clear pending turns for the active run."""
@@ -236,7 +313,11 @@ class SessionRunStore:
         """Route a result to accepted or stale storage based on revision."""
         with self._lock:
             active_run = self._require_run(session_id)
-            if run_id != active_run.run_id or revision != active_run.revision:
+            if (
+                run_id != active_run.run_id
+                or revision != active_run.revision
+                or active_run.status in {"cancelling", "cancelled"}
+            ):
                 return self.mark_stale_result(
                     session_id,
                     run_id,
@@ -260,9 +341,26 @@ class SessionRunStore:
         return ActiveRun(
             session_id=str(run["session_id"]),
             run_id=str(run["run_id"]),
+            status=str(run.get("status") or "running"),
             root_turn_id=str(run["root_turn_id"]) if run.get("root_turn_id") is not None else None,
             root_user_message=str(run.get("root_user_message") or ""),
             revision=int(run.get("revision") or 0),
+            cancel_requested_at=(
+                float(run["cancel_requested_at"])
+                if run.get("cancel_requested_at") is not None
+                else None
+            ),
+            cancel_reason=str(run["cancel_reason"]) if run.get("cancel_reason") is not None else None,
+            cancel_requested_by=(
+                str(run["cancel_requested_by"])
+                if run.get("cancel_requested_by") is not None
+                else None
+            ),
+            cancel_anchor_turn_id=(
+                str(run["cancel_anchor_turn_id"])
+                if run.get("cancel_anchor_turn_id") is not None
+                else None
+            ),
             pending_turns=[self._to_pending_turn(item) for item in state.get("pending_turns", [])],
             accepted_results=[self._to_run_result(item) for item in state.get("accepted_results", [])],
             stale_results=[self._to_run_result(item) for item in state.get("stale_results", [])],

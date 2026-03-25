@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from magi.agent.runtime.contracts import FactRecord
 import magi.agent.task_orchestrator as task_orchestrator_module
 from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.agent.orchestration import SubtaskDefinition, TaskOrchestrationState
@@ -109,7 +110,7 @@ def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:
         parent_task_agent_type="explore",
     )
 
-    resolved = orchestrator._resolve_workspace_root("看下~/code/magi下的代码，分析下代码架构")
+    resolved = orchestrator._resolve_workspace_root("看下 ~/code/magi 的代码，分析下代码架构")
 
     assert resolved == "/Users/asuka/code/magi"
 
@@ -284,3 +285,129 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
 
     assert result.skip_emit is True
     assert captured["kwargs"]["workspace_root"] == "/Users/asuka/code/magi"
+
+
+@pytest.mark.asyncio
+async def test_launch_workers_skips_when_orchestration_is_cancelling() -> None:
+    class _UnexpectedRegistry(ToolRegistry):
+        async def execute(self, name: str, payload: dict, context):  # type: ignore[no-untyped-def]
+            raise AssertionError("execute should not be called when orchestration is cancelling")
+
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=_UnexpectedRegistry(),
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+    )
+
+    saved_states: list[TaskOrchestrationState] = []
+
+    class _FakeStore:
+        async def save_orchestration(self, state: TaskOrchestrationState) -> None:
+            saved_states.append(state)
+
+    orchestrator._orchestration_store = _FakeStore()
+    state = TaskOrchestrationState(
+        orchestration_id="orch-1",
+        user_id="user-1",
+        session_id="session-1",
+        root_user_message="analyze repo",
+        planner="task_agent",
+        status="cancelling",
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask-1",
+                description="Inspect backend",
+                subagent_type="Explore",
+                prompt="Inspect backend",
+            )
+        ],
+    )
+
+    error = await orchestrator._launch_workers(state)
+
+    assert error is None
+    assert state.status == "cancelled"
+    assert state.subtasks[0].status == "cancelled"
+    assert saved_states[-1].status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_process_worker_updates_does_not_aggregate_cancelling_orchestration() -> None:
+    registry = ToolRegistry()
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=registry,
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+    )
+
+    aggregate_called = False
+
+    async def _unexpected_aggregate(state: TaskOrchestrationState) -> str:
+        nonlocal aggregate_called
+        aggregate_called = True
+        _ = state
+        return "should not happen"
+
+    class _FakeStore:
+        def __init__(self, state: TaskOrchestrationState) -> None:
+            self.state = state
+            self.saved_states: list[TaskOrchestrationState] = []
+
+        async def get_orchestration(self, orchestration_id: str) -> TaskOrchestrationState | None:
+            return self.state if orchestration_id == self.state.orchestration_id else None
+
+        async def save_orchestration(self, state: TaskOrchestrationState) -> None:
+            self.state = state
+            self.saved_states.append(state)
+
+    state = TaskOrchestrationState(
+        orchestration_id="orch-1",
+        user_id="user-1",
+        session_id="session-1",
+        root_user_message="analyze repo",
+        planner="task_agent",
+        status="cancelling",
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask-1",
+                description="Inspect backend",
+                subagent_type="Explore",
+                prompt="Inspect backend",
+                status="running",
+                worker_id="worker-1",
+                attempt_count=1,
+            )
+        ],
+    )
+    store = _FakeStore(state)
+    orchestrator._orchestration_store = store
+    orchestrator._aggregate_orchestration = _unexpected_aggregate
+
+    completed_fact = FactRecord(
+        agent_id="chat:session-1",
+        event_type="WORKER_AGENT_COMPLETED",
+        payload={
+            "user_id": "user-1",
+            "session_id": "session-1",
+            "orchestration_id": "orch-1",
+            "subtask_id": "subtask-1",
+            "worker_id": "worker-1",
+            "worker_result": {
+                "summary": "done",
+                "result_status": "success",
+            },
+        },
+    )
+
+    result = await orchestrator.process_worker_updates([completed_fact])
+
+    assert aggregate_called is False
+    assert result.skip_emit is True
+    assert store.state.status == "cancelled"
+    assert store.state.final_response is None

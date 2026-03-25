@@ -114,6 +114,10 @@ class L0WorkingMemoryStore:
                     root_turn_id TEXT,
                     root_user_message TEXT NOT NULL,
                     response_anchor_turn_id TEXT,
+                    cancel_requested_at REAL,
+                    cancel_reason TEXT,
+                    cancel_requested_by TEXT,
+                    cancel_anchor_turn_id TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
@@ -139,6 +143,7 @@ class L0WorkingMemoryStore:
                 );
                 """
             )
+            await self._ensure_execution_run_columns(db)
             await db.commit()
 
         if self.restore_on_restart:
@@ -320,6 +325,10 @@ class L0WorkingMemoryStore:
         root_turn_id: Optional[str] = None,
         root_user_message: str = "",
         response_anchor_turn_id: Optional[str] = None,
+        cancel_requested_at: Optional[float] = None,
+        cancel_reason: Optional[str] = None,
+        cancel_requested_by: Optional[str] = None,
+        cancel_anchor_turn_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Upsert the active execution run for a session."""
         await self.start_session(session_id=session_id)
@@ -331,6 +340,10 @@ class L0WorkingMemoryStore:
             root_turn_id=root_turn_id,
             root_user_message=root_user_message,
             response_anchor_turn_id=response_anchor_turn_id,
+            cancel_requested_at=cancel_requested_at,
+            cancel_reason=cancel_reason,
+            cancel_requested_by=cancel_requested_by,
+            cancel_anchor_turn_id=cancel_anchor_turn_id,
         )
 
     async def append_execution_pending_turn(
@@ -387,6 +400,10 @@ class L0WorkingMemoryStore:
         root_turn_id: Optional[str] = None,
         root_user_message: str = "",
         response_anchor_turn_id: Optional[str] = None,
+        cancel_requested_at: Optional[float] = None,
+        cancel_reason: Optional[str] = None,
+        cancel_requested_by: Optional[str] = None,
+        cancel_anchor_turn_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Synchronously upsert the active execution run for a session."""
         self._ensure_session_sync(session_id)
@@ -400,6 +417,38 @@ class L0WorkingMemoryStore:
             "root_turn_id": root_turn_id,
             "root_user_message": root_user_message,
             "response_anchor_turn_id": response_anchor_turn_id,
+            "cancel_requested_at": (
+                float(cancel_requested_at)
+                if cancel_requested_at is not None
+                else (
+                    float(existing["cancel_requested_at"])
+                    if existing and existing.get("cancel_requested_at") is not None
+                    else None
+                )
+            ),
+            "cancel_reason": (
+                str(cancel_reason)
+                if cancel_reason is not None
+                else (str(existing.get("cancel_reason")) if existing and existing.get("cancel_reason") is not None else None)
+            ),
+            "cancel_requested_by": (
+                str(cancel_requested_by)
+                if cancel_requested_by is not None
+                else (
+                    str(existing.get("cancel_requested_by"))
+                    if existing and existing.get("cancel_requested_by") is not None
+                    else None
+                )
+            ),
+            "cancel_anchor_turn_id": (
+                str(cancel_anchor_turn_id)
+                if cancel_anchor_turn_id is not None
+                else (
+                    str(existing.get("cancel_anchor_turn_id"))
+                    if existing and existing.get("cancel_anchor_turn_id") is not None
+                    else None
+                )
+            ),
             "created_at": float(existing["created_at"]) if existing else now,
             "updated_at": now,
         }
@@ -685,8 +734,9 @@ class L0WorkingMemoryStore:
                     """
                     INSERT INTO l0_execution_runs(
                         session_id, run_id, status, revision, root_turn_id,
-                        root_user_message, response_anchor_turn_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        root_user_message, response_anchor_turn_id, cancel_requested_at,
+                        cancel_reason, cancel_requested_by, cancel_anchor_turn_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         session_id,
@@ -696,6 +746,10 @@ class L0WorkingMemoryStore:
                         execution_run.get("root_turn_id"),
                         execution_run.get("root_user_message", ""),
                         execution_run.get("response_anchor_turn_id"),
+                        execution_run.get("cancel_requested_at"),
+                        execution_run.get("cancel_reason"),
+                        execution_run.get("cancel_requested_by"),
+                        execution_run.get("cancel_anchor_turn_id"),
                         float(execution_run["created_at"]),
                         float(execution_run["updated_at"]),
                     ),
@@ -901,6 +955,22 @@ class L0WorkingMemoryStore:
                             if row["response_anchor_turn_id"] is not None
                             else None
                         ),
+                        "cancel_requested_at": (
+                            float(row["cancel_requested_at"])
+                            if row["cancel_requested_at"] is not None
+                            else None
+                        ),
+                        "cancel_reason": str(row["cancel_reason"]) if row["cancel_reason"] is not None else None,
+                        "cancel_requested_by": (
+                            str(row["cancel_requested_by"])
+                            if row["cancel_requested_by"] is not None
+                            else None
+                        ),
+                        "cancel_anchor_turn_id": (
+                            str(row["cancel_anchor_turn_id"])
+                            if row["cancel_anchor_turn_id"] is not None
+                            else None
+                        ),
                         "created_at": float(row["created_at"]),
                         "updated_at": float(row["updated_at"]),
                     }
@@ -945,6 +1015,21 @@ class L0WorkingMemoryStore:
             expires_at = tactic.get("expires_at")
             if expires_at is not None and float(expires_at) <= now:
                 del tactics[tactic_id]
+
+    @staticmethod
+    async def _ensure_execution_run_columns(db: aiosqlite.Connection) -> None:
+        """Backfill execution-run columns for older checkpoint databases."""
+        async with db.execute("PRAGMA table_info(l0_execution_runs)") as cursor:
+            rows = await cursor.fetchall()
+        column_names = {str(row[1]) for row in rows}
+        if "cancel_requested_at" not in column_names:
+            await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_requested_at REAL")
+        if "cancel_reason" not in column_names:
+            await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_reason TEXT")
+        if "cancel_requested_by" not in column_names:
+            await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_requested_by TEXT")
+        if "cancel_anchor_turn_id" not in column_names:
+            await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_anchor_turn_id TEXT")
 
 
 __all__ = ["L0WorkingMemoryStore"]
