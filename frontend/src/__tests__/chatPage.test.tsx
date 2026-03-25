@@ -631,6 +631,8 @@ describe('ChatPage', () => {
     const labelButtons = screen.getAllByRole('button', { name: 'chat.label.action' });
     await user.click(labelButtons[1]);
     expect(screen.getByTestId('chat-label-popover')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-label-popover')).toHaveClass('fixed');
+    expect(screen.getAllByTestId('chat-label-action-wrap')[1]).toHaveClass('flex', 'items-center');
 
     await user.click(screen.getByRole('button', { name: '👍' }));
 

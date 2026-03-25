@@ -120,9 +120,17 @@ const SUPPORTED_TEXT_EXTENSIONS = new Set([
 ]);
 const LABEL_EMOJI_OPTIONS = ['😀', '🙂', '😍', '😮', '😂', '😎', '🥹', '🙏', '🔥', '👍'];
 const MAX_CUSTOM_LABEL_LENGTH = 4;
+const LABEL_POPOVER_WIDTH = 336;
+const LABEL_POPOVER_HEIGHT = 272;
 
 type MessageContextMenuState = {
   message: ChatTimelineMessage;
+  x: number;
+  y: number;
+};
+
+type LabelPopoverState = {
+  messageId: string;
   x: number;
   y: number;
 };
@@ -144,6 +152,20 @@ const toPlainText = (content: string): string => String(content || '')
   .replace(/_([^_]+)_/g, '$1')
   .replace(/\n{3,}/g, '\n\n')
   .trim();
+
+const getLabelPopoverPosition = (rect: DOMRect): { x: number; y: number } => {
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const alignedLeft = Math.max(16, Math.min(rect.left, viewportWidth - LABEL_POPOVER_WIDTH - 16));
+  const belowTop = rect.bottom + 8;
+  const aboveTop = rect.top - LABEL_POPOVER_HEIGHT - 8;
+  return {
+    x: alignedLeft,
+    y: belowTop + LABEL_POPOVER_HEIGHT <= viewportHeight - 16
+      ? belowTop
+      : Math.max(16, aboveTop),
+  };
+};
 
 const buildReplyPreviewFromMessage = (message: ChatTimelineMessage): ChatTimelineReplyPreview | null => {
   const messageId = String(message.messageId || '').trim();
@@ -394,7 +416,7 @@ export const ChatPage: React.FC = () => {
   const [cancellingTurnIds, setCancellingTurnIds] = useState<string[]>([]);
   const [executionControlByTurnId, setExecutionControlByTurnId] = useState<Record<string, TurnExecutionControlState>>({});
   const [composerReplyTarget, setComposerReplyTarget] = useState<ChatTimelineReplyPreview | null>(null);
-  const [labelPopoverMessageId, setLabelPopoverMessageId] = useState<string | null>(null);
+  const [labelPopoverState, setLabelPopoverState] = useState<LabelPopoverState | null>(null);
   const [labelPopoverDraft, setLabelPopoverDraft] = useState('');
   const [messageContextMenu, setMessageContextMenu] = useState<MessageContextMenuState | null>(null);
 
@@ -478,7 +500,7 @@ export const ChatPage: React.FC = () => {
     clearDraftAttachments();
     setAttachmentMenuOpen(false);
     setComposerReplyTarget(null);
-    setLabelPopoverMessageId(null);
+    setLabelPopoverState(null);
     setLabelPopoverDraft('');
     setMessageContextMenu(null);
   }, [clearDraftAttachments, currentSessionId]);
@@ -489,24 +511,24 @@ export const ChatPage: React.FC = () => {
   }, [currentSessionId]);
 
   useEffect(() => {
-    if (!labelPopoverMessageId) {
+    if (!labelPopoverState) {
       return undefined;
     }
 
     const handlePointerDown = (event: MouseEvent) => {
       if (!labelPopoverRef.current?.contains(event.target as Node)) {
-        setLabelPopoverMessageId(null);
+        setLabelPopoverState(null);
         setLabelPopoverDraft('');
       }
     };
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setLabelPopoverMessageId(null);
+        setLabelPopoverState(null);
         setLabelPopoverDraft('');
       }
     };
     const handleScroll = () => {
-      setLabelPopoverMessageId(null);
+      setLabelPopoverState(null);
       setLabelPopoverDraft('');
     };
 
@@ -518,7 +540,7 @@ export const ChatPage: React.FC = () => {
       window.removeEventListener('keydown', handleEscape);
       window.removeEventListener('scroll', handleScroll, true);
     };
-  }, [labelPopoverMessageId]);
+  }, [labelPopoverState]);
 
   useEffect(() => {
     if (!messageContextMenu) {
@@ -1030,7 +1052,7 @@ export const ChatPage: React.FC = () => {
         throw new Error('missing_label');
       }
       applyMessageLabel(currentSessionId, messageId, normalizedLabel);
-      setLabelPopoverMessageId(null);
+      setLabelPopoverState(null);
       setLabelPopoverDraft('');
     } catch {
       toast.error(t('chat.label.applyFailed'));
@@ -1047,14 +1069,14 @@ export const ChatPage: React.FC = () => {
       await messagesApi.deleteMessage(USER_ID, currentSessionId, messageId);
       removeMessage(currentSessionId, messageId);
       setMessageContextMenu(null);
-      if (labelPopoverMessageId === messageId) {
-        setLabelPopoverMessageId(null);
+      if (labelPopoverState?.messageId === messageId) {
+        setLabelPopoverState(null);
         setLabelPopoverDraft('');
       }
     } catch {
       toast.error(t('chat.context.deleteFailed'));
     }
-  }, [currentSessionId, labelPopoverMessageId, removeMessage, t]);
+  }, [currentSessionId, labelPopoverState, removeMessage, t]);
 
   const handleCopyMessage = useCallback(async (
     message: ChatTimelineMessage,
@@ -1469,9 +1491,9 @@ export const ChatPage: React.FC = () => {
     if (message.role !== 'assistant' || !String(message.messageId || '').trim()) {
       return null;
     }
-    const isOpen = labelPopoverMessageId === message.messageId;
+    const isOpen = labelPopoverState?.messageId === message.messageId;
     return (
-      <div className="relative">
+      <div data-testid="chat-label-action-wrap" className="relative flex items-center">
         <button
           type="button"
           aria-label={t('chat.label.action')}
@@ -1481,11 +1503,15 @@ export const ChatPage: React.FC = () => {
             event.stopPropagation();
             setMessageContextMenu(null);
             if (isOpen) {
-              setLabelPopoverMessageId(null);
+              setLabelPopoverState(null);
               setLabelPopoverDraft('');
               return;
             }
-            setLabelPopoverMessageId(String(message.messageId));
+            const triggerRect = (event.currentTarget as HTMLButtonElement).getBoundingClientRect();
+            setLabelPopoverState({
+              messageId: String(message.messageId),
+              ...getLabelPopoverPosition(triggerRect),
+            });
             setLabelPopoverDraft('');
           }}
           className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
@@ -1496,7 +1522,11 @@ export const ChatPage: React.FC = () => {
           <div
             ref={labelPopoverRef}
             data-testid="chat-label-popover"
-            className="absolute left-0 top-full z-20 mt-2 w-[21rem] rounded-2xl border border-border/70 bg-background/95 p-3 shadow-[0_18px_40px_rgba(15,23,42,0.14)] backdrop-blur"
+            className="fixed z-[95] w-[21rem] rounded-2xl border border-border/70 bg-background/95 p-3 shadow-[0_18px_40px_rgba(15,23,42,0.14)] backdrop-blur"
+            style={{
+              left: labelPopoverState?.x ?? 16,
+              top: labelPopoverState?.y ?? 16,
+            }}
           >
             <div className="grid grid-cols-5 gap-2">
               {LABEL_EMOJI_OPTIONS.map((emoji) => (
@@ -1743,7 +1773,7 @@ export const ChatPage: React.FC = () => {
                     onContextMenu={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      setLabelPopoverMessageId(null);
+                      setLabelPopoverState(null);
                       setLabelPopoverDraft('');
                       setMessageContextMenu({
                         message: msg,
