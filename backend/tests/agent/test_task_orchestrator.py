@@ -411,3 +411,86 @@ async def test_process_worker_updates_does_not_aggregate_cancelling_orchestratio
     assert result.skip_emit is True
     assert store.state.status == "cancelled"
     assert store.state.final_response is None
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_marks_matching_orchestrations_cancelled() -> None:
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+    )
+
+    matching = TaskOrchestrationState(
+        orchestration_id="orch-match",
+        user_id="user-1",
+        session_id="session-1",
+        root_user_message="analyze repo",
+        planner="task_agent",
+        status="running",
+        metadata={"run_id": "run-1", "run_revision": 0},
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask-1",
+                description="Inspect backend",
+                subagent_type="Explore",
+                prompt="Inspect backend",
+                status="running",
+                worker_id="worker-1",
+                attempt_count=1,
+            )
+        ],
+    )
+    other = TaskOrchestrationState(
+        orchestration_id="orch-other",
+        user_id="user-1",
+        session_id="session-1",
+        root_user_message="another run",
+        planner="task_agent",
+        status="running",
+        metadata={"run_id": "run-2", "run_revision": 0},
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask-2",
+                description="Inspect frontend",
+                subagent_type="Explore",
+                prompt="Inspect frontend",
+                status="running",
+                worker_id="worker-2",
+                attempt_count=1,
+            )
+        ],
+    )
+
+    class _FakeStore:
+        def __init__(self) -> None:
+            self.saved_states: list[TaskOrchestrationState] = []
+
+        async def list_orchestrations(
+            self,
+            user_id: str | None = None,
+            session_id: str | None = None,
+            statuses: list[str] | None = None,
+        ) -> list[TaskOrchestrationState]:
+            _ = (user_id, statuses)
+            return [matching, other] if session_id == "session-1" else []
+
+        async def save_orchestration(self, state: TaskOrchestrationState) -> None:
+            self.saved_states.append(state)
+
+    store = _FakeStore()
+    orchestrator._orchestration_store = store
+
+    cancelled = await orchestrator.cancel_run(
+        session_id="session-1",
+        run_id="run-1",
+        run_revision=0,
+    )
+
+    assert cancelled == ["orch-match"]
+    assert matching.status == "cancelled"
+    assert matching.subtasks[0].status == "cancelled"
+    assert other.status == "running"

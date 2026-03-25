@@ -306,3 +306,36 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             return int(get_config().llm.max_tokens)
         except Exception:
             return 4096
+
+    async def request_session_cancel(
+        self,
+        *,
+        session_id: str,
+        requested_by: str,
+        reason: str = "user_cancel",
+        anchor_turn_id: str | None = None,
+    ) -> dict[str, object] | None:
+        """Request strong cancellation for the active session run."""
+        active_run = self._session_run_coordinator.request_cancel(
+            session_id=session_id,
+            requested_by=requested_by,
+            reason=reason,
+            anchor_turn_id=anchor_turn_id,
+        )
+        if active_run is None:
+            return None
+        cancelled_orchestration_ids = await self._task_orchestrator.cancel_run(
+            session_id=session_id,
+            run_id=active_run.run_id,
+            run_revision=active_run.revision,
+        )
+        return {
+            "session_id": session_id,
+            "run_id": active_run.run_id,
+            "revision": active_run.revision,
+            "status": active_run.status,
+            "cancel_reason": active_run.cancel_reason,
+            "cancel_requested_by": active_run.cancel_requested_by,
+            "cancel_anchor_turn_id": active_run.cancel_anchor_turn_id,
+            "cancelled_orchestration_ids": cancelled_orchestration_ids,
+        }

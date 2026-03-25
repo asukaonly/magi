@@ -16,6 +16,8 @@ from ...chat import (
 )
 from ...utils.agent_logger import get_agent_logger
 from ...core.logger import get_logger
+from ...core.runtime_bindings import require_agent_runtime
+from ...agent.runtime.types import TaskAgentType
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
 
 logger = get_logger(__name__)
@@ -54,6 +56,15 @@ class UpdateSessionWorkspaceRequest(BaseModel):
 
     user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
     workspace_path: Optional[str] = Field(default=None, description="Workspace path for the session")
+
+
+class CancelSessionRunRequest(BaseModel):
+    """Explicit cancel request for the active session run."""
+
+    user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
+    requested_by: str = Field(default="user", description="Cancellation initiator")
+    reason: str = Field(default="user_cancel", description="Cancellation reason")
+    turn_id: Optional[str] = Field(default=None, description="Optional turn id that triggered cancellation")
 
 
 # ============ API Endpoints ============
@@ -329,6 +340,46 @@ async def update_session_workspace(session_id: str, request: UpdateSessionWorksp
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@user_messages_router.post("/session/{session_id}/cancel-run", response_model=Dict[str, Any])
+async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
+    """Explicitly cancel the active run for one chat session."""
+    try:
+        runtime = require_agent_runtime()
+        manager = runtime.get_task_agent_manager()
+        agent = await manager.ensure_agent(TaskAgentType.CHAT, session_id)
+        cancel_handler = getattr(agent, "request_session_cancel", None)
+        if cancel_handler is None:
+            raise RuntimeError("Chat task agent does not support explicit session cancellation.")
+        outcome = await cancel_handler(
+            session_id=session_id,
+            requested_by=request.requested_by,
+            reason=request.reason,
+            anchor_turn_id=request.turn_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    if outcome is None:
+        return {
+            "success": False,
+            "message": "No active run to cancel",
+            "data": {
+                "user_id": request.user_id,
+                "session_id": session_id,
+            },
+        }
+
+    return {
+        "success": True,
+        "message": "Run cancellation requested",
+        "data": {
+            "user_id": request.user_id,
+            "session_id": session_id,
+            **dict(outcome),
+        },
+    }
 
 
 @user_messages_router.delete("/session/{session_id}", response_model=Dict[str, Any])

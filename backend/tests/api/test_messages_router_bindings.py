@@ -185,3 +185,62 @@ async def test_update_session_workspace_route_response(monkeypatch: pytest.Monke
 
     assert response["success"] is True
     assert response["session"]["workspace_path"] == "/Users/asuka/code/magi"
+
+
+@pytest.mark.asyncio
+async def test_cancel_session_run_route_delegates_to_chat_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeChatAgent:
+        async def request_session_cancel(
+            self,
+            *,
+            session_id: str,
+            requested_by: str,
+            reason: str,
+            anchor_turn_id: str | None = None,
+        ) -> dict[str, object] | None:
+            captured.update(
+                {
+                    "session_id": session_id,
+                    "requested_by": requested_by,
+                    "reason": reason,
+                    "anchor_turn_id": anchor_turn_id,
+                }
+            )
+            return {
+                "run_id": "run-1",
+                "revision": 0,
+                "status": "cancelling",
+                "cancelled_orchestration_ids": ["orch-1"],
+            }
+
+    class _FakeTaskAgentManager:
+        async def ensure_agent(self, agent_type, agent_id):  # type: ignore[no-untyped-def]
+            captured["agent_type"] = agent_type
+            captured["agent_id"] = agent_id
+            return _FakeChatAgent()
+
+    class _FakeRuntime:
+        def get_task_agent_manager(self) -> _FakeTaskAgentManager:
+            return _FakeTaskAgentManager()
+
+    monkeypatch.setattr(messages_router, "require_agent_runtime", lambda: _FakeRuntime())
+
+    response = await messages_router.cancel_session_run(
+        session_id="session-1",
+        request=messages_router.CancelSessionRunRequest(
+            user_id="u1",
+            reason="explicit_cancel",
+            turn_id="turn-cancel",
+            requested_by="user",
+        ),
+    )
+
+    assert response["success"] is True
+    assert response["data"]["run_id"] == "run-1"
+    assert response["data"]["cancelled_orchestration_ids"] == ["orch-1"]
+    assert captured["session_id"] == "session-1"
+    assert captured["requested_by"] == "user"
+    assert captured["reason"] == "explicit_cancel"
+    assert captured["anchor_turn_id"] == "turn-cancel"

@@ -302,6 +302,32 @@ class TaskOrchestrator:
             turn_id=first.turn_id,
         )
 
+    async def cancel_run(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        run_revision: int,
+    ) -> list[str]:
+        """Cancel persisted orchestrations that belong to the specified run."""
+        cancelled_ids: list[str] = []
+        candidate_states = await self._orchestration_store.list_orchestrations(
+            session_id=session_id,
+            statuses=["running", "aggregating", "cancelling"],
+        )
+        for state in candidate_states:
+            if self._extract_run_id(state) != run_id:
+                continue
+            if self._extract_run_revision(state) != int(run_revision):
+                continue
+            self._mark_remaining_subtasks_cancelled(state)
+            state.status = "cancelled"
+            state.final_response = None
+            state.updated_at = time.time()
+            await self._orchestration_store.save_orchestration(state)
+            cancelled_ids.append(state.orchestration_id)
+        return cancelled_ids
+
     async def _launch_workers(
         self,
         state: TaskOrchestrationState,
