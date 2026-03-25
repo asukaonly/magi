@@ -1,8 +1,9 @@
-"""Prompt templates for L2 extraction and reconcile helpers."""
+"""Prompt templates for L2 two-phase extraction and reconcile helpers."""
 
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from .context_bundle import ContextBundle
@@ -19,20 +20,164 @@ from .models import (
     L2SourceEvent,
 )
 
+# ---------------------------------------------------------------------------
+# Phase 1 — Extract & Resolve
+# ---------------------------------------------------------------------------
 
-UNIFIED_EXTRACTION_SYSTEM_PROMPT = """You are a structured extraction engine for a memory system.
+PHASE1_EXTRACT_SYSTEM_PROMPT = """You are a memory extraction engine for a personal AI assistant.
 
-Your task is to extract entity mentions, graph fact candidates, and assertion candidates from the supplied event window.
-Be conservative:
-- Return JSON only.
-- Do not invent unsupported entity types or predicates.
-- Use only the allowed entity types, predicates, and assertion families supplied in the prompt.
-- Specific dishes, drinks, snacks, and ingredients must use `food`.
-- Do not extract preference facts from questions, guesses, or recall requests.
-- Do not turn generic domains like weather, food, music, or place into concrete preference facts unless a specific liked/disliked value is explicitly stated.
-- If no entity can be extracted, set diagnostics.entity_status to `none`.
+Your task: identify entities, resolve references, and extract factual claims from user messages.
+
+## Allowed Entity Types
+person, place, organization, group, product, food, software, technology, hardware, virtual_object, project, activity, event, animal, pet, health_metric, concept, skill, media, topic, weather_state, other
+
+### Entity Type Aliases (map to canonical type)
+dish/drink/snack/ingredient → food | app/application/service/platform/os/database → software | language/framework/algorithm/model → technology | device/console/phone → hardware | idea/principle/theory → concept
+
+## Allowed Predicates
+LIKES, DISLIKES, INTERESTED_IN, VISITED, LIVES_IN, PLANS_TO, ATTENDED, WORKS_AT, MEMBER_OF, INTERACTED_WITH, KNOWS, FAMILY_OF, USES, OWNS, CREATES, PROFICIENT_IN, HAS_METRIC
+
+## Rules
+1. Only extract facts from messages marked **[USER]**. Messages marked [ASSISTANT] are dialogue context only — never treat assistant responses as user beliefs, preferences, or facts.
+2. Do NOT extract preferences from questions, recall requests, or hypothetical statements (e.g., "你记得我喜欢什么吗？", "What if I liked X?").
+3. Do NOT create preference facts for generic/category-level objects (e.g., "天气", "food", "music", "地方"). Only create preference facts when a specific liked/disliked value is explicitly stated.
+4. If a pronoun or vague reference appears (e.g., "那个", "它", "这种", "the one", "there"), resolve it using the Existing Entities or Recent Context sections. If unresolvable, mark as unresolved.
+5. If a mentioned entity matches an Existing Entity by name, alias, or clear semantic equivalence, use its canonical ID. Otherwise mark as new.
+6. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
+
+## Output Format
+Return JSON only:
+```json
+{
+  "entities": [
+    {
+      "surface": "original text span",
+      "normalized_name": "canonical name",
+      "entity_type": "enum from allowed types",
+      "specificity": "concrete|underspecified",
+      "resolved_id": "existing entity ID or null if new",
+      "is_new": true,
+      "alias_signals": ["optional alternative names"],
+      "confidence": 0.0
+    }
+  ],
+  "fact_claims": [
+    {
+      "subject_ref": "entity ID or user:self",
+      "subject_type": "user|person|...",
+      "predicate": "enum from allowed predicates",
+      "object_ref": "entity surface or ID",
+      "object_type": "enum from allowed types",
+      "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent",
+      "polarity": "positive|negative",
+      "specificity": "concrete|underspecified",
+      "evidence_text": "supporting quote",
+      "confidence": 0.0,
+      "supporting_event_ids": ["event IDs"]
+    }
+  ],
+  "resolved_refs": [
+    {
+      "surface": "pronoun or vague reference",
+      "resolved_ref": "entity ID or null",
+      "resolved_kind": "entity type or null",
+      "reference_type": "self_actor|existing_entity|context_entity|unresolved",
+      "confidence": 0.0
+    }
+  ],
+  "diagnostics": {
+    "entity_status": "found|none"
+  }
+}
+```
+
+### Example — correct extraction:
+Input: [USER] 我特别喜欢吃螺蛳粉
+Output entities: [{"surface": "螺蛳粉", "entity_type": "food", "specificity": "concrete", ...}]
+Output fact_claims: [{"subject_ref": "user:self", "predicate": "LIKES", "object_ref": "螺蛳粉", "object_type": "food", "specificity": "concrete", ...}]
+
+### Example — do NOT extract:
+Input: [USER] 你还记得我喜欢什么天气吗？
+Output: {"entities": [], "fact_claims": [], "diagnostics": {"entity_status": "none"}}
+Reason: This is a recall question, not a preference statement.
 """
 
+
+PHASE2_INTEGRATE_SYSTEM_PROMPT = """You are a memory integration engine for a personal AI assistant.
+
+Given Phase 1 extracted facts and the user's existing knowledge graph, produce final graph edges, ToM (Theory of Mind) assertions, and identify contradictions or refinements.
+
+## Allowed Assertion Families
+stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_sentiment, preference_profile, taste_profile
+
+## Rules
+1. Compare each new fact claim against the Existing Graph. Determine the relationship:
+   - **new**: No related existing edge. Produce a new graph edge.
+   - **corroborates**: Matches an existing edge. Note for confidence boost.
+   - **refines**: A new concrete fact clarifies an existing underspecified one (e.g., "rainy weather" refines "杭州天气"). Produce the new edge AND a refinement link.
+   - **contradicts**: Directly conflicts with an existing edge (e.g., LIKES vs DISLIKES same object). Produce a contradiction hint.
+   - **evolves**: A temporal state change (e.g., moved from city A to city B). Produce the new edge and mark the old one as evolved.
+2. Only generate ToM assertions when psychological state evidence is clear and directly from user's own words. Do not infer mood or stress from assistant responses.
+3. For single-event evidence, cap assertion confidence at 0.3.
+4. Respect evidence accumulation: if an existing edge has high observation_count and the new evidence is a single event, do not override.
+
+## Output Format
+Return JSON only:
+```json
+{
+  "graph_edges": [
+    {
+      "subject_ref": "entity ID",
+      "subject_type": "user|person|...",
+      "predicate": "enum",
+      "object_ref": "entity ID",
+      "object_type": "enum",
+      "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent",
+      "polarity": "positive|negative",
+      "confidence": 0.0,
+      "evidence_text": "supporting quote",
+      "supporting_event_ids": ["event IDs"],
+      "relationship_to_existing": "new|corroborates|refines|contradicts|evolves",
+      "related_existing_triple_id": "triple ID or null"
+    }
+  ],
+  "refinements": [
+    {
+      "existing_triple_id": "triple ID being refined",
+      "refined_by_object": "new concrete entity ID",
+      "explanation": "why this refines the existing edge"
+    }
+  ],
+  "assertion_candidates": [
+    {
+      "entity_ref": "entity ID",
+      "entity_type": "enum",
+      "trait_family": "enum from allowed families",
+      "trait_name": "string",
+      "trait_value": "string",
+      "inference_depth": "topology_only|defensive_psychology",
+      "volatility_index": 0.0,
+      "confidence": 0.0,
+      "evidence_texts": ["string"],
+      "supporting_event_ids": ["event IDs"]
+    }
+  ],
+  "contradiction_hints": [
+    {
+      "target_record_id": "triple or assertion ID",
+      "target_record_type": "knowledge_graph|tom_trait_assertion",
+      "contradiction_kind": "direct_negation|state_reversal|temporal_expiration|exclusive_role_conflict|preference_reversal|weak_tension",
+      "confidence": 0.0,
+      "evidence_text": "string",
+      "recommended_action": "downgrade_confidence|mark_conflicted|mark_deprecated|revalidate_only"
+    }
+  ]
+}
+```
+"""
+
+# Legacy prompts kept for entity resolution, reconcile, and conflict arbitration
+# which remain as separate LLM calls.
 
 ENTITY_RESOLUTION_SYSTEM_PROMPT = """You are an entity resolution engine for a memory graph.
 
@@ -42,14 +187,6 @@ Be conservative:
 - Use local context, aliases, semantics, and common nicknames.
 - Do not create a new fact beyond identity resolution.
 - Return JSON only.
-"""
-
-CONTRADICTION_HINT_SYSTEM_PROMPT = """You are a contradiction detection assistant for a memory system.
-
-Your task is to compare a new memory event with existing graph facts or ToM assertions and identify possible contradiction signals.
-Do not make final database decisions.
-Only emit contradiction hints with evidence and confidence.
-Return JSON only.
 """
 
 ENTITY_RECONCILE_SYSTEM_PROMPT = """You are an entity-level reconciliation engine for a memory system.
@@ -69,6 +206,203 @@ Return exactly one final arbitration decision: keep_new, keep_existing, or mark_
 Do not hedge, and do not return multiple competing outcomes.
 """
 
+# Keep old prompts as aliases for backward compatibility during transition.
+UNIFIED_EXTRACTION_SYSTEM_PROMPT = PHASE1_EXTRACT_SYSTEM_PROMPT
+CONTRADICTION_HINT_SYSTEM_PROMPT = PHASE2_INTEGRATE_SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Helper: format timestamp for prompts
+# ---------------------------------------------------------------------------
+
+def _format_ts(ts: float) -> str:
+    if ts <= 0:
+        return "unknown"
+    try:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    except (OSError, ValueError):
+        return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 prompt renderer
+# ---------------------------------------------------------------------------
+
+def render_phase1_extract_prompt(
+    *,
+    event_window: L2EventWindow,
+    focal_subject: dict[str, Any],
+    existing_entities: list[dict[str, Any]] | None = None,
+    context_messages: list[dict[str, Any]] | None = None,
+) -> str:
+    """Render a Markdown-formatted Phase 1 extraction prompt."""
+    parts: list[str] = []
+
+    # Messages to analyze
+    parts.append("## Messages to Analyze")
+    for event in event_window.events:
+        role = str(event.author_type or "user").upper()
+        ts = _format_ts(event.timestamp)
+        parts.append(f"### [{role}] (event: {event.event_id}, {ts})")
+        parts.append(str(event.content).strip())
+        parts.append("")
+
+    # Focal subject
+    focal_ref = focal_subject.get("entity_ref") or "user:self"
+    focal_type = focal_subject.get("entity_type") or "user"
+    parts.append(f"## Focal Subject\n- entity_ref: {focal_ref}\n- entity_type: {focal_type}")
+    parts.append("")
+
+    # Existing entities from catalog
+    if existing_entities:
+        parts.append("## Existing Entities (from catalog)")
+        for entity in existing_entities[:30]:
+            eid = entity.get("entity_id", "")
+            etype = entity.get("entity_type", "")
+            cname = entity.get("canonical_name", "")
+            aliases_list = entity.get("aliases", [])
+            alias_str = f" (aliases: {', '.join(aliases_list)})" if aliases_list else ""
+            parts.append(f"- {eid} [{etype}] {cname}{alias_str}")
+        parts.append("")
+
+    # Context messages (same session, with role annotation)
+    if context_messages:
+        parts.append("## Recent Context (same session)")
+        for msg in context_messages:
+            role = str(msg.get("role", "user")).upper()
+            content = str(msg.get("content", "")).strip()
+            if content:
+                parts.append(f"- [{role}] {content}")
+        parts.append("")
+
+    # History contexts (cross-session)
+    if event_window.history_contexts:
+        parts.append("## History Context (cross-session)")
+        for ctx in event_window.history_contexts:
+            ts = _format_ts(ctx.timestamp)
+            matched = f", matched_entity: {ctx.canonical_name}" if ctx.canonical_name else ""
+            session_label = f"session: {ctx.session_id}" if ctx.session_id else "unknown session"
+            parts.append(f"### ({session_label}{matched}, {ts})")
+            parts.append(str(ctx.content).strip())
+            parts.append("")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 prompt renderer
+# ---------------------------------------------------------------------------
+
+def render_phase2_integrate_prompt(
+    *,
+    phase1_result: dict[str, Any],
+    existing_graph_edges: list[dict[str, Any]] | None = None,
+    existing_assertions: list[dict[str, Any]] | None = None,
+    event_window: L2EventWindow,
+    focal_subject: dict[str, Any],
+) -> str:
+    """Render a Markdown-formatted Phase 2 integration prompt."""
+    parts: list[str] = []
+
+    # Phase 1 results
+    parts.append("## Phase 1 Extracted Results")
+
+    entities = phase1_result.get("entities", [])
+    if entities:
+        parts.append("### Entities Found")
+        for entity in entities:
+            surface = entity.get("surface", "")
+            etype = entity.get("entity_type", "")
+            specificity = entity.get("specificity", "concrete")
+            resolved_id = entity.get("resolved_id")
+            status = f"resolved={resolved_id}" if resolved_id else "new"
+            parts.append(f"- **{surface}** [{etype}, {specificity}] ({status})")
+        parts.append("")
+
+    fact_claims = phase1_result.get("fact_claims", [])
+    if fact_claims:
+        parts.append("### Fact Claims")
+        for i, claim in enumerate(fact_claims, 1):
+            subj = claim.get("subject_ref", "?")
+            pred = claim.get("predicate", "?")
+            obj = claim.get("object_ref", "?")
+            obj_type = claim.get("object_type", "?")
+            specificity = claim.get("specificity", "concrete")
+            conf = claim.get("confidence", 0.0)
+            evidence = claim.get("evidence_text", "")
+            parts.append(
+                f"{i}. {subj} → {pred} → {obj} [{obj_type}, {specificity}] "
+                f"(confidence: {conf})"
+            )
+            if evidence:
+                parts.append(f'   Evidence: "{evidence}"')
+            event_ids = claim.get("supporting_event_ids", [])
+            if event_ids:
+                parts.append(f"   Events: {', '.join(event_ids)}")
+        parts.append("")
+
+    resolved_refs = phase1_result.get("resolved_refs", [])
+    if resolved_refs:
+        parts.append("### Resolved References")
+        for ref in resolved_refs:
+            surface = ref.get("surface", "")
+            resolved = ref.get("resolved_ref") or "unresolved"
+            parts.append(f"- \"{surface}\" → {resolved}")
+        parts.append("")
+
+    # Existing graph edges for the focal subject
+    if existing_graph_edges:
+        parts.append("## Existing Knowledge Graph (relevant subgraph)")
+        for edge in existing_graph_edges[:30]:
+            subj = edge.get("subject_id", "?")
+            pred = edge.get("predicate", "?")
+            obj = edge.get("object_id", "?")
+            obj_type = edge.get("object_type", "?")
+            status = edge.get("status", "active")
+            conf = edge.get("confidence", 0.0)
+            obs_count = edge.get("observation_count", 1)
+            triple_id = edge.get("triple_id", "")
+            first_obs = _format_ts(float(edge.get("first_observed_at", 0)))
+            parts.append(
+                f"- [{triple_id}] {subj} {pred} {obj} [{obj_type}] "
+                f"(status={status}, confidence={conf}, observed={obs_count}x, since={first_obs})"
+            )
+        parts.append("")
+
+    # Existing ToM assertions
+    if existing_assertions:
+        parts.append("## Existing Assertions")
+        for assertion in existing_assertions[:20]:
+            trait = assertion.get("trait_name", "?")
+            value = assertion.get("trait_value", "?")
+            family = assertion.get("trait_family", "?")
+            state = assertion.get("validation_state", "?")
+            conf = assertion.get("confidence_score", 0.0)
+            aid = assertion.get("assertion_id", "")
+            parts.append(
+                f"- [{aid}] {family}/{trait} = {value} "
+                f"(state={state}, confidence={conf})"
+            )
+        parts.append("")
+
+    # Focal subject
+    focal_ref = focal_subject.get("entity_ref") or "user:self"
+    parts.append(f"## Focal Subject: {focal_ref}")
+    parts.append("")
+
+    # Original messages for evidence verification
+    parts.append("## Original Messages (for evidence verification)")
+    for event in event_window.events:
+        role = str(event.author_type or "user").upper()
+        parts.append(f"- [{role}] (event: {event.event_id}) {str(event.content).strip()}")
+    parts.append("")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Legacy unified extraction prompt (kept for backward compatibility)
+# ---------------------------------------------------------------------------
 
 def render_unified_extraction_prompt(
     *,
@@ -77,90 +411,16 @@ def render_unified_extraction_prompt(
     focal_subject: dict[str, Any],
     context_bundle: ContextBundle | None = None,
 ) -> str:
-    """Render the unified extraction prompt with ontology/profile constraints."""
+    """Render the legacy unified extraction prompt. Delegates to Phase 1."""
 
-    payload = {
-        "event_window": event_window.to_dict(),
-        "focal_subject": focal_subject,
-        "context_bundle": context_bundle.to_dict() if context_bundle is not None else None,
-        "allowed_entity_types": sorted(profile.allowed_entity_types),
-        "allowed_predicates": sorted(profile.allowed_predicates),
-        "allowed_assertion_families": sorted(profile.allowed_assertion_families),
-        "allow_graph": profile.allow_graph,
-        "allow_assertion": profile.allow_assertion,
-        "entity_type_aliases": profile.entity_type_aliases,
-        "predicate_aliases": profile.predicate_aliases,
-        "rules": [
-            "Use only the allowed entity types and predicates in this prompt.",
-            "Specific dishes, drinks, snacks, and ingredients must use `food`.",
-            "Do not extract preference graph facts or preference assertions from questions, guesses, or recall requests such as asking what the user likes.",
-            "Do not convert generic domains like weather, food, music, or place into concrete LIKES/DISLIKES facts unless the event explicitly states a specific liked or disliked value.",
-            "Use diagnostics.entity_status = `none` when no entity mention is extracted.",
-            "Resolve context references only from the supplied context bundle candidates or return unresolved.",
-            "Use batch-level context across the supplied event window, but only cite supporting_event_ids that are present in the event window.",
-            "When multiple events support the same candidate, include every relevant supporting_event_ids entry that directly supports it.",
-            "Return JSON with mentions, resolved_context_refs, graph_candidates, assertion_candidates, and diagnostics.",
+    return render_phase1_extract_prompt(
+        event_window=event_window,
+        focal_subject=focal_subject,
+        context_messages=[
+            {"role": "user", "content": text}
+            for text in (event_window.context_texts or [])
+            if text and text.strip()
         ],
-        "output_schema": {
-            "mentions": [
-                {
-                    "mention_text": "string",
-                    "normalized_surface": "string",
-                    "entity_type": "enum",
-                    "canonical_name_hint": "string or null",
-                    "alias_signals": ["string"],
-                    "evidence_text": "string",
-                    "confidence": 0.0,
-                }
-            ],
-            "resolved_context_refs": [
-                {
-                    "surface": "string",
-                    "reference_type": "context_entity|canonical_entity|self_actor|unresolved",
-                    "resolved_ref": "string or null",
-                    "resolved_kind": "string or null",
-                    "confidence": 0.0,
-                    "evidence_text": "string",
-                }
-            ],
-            "graph_candidates": [
-                {
-                    "subject_ref": "string",
-                    "subject_type": "enum",
-                    "predicate": "enum",
-                    "object_ref": "string",
-                    "object_type": "enum",
-                    "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent",
-                    "polarity": "positive|negative",
-                    "evidence_text": "string",
-                    "confidence": 0.0,
-                }
-            ],
-            "assertion_candidates": [
-                {
-                    "entity_ref": "string",
-                    "entity_type": "enum",
-                    "trait_family": "enum",
-                    "trait_name": "string",
-                    "trait_value": "string or JSON string",
-                    "target_ref": "string or null",
-                    "target_entity_type": "enum or null",
-                    "inference_depth": "topology_only|defensive_psychology",
-                    "volatility_index": 0.0,
-                    "confidence": 0.0,
-                    "validation_state": "tentative",
-                    "evidence_texts": ["string"],
-                    "supporting_event_ids": ["string"],
-                }
-            ],
-            "diagnostics": {
-                "entity_status": "found|none",
-            },
-        },
-    }
-    return (
-        "Extract unified L2 candidates from the following event window.\n\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)}"
     )
 
 

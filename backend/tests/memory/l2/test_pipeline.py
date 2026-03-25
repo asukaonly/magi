@@ -357,6 +357,48 @@ async def test_l1_round_trip_preserves_canonical_text_fields():
 
 @pytest.mark.asyncio
 async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts():
+    responses = [
+        # Phase 1: extract entity + fact claim
+        json.dumps({
+            "entities": [],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "predicate": "HAS_METRIC",
+                    "object_ref": "stress",
+                    "object_type": "health_metric",
+                    "fact_kind": "explicit_fact",
+                    "polarity": "positive",
+                    "specificity": "concrete",
+                    "evidence_text": "I have been stressed about work.",
+                    "confidence": 0.9,
+                    "supporting_event_ids": ["evt-queue-1"],
+                }
+            ],
+            "resolved_refs": [],
+            "diagnostics": {"entity_status": "none"},
+        }),
+        # Phase 2: produce assertion
+        json.dumps({
+            "graph_edges": [],
+            "refinements": [],
+            "assertion_candidates": [
+                {
+                    "entity_ref": "user:u1",
+                    "entity_type": "user",
+                    "trait_family": "stress",
+                    "trait_name": "stress_level",
+                    "trait_value": "high",
+                    "inference_depth": "defensive_psychology",
+                    "volatility_index": 0.7,
+                    "confidence": 0.88,
+                    "evidence_texts": ["I have been stressed about work."],
+                    "supporting_event_ids": ["evt-queue-1"],
+                }
+            ],
+            "contradiction_hints": [],
+        }),
+    ]
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
         store = UnifiedMemoryStore(
@@ -364,6 +406,7 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
             l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
         )
         await store.initialize()
         try:
@@ -807,22 +850,61 @@ async def test_invalid_json_from_contradiction_and_reconcile_llm_fails_closed():
 @pytest.mark.asyncio
 async def test_extract_worker_records_mentions_and_resolved_graph_edge():
     responses = [
+        # Phase 1: extract entity
         json.dumps(
             {
-                "mentions": [
+                "entities": [
                     {
-                        "mention_text": "魔都",
-                        "normalized_surface": "魔都",
+                        "surface": "魔都",
+                        "normalized_name": "上海",
                         "entity_type": "place",
-                        "canonical_name_hint": "上海",
+                        "specificity": "concrete",
+                        "resolved_id": "place:shanghai",
+                        "is_new": False,
                         "alias_signals": ["魔都"],
-                        "evidence_text": "我好喜欢魔都",
                         "confidence": 0.96,
                     }
                 ],
-                "graph_candidates": [],
-                "assertion_candidates": [],
+                "fact_claims": [
+                    {
+                        "subject_ref": "user:self",
+                        "predicate": "LIKES",
+                        "object_ref": "魔都",
+                        "object_type": "place",
+                        "fact_kind": "stable_preference",
+                        "polarity": "positive",
+                        "specificity": "concrete",
+                        "evidence_text": "我好喜欢魔都",
+                        "confidence": 0.96,
+                        "supporting_event_ids": ["evt-graph-1"],
+                    }
+                ],
+                "resolved_refs": [],
                 "diagnostics": {"entity_status": "found"},
+            }
+        ),
+        # Phase 2: produce graph edge
+        json.dumps(
+            {
+                "graph_edges": [
+                    {
+                        "subject_ref": "user:u1",
+                        "subject_type": "user",
+                        "predicate": "LIKES",
+                        "object_ref": "place:shanghai",
+                        "object_type": "place",
+                        "fact_kind": "stable_preference",
+                        "polarity": "positive",
+                        "confidence": 0.96,
+                        "evidence_text": "我好喜欢魔都",
+                        "supporting_event_ids": ["evt-graph-1"],
+                        "relationship_to_existing": "new",
+                        "related_existing_triple_id": None,
+                    }
+                ],
+                "refinements": [],
+                "assertion_candidates": [],
+                "contradiction_hints": [],
             }
         ),
     ]
@@ -1270,10 +1352,33 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
 @pytest.mark.asyncio
 async def test_extract_worker_persists_llm_tom_assertions():
     responses = [
+        # Phase 1: extract a fact claim about stress
         json.dumps(
             {
-                "mentions": [],
-                "graph_candidates": [],
+                "entities": [],
+                "fact_claims": [
+                    {
+                        "subject_ref": "user:self",
+                        "predicate": "HAS_METRIC",
+                        "object_ref": "stress",
+                        "object_type": "health_metric",
+                        "fact_kind": "explicit_fact",
+                        "polarity": "positive",
+                        "specificity": "concrete",
+                        "evidence_text": "I am stressed about work today.",
+                        "confidence": 0.94,
+                        "supporting_event_ids": ["evt-stress-1"],
+                    }
+                ],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "none"},
+            }
+        ),
+        # Phase 2: produce assertion
+        json.dumps(
+            {
+                "graph_edges": [],
+                "refinements": [],
                 "assertion_candidates": [
                     {
                         "entity_ref": "user:u1",
@@ -1284,13 +1389,11 @@ async def test_extract_worker_persists_llm_tom_assertions():
                         "inference_depth": "defensive_psychology",
                         "volatility_index": 0.7,
                         "confidence": 0.94,
-                        "validation_state": "tentative",
                         "evidence_texts": ["I am stressed about work today."],
                         "supporting_event_ids": ["evt-stress-1"],
-                        "notes": None,
                     }
                 ],
-                "diagnostics": {"entity_status": "none"},
+                "contradiction_hints": [],
             }
         ),
     ]
@@ -1393,16 +1496,34 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
             existing_assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
             existing_assertion_id = existing_assertions[0]["assertion_id"]
             adapter._responses = [
+                # Phase 1: extract a fact claim so Phase 2 runs
                 json.dumps(
                     {
-                        "mentions": [],
-                        "graph_candidates": [],
-                        "assertion_candidates": [],
+                        "entities": [],
+                        "fact_claims": [
+                            {
+                                "subject_ref": "user:self",
+                                "predicate": "HAS_METRIC",
+                                "object_ref": "calm",
+                                "object_type": "health_metric",
+                                "fact_kind": "explicit_fact",
+                                "polarity": "positive",
+                                "specificity": "concrete",
+                                "evidence_text": "I feel calm and relaxed now.",
+                                "confidence": 0.88,
+                                "supporting_event_ids": ["evt-calm-1"],
+                            }
+                        ],
+                        "resolved_refs": [],
                         "diagnostics": {"entity_status": "none"},
                     }
                 ),
+                # Phase 2: contradiction hints targeting existing assertion
                 json.dumps(
                     {
+                        "graph_edges": [],
+                        "refinements": [],
+                        "assertion_candidates": [],
                         "contradiction_hints": [
                             {
                                 "target_record_id": existing_assertion_id,
@@ -1412,7 +1533,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
                                 "evidence_text": "I feel calm and relaxed now.",
                                 "recommended_action": "downgrade_confidence",
                             }
-                        ]
+                        ],
                     }
                 ),
             ]
@@ -1488,10 +1609,43 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
                 extraction_method="llm",
             )
             adapter._responses = [
+                # Phase 1: extract entity mention + fact claim
                 json.dumps(
                     {
-                        "mentions": [],
-                        "graph_candidates": [
+                        "entities": [
+                            {
+                                "surface": "Shanghai",
+                                "normalized_name": "Shanghai",
+                                "entity_type": "place",
+                                "specificity": "concrete",
+                                "resolved_id": "place:shanghai",
+                                "is_new": False,
+                                "alias_signals": [],
+                                "confidence": 0.94,
+                            }
+                        ],
+                        "fact_claims": [
+                            {
+                                "subject_ref": "user:u1",
+                                "predicate": "DISLIKES",
+                                "object_ref": "place:shanghai",
+                                "object_type": "place",
+                                "fact_kind": "stable_preference",
+                                "polarity": "negative",
+                                "specificity": "concrete",
+                                "evidence_text": "I hate Shanghai now.",
+                                "confidence": 0.94,
+                                "supporting_event_ids": ["evt-hate-1"],
+                            }
+                        ],
+                        "resolved_refs": [],
+                        "diagnostics": {"entity_status": "found"},
+                    }
+                ),
+                # Phase 2: graph edge + contradiction hint
+                json.dumps(
+                    {
+                        "graph_edges": [
                             {
                                 "subject_ref": "user:u1",
                                 "subject_type": "user",
@@ -1500,16 +1654,15 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
                                 "object_type": "place",
                                 "fact_kind": "stable_preference",
                                 "polarity": "negative",
-                                "evidence_text": "I hate Shanghai now.",
                                 "confidence": 0.94,
+                                "evidence_text": "I hate Shanghai now.",
+                                "supporting_event_ids": ["evt-hate-1"],
+                                "relationship_to_existing": "contradicts",
+                                "related_existing_triple_id": existing_triple_id,
                             }
                         ],
+                        "refinements": [],
                         "assertion_candidates": [],
-                        "diagnostics": {"entity_status": "none"},
-                    }
-                ),
-                json.dumps(
-                    {
                         "contradiction_hints": [
                             {
                                 "target_record_id": existing_triple_id,
@@ -1519,9 +1672,10 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
                                 "evidence_text": "I hate Shanghai now.",
                                 "recommended_action": "mark_deprecated",
                             }
-                        ]
+                        ],
                     }
                 ),
+                # Conflict arbitration: keep_existing
                 json.dumps(
                     {
                         "decision": "keep_existing",
@@ -1594,10 +1748,43 @@ async def test_extract_worker_marks_evolution_by_deprecating_old_graph_fact_and_
             )
             previous_edge = (await store.l2.get_relationships(subject_id="user:u1", status="active", limit=10))[0]
             adapter._responses = [
+                # Phase 1: extract entity + fact claim
                 json.dumps(
                     {
-                        "mentions": [],
-                        "graph_candidates": [
+                        "entities": [
+                            {
+                                "surface": "Shanghai",
+                                "normalized_name": "Shanghai",
+                                "entity_type": "place",
+                                "specificity": "concrete",
+                                "resolved_id": "place:shanghai",
+                                "is_new": False,
+                                "alias_signals": [],
+                                "confidence": 0.94,
+                            }
+                        ],
+                        "fact_claims": [
+                            {
+                                "subject_ref": "user:u1",
+                                "predicate": "DISLIKES",
+                                "object_ref": "place:shanghai",
+                                "object_type": "place",
+                                "fact_kind": "stable_preference",
+                                "polarity": "negative",
+                                "specificity": "concrete",
+                                "evidence_text": "I hate Shanghai these days.",
+                                "confidence": 0.94,
+                                "supporting_event_ids": ["evt-evolution-1"],
+                            }
+                        ],
+                        "resolved_refs": [],
+                        "diagnostics": {"entity_status": "found"},
+                    }
+                ),
+                # Phase 2: graph edge + contradiction hint
+                json.dumps(
+                    {
+                        "graph_edges": [
                             {
                                 "subject_ref": "user:u1",
                                 "subject_type": "user",
@@ -1606,16 +1793,15 @@ async def test_extract_worker_marks_evolution_by_deprecating_old_graph_fact_and_
                                 "object_type": "place",
                                 "fact_kind": "stable_preference",
                                 "polarity": "negative",
-                                "evidence_text": "I hate Shanghai these days.",
                                 "confidence": 0.94,
+                                "evidence_text": "I hate Shanghai these days.",
+                                "supporting_event_ids": ["evt-evolution-1"],
+                                "relationship_to_existing": "contradicts",
+                                "related_existing_triple_id": previous_edge["triple_id"],
                             }
                         ],
+                        "refinements": [],
                         "assertion_candidates": [],
-                        "diagnostics": {"entity_status": "none"},
-                    }
-                ),
-                json.dumps(
-                    {
                         "contradiction_hints": [
                             {
                                 "target_record_id": previous_edge["triple_id"],
@@ -1625,9 +1811,10 @@ async def test_extract_worker_marks_evolution_by_deprecating_old_graph_fact_and_
                                 "evidence_text": "I hate Shanghai these days.",
                                 "recommended_action": "revalidate_only",
                             }
-                        ]
+                        ],
                     }
                 ),
+                # Conflict arbitration: mark_evolution
                 json.dumps(
                     {
                         "decision": "mark_evolution",
@@ -1707,10 +1894,43 @@ async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
             assert seeded_snapshot["preferences"]["place:shanghai"] == "like"
 
             adapter._responses = [
+                # Phase 1: extract entity + fact claim
                 json.dumps(
                     {
-                        "mentions": [],
-                        "graph_candidates": [
+                        "entities": [
+                            {
+                                "surface": "Shanghai",
+                                "normalized_name": "Shanghai",
+                                "entity_type": "place",
+                                "specificity": "concrete",
+                                "resolved_id": "place:shanghai",
+                                "is_new": False,
+                                "alias_signals": [],
+                                "confidence": 0.94,
+                            }
+                        ],
+                        "fact_claims": [
+                            {
+                                "subject_ref": "user:u1",
+                                "predicate": "DISLIKES",
+                                "object_ref": "place:shanghai",
+                                "object_type": "place",
+                                "fact_kind": "stable_preference",
+                                "polarity": "negative",
+                                "specificity": "concrete",
+                                "evidence_text": "I hate Shanghai these days.",
+                                "confidence": 0.94,
+                                "supporting_event_ids": ["evt-evolution-2"],
+                            }
+                        ],
+                        "resolved_refs": [],
+                        "diagnostics": {"entity_status": "found"},
+                    }
+                ),
+                # Phase 2: graph edge + contradiction hint
+                json.dumps(
+                    {
+                        "graph_edges": [
                             {
                                 "subject_ref": "user:u1",
                                 "subject_type": "user",
@@ -1719,16 +1939,15 @@ async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
                                 "object_type": "place",
                                 "fact_kind": "stable_preference",
                                 "polarity": "negative",
-                                "evidence_text": "I hate Shanghai these days.",
                                 "confidence": 0.94,
+                                "evidence_text": "I hate Shanghai these days.",
+                                "supporting_event_ids": ["evt-evolution-2"],
+                                "relationship_to_existing": "contradicts",
+                                "related_existing_triple_id": previous_edge["triple_id"],
                             }
                         ],
+                        "refinements": [],
                         "assertion_candidates": [],
-                        "diagnostics": {"entity_status": "none"},
-                    }
-                ),
-                json.dumps(
-                    {
                         "contradiction_hints": [
                             {
                                 "target_record_id": previous_edge["triple_id"],
@@ -1738,9 +1957,10 @@ async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
                                 "evidence_text": "I hate Shanghai these days.",
                                 "recommended_action": "revalidate_only",
                             }
-                        ]
+                        ],
                     }
                 ),
+                # Conflict arbitration: mark_evolution
                 json.dumps(
                     {
                         "decision": "mark_evolution",
@@ -1941,10 +2161,33 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
 async def test_assistant_quote_does_not_add_new_evidence_weight():
     adapter = _FakeAdapter(
         [
+            # Phase 1: extract fact claim about stress
             json.dumps(
                 {
-                    "mentions": [],
-                    "graph_candidates": [],
+                    "entities": [],
+                    "fact_claims": [
+                        {
+                            "subject_ref": "user:self",
+                            "predicate": "HAS_METRIC",
+                            "object_ref": "stress",
+                            "object_type": "health_metric",
+                            "fact_kind": "explicit_fact",
+                            "polarity": "positive",
+                            "specificity": "concrete",
+                            "evidence_text": "I am stressed about work today.",
+                            "confidence": 0.88,
+                            "supporting_event_ids": ["evt-user-stress-1"],
+                        }
+                    ],
+                    "resolved_refs": [],
+                    "diagnostics": {"entity_status": "none"},
+                }
+            ),
+            # Phase 2: produce assertion
+            json.dumps(
+                {
+                    "graph_edges": [],
+                    "refinements": [],
                     "assertion_candidates": [
                         {
                             "entity_ref": "user:u1",
@@ -1955,13 +2198,11 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                             "inference_depth": "defensive_psychology",
                             "volatility_index": 0.7,
                             "confidence": 0.88,
-                            "validation_state": "tentative",
                             "evidence_texts": ["I am stressed about work today."],
                             "supporting_event_ids": ["evt-user-stress-1"],
-                            "notes": None,
                         }
                     ],
-                    "diagnostics": {"entity_status": "none"},
+                    "contradiction_hints": [],
                 }
             ),
         ]
@@ -2148,62 +2389,94 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
     caplog: pytest.LogCaptureFixture,
 ):
     adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "mentions": [
-                    {
-                        "mention_text": "GitHub",
-                        "normalized_surface": "github",
-                        "entity_type": "product",
-                        "canonical_name_hint": "GitHub",
-                        "alias_signals": [],
-                        "evidence_text": "Visited GitHub today",
-                        "confidence": 0.95,
-                    }
-                ],
-                "graph_candidates": [
-                    {
-                        "subject_ref": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "VISITED",
-                        "object_ref": "GitHub",
-                        "object_type": "product",
-                        "fact_kind": "explicit_fact",
-                        "polarity": "positive",
-                        "evidence_text": "Visited GitHub today",
-                        "confidence": 0.9,
-                    },
-                    {
-                        "subject_ref": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "LIKES",
-                        "object_ref": "GitHub",
-                        "object_type": "product",
-                        "fact_kind": "stable_preference",
-                        "polarity": "positive",
-                        "evidence_text": "Visited GitHub today",
-                        "confidence": 0.9,
-                    },
-                ],
-                "assertion_candidates": [
-                    {
-                        "entity_ref": "user:u1",
-                        "entity_type": "user",
-                        "trait_family": "mood",
-                        "trait_name": "mood",
-                        "trait_value": "happy",
-                        "inference_depth": "defensive_psychology",
-                        "volatility_index": 0.7,
-                        "confidence": 0.8,
-                        "validation_state": "tentative",
-                        "evidence_texts": ["Visited GitHub today"],
-                        "supporting_event_ids": ["evt-log-unified-1"],
-                    }
-                ],
-                "diagnostics": {"entity_status": "found"},
-            },
-            ensure_ascii=False,
-        )
+        [
+            # Phase 1: extract entity + fact claims
+            json.dumps(
+                {
+                    "entities": [
+                        {
+                            "surface": "GitHub",
+                            "normalized_name": "GitHub",
+                            "entity_type": "product",
+                            "specificity": "concrete",
+                            "resolved_id": None,
+                            "is_new": True,
+                            "alias_signals": [],
+                            "confidence": 0.95,
+                        }
+                    ],
+                    "fact_claims": [
+                        {
+                            "subject_ref": "user:u1",
+                            "predicate": "VISITED",
+                            "object_ref": "GitHub",
+                            "object_type": "product",
+                            "fact_kind": "explicit_fact",
+                            "polarity": "positive",
+                            "specificity": "concrete",
+                            "evidence_text": "Visited GitHub today",
+                            "confidence": 0.9,
+                            "supporting_event_ids": ["evt-log-unified-1"],
+                        }
+                    ],
+                    "resolved_refs": [],
+                    "diagnostics": {"entity_status": "found"},
+                },
+                ensure_ascii=False,
+            ),
+            # Phase 2: graph edges + assertion
+            json.dumps(
+                {
+                    "graph_edges": [
+                        {
+                            "subject_ref": "user:u1",
+                            "subject_type": "user",
+                            "predicate": "VISITED",
+                            "object_ref": "GitHub",
+                            "object_type": "product",
+                            "fact_kind": "explicit_fact",
+                            "polarity": "positive",
+                            "confidence": 0.9,
+                            "evidence_text": "Visited GitHub today",
+                            "supporting_event_ids": ["evt-log-unified-1"],
+                            "relationship_to_existing": "new",
+                            "related_existing_triple_id": None,
+                        },
+                        {
+                            "subject_ref": "user:u1",
+                            "subject_type": "user",
+                            "predicate": "LIKES",
+                            "object_ref": "GitHub",
+                            "object_type": "product",
+                            "fact_kind": "stable_preference",
+                            "polarity": "positive",
+                            "confidence": 0.9,
+                            "evidence_text": "Visited GitHub today",
+                            "supporting_event_ids": ["evt-log-unified-1"],
+                            "relationship_to_existing": "new",
+                            "related_existing_triple_id": None,
+                        },
+                    ],
+                    "refinements": [],
+                    "assertion_candidates": [
+                        {
+                            "entity_ref": "user:u1",
+                            "entity_type": "user",
+                            "trait_family": "mood",
+                            "trait_name": "mood",
+                            "trait_value": "happy",
+                            "inference_depth": "defensive_psychology",
+                            "volatility_index": 0.7,
+                            "confidence": 0.8,
+                            "evidence_texts": ["Visited GitHub today"],
+                            "supporting_event_ids": ["evt-log-unified-1"],
+                        }
+                    ],
+                    "contradiction_hints": [],
+                },
+                ensure_ascii=False,
+            ),
+        ]
     )
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2241,8 +2514,8 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
 
             messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2.pipeline"]
             assert any("L2 extract completed" in message for message in messages)
-            assert any("L2 unified extraction stage started" in message for message in messages)
-            assert any("L2 unified candidate validation completed" in message for message in messages)
+            assert any("L2 Phase 1 extraction started" in message for message in messages)
+            assert any("L2 Phase 2 candidate validation completed" in message for message in messages)
             assert any("L2 persistence completed" in message for message in messages)
             assert any("timeline.calendar" in message for message in messages)
             assert any("rejected_graph_candidate_count" in message for message in messages)
@@ -2254,37 +2527,67 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
 @pytest.mark.asyncio
 async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
     adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "mentions": [
-                    {
-                        "mention_text": "西湖醋鱼",
-                        "normalized_surface": "西湖醋鱼",
-                        "entity_type": "dish",
-                        "canonical_name_hint": "西湖醋鱼",
-                        "alias_signals": [],
-                        "evidence_text": "但我讨厌吃西湖醋鱼",
-                        "confidence": 0.95,
-                    }
-                ],
-                "graph_candidates": [
-                    {
-                        "subject_ref": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "DISLIKES",
-                        "object_ref": "food:west-lake-vinegar-fish",
-                        "object_type": "dish",
-                        "fact_kind": "stable_preference",
-                        "polarity": "negative",
-                        "evidence_text": "但我讨厌吃西湖醋鱼",
-                        "confidence": 0.88,
-                    }
-                ],
-                "assertion_candidates": [],
-                "diagnostics": {"entity_status": "found"},
-            },
-            ensure_ascii=False,
-        )
+        [
+            # Phase 1: extract entity (dish → normalized to food) + fact claim
+            json.dumps(
+                {
+                    "entities": [
+                        {
+                            "surface": "西湖醋鱼",
+                            "normalized_name": "西湖醋鱼",
+                            "entity_type": "dish",
+                            "specificity": "concrete",
+                            "resolved_id": None,
+                            "is_new": True,
+                            "alias_signals": [],
+                            "confidence": 0.95,
+                        }
+                    ],
+                    "fact_claims": [
+                        {
+                            "subject_ref": "user:u1",
+                            "predicate": "DISLIKES",
+                            "object_ref": "西湖醋鱼",
+                            "object_type": "dish",
+                            "fact_kind": "stable_preference",
+                            "polarity": "negative",
+                            "specificity": "concrete",
+                            "evidence_text": "但我讨厌吃西湖醋鱼",
+                            "confidence": 0.88,
+                            "supporting_event_ids": ["evt-unified-food-1"],
+                        }
+                    ],
+                    "resolved_refs": [],
+                    "diagnostics": {"entity_status": "found"},
+                },
+                ensure_ascii=False,
+            ),
+            # Phase 2: graph edge
+            json.dumps(
+                {
+                    "graph_edges": [
+                        {
+                            "subject_ref": "user:u1",
+                            "subject_type": "user",
+                            "predicate": "DISLIKES",
+                            "object_ref": "food:west-lake-vinegar-fish",
+                            "object_type": "dish",
+                            "fact_kind": "stable_preference",
+                            "polarity": "negative",
+                            "confidence": 0.88,
+                            "evidence_text": "但我讨厌吃西湖醋鱼",
+                            "supporting_event_ids": ["evt-unified-food-1"],
+                            "relationship_to_existing": "new",
+                            "related_existing_triple_id": None,
+                        }
+                    ],
+                    "refinements": [],
+                    "assertion_candidates": [],
+                    "contradiction_hints": [],
+                },
+                ensure_ascii=False,
+            ),
+        ]
     )
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2421,51 +2724,80 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
 @pytest.mark.asyncio
 async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_fact():
     adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "mentions": [
-                    {
-                        "mention_text": "西湖醋鱼",
-                        "normalized_surface": "西湖醋鱼",
-                        "entity_type": "dish",
-                        "canonical_name_hint": "西湖醋鱼",
-                        "alias_signals": [],
-                        "evidence_text": "但我讨厌吃西湖醋鱼",
-                        "confidence": 0.95,
-                    }
-                ],
-                "graph_candidates": [
-                    {
-                        "subject_ref": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "DISLIKES",
-                        "object_ref": "food:xi-hu-cu-yu",
-                        "object_type": "dish",
-                        "fact_kind": "stable_preference",
-                        "polarity": "negative",
-                        "evidence_text": "但我讨厌吃西湖醋鱼",
-                        "confidence": 0.88,
-                    }
-                ],
-                "assertion_candidates": [
-                    {
-                        "entity_ref": "user:u1",
-                        "entity_type": "user",
-                        "trait_family": "taste_profile",
-                        "trait_name": "taste_profile",
-                        "trait_value": "avoids_vinegar_heavy_dishes",
-                        "inference_depth": "defensive_psychology",
-                        "volatility_index": 0.4,
-                        "confidence": 0.7,
-                        "validation_state": "tentative",
-                        "evidence_texts": ["但我讨厌吃西湖醋鱼"],
-                        "supporting_event_ids": ["evt-unified-food-high-order-1"],
-                    }
-                ],
-                "diagnostics": {"entity_status": "found"},
-            },
-            ensure_ascii=False,
-        )
+        [
+            # Phase 1: extract entity + fact claim
+            json.dumps(
+                {
+                    "entities": [
+                        {
+                            "surface": "西湖醋鱼",
+                            "normalized_name": "西湖醋鱼",
+                            "entity_type": "dish",
+                            "specificity": "concrete",
+                            "resolved_id": None,
+                            "is_new": True,
+                            "alias_signals": [],
+                            "confidence": 0.95,
+                        }
+                    ],
+                    "fact_claims": [
+                        {
+                            "subject_ref": "user:u1",
+                            "predicate": "DISLIKES",
+                            "object_ref": "西湖醋鱼",
+                            "object_type": "dish",
+                            "fact_kind": "stable_preference",
+                            "polarity": "negative",
+                            "specificity": "concrete",
+                            "evidence_text": "但我讨厌吃西湖醋鱼",
+                            "confidence": 0.88,
+                            "supporting_event_ids": ["evt-unified-food-high-order-1"],
+                        }
+                    ],
+                    "resolved_refs": [],
+                    "diagnostics": {"entity_status": "found"},
+                },
+                ensure_ascii=False,
+            ),
+            # Phase 2: graph edge + higher-order assertion
+            json.dumps(
+                {
+                    "graph_edges": [
+                        {
+                            "subject_ref": "user:u1",
+                            "subject_type": "user",
+                            "predicate": "DISLIKES",
+                            "object_ref": "food:xi-hu-cu-yu",
+                            "object_type": "dish",
+                            "fact_kind": "stable_preference",
+                            "polarity": "negative",
+                            "confidence": 0.88,
+                            "evidence_text": "但我讨厌吃西湖醋鱼",
+                            "supporting_event_ids": ["evt-unified-food-high-order-1"],
+                            "relationship_to_existing": "new",
+                            "related_existing_triple_id": None,
+                        }
+                    ],
+                    "refinements": [],
+                    "assertion_candidates": [
+                        {
+                            "entity_ref": "user:u1",
+                            "entity_type": "user",
+                            "trait_family": "taste_profile",
+                            "trait_name": "taste_profile",
+                            "trait_value": "avoids_vinegar_heavy_dishes",
+                            "inference_depth": "defensive_psychology",
+                            "volatility_index": 0.4,
+                            "confidence": 0.7,
+                            "evidence_texts": ["但我讨厌吃西湖醋鱼"],
+                            "supporting_event_ids": ["evt-unified-food-high-order-1"],
+                        }
+                    ],
+                    "contradiction_hints": [],
+                },
+                ensure_ascii=False,
+            ),
+        ]
     )
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2512,62 +2844,95 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
 @pytest.mark.asyncio
 async def test_unified_extraction_respects_calendar_profile_restrictions():
     adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "mentions": [
-                    {
-                        "mention_text": "Shanghai",
-                        "normalized_surface": "shanghai",
-                        "entity_type": "place",
-                        "canonical_name_hint": "Shanghai",
-                        "alias_signals": [],
-                        "evidence_text": "Visited Shanghai today",
-                        "confidence": 0.95,
-                    }
-                ],
-                "graph_candidates": [
-                    {
-                        "subject_ref": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "VISITED",
-                        "object_ref": "Shanghai",
-                        "object_type": "place",
-                        "fact_kind": "explicit_fact",
-                        "polarity": "positive",
-                        "evidence_text": "Visited Shanghai today",
-                        "confidence": 0.9,
-                    },
-                    {
-                        "subject_ref": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "LIKES",
-                        "object_ref": "Shanghai",
-                        "object_type": "place",
-                        "fact_kind": "stable_preference",
-                        "polarity": "positive",
-                        "evidence_text": "Visited Shanghai today",
-                        "confidence": 0.9,
-                    },
-                ],
-                "assertion_candidates": [
-                    {
-                        "entity_ref": "user:u1",
-                        "entity_type": "user",
-                        "trait_family": "mood",
-                        "trait_name": "mood",
-                        "trait_value": "happy",
-                        "inference_depth": "defensive_psychology",
-                        "volatility_index": 0.7,
-                        "confidence": 0.8,
-                        "validation_state": "tentative",
-                        "evidence_texts": ["Visited Shanghai today"],
-                        "supporting_event_ids": ["evt-calendar-1"],
-                    }
-                ],
-                "diagnostics": {"entity_status": "found"},
-            },
-            ensure_ascii=False,
-        )
+        [
+            # Phase 1: extract entity + fact claims
+            json.dumps(
+                {
+                    "entities": [
+                        {
+                            "surface": "Shanghai",
+                            "normalized_name": "Shanghai",
+                            "entity_type": "place",
+                            "specificity": "concrete",
+                            "resolved_id": None,
+                            "is_new": True,
+                            "alias_signals": [],
+                            "confidence": 0.95,
+                        }
+                    ],
+                    "fact_claims": [
+                        {
+                            "subject_ref": "user:u1",
+                            "predicate": "VISITED",
+                            "object_ref": "Shanghai",
+                            "object_type": "place",
+                            "fact_kind": "explicit_fact",
+                            "polarity": "positive",
+                            "specificity": "concrete",
+                            "evidence_text": "Visited Shanghai today",
+                            "confidence": 0.9,
+                            "supporting_event_ids": ["evt-calendar-1"],
+                        }
+                    ],
+                    "resolved_refs": [],
+                    "diagnostics": {"entity_status": "found"},
+                },
+                ensure_ascii=False,
+            ),
+            # Phase 2: graph edges (VISITED + LIKES) + mood assertion
+            # validation will filter out LIKES and mood based on calendar profile
+            json.dumps(
+                {
+                    "graph_edges": [
+                        {
+                            "subject_ref": "user:u1",
+                            "subject_type": "user",
+                            "predicate": "VISITED",
+                            "object_ref": "Shanghai",
+                            "object_type": "place",
+                            "fact_kind": "explicit_fact",
+                            "polarity": "positive",
+                            "confidence": 0.9,
+                            "evidence_text": "Visited Shanghai today",
+                            "supporting_event_ids": ["evt-calendar-1"],
+                            "relationship_to_existing": "new",
+                            "related_existing_triple_id": None,
+                        },
+                        {
+                            "subject_ref": "user:u1",
+                            "subject_type": "user",
+                            "predicate": "LIKES",
+                            "object_ref": "Shanghai",
+                            "object_type": "place",
+                            "fact_kind": "stable_preference",
+                            "polarity": "positive",
+                            "confidence": 0.9,
+                            "evidence_text": "Visited Shanghai today",
+                            "supporting_event_ids": ["evt-calendar-1"],
+                            "relationship_to_existing": "new",
+                            "related_existing_triple_id": None,
+                        },
+                    ],
+                    "refinements": [],
+                    "assertion_candidates": [
+                        {
+                            "entity_ref": "user:u1",
+                            "entity_type": "user",
+                            "trait_family": "mood",
+                            "trait_name": "mood",
+                            "trait_value": "happy",
+                            "inference_depth": "defensive_psychology",
+                            "volatility_index": 0.7,
+                            "confidence": 0.8,
+                            "evidence_texts": ["Visited Shanghai today"],
+                            "supporting_event_ids": ["evt-calendar-1"],
+                        }
+                    ],
+                    "contradiction_hints": [],
+                },
+                ensure_ascii=False,
+            ),
+        ]
     )
 
     with tempfile.TemporaryDirectory() as temp_dir:

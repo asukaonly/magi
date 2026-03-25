@@ -29,6 +29,10 @@ from .models import (
     L2FocalEntityRef,
     L2GraphCandidate,
     L2HistoryContext,
+    L2Phase1Result,
+    L2Phase2ContradictionHint,
+    L2Phase2GraphEdge,
+    L2Phase2Result,
     L2PendingBatchBucket,
     L2SourceEvent,
     ReconciledTraitOutcome,
@@ -618,8 +622,8 @@ class L2Pipeline:
                 "contradiction_hint_count": 0,
             }
 
-        context_texts = (
-            await self._load_context_texts(stored_event, exclude_event_ids=batch_event_ids)
+        context_messages = (
+            await self._load_context_messages(stored_event, exclude_event_ids=batch_event_ids)
             if policy.allow_entity_extraction or policy.allow_assertion_write or policy.allow_graph_write
             else []
         )
@@ -634,32 +638,13 @@ class L2Pipeline:
         )
         extraction_profile = resolve_extraction_profile(stored_event)
         self_entity_id = self._resolve_self_entity_id(stored_event)
-        context_bundle = await self._collect_context_bundle(
-            stored_event,
-            context_texts=context_texts,
-            source_event_ids=[
-                str(item.event_id)
-                for item in history_contexts
-                if self._non_empty_text(item.event_id)
-            ],
-        )
-        direct_context_refs = resolve_direct_context_refs(event=stored_event, bundle=context_bundle)
-        logger.info(
-            "L2 unified extraction stage started",
-            event_id=stored_event.event_id,
-            profile_id=extraction_profile.profile_id,
-            context_count=len(context_texts),
-            history_context_count=len(history_contexts),
-            structured_entity_hint_count=0,
-            structured_graph_hint_count=0,
-            direct_context_ref_count=len(direct_context_refs),
-            live_context_candidate_count=len(context_bundle.live_context_entities),
-        )
+
+        # Build event window
         event_window = L2EventWindow(
             event_ids=batch_event_ids,
             events=[self._serialize_event_for_batch(item[0]) for item in eligible_events],
             texts=[item[0].content for item in eligible_events],
-            context_texts=context_texts,
+            context_texts=[msg.get("content", "") for msg in context_messages if msg.get("content", "").strip()],
             history_contexts=history_contexts,
             summary=L2EventWindowSummary(
                 event_count=len(eligible_events),
@@ -668,99 +653,127 @@ class L2Pipeline:
                 history_context_count=len(history_contexts),
             ),
         )
-        unified_result = await self._llm_service.extract_unified_candidates(
-            event_window=event_window,
-            profile=extraction_profile,
-            focal_subject={
-                "entity_ref": self_entity_id,
-                "entity_type": "user" if self_entity_id else None,
-            },
-            context_bundle=context_bundle,
-        )
-        resolved_context_refs = self._merge_resolved_context_refs(
-            direct_refs=direct_context_refs,
-            llm_refs=list(unified_result.resolved_context_refs),
-            context_bundle=context_bundle,
+        focal_subject = {
+            "entity_ref": self_entity_id,
+            "entity_type": "user" if self_entity_id else None,
+        }
+
+        # Load existing entities from catalog for Phase 1 resolution hints
+        existing_entities: list[dict[str, Any]] = []
+        if self._entity_catalog is not None:
+            existing_entities = await self._entity_catalog.list_entities(limit=30)
+
+        # ── Phase 1: Extract & Resolve ──
+        logger.info(
+            "L2 Phase 1 extraction started",
+            event_id=stored_event.event_id,
+            profile_id=extraction_profile.profile_id,
+            context_message_count=len(context_messages),
+            history_context_count=len(history_contexts),
+            existing_entity_count=len(existing_entities),
         )
 
-        raw_mentions = list(unified_result.mentions)
+        phase1_result = await self._llm_service.extract_phase1(
+            event_window=event_window,
+            focal_subject=focal_subject,
+            existing_entities=existing_entities,
+            context_messages=context_messages,
+        )
+
+        # Register Phase 1 entities in the entity catalog
         resolved_mentions: list[ResolvedEntityMention] = []
-        if policy.allow_entity_extraction:
-            resolved_mentions = await self._resolve_mentions(
+        if policy.allow_entity_extraction and phase1_result.entities:
+            resolved_mentions = await self._resolve_phase1_entities(
                 stored_event,
-                raw_mentions,
+                phase1_result,
                 evidence_event_ids=batch_event_ids,
             )
-            logger.debug(
-                "L2 mentions resolved",
-                event_id=stored_event.event_id,
-                profile_id=extraction_profile.profile_id,
-                mention_count=len(raw_mentions),
-                resolved_mention_count=len(resolved_mentions),
-            )
 
-        graph_candidates, rejected_graph_candidate_count = self._prepare_unified_graph_candidates(
+        logger.debug(
+            "L2 Phase 1 completed",
+            event_id=stored_event.event_id,
+            entity_count=len(phase1_result.entities),
+            fact_claim_count=len(phase1_result.fact_claims),
+            resolved_ref_count=len(phase1_result.resolved_refs),
+            resolved_mention_count=len(resolved_mentions),
+        )
+
+        # Skip Phase 2 if Phase 1 produced nothing useful
+        if not phase1_result.has_content:
+            return {
+                "relation_count": 0,
+                "assertion_count": 0,
+                "touched_entity_ids": [],
+                "snapshot_refresh_entity_ids": [],
+                "skipped": False,
+                "evidence_class": classification.evidence_class,
+                "profile_id": extraction_profile.profile_id,
+                "mention_count": len(phase1_result.entities),
+                "graph_candidate_count": 0,
+                "assertion_candidate_count": 0,
+                "rejected_graph_candidate_count": 0,
+                "rejected_assertion_candidate_count": 0,
+                "contradiction_hint_count": 0,
+                "conflict_arbitration_decision": None,
+            }
+
+        # ── Load existing graph context for Phase 2 ──
+        existing_graph_edges: list[dict[str, Any]] = []
+        existing_assertions: list[dict[str, Any]] = []
+        if self._cognition_store is not None:
+            focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
+            existing_graph_edges, existing_assertions = await self._load_existing_graph_context(focal_entities)
+
+        # ── Phase 2: Integrate & Reason ──
+        logger.info(
+            "L2 Phase 2 integration started",
+            event_id=stored_event.event_id,
+            existing_edge_count=len(existing_graph_edges),
+            existing_assertion_count=len(existing_assertions),
+        )
+
+        phase2_result = await self._llm_service.integrate_phase2(
+            phase1_result=phase1_result,
+            existing_graph_edges=existing_graph_edges,
+            existing_assertions=existing_assertions,
+            event_window=event_window,
+            focal_subject=focal_subject,
+        )
+
+        # ── Validate and prepare Phase 2 outputs ──
+        graph_candidates, rejected_graph_candidate_count = self._validate_phase2_graph_edges(
             event=stored_event,
             profile=extraction_profile,
             policy=policy,
             resolved_mentions=resolved_mentions,
-            resolved_context_refs=resolved_context_refs,
             evidence_event_ids=batch_event_ids,
-            raw_candidates=list(unified_result.graph_candidates),
+            phase2_edges=phase2_result.graph_edges,
         )
-        if policy.allow_graph_write and policy.graph_scope == "full" and not graph_candidates:
-            graph_candidates = self._build_graph_candidates(stored_event, resolved_mentions)
-            if not graph_candidates:
-                graph_candidates = [
-                    candidate.to_dict() for candidate in self._cognition_store.build_rule_graph_candidates(stored_event)
-                ]
 
-        focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
-        assertion_candidates, rejected_assertion_candidate_count = self._prepare_unified_assertion_candidates(
+        assertion_candidates, rejected_assertion_candidate_count = self._validate_phase2_assertions(
             event=stored_event,
             profile=extraction_profile,
             policy=policy,
             graph_candidates=graph_candidates,
-            resolved_context_refs=resolved_context_refs,
             default_event_ids=batch_event_ids,
-            raw_candidates=list(unified_result.assertion_candidates),
+            phase2_assertions=phase2_result.assertion_candidates,
         )
-        if policy.allow_assertion_write and not assertion_candidates and policy.assertion_scope == "full":
-            assertion_candidates = [
-                candidate.to_dict() for candidate in self._cognition_store.build_rule_assertion_candidates(stored_event)
-            ]
-        logger.debug(
-            "L2 candidates built",
-            event_id=stored_event.event_id,
-            profile_id=extraction_profile.profile_id,
-            graph_candidate_count=len(graph_candidates),
-            assertion_candidate_count=len(assertion_candidates),
-            focal_entity_count=len(focal_entities),
-            resolved_context_ref_count=len(resolved_context_refs),
-        )
+
+        # Convert Phase 2 contradiction hints to ContradictionHint
+        contradiction_hints = self._convert_phase2_contradiction_hints(phase2_result.contradiction_hints)
+
         logger.info(
-            "L2 unified candidate validation completed",
+            "L2 Phase 2 candidate validation completed",
             event_id=stored_event.event_id,
             profile_id=extraction_profile.profile_id,
-            mention_count=len(raw_mentions),
             graph_candidate_count=len(graph_candidates),
             assertion_candidate_count=len(assertion_candidates),
             rejected_graph_candidate_count=rejected_graph_candidate_count,
             rejected_assertion_candidate_count=rejected_assertion_candidate_count,
+            contradiction_hint_count=len(contradiction_hints),
         )
 
-        contradiction_hints: list[ContradictionHint] = []
-        if policy.count_as_new_evidence and (graph_candidates or assertion_candidates):
-            contradiction_hints = await self._detect_contradiction_hints(
-                event=stored_event,
-                focal_entities=focal_entities,
-            )
-            logger.debug(
-                "L2 contradiction hints detected",
-                event_id=stored_event.event_id,
-                contradiction_hint_count=len(contradiction_hints),
-            )
-
+        # Conflict arbitration for severe contradictions (uses CORE LLM scenario)
         conflict_arbitration: L2ConflictArbitrationResult | None = None
         if contradiction_hints and (graph_candidates or assertion_candidates):
             conflict_arbitration = await self._arbitrate_conflicting_candidates(
@@ -815,6 +828,11 @@ class L2Pipeline:
 
         conflict_arbitration_decision = conflict_arbitration.decision if conflict_arbitration is not None else None
         touched_entity_ids = self._collect_touched_entities(graph_candidates, assertion_candidates)
+        # Also include focal entity if contradiction hints were applied (triggers reconcile → L3 summaries)
+        if contradiction_hints:
+            self_entity_id = self._resolve_self_entity_id(stored_event)
+            if self_entity_id and self_entity_id not in touched_entity_ids:
+                touched_entity_ids.append(self_entity_id)
         snapshot_refresh_entity_ids = (
             touched_entity_ids
             if conflict_arbitration_decision == "mark_evolution" and relation_count > 0
@@ -829,8 +847,8 @@ class L2Pipeline:
             "skipped": False,
             "evidence_class": classification.evidence_class,
             "profile_id": extraction_profile.profile_id,
-            "mention_count": len(raw_mentions),
-            "resolved_context_ref_count": len(resolved_context_refs),
+            "mention_count": len(phase1_result.entities),
+            "resolved_context_ref_count": len(phase1_result.resolved_refs),
             "graph_candidate_count": len(graph_candidates),
             "assertion_candidate_count": len(assertion_candidates),
             "rejected_graph_candidate_count": rejected_graph_candidate_count,
@@ -907,6 +925,364 @@ class L2Pipeline:
         context_rows = [row for row in rows if row["event_id"] not in excluded]
         context_texts = [str(row["content"]) for row in reversed(context_rows) if str(row["content"]).strip()]
         return context_texts[:3]
+
+    async def _load_context_messages(
+        self,
+        event: MemoryEvent,
+        *,
+        exclude_event_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Load recent context messages with author_type role annotation."""
+        if self._l1_store is None:
+            return []
+
+        query_args: dict[str, Any] = {"cognition_eligible": True, "limit": max(4, len(exclude_event_ids or []) + 4)}
+        if event.session_id:
+            query_args["session_id"] = event.session_id
+        elif event.user_id:
+            query_args["user_id"] = event.user_id
+        else:
+            return []
+
+        rows = await self._l1_store.query_events(**query_args)
+        excluded = set(exclude_event_ids or [])
+        excluded.add(event.event_id)
+        context_rows = [row for row in rows if row["event_id"] not in excluded]
+        messages: list[dict[str, Any]] = []
+        for row in reversed(context_rows):
+            content = str(row.get("content", "")).strip()
+            if not content:
+                continue
+            role = str(row.get("author_type", "user")).strip() or "user"
+            messages.append({"role": role, "content": content})
+        return messages[:3]
+
+    async def _resolve_phase1_entities(
+        self,
+        event: MemoryEvent,
+        phase1_result: L2Phase1Result,
+        *,
+        evidence_event_ids: list[str],
+    ) -> list[ResolvedEntityMention]:
+        """Register Phase 1 entities in the entity catalog and return resolved mentions."""
+        if self._entity_catalog is None:
+            return []
+
+        resolved_mentions: list[ResolvedEntityMention] = []
+        for entity in phase1_result.entities:
+            if not entity.surface:
+                continue
+            mention_text = entity.surface
+            normalized_surface = entity.normalized_name or mention_text
+            entity_type = self._normalize_entity_type(entity.entity_type)
+            mention_confidence = entity.confidence
+
+            # If Phase 1 already resolved the entity to an existing ID, use it
+            resolved_entity_id: str | None = entity.resolved_id
+            resolved_confidence: float | None = entity.confidence if entity.resolved_id else None
+
+            # If not resolved by Phase 1, try catalog alias resolution then LLM resolution
+            if not resolved_entity_id:
+                resolved_entity_id, resolved_confidence = await self._resolve_entity_id(
+                    mention={"mention_text": mention_text, "canonical_name_hint": normalized_surface, "alias_signals": entity.alias_signals},
+                    entity_type=entity_type,
+                    mention_text=mention_text,
+                    mention_confidence=mention_confidence,
+                    event=event,
+                )
+
+            # Ensure the entity exists in the catalog before recording the mention (FK constraint)
+            if resolved_entity_id:
+                await self._entity_catalog.upsert_entity(
+                    canonical_name=normalized_surface,
+                    entity_type=entity_type,
+                    entity_id=resolved_entity_id,
+                )
+
+            await self._entity_catalog.record_mention(
+                mention_text=mention_text,
+                normalized_surface=normalized_surface,
+                entity_type=entity_type,
+                evidence_event_ids=list(evidence_event_ids),
+                evidence_text=mention_text,
+                resolved_entity_id=resolved_entity_id,
+                confidence=resolved_confidence,
+            )
+            resolved_mentions.append(
+                ResolvedEntityMention(
+                    mention_text=mention_text,
+                    normalized_surface=normalized_surface,
+                    entity_type=entity_type,
+                    resolved_entity_id=resolved_entity_id,
+                    confidence=resolved_confidence,
+                )
+            )
+        return resolved_mentions
+
+    async def _load_existing_graph_context(
+        self,
+        focal_entities: list[L2FocalEntityRef],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Load existing graph edges and assertions for focal entities."""
+        if self._cognition_store is None:
+            return [], []
+
+        graph_edges: list[dict[str, Any]] = []
+        assertions: list[dict[str, Any]] = []
+        seen_triple_ids: set[str] = set()
+        seen_assertion_ids: set[str] = set()
+
+        for entity in focal_entities:
+            # Load graph edges
+            for relations in [
+                await self._cognition_store.get_relationships(subject_id=entity.entity_id, limit=30),
+                await self._cognition_store.get_relationships(object_id=entity.entity_id, limit=30),
+            ]:
+                for relation in relations:
+                    triple_id = str(relation.get("triple_id", ""))
+                    if triple_id in seen_triple_ids:
+                        continue
+                    seen_triple_ids.add(triple_id)
+                    graph_edges.append(relation)
+
+            # Load assertions
+            entity_assertions = await self._cognition_store.list_tom_assertions(
+                entity_id=entity.entity_id,
+                entity_type=entity.entity_type,
+                limit=20,
+            )
+            for assertion in entity_assertions:
+                assertion_id = str(assertion.get("assertion_id", ""))
+                if assertion_id in seen_assertion_ids:
+                    continue
+                seen_assertion_ids.add(assertion_id)
+                assertions.append(assertion)
+
+        return graph_edges[:30], assertions[:20]
+
+    def _validate_phase2_graph_edges(
+        self,
+        *,
+        event: MemoryEvent,
+        profile: ExtractionProfile,
+        policy: Any,
+        resolved_mentions: list[ResolvedEntityMention],
+        evidence_event_ids: list[str],
+        phase2_edges: list[L2Phase2GraphEdge],
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Validate Phase 2 graph edges against ontology and profile constraints."""
+        if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
+            return [], 0
+
+        prepared: list[dict[str, Any]] = []
+        rejected_count = 0
+        for edge in phase2_edges:
+            object_type = self._normalize_entity_type(edge.object_type)
+            predicate = self._normalize_predicate(edge.predicate)
+            if object_type not in profile.allowed_entity_types:
+                rejected_count += 1
+                continue
+            if predicate not in profile.allowed_predicates:
+                rejected_count += 1
+                continue
+            is_valid, _ = validate_graph_candidate(
+                {"predicate": predicate, "object_type": object_type}
+            )
+            if not is_valid:
+                rejected_count += 1
+                continue
+
+            subject_id = self._resolve_phase2_subject_id(event=event, subject_ref=edge.subject_ref)
+            if not subject_id:
+                rejected_count += 1
+                continue
+            object_id = self._resolve_phase2_object_id(
+                raw_object_ref=edge.object_ref,
+                object_type=object_type,
+                resolved_mentions=resolved_mentions,
+            )
+            if not object_id:
+                rejected_count += 1
+                continue
+            if self._should_reject_preference_graph_candidate(
+                event=event,
+                subject_id=subject_id,
+                predicate=predicate,
+                object_id=object_id,
+                object_type=object_type,
+                raw_object_ref=edge.object_ref,
+            ):
+                rejected_count += 1
+                continue
+            prepared.append(
+                {
+                    "subject_id": subject_id,
+                    "subject_type": edge.subject_type or "user",
+                    "predicate": predicate,
+                    "object_id": object_id,
+                    "object_type": object_type,
+                    "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
+                    "confidence": edge.confidence,
+                    "observed_at": event.timestamp,
+                    "source_type": event.source,
+                    "extraction_method": "llm_phase2_integration",
+                }
+            )
+        return prepared, rejected_count
+
+    def _validate_phase2_assertions(
+        self,
+        *,
+        event: MemoryEvent,
+        profile: ExtractionProfile,
+        policy: Any,
+        graph_candidates: list[dict[str, Any]],
+        default_event_ids: list[str],
+        phase2_assertions: list,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Validate Phase 2 assertion candidates."""
+        if not policy.allow_assertion_write or not profile.allow_assertion:
+            return [], 0
+
+        prepared: list[dict[str, Any]] = []
+        rejected_count = 0
+        duplicate_check_candidates = [
+            {"predicate": c["predicate"], "object_ref": c["object_id"]}
+            for c in graph_candidates
+        ]
+        for assertion in phase2_assertions:
+            trait_family = str(getattr(assertion, "trait_family", "") or "").casefold()
+            if trait_family not in profile.allowed_assertion_families:
+                rejected_count += 1
+                continue
+            assertion_dict = assertion.to_dict() if hasattr(assertion, "to_dict") else dict(assertion)
+            is_valid, _ = validate_assertion_candidate(assertion_dict)
+            if not is_valid:
+                rejected_count += 1
+                continue
+            if is_leaf_fact_duplicate(duplicate_check_candidates, assertion_dict):
+                rejected_count += 1
+                continue
+
+            # Build normalized assertion for persistence
+            self_entity_id = self._resolve_self_entity_id(event)
+            entity_ref = self._non_empty_text(assertion.entity_ref)
+            if entity_ref and entity_ref.startswith("user:") and self_entity_id:
+                entity_ref = self_entity_id
+
+            trait_value = assertion.trait_value
+            if isinstance(trait_value, (dict, list)):
+                trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
+            elif trait_value is None:
+                trait_value = ""
+
+            inference_depth = self._non_empty_text(getattr(assertion, "inference_depth", "")) or event.tom_depth.label
+            volatility_index = float(getattr(assertion, "volatility_index", 0.5) or 0.5)
+
+            # Derive decay policy from trait family
+            temporal_scope, decay_policy, expires_at = self._derive_assertion_decay_from_family(
+                event=event,
+                trait_family=trait_family,
+                trait_name=str(getattr(assertion, "trait_name", "") or ""),
+            )
+
+            prepared.append({
+                "entity_id": entity_ref or self_entity_id or "",
+                "entity_type": str(getattr(assertion, "entity_type", "user") or "user"),
+                "trait_family": trait_family,
+                "trait_name": str(getattr(assertion, "trait_name", "") or ""),
+                "trait_value": str(trait_value),
+                "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
+                "evidence_events": list(getattr(assertion, "supporting_event_ids", None) or default_event_ids),
+                "volatility_index": volatility_index,
+                "source_domain": event.memory_domain.label,
+                "inference_depth": inference_depth,
+                "validation_state": "tentative",
+                "first_inferred_at": event.timestamp,
+                "last_validated_at": event.timestamp,
+                "target_entity_id": "",
+                "target_entity_type": "",
+                "target_scope": "global",
+                "temporal_scope": temporal_scope,
+                "decay_policy": decay_policy,
+                "decay_anchor_at": event.timestamp,
+                "context_ref_id": "",
+                "expires_at": expires_at,
+            })
+        return prepared, rejected_count
+
+    def _convert_phase2_contradiction_hints(
+        self,
+        phase2_hints: list[L2Phase2ContradictionHint],
+    ) -> list[ContradictionHint]:
+        """Convert Phase 2 contradiction hints to the ContradictionHint format."""
+        hints: list[ContradictionHint] = []
+        for h in phase2_hints:
+            if not h.target_record_id or not h.target_record_type or not h.contradiction_kind:
+                continue
+            hints.append(
+                ContradictionHint(
+                    target_record_id=h.target_record_id,
+                    target_record_type=h.target_record_type,
+                    contradiction_kind=h.contradiction_kind,
+                    confidence=h.confidence,
+                    evidence_text=h.evidence_text,
+                    recommended_action=h.recommended_action,
+                )
+            )
+        return hints
+
+    def _resolve_phase2_subject_id(self, *, event: MemoryEvent, subject_ref: str) -> str | None:
+        ref = self._non_empty_text(subject_ref)
+        if ref:
+            if ref.startswith("user:"):
+                return self._resolve_self_entity_id(event) or ref
+            return ref
+        return self._resolve_self_entity_id(event)
+
+    def _resolve_phase2_object_id(
+        self,
+        *,
+        raw_object_ref: Any,
+        object_type: str,
+        resolved_mentions: list[ResolvedEntityMention],
+    ) -> str | None:
+        object_ref = self._non_empty_text(raw_object_ref)
+        if not object_ref:
+            return None
+        if ":" in object_ref:
+            return object_ref
+        object_ref_casefold = object_ref.casefold()
+        for mention in resolved_mentions:
+            surfaces = {
+                mention.mention_text.strip().casefold(),
+                mention.normalized_surface.strip().casefold(),
+            }
+            resolved_entity_id = self._non_empty_text(mention.resolved_entity_id)
+            if object_ref_casefold in surfaces and resolved_entity_id:
+                return resolved_entity_id
+        return self._build_concept_node(entity_type=object_type, normalized_surface=object_ref)
+
+    def _derive_assertion_decay_from_family(
+        self,
+        *,
+        event: MemoryEvent,
+        trait_family: str,
+        trait_name: str,
+    ) -> tuple[str, str, float | None]:
+        """Derive decay policy from trait family and name."""
+        name_lower = trait_name.casefold()
+        if name_lower in {"annoyance", "irritation", "frustration"}:
+            return "momentary", "fast_decay", event.timestamp + 2 * 60 * 60
+        if trait_family == "mood":
+            return "session", "session_decay", event.timestamp + 12 * 60 * 60
+        if trait_family == "stress":
+            return "daily", "time_window", event.timestamp + 24 * 60 * 60
+        if trait_family == "engagement":
+            return "session", "session_decay", event.timestamp + 12 * 60 * 60
+        if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
+            return "session", "session_decay", event.timestamp + 6 * 60 * 60
+        return "stable", "evidence_only", None
 
     async def _load_history_contexts(
         self,

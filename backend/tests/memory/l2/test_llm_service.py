@@ -118,6 +118,7 @@ def _make_event_window(**overrides):  # type: ignore[no-untyped-def]
 def test_unified_prompt_only_includes_profile_allowed_entity_types():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
     profile = ExtractionProfile(
@@ -133,85 +134,65 @@ def test_unified_prompt_only_includes_profile_allowed_entity_types():
         profile=profile,
         focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
     )
-    payload = json.loads(prompt.split("\n\n", maxsplit=1)[1])
 
-    assert payload["allowed_entity_types"] == ["product"]
-    assert payload["allowed_predicates"] == ["VISITED"]
+    # Entity types and predicates are now declared in the Phase 1 system prompt
+    assert "product" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "VISITED" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    # User prompt now uses Markdown, not JSON
+    assert "## Focal Subject" in prompt
+    assert "user:u1" in prompt
 
 
 def test_unified_prompt_describes_food_mapping_and_none_status():
-    from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
-    profile = ExtractionProfile(profile_id="chat.user_message")
-
-    prompt = service.render_unified_extraction_prompt(
-        event_window=_make_event_window(event_ids=["evt-1"], texts=["I hate West Lake vinegar fish"]),
-        profile=profile,
-        focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-    )
-
-    assert "Specific dishes, drinks, snacks, and ingredients must use `food`." in prompt
-    assert '"entity_status": "found|none"' in prompt
+    # Food entity mapping and entity_status schema are now in the system prompt
+    assert "food" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "dish" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "drink" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "snack" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "ingredient" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert '"entity_status": "found|none"' in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
 def test_unified_prompt_discourages_question_preferences_and_generic_domains():
+    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
+
+    # Rules about questions and generic domains are now in the Phase 1 system prompt
+    assert "question" in PHASE1_EXTRACT_SYSTEM_PROMPT.lower()
+    assert "Do NOT extract preferences from questions" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "Do NOT create preference facts for generic/category-level objects" in PHASE1_EXTRACT_SYSTEM_PROMPT
+
+
+def test_unified_prompt_includes_context_and_resolved_ref_schema():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
     profile = ExtractionProfile(profile_id="chat.user_message")
 
+    # Context is now injected via context_texts on event_window (rendered as context_messages)
     prompt = service.render_unified_extraction_prompt(
-        event_window=_make_event_window(event_ids=["evt-1"], texts=["你觉得我喜欢什么天气"]),
-        profile=profile,
-        focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-    )
-    payload = json.loads(prompt.split("\n\n", maxsplit=1)[1])
-
-    assert any(
-        "Do not extract preference graph facts or preference assertions from questions" in rule
-        for rule in payload["rules"]
-    )
-    assert any(
-        "Do not convert generic domains like weather, food, music, or place into concrete LIKES/DISLIKES facts"
-        in rule
-        for rule in payload["rules"]
-    )
-
-
-def test_unified_prompt_includes_context_bundle_and_resolved_ref_schema():
-    from magi.memory.l2.context_bundle import ContextBundle, ContextEntity
-    from magi.memory.l2.extraction_profiles import ExtractionProfile
-    from magi.memory.l2.llm_service import L2LLMService
-
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
-    profile = ExtractionProfile(profile_id="chat.user_message")
-
-    prompt = service.render_unified_extraction_prompt(
-        event_window=_make_event_window(event_ids=["evt-1"], texts=["我真的很烦这种天气耶"]),
+        event_window=_make_event_window(
+            event_ids=["evt-1"],
+            texts=["我真的很烦这种天气耶"],
+            context_texts=["杭州，阵雨，11度"],
+        ),
         profile=profile,
         focal_subject={"entity_ref": "user:self", "entity_type": "user"},
-        context_bundle=ContextBundle(
-            live_context_entities=[
-                ContextEntity(
-                    context_id="weather_state:hangzhou-rainy-11c",
-                    kind="weather_state",
-                    summary="杭州，阵雨，11度",
-                )
-            ]
-        ),
-    )
-    payload = json.loads(prompt.split("\n\n", maxsplit=1)[1])
-
-    assert payload["context_bundle"]["live_context_entities"][0]["context_id"] == "weather_state:hangzhou-rainy-11c"
-    assert payload["output_schema"]["resolved_context_refs"][0]["reference_type"] == (
-        "context_entity|canonical_entity|self_actor|unresolved"
     )
 
+    # Context messages appear in Markdown prompt
+    assert "Recent Context" in prompt
+    assert "杭州，阵雨，11度" in prompt
+    # Resolved ref schema is now in system prompt
+    assert "resolved_refs" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "reference_type" in PHASE1_EXTRACT_SYSTEM_PROMPT
 
-def test_unified_prompt_includes_batch_window_rules_and_summary():
+
+def test_unified_prompt_includes_batch_window_events():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow, L2EventWindowSummary
@@ -232,12 +213,13 @@ def test_unified_prompt_includes_batch_window_rules_and_summary():
         profile=profile,
         focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
     )
-    payload = json.loads(prompt.split("\n\n", maxsplit=1)[1])
 
-    assert payload["event_window"]["summary"]["event_count"] == 2
-    assert any(
-        "Use batch-level context across the supplied event window" in rule for rule in payload["rules"]
-    )
+    # Events are rendered individually in Markdown format
+    assert "evt-1" in prompt
+    assert "evt-2" in prompt
+    assert "Alice likes ramen" in prompt
+    assert "She eats it every week" in prompt
+    assert "## Messages to Analyze" in prompt
 
 
 def test_conflict_arbitration_uses_core_scenario_adapter():

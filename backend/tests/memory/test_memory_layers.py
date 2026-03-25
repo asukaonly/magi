@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
@@ -16,6 +18,83 @@ from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import L3Candidate, StateChangePacket, TaskOutcomePacket
 from magi.timeline import TimelineContentBlock, TimelineEvent
 from magi.timeline.service import TimelineService
+
+
+# Phase 1 + Phase 2 mock responses that extract stress_level from user messages
+_STRESS_PHASE1 = json.dumps({
+    "entities": [],
+    "fact_claims": [
+        {
+            "subject_ref": "user:self",
+            "predicate": "HAS_METRIC",
+            "object_ref": "stress_level",
+            "object_type": "health_metric",
+            "fact_kind": "explicit_fact",
+            "polarity": "negative",
+            "specificity": "concrete",
+            "evidence_text": "I have been really stressed about work lately.",
+            "confidence": 0.90,
+            "supporting_event_ids": [],
+        }
+    ],
+    "resolved_refs": [],
+    "diagnostics": {"entity_status": "none"},
+})
+
+_STRESS_PHASE2 = json.dumps({
+    "graph_edges": [],
+    "refinements": [],
+    "assertion_candidates": [
+        {
+            "entity_ref": "user:u1",
+            "entity_type": "user",
+            "trait_name": "stress_level",
+            "trait_value": "high",
+            "trait_family": "stress",
+            "confidence": 0.85,
+            "evidence_text": "I have been really stressed about work lately.",
+            "inference_depth": "explicit",
+            "volatility_index": 0.7,
+        }
+    ],
+    "contradiction_hints": [],
+})
+
+
+class _FakeAdapter:
+    """Adapter that returns appropriate Phase 1 / Phase 2 responses based on system prompt."""
+
+    def __init__(self, phase1: str, phase2: str) -> None:
+        self._phase1 = phase1
+        self._phase2 = phase2
+        self.provider_name = "openai"
+        self.model_name = "gpt-test"
+        self._client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=self._create_completion),
+            )
+        )
+
+    async def _create_completion(self, **kwargs):  # type: ignore[no-untyped-def]
+        system_prompt = ""
+        messages = kwargs.get("messages") or []
+        if isinstance(messages, list) and messages and isinstance(messages[0], dict):
+            system_prompt = str(messages[0].get("content") or "")
+        # Detect Phase 2 by system prompt content
+        text = self._phase2 if "memory integration engine" in system_prompt else self._phase1
+        message = SimpleNamespace(content=text, tool_calls=[], role="assistant")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason="stop")],
+            usage=None,
+        )
+
+
+class _FakeScenarioPool:
+    def __init__(self, adapter: _FakeAdapter) -> None:
+        self._adapter = adapter
+
+    def get(self, scenario):  # type: ignore[no-untyped-def]
+        return self._adapter
 
 
 async def _wait_for_async_condition(predicate, *, timeout: float = 1.0, interval: float = 0.02):
@@ -57,6 +136,8 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             l1_db_path=str(self.base / "l1_events.db"),
             memory_db_path=str(self.base / "memory.db"),
             persist_dir=str(self.base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(_STRESS_PHASE1, _STRESS_PHASE2)),
         )
         await self.store.initialize()
 
@@ -580,6 +661,8 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(_STRESS_PHASE1, _STRESS_PHASE2)),
         )
         await self.memory.initialize()
 
@@ -589,7 +672,13 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         self.integration = MemoryIntegrationModule(
             unified_memory=self.memory,
             message_bus=self.bus,
-            config=MemoryIntegrationConfig(),
+            config=MemoryIntegrationConfig(
+                subscribed_events={
+                    EventTypes.USER_MESSAGE,
+                    EventTypes.TASK_COMPLETED,
+                    "WORKER_AGENT_PROGRESS",
+                },
+            ),
         )
         await self.integration.start()
 
@@ -627,7 +716,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
 
         stats = self.integration.get_statistics()
         workbench = await self.memory.l0.get_workbench("s1")
