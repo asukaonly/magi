@@ -50,6 +50,7 @@ from .ontology import (
 
 _POSITIVE_PREFERENCE_MARKERS = (" like ", " likes ", "喜欢", "love ", "loves ")
 _NEGATIVE_PREFERENCE_MARKERS = (" dislike ", " dislikes ", "不喜欢", "do not like", "don't like")
+_PREFERENCE_PREDICATES = {"LIKES", "DISLIKES", "INTERESTED_IN"}
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
 _GRAPH_ELIGIBLE_ENTITY_TYPES = {
     "place",
@@ -62,6 +63,25 @@ _GRAPH_ELIGIBLE_ENTITY_TYPES = {
     "event",
     "media",
     "other",
+}
+_GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
+    "weather",
+    "weather-state",
+    "food",
+    "music",
+    "place",
+}
+_GENERIC_PREFERENCE_SURFACES = {
+    "天气",
+    "气候",
+    "weather",
+    "climate",
+    "食物",
+    "food",
+    "音乐",
+    "music",
+    "地方",
+    "place",
 }
 logger = get_logger(__name__)
 DEFAULT_L2_EXTRACT_WORKER_COUNT = 5
@@ -1088,6 +1108,8 @@ class L2Pipeline:
         subject_id = self._resolve_self_entity_id(event)
         if subject_id is None:
             return []
+        if self._looks_like_interrogative_preference_query(event.content):
+            return []
 
         text = event.content.casefold()
         predicate: Optional[str] = None
@@ -1101,6 +1123,10 @@ class L2Pipeline:
         for mention in resolved_mentions:
             entity_type = self._normalize_entity_type(mention.entity_type)
             if entity_type not in _GRAPH_ELIGIBLE_ENTITY_TYPES:
+                continue
+            if self._is_self_reference_preference_object(event=event, mention=mention):
+                continue
+            if self._is_generic_preference_surface(mention.normalized_surface or mention.mention_text):
                 continue
             object_id = mention.resolved_entity_id or self._build_concept_node(
                 entity_type=entity_type,
@@ -1191,6 +1217,16 @@ class L2Pipeline:
             if not object_id:
                 rejected_count += 1
                 continue
+            if self._should_reject_preference_graph_candidate(
+                event=event,
+                subject_id=subject_id,
+                predicate=predicate,
+                object_id=object_id,
+                object_type=object_type,
+                raw_object_ref=raw_candidate.object_ref,
+            ):
+                rejected_count += 1
+                continue
             prepared.append(
                 {
                     "subject_id": subject_id,
@@ -1206,6 +1242,26 @@ class L2Pipeline:
                 }
             )
         return prepared, rejected_count
+
+    def _should_reject_preference_graph_candidate(
+        self,
+        *,
+        event: MemoryEvent,
+        subject_id: str,
+        predicate: str,
+        object_id: str,
+        object_type: str,
+        raw_object_ref: str,
+    ) -> bool:
+        if predicate not in _PREFERENCE_PREDICATES:
+            return False
+        if self._looks_like_interrogative_preference_query(event.content):
+            return True
+        if self._is_generic_preference_object_id(object_id) or self._is_generic_preference_object_id(raw_object_ref):
+            return True
+        if self._is_self_like_preference_object(subject_id=subject_id, object_id=object_id, object_type=object_type):
+            return True
+        return False
 
     def _prepare_unified_assertion_candidates(
         self,
@@ -1507,6 +1563,59 @@ class L2Pipeline:
             return None
         slug = self._slugify(surface)
         return f"{entity_type}:{slug}"
+
+    def _looks_like_interrogative_preference_query(self, text: str | None) -> bool:
+        normalized = str(text or "").strip().casefold()
+        if not normalized:
+            return False
+        if any(marker in normalized for marker in ("?", "？", "什么", "哪种", "哪类", "是不是", "吗", "么")):
+            return True
+        if any(marker in normalized for marker in ("你觉得", "你记得", "你知道", "guess", "do i ", "what ", "which ")):
+            return True
+        return False
+
+    def _is_generic_preference_surface(self, surface: str | None) -> bool:
+        normalized = str(surface or "").strip().casefold()
+        return normalized in _GENERIC_PREFERENCE_SURFACES
+
+    def _is_generic_preference_object_id(self, value: str | None) -> bool:
+        normalized = str(value or "").strip().casefold()
+        if not normalized:
+            return False
+        _, _, suffix = normalized.partition(":")
+        candidate = suffix or normalized
+        return candidate in _GENERIC_PREFERENCE_OBJECT_SUFFIXES
+
+    def _is_self_like_preference_object(self, *, subject_id: str, object_id: str, object_type: str) -> bool:
+        if object_id == subject_id:
+            return True
+        if object_type != "person":
+            return False
+        subject_prefix, _, subject_suffix = subject_id.partition(":")
+        object_prefix, _, object_suffix = object_id.partition(":")
+        if subject_prefix != "user" or object_prefix != "person" or not subject_suffix or not object_suffix:
+            return False
+        return self._slugify(subject_suffix) == object_suffix
+
+    def _is_self_reference_preference_object(
+        self,
+        *,
+        event: MemoryEvent,
+        mention: ResolvedEntityMention,
+    ) -> bool:
+        surface = str(mention.normalized_surface or mention.mention_text or "").strip().casefold()
+        if surface in {"我", "自己", "本人", "i", "me", "myself"}:
+            return True
+        subject_id = self._resolve_self_entity_id(event)
+        resolved_entity_id = str(mention.resolved_entity_id or "").strip()
+        entity_type = self._normalize_entity_type(mention.entity_type) or ""
+        if not subject_id or not resolved_entity_id:
+            return False
+        return self._is_self_like_preference_object(
+            subject_id=subject_id,
+            object_id=resolved_entity_id,
+            object_type=entity_type,
+        )
 
     def _build_canonical_entity_id(self, *, entity_type: str, canonical_name: str) -> str:
         slug = self._slugify(canonical_name)

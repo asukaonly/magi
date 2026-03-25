@@ -28,6 +28,8 @@ Be conservative:
 - Do not invent unsupported entity types or predicates.
 - Use only the allowed entity types, predicates, and assertion families supplied in the prompt.
 - Specific dishes, drinks, snacks, and ingredients must use `food`.
+- Do not extract preference facts from questions, guesses, or recall requests.
+- Do not turn generic domains like weather, food, music, or place into concrete preference facts unless a specific liked/disliked value is explicitly stated.
 - If no entity can be extracted, set diagnostics.entity_status to `none`.
 """
 
@@ -91,6 +93,8 @@ def render_unified_extraction_prompt(
         "rules": [
             "Use only the allowed entity types and predicates in this prompt.",
             "Specific dishes, drinks, snacks, and ingredients must use `food`.",
+            "Do not extract preference graph facts or preference assertions from questions, guesses, or recall requests such as asking what the user likes.",
+            "Do not convert generic domains like weather, food, music, or place into concrete LIKES/DISLIKES facts unless the event explicitly states a specific liked or disliked value.",
             "Use diagnostics.entity_status = `none` when no entity mention is extracted.",
             "Resolve context references only from the supplied context bundle candidates or return unresolved.",
             "Use batch-level context across the supplied event window, but only cite supporting_event_ids that are present in the event window.",

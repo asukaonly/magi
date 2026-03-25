@@ -156,6 +156,31 @@ def test_unified_prompt_describes_food_mapping_and_none_status():
     assert '"entity_status": "found|none"' in prompt
 
 
+def test_unified_prompt_discourages_question_preferences_and_generic_domains():
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
+    profile = ExtractionProfile(profile_id="chat.user_message")
+
+    prompt = service.render_unified_extraction_prompt(
+        event_window=_make_event_window(event_ids=["evt-1"], texts=["你觉得我喜欢什么天气"]),
+        profile=profile,
+        focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+    )
+    payload = json.loads(prompt.split("\n\n", maxsplit=1)[1])
+
+    assert any(
+        "Do not extract preference graph facts or preference assertions from questions" in rule
+        for rule in payload["rules"]
+    )
+    assert any(
+        "Do not convert generic domains like weather, food, music, or place into concrete LIKES/DISLIKES facts"
+        in rule
+        for rule in payload["rules"]
+    )
+
+
 def test_unified_prompt_includes_context_bundle_and_resolved_ref_schema():
     from magi.memory.l2.context_bundle import ContextBundle, ContextEntity
     from magi.memory.l2.extraction_profiles import ExtractionProfile

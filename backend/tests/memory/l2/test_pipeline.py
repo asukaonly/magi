@@ -943,6 +943,79 @@ async def test_build_focal_entities_returns_typed_refs():
 
 
 @pytest.mark.asyncio
+async def test_build_graph_candidates_skips_interrogative_preference_queries():
+    from magi.memory.l2.models import ResolvedEntityMention
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
+        try:
+            event = _make_memory_event(event_id="evt-pref-question", content="你觉得我喜欢什么天气？")
+            candidates = pipeline._build_graph_candidates(
+                event,
+                [
+                    ResolvedEntityMention(
+                        mention_text="我",
+                        normalized_surface="我",
+                        entity_type="person",
+                        resolved_entity_id="person:u1",
+                        confidence=0.95,
+                    )
+                ],
+            )
+
+            assert candidates == []
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_prepare_unified_graph_candidates_rejects_generic_preference_domain_questions():
+    from magi.memory.l2.evidence_policy import PolicyDecision
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.models import L2GraphCandidate
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
+        try:
+            event = _make_memory_event(event_id="evt-pref-generic", content="我喜欢什么天气")
+            prepared, rejected_count = pipeline._prepare_unified_graph_candidates(
+                event=event,
+                profile=ExtractionProfile(profile_id="chat.user_message"),
+                policy=PolicyDecision(
+                    allow_entity_extraction=True,
+                    allow_graph_write=True,
+                    allow_assertion_write=True,
+                    allow_snapshot_impact=True,
+                    graph_scope="full",
+                    assertion_scope="full",
+                    evidence_weight=1.0,
+                    count_as_new_evidence=True,
+                    require_source_backlink=False,
+                ),
+                resolved_mentions=[],
+                resolved_context_refs=[],
+                evidence_event_ids=[event.event_id],
+                raw_candidates=[
+                    L2GraphCandidate(
+                        subject_ref="self",
+                        subject_type="user",
+                        predicate="LIKES",
+                        object_ref="weather_state:weather-state",
+                        object_type="weather_state",
+                        fact_kind="stable_preference",
+                        polarity="positive",
+                        confidence=0.88,
+                    )
+                ],
+            )
+
+            assert prepared == []
+            assert rejected_count == 1
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
     from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
 
