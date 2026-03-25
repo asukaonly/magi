@@ -455,12 +455,45 @@ class L2Handler:
                 results["relationships"] = rels
 
         results["trace"] = {
+            "content_query": conditions.content_query,
+            "requested_entities": [
+                entity["entity_id"] for entity in resolved_entities
+            ] if resolved_entities else list(conditions.entities or []),
+            "requested_entity_types": list(conditions.entity_types or []),
+            "trait_families": list(conditions.trait_families or []),
+            "include_tom_snapshot": conditions.include_tom_snapshot,
+            "include_relationships": conditions.include_relationships,
+            "include_assertions": conditions.include_assertions,
+            "limit": conditions.limit,
             "resolved_entities": resolved_entities,
             "predicates": predicates or [],
             "status_filters": status_filters or [],
             "relation_direction": relation_direction,
             "target_entity_id": target_entity_id,
+            "entity_card_count": len(results["entity_cards"]),
+            "relationship_count": len(results["relationships"]),
+            "assertion_count": len(results["assertions"]),
         }
+        logger.info(
+            "L2 retrieval executed | content_query=%r requested_entities=%s resolved_entities=%s predicates=%s "
+            "status_filters=%s relation_direction=%s target_entity_id=%s include_tom_snapshot=%s "
+            "include_relationships=%s include_assertions=%s limit=%s entity_card_count=%s "
+            "relationship_count=%s assertion_count=%s",
+            conditions.content_query,
+            results["trace"]["requested_entities"],
+            resolved_entities,
+            predicates or [],
+            status_filters or [],
+            relation_direction,
+            target_entity_id,
+            conditions.include_tom_snapshot,
+            conditions.include_relationships,
+            conditions.include_assertions,
+            conditions.limit,
+            len(results["entity_cards"]),
+            len(results["relationships"]),
+            len(results["assertions"]),
+        )
         return results
 
     async def _query_relationships_for_entity(

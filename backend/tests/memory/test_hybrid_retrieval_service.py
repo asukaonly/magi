@@ -394,8 +394,17 @@ class TestServiceLayerRouting:
 
         l2_trace = result.trace.get("l2_query_trace")
         assert isinstance(l2_trace, dict)
+        assert l2_trace["content_query"] == "我和魔都是什么关系"
+        assert l2_trace["requested_entities"] == ["place:shanghai"]
+        assert l2_trace["include_tom_snapshot"] is True
+        assert l2_trace["include_relationships"] is True
+        assert l2_trace["include_assertions"] is True
+        assert l2_trace["limit"] == 20
         assert l2_trace["resolved_entities"][0]["entity_id"] == "place:shanghai"
         assert "KNOWS" in l2_trace["predicates"]
+        assert l2_trace["entity_card_count"] == 0
+        assert l2_trace["relationship_count"] == 1
+        assert l2_trace["assertion_count"] == 1
         assert result.trace["l2_entity_card_count"] == 0
         assert result.trace["l2_relationship_count"] == 1
         assert result.trace["l2_assertion_count"] == 1
