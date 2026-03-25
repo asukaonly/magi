@@ -140,6 +140,8 @@ JSON structure:
 
 Always check the "Available Skills" section below for skill descriptions and match user requests accordingly.
 
+Questions about the user's stored user preferences, personal facts, prior stated likes/dislikes, or customized settings should prefer `memory_query` when that tool is available.
+
 ### 4. Deep Thinking Threshold
 Set "deep_thinking": true for:
 - Architecture design or multi-file refactoring
@@ -174,6 +176,15 @@ JSON: {"intent": "planning", "tools": ["web-search", "web-fetch"], "deep_thinkin
 
 User: "convert ~/tmp/logo.png to transparent background"
 JSON: {"intent": "file_operation", "tools": ["bash"], "deep_thinking": false, "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
+User: "我喜欢什么天气"
+JSON: {"intent": "chat", "tools": ["memory_query"], "deep_thinking": false, "reasoning": "The user is asking about a stored personal preference, so memory recall is needed.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
+User: "我的默认工作目录是什么"
+JSON: {"intent": "chat", "tools": ["memory_query"], "deep_thinking": false, "reasoning": "The user is asking about a stored personalized setting or profile fact, so memory recall is needed.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
+User: "按之前那套流程修一下这个 bug"
+JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "This is a workflow reuse request, not an explicit historical recall request.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If not matching skill exists, use basic tools."""
 

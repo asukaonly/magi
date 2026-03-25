@@ -312,3 +312,16 @@ def test_context_decider_prompt_includes_routing_environment_fields() -> None:
     assert "- Timezone: Asia/Shanghai" in prompt
     assert "- Workspace path: /tmp/workspace" in prompt
     assert "- Home directory: /Users/asuka" in prompt
+
+
+def test_context_decider_system_prompt_mentions_preference_and_profile_recall() -> None:
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+
+    system_prompt = decider.system_PROMPT
+
+    assert "user preferences" in system_prompt
+    assert "personal facts" in system_prompt
+    assert "customized settings" in system_prompt
+    assert "我喜欢什么天气" in system_prompt
+    assert "我的默认工作目录是什么" in system_prompt
+    assert "按之前那套流程修一下这个 bug" in system_prompt
