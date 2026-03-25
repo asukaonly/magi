@@ -162,7 +162,7 @@ class ChatExecutionCoordinator:
             reasoning=str(decision.reasoning),
             orchestration_plan=orchestration_plan,
             memory_route=str(getattr(decision, "memory_route", "none") or "none"),
-            memory_query_hint=getattr(decision, "memory_query_hint", None),
+            routing_memory_hint=getattr(decision, "routing_memory_hint", None),
         )
         if self._intent_trace_callback is not None:
             callback_result = self._intent_trace_callback(context, intent_decision)

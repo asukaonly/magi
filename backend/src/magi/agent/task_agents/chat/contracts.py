@@ -88,7 +88,7 @@ class IntentDecision(BaseIntentDecision):
     llm_trace: dict[str, Any] = field(default_factory=dict)
     deep_thinking: bool = False
     memory_route: str = "none"
-    memory_query_hint: dict[str, Any] | None = None
+    routing_memory_hint: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

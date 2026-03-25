@@ -20,7 +20,7 @@ class _FakeContextDecision:
         reasoning: str,
         orchestration_strategy: dict,
         memory_route: str = "none",
-        memory_query_hint: dict | None = None,
+        routing_memory_hint: dict | None = None,
         llm_trace: dict | None = None,
     ):
         self.intent = intent
@@ -29,7 +29,7 @@ class _FakeContextDecision:
         self.reasoning = reasoning
         self.orchestration_strategy = orchestration_strategy
         self.memory_route = memory_route
-        self.memory_query_hint = memory_query_hint
+        self.routing_memory_hint = routing_memory_hint
         self.llm_trace = llm_trace or {}
 
 

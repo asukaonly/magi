@@ -3,6 +3,8 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, AsyncMock
 
+from magi.tools.context_decider_context import ContextDeciderContext
+
 
 class TestContextDeciderMemoryGuidance:
     """Tests for memory retrieval guidance in ContextDecider."""
@@ -83,11 +85,17 @@ class TestContextDeciderMemoryGuidance:
 
         decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
-        decision = await decider.decide("What did I browse yesterday?", {"current_date": "2024-01-15"})
+        decision = await decider.decide(
+            "What did I browse yesterday?",
+            ContextDeciderContext(
+                current_datetime="2024-01-15T10:00:00+08:00",
+                timezone="Asia/Shanghai",
+            ),
+        )
 
         assert "memory_query" in decision.tools
         assert decision.memory_route == "explicit_query"
-        assert decision.memory_query_hint == {
+        assert decision.routing_memory_hint == {
             "query": "What did I browse yesterday?",
             "query_mode": "detail",
             "sources": ["timeline"],
@@ -122,11 +130,17 @@ class TestContextDeciderMemoryGuidance:
 
         decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
-        decision = await decider.decide("按之前那套流程修一下这个 bug", {"current_date": "2024-01-15"})
+        decision = await decider.decide(
+            "按之前那套流程修一下这个 bug",
+            ContextDeciderContext(
+                current_datetime="2024-01-15T10:00:00+08:00",
+                timezone="Asia/Shanghai",
+            ),
+        )
 
         assert "memory_query" not in decision.tools
         assert decision.memory_route == "none"
-        assert decision.memory_query_hint is None
+        assert decision.routing_memory_hint is None
 
     @pytest.mark.asyncio
     async def test_decide_keeps_memory_route_none_when_memory_query_tool_is_unavailable(self):
@@ -156,8 +170,14 @@ class TestContextDeciderMemoryGuidance:
 
         decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
-        decision = await decider.decide("What did I browse yesterday?", {"current_date": "2024-01-15"})
+        decision = await decider.decide(
+            "What did I browse yesterday?",
+            ContextDeciderContext(
+                current_datetime="2024-01-15T10:00:00+08:00",
+                timezone="Asia/Shanghai",
+            ),
+        )
 
         assert "memory_query" not in decision.tools
         assert decision.memory_route == "none"
-        assert decision.memory_query_hint is None
+        assert decision.routing_memory_hint is None

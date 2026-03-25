@@ -301,7 +301,7 @@ async def test_function_calling_handler_passes_turn_workspace_into_context_servi
                 reasoning="tool use",
                 orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
-                memory_query_hint=None,
+                routing_memory_hint=None,
                 deep_thinking=False,
             ),
             tool_selection=ToolSelection(tools=["glob"], reasoning="search repo"),

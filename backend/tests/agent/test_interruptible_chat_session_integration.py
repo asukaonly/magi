@@ -30,7 +30,7 @@ def _make_decision(user_message: str) -> SimpleNamespace:
             "allow_parallel": False,
         },
         memory_route="none",
-        memory_query_hint=None,
+        routing_memory_hint=None,
         llm_trace={},
     )
 

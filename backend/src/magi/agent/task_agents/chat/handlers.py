@@ -38,10 +38,10 @@ from ...task_orchestrator import TaskOrchestrator
 logger = get_logger(__name__)
 
 
-def _build_memory_query_guidance_block(memory_query_hint: dict | None) -> str:
-    if not isinstance(memory_query_hint, dict) or not memory_query_hint:
+def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
+    if not isinstance(routing_memory_hint, dict) or not routing_memory_hint:
         return ""
-    hint_json = json.dumps(memory_query_hint, ensure_ascii=False)
+    hint_json = json.dumps(routing_memory_hint, ensure_ascii=False)
     return "\n".join(
         [
             "# Memory Query Guidance",
@@ -169,7 +169,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         selected_tools = list(request.tool_selection.tools)
         if request.intent.memory_route == "explicit_query" and "memory_query" in selected_tools:
             selected_tools = ["memory_query"] + [tool for tool in selected_tools if tool != "memory_query"]
-            memory_guidance_block = _build_memory_query_guidance_block(request.intent.memory_query_hint)
+            memory_guidance_block = _build_memory_query_guidance_block(request.intent.routing_memory_hint)
             if memory_guidance_block:
                 prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{memory_guidance_block}"
         return FunctionCallingRequest(

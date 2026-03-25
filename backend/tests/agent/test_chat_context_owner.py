@@ -71,10 +71,12 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             user_id="u-chat",
             session_id="s-1",
             user_message="今天天气怎么样",
+            attachments=[],
             task_category="chat",
             tools=["weather"],
             scenario="chat",
             recent_tool_errors=[],
+            workspace_path=None,
         )
         self.assertEqual(llm_params.system_prompt, "owned-by-context-layer")
 
@@ -114,7 +116,7 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             deep_thinking=False,
             orchestration_plan=OrchestrationPlan(),
             memory_route="explicit_query",
-            memory_query_hint={
+            routing_memory_hint={
                 "query": "昨天我看了什么",
                 "query_mode": "detail",
                 "sources": ["timeline"],

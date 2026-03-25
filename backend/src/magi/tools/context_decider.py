@@ -39,7 +39,7 @@ class ContextDecision:
         orchestration_strategy: Optional[Dict[str, Any]] = None,
         memory_layer: Optional[str] = None,  # TODO: implement memory layer selection
         memory_route: str = "none",
-        memory_query_hint: Optional[Dict[str, Any]] = None,
+        routing_memory_hint: Optional[Dict[str, Any]] = None,
         llm_trace: Optional[Dict[str, Any]] = None,
     ):
         self.intent = intent  # User's intent (e.g., "file_read", "web_search", "chat")
@@ -49,7 +49,7 @@ class ContextDecision:
         self.orchestration_strategy = orchestration_strategy or {}
         self.memory_layer = memory_layer  # Which memory layer to use (L1-L4)
         self.memory_route = memory_route
-        self.memory_query_hint = memory_query_hint
+        self.routing_memory_hint = routing_memory_hint
         self.llm_trace = dict(llm_trace or {})
 
 
@@ -724,7 +724,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             orchestration_strategy=decision.orchestration_strategy,
             memory_layer=decision.memory_layer,
             memory_route=guidance.route,
-            memory_query_hint=(
+            routing_memory_hint=(
                 guidance.recommended_tools[0].suggested_params
                 if guidance.recommended_tools
                 else None
