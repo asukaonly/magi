@@ -39,6 +39,17 @@ export interface NormalizedTraceSummary {
   durationSeconds: number;
   traceAvailable: boolean;
   orchestrationId?: string | null;
+  planSummary?: {
+    planner?: string | null;
+    parallelMode: string;
+    totalSteps: number;
+    remainingSteps: number;
+    steps: Array<{
+      subtaskId?: string | null;
+      label: string;
+      status: string;
+    }>;
+  } | null;
   continuedFromTurnId?: string | null;
   continuedFromTraceId?: string | null;
   supersededByTurnId?: string | null;

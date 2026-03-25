@@ -229,6 +229,12 @@
       "active": "{{count}} active",
       "done": "{{count}} done",
       "failedCount": "{{count}} failed",
+      "plan": {
+        "parallel": "Parallel plan",
+        "sequential": "Sequential plan",
+        "totalSteps": "{{count}} steps",
+        "moreSteps": "+{{count}} more steps"
+      },
       "summaryStatus": "Status",
       "summaryDuration": "Duration",
       "summarySteps": "Steps",

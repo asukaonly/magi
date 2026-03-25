@@ -31,10 +31,25 @@ export interface NormalizedExecutionTraceSummary {
   durationSeconds: number;
   traceAvailable: boolean;
   orchestrationId?: string | null;
+  planSummary?: NormalizedExecutionPlanSummary | null;
   continuedFromTurnId?: string | null;
   continuedFromTraceId?: string | null;
   supersededByTurnId?: string | null;
   supersessionReason?: string | null;
+}
+
+export interface NormalizedExecutionPlanSummary {
+  planner?: string | null;
+  parallelMode: string;
+  totalSteps: number;
+  remainingSteps: number;
+  steps: NormalizedExecutionPlanStep[];
+}
+
+export interface NormalizedExecutionPlanStep {
+  subtaskId?: string | null;
+  label: string;
+  status: string;
 }
 
 export interface NormalizedExecutionTraceNode {
@@ -103,6 +118,25 @@ export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSum
   const summary = raw as ExecutionTraceSummary;
   const turnId = String(summary.turn_id || '').trim();
   if (!turnId) return null;
+  const rawPlanSummary = summary.plan_summary;
+  const normalizedPlanSummary = rawPlanSummary && typeof rawPlanSummary === 'object'
+    ? {
+      planner: rawPlanSummary.planner || null,
+      parallelMode: String(rawPlanSummary.parallel_mode || 'parallel'),
+      totalSteps: Number(rawPlanSummary.total_steps || 0),
+      remainingSteps: Number(rawPlanSummary.remaining_steps || 0),
+      steps: Array.isArray(rawPlanSummary.steps)
+        ? rawPlanSummary.steps
+          .filter((step): step is NonNullable<typeof rawPlanSummary.steps>[number] => Boolean(step && typeof step === 'object'))
+          .map((step) => ({
+            subtaskId: step.subtask_id || null,
+            label: String(step.label || ''),
+            status: String(step.status || 'pending'),
+          }))
+          .filter((step) => step.label.length > 0)
+        : [],
+    }
+    : null;
   return {
     turnId,
     mode: String(summary.mode || 'function_calling'),
@@ -114,6 +148,7 @@ export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSum
     durationSeconds: Number(summary.duration_seconds || 0),
     traceAvailable: Boolean(summary.trace_available),
     orchestrationId: summary.orchestration_id || null,
+    planSummary: normalizedPlanSummary,
     continuedFromTurnId: summary.continued_from_turn_id || null,
     continuedFromTraceId: summary.continued_from_trace_id || null,
     supersededByTurnId: summary.superseded_by_turn_id || null,

@@ -1651,6 +1651,89 @@ def test_trace_summary_counts_active_intent_before_response(tmp_path):
     assert summary["completed_steps"] == 1
 
 
+def test_trace_summary_exposes_orchestration_plan_preview(tmp_path):
+    service = ChatTraceReadService()
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    _init_runtime_trace_store(service._runtime_trace_db_path)
+    _insert_trace_turn(
+        service._runtime_trace_db_path,
+        trace_id="trace:turn_plan_preview",
+        turn_id="turn_plan_preview",
+        session_id="s1",
+        user_id="u1",
+        status="running",
+        mode="orchestration",
+        orchestration_id="orch_plan_preview",
+        started_at_ms=1000000,
+        updated_at_ms=1005000,
+        user_message_preview="plan this",
+    )
+    service._orchestrations_path.write_text(
+        json.dumps(
+            {
+                "orchestrations": {
+                    "orch_plan_preview": {
+                        "planner": "task_agent",
+                        "allow_parallel": True,
+                        "subtasks": [
+                            {
+                                "subtask_id": "subtask_1",
+                                "description": "梳理现有文档和范围",
+                                "status": "completed",
+                            },
+                            {
+                                "subtask_id": "subtask_2",
+                                "description": "盘点代码结构与运行方式",
+                                "status": "running",
+                            },
+                            {
+                                "subtask_id": "subtask_3",
+                                "description": "整理 MVP 验收清单",
+                                "status": "pending",
+                            },
+                            {
+                                "subtask_id": "subtask_4",
+                                "description": "输出优先级建议",
+                                "status": "pending",
+                            },
+                        ],
+                    }
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    summary = service.get_trace_summary(user_id="u1", session_id="s1", turn_id="turn_plan_preview")
+
+    assert summary is not None
+    assert summary["plan_summary"] == {
+        "planner": "task_agent",
+        "parallel_mode": "parallel",
+        "total_steps": 4,
+        "remaining_steps": 1,
+        "steps": [
+            {
+                "subtask_id": "subtask_1",
+                "label": "梳理现有文档和范围",
+                "status": "completed",
+            },
+            {
+                "subtask_id": "subtask_2",
+                "label": "盘点代码结构与运行方式",
+                "status": "running",
+            },
+            {
+                "subtask_id": "subtask_3",
+                "label": "整理 MVP 验收清单",
+                "status": "pending",
+            },
+        ],
+    }
+
+
 def test_trace_snapshot_exposes_continuation_metadata(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"

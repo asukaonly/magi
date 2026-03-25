@@ -95,6 +95,17 @@ export interface TraceSummaryData {
   duration_seconds: number;
   trace_available: boolean;
   orchestration_id?: string | null;
+  plan_summary?: {
+    planner?: string | null;
+    parallel_mode: string;
+    total_steps: number;
+    remaining_steps: number;
+    steps: Array<{
+      subtask_id?: string | null;
+      label: string;
+      status: string;
+    }>;
+  } | null;
 }
 
 export interface ExecutionTraceUpdateData {

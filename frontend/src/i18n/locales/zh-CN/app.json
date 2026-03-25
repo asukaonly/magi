@@ -229,6 +229,12 @@
       "active": "{{count}} 个进行中",
       "done": "{{count}} 个已完成",
       "failedCount": "{{count}} 个失败",
+      "plan": {
+        "parallel": "并行计划",
+        "sequential": "串行计划",
+        "totalSteps": "{{count}} 个步骤",
+        "moreSteps": "还有 {{count}} 个步骤"
+      },
       "summaryStatus": "状态",
       "summaryDuration": "耗时",
       "summarySteps": "步骤",

@@ -542,6 +542,19 @@ export const ChatPage: React.FC = () => {
         duration_seconds: summary.durationSeconds,
         trace_available: summary.traceAvailable,
         orchestration_id: summary.orchestrationId || null,
+        plan_summary: summary.planSummary
+          ? {
+            planner: summary.planSummary.planner || null,
+            parallel_mode: summary.planSummary.parallelMode,
+            total_steps: summary.planSummary.totalSteps,
+            remaining_steps: summary.planSummary.remainingSteps,
+            steps: summary.planSummary.steps.map((step) => ({
+              subtask_id: step.subtaskId || null,
+              label: step.label,
+              status: step.status,
+            })),
+          }
+          : null,
       });
       applyConversationTraceSummary(sessionId, turnId, summary);
       if (drawerOpen && activeTurnId === turnId) {
@@ -603,6 +616,19 @@ export const ChatPage: React.FC = () => {
           duration_seconds: summary.durationSeconds,
           trace_available: summary.traceAvailable,
           orchestration_id: summary.orchestrationId || null,
+          plan_summary: summary.planSummary
+            ? {
+              planner: summary.planSummary.planner || null,
+              parallel_mode: summary.planSummary.parallelMode,
+              total_steps: summary.planSummary.totalSteps,
+              remaining_steps: summary.planSummary.remainingSteps,
+              steps: summary.planSummary.steps.map((step) => ({
+                subtask_id: step.subtaskId || null,
+                label: step.label,
+                status: step.status,
+              })),
+            }
+            : null,
         });
         if (sessionId) {
           applyConversationTraceSummary(sessionId, summary.turnId, summary);
@@ -900,6 +926,7 @@ export const ChatPage: React.FC = () => {
     const turnId = String(message.turnId || '').trim();
     const isRunning = String(message.traceSummary?.status || '').trim() === 'running';
     const isCancelling = turnId ? cancellingTurnIds.includes(turnId) : false;
+    const planSummary = message.traceSummary?.planSummary;
 
     return (
       <motion.div
@@ -928,6 +955,43 @@ export const ChatPage: React.FC = () => {
                   <span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-600">
                     {t('chat.trace.failedCount', { count: message.traceSummary.failedSteps })}
                   </span>
+                )}
+              </div>
+            )}
+            {planSummary && planSummary.steps.length > 0 && (
+              <div className="mt-3 rounded-lg border border-border/50 bg-background/80 p-3">
+                <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                  <span className="rounded-full bg-muted px-2.5 py-1">
+                    {planSummary.parallelMode === 'parallel'
+                      ? t('chat.trace.plan.parallel')
+                      : t('chat.trace.plan.sequential')}
+                  </span>
+                  <span className="rounded-full bg-muted px-2.5 py-1">
+                    {t('chat.trace.plan.totalSteps', { count: planSummary.totalSteps })}
+                  </span>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {planSummary.steps.map((step) => {
+                    const stepStatus = String(step.status || '').trim();
+                    const stepDotClass = stepStatus === 'completed'
+                      ? 'bg-emerald-500'
+                      : stepStatus === 'failed'
+                        ? 'bg-rose-500'
+                        : stepStatus === 'running'
+                          ? 'bg-primary'
+                          : 'bg-muted-foreground/60';
+                    return (
+                      <div key={step.subtaskId || step.label} className="flex items-start gap-2">
+                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${stepDotClass}`} />
+                        <span className="text-sm leading-6 text-foreground">{step.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {planSummary.remainingSteps > 0 && (
+                  <div className="mt-3 text-[11px] text-muted-foreground">
+                    {t('chat.trace.plan.moreSteps', { count: planSummary.remainingSteps })}
+                  </div>
                 )}
               </div>
             )}

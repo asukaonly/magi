@@ -988,6 +988,63 @@ describe('ChatPage', () => {
     });
   });
 
+  it('renders a richer orchestration plan preview on the running trace status card', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-plan-preview',
+          trace_summary: {
+            turn_id: 'turn-plan-preview',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.4,
+            trace_available: true,
+            plan_summary: {
+              planner: 'task_agent',
+              parallel_mode: 'parallel',
+              total_steps: 4,
+              remaining_steps: 1,
+              steps: [
+                {
+                  subtask_id: 'subtask_1',
+                  label: '梳理现有文档和范围',
+                  status: 'completed',
+                },
+                {
+                  subtask_id: 'subtask_2',
+                  label: '盘点代码结构与运行方式',
+                  status: 'running',
+                },
+                {
+                  subtask_id: 'subtask_3',
+                  label: '整理 MVP 验收清单',
+                  status: 'pending',
+                },
+              ],
+            },
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('梳理现有文档和范围')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('盘点代码结构与运行方式')).toBeInTheDocument();
+    expect(screen.getByText('整理 MVP 验收清单')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.parallel')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.plan.moreSteps')).toBeInTheDocument();
+  });
+
   it('does not ask the backend for a current session after websocket subscribe', () => {
     useConversationStore.getState().setCurrentSessionId(null);
     sendMock.mockClear();

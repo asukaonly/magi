@@ -87,6 +87,20 @@ export interface CancelRunData {
   cancelled_orchestration_ids?: string[];
 }
 
+export interface ExecutionPlanStepSummary {
+  subtask_id?: string | null;
+  label: string;
+  status: string;
+}
+
+export interface ExecutionPlanSummary {
+  planner?: string | null;
+  parallel_mode: string;
+  total_steps: number;
+  remaining_steps: number;
+  steps: ExecutionPlanStepSummary[];
+}
+
 export interface ExecutionTraceSummary {
   turn_id: string;
   mode: string;
@@ -98,6 +112,7 @@ export interface ExecutionTraceSummary {
   duration_seconds: number;
   trace_available: boolean;
   orchestration_id?: string | null;
+  plan_summary?: ExecutionPlanSummary | null;
   continued_from_turn_id?: string | null;
   continued_from_trace_id?: string | null;
   superseded_by_turn_id?: string | null;
