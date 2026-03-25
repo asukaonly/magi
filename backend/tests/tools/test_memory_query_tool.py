@@ -43,12 +43,16 @@ class TestMemoryQueryTool:
         assert "query" in param_names
         assert "time_range" in param_names
         assert "sources" in param_names
+        assert "recall_intent" in param_names
         assert "query_mode" in param_names
 
         query_param = next(p for p in schema.parameters if p.name == "query")
         assert query_param.required is True
         time_range_param = next(p for p in schema.parameters if p.name == "time_range")
         assert time_range_param.required is False
+        assert "user preferences" in schema.description
+        assert "personal facts" in schema.description
+        assert "customized settings" in schema.description
 
     def test_tool_uses_runtime_hybrid_retrieval_binding(self, monkeypatch):
         """Should resolve the shared runtime retrieval service."""
@@ -101,11 +105,13 @@ class TestMemoryQueryTool:
         )
         context = ToolExecutionContext(agent_id="test", task_id="test-task")
 
-        result = await tool.execute({"query": "test query"}, context)
+        result = await tool.execute({"query": "test query", "recall_intent": "preference_recall"}, context)
 
         assert result.success is True
         assert result.data["results"]["l0_workbench"][0]["summary"] == "Current goal"
         assert result.data["meta"]["query_mode"] == "detail"
+        request = fake_service.query.await_args.args[0]
+        assert request.recall_intent == "preference_recall"
 
     @pytest.mark.asyncio
     async def test_tool_to_claude_format(self):

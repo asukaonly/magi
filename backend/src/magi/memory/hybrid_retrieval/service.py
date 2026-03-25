@@ -76,6 +76,7 @@ class HybridRetrievalService:
         payload = RetrievalPayload(
             trace={
                 "query": request.query,
+                "recall_intent": request.recall_intent,
                 "query_mode": request.query_mode,
                 "sources": request.source_filters,
                 "domains": request.domain_filters,
@@ -94,6 +95,7 @@ class HybridRetrievalService:
             raw_time_range=request.time_range if request.time_range else None,
             source_filters=request.source_filters,
             domain_filters=request.domain_filters,
+            recall_intent_hint=request.recall_intent,
             query_mode_hint=request.query_mode,
         )
         decision = await self._intent_decider.decide(intent_input)

@@ -19,6 +19,7 @@ class RetrievalQuery:
     user_id: Optional[str]
     session_id: Optional[str]
     time_range: Dict[str, Any]
+    recall_intent: Optional[str] = None
     query_mode: Optional[str] = None  # optional hint; None = IntentDecider auto-routes
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
@@ -56,6 +57,7 @@ class IntentDeciderInput:
     raw_time_range: Optional[Dict[str, Any]] = None
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
+    recall_intent_hint: Optional[str] = None
     query_mode_hint: Optional[str] = None  # from RetrievalQuery.query_mode
 
 

@@ -117,9 +117,11 @@ class TestIntentDeciderInput:
             raw_time_range={"relative": "1d"},
             source_filters=["browser_history"],
             domain_filters=["external_activity"],
+            recall_intent_hint="event_recall",
             query_mode_hint="detail",
         )
         assert inp.query_mode_hint == "detail"
+        assert inp.recall_intent_hint == "event_recall"
 
 
 class TestRetrievalQueryBackwardCompat:
@@ -138,9 +140,11 @@ class TestRetrievalQueryBackwardCompat:
             user_id="u1",
             session_id="s1",
             time_range={},
+            recall_intent="preference_recall",
             query_mode="detail",
         )
         assert q.query_mode == "detail"
+        assert q.recall_intent == "preference_recall"
 
 
 class TestRetrievalConfig:

@@ -20,7 +20,7 @@ class MemoryQueryTool(Tool):
             description=(
                 "Retrieve structured memory context from the lifecycle-based memory system. "
                 "Use this tool for questions about prior conversations, activities, relationships, "
-                "summaries, or learned execution experience."
+                "user preferences, personal facts, customized settings, summaries, or learned execution experience."
             ),
             category="memory",
             parameters=[
@@ -41,6 +41,13 @@ class MemoryQueryTool(Tool):
                     type=ParameterType.ARRAY,
                     description="Optional source filters such as ['chat', 'timeline', 'worker'].",
                     required=False,
+                ),
+                ToolParameter(
+                    name="recall_intent",
+                    type=ParameterType.STRING,
+                    description="Optional recall intent hint (event_recall|preference_recall|profile_fact_recall|relationship_recall|workflow_reuse).",
+                    required=False,
+                    default=None,
                 ),
                 ToolParameter(
                     name="query_mode",
@@ -81,6 +88,7 @@ class MemoryQueryTool(Tool):
                 user_id=parameters.get("user_id"),
                 session_id=parameters.get("session_id"),
                 time_range=parameters.get("time_range", {}),
+                recall_intent=parameters.get("recall_intent"),
                 query_mode=parameters.get("query_mode"),
                 source_filters=parameters.get("sources", []) or [],
                 domain_filters=parameters.get("domains", []) or [],

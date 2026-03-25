@@ -126,6 +126,7 @@ def _make_request(**kwargs):
         "user_id": "u1",
         "session_id": "s1",
         "time_range": {},
+        "recall_intent": None,
         "query_mode": None,
         "source_filters": [],
         "domain_filters": [],
@@ -181,6 +182,18 @@ class TestServiceBasicFlow:
         result = await svc.query(_make_request(session_id=None))
         assert len(result.l0_workbench) == 0
         l0.get_prompt_workbench_projection.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_trace_and_intent_input_include_recall_intent(self):
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        svc._intent_decider.decide = AsyncMock(return_value=IntentDecision())  # type: ignore[method-assign]
+
+        result = await svc.query(_make_request(recall_intent="preference_recall"))
+
+        assert result.trace["recall_intent"] == "preference_recall"
+        intent_input = svc._intent_decider.decide.await_args.args[0]  # type: ignore[attr-defined]
+        assert intent_input.recall_intent_hint == "preference_recall"
 
 
 class TestServiceLayerRouting:
