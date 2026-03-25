@@ -783,11 +783,18 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
 
     assert turn is not None
     assert json.loads(turn.ux_plan_json)["assistant_surface_mode"] == "reaction_only"
-    assert [message.message_kind for message in messages] == ["user_text", "assistant_reaction"]
-    assert messages[-1].content_text == "👌"
+    assert [message.message_kind for message in messages] == ["user_text"]
+    assert messages[-1].label is not None
+    assert messages[-1].label.to_dict() == {
+        "kind": "emoji",
+        "text": "👌",
+        "applied_by": "assistant",
+        "source": "reaction_only",
+        "created_at_ms": 1710000000000,
+    }
     payload = json.loads(notifications[0].payload_json)
-    assert payload["message_id"] == messages[-1].message_id
-    assert payload["message_kind"] == "assistant_reaction"
+    assert payload["message_id"] is None
+    assert payload["message_kind"] is None
 
 
 @pytest.mark.asyncio
@@ -1440,7 +1447,7 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
 
 
 @pytest.mark.asyncio
-async def test_handle_keeps_reaction_only_turn_as_reaction_message(
+async def test_handle_maps_reaction_only_turn_to_user_label(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
@@ -1542,10 +1549,19 @@ async def test_handle_keeps_reaction_only_turn_as_reaction_message(
 
     assert turn is not None
     assert turn.status == "completed"
-    assert [message.message_kind for message in messages] == ["user_text", "assistant_reaction"]
+    assert [message.message_kind for message in messages] == ["user_text"]
+    assert messages[-1].label is not None
+    assert messages[-1].label.to_dict() == {
+        "kind": "emoji",
+        "text": "👌",
+        "applied_by": "assistant",
+        "source": "reaction_only",
+        "created_at_ms": 1710000000000,
+    }
     assert chat_projector.assistant_messages == []
     payload = json.loads(notifications[-1].payload_json)
     assert payload["message_kind"] == "assistant_reaction"
+    assert payload["content"] == "👌"
 
 
 @pytest.mark.asyncio
@@ -1734,7 +1750,15 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
 
     assert turn is not None
     assert turn.status == "completed"
-    assert [message.message_kind for message in messages] == ["user_text", "assistant_reaction"]
+    assert [message.message_kind for message in messages] == ["user_text"]
+    assert messages[-1].label is not None
+    assert messages[-1].label.to_dict() == {
+        "kind": "emoji",
+        "text": "👌",
+        "applied_by": "assistant",
+        "source": "reaction_only",
+        "created_at_ms": 1710000000000,
+    }
 
 
 @pytest.mark.asyncio

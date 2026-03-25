@@ -242,6 +242,13 @@ class ChatPostProcessService:
             turn_id=turn_id,
             ux_plan=ux_plan,
         )
+        notification_message_id = notification_message.message_id if notification_message is not None else None
+        notification_message_kind = notification_message.message_kind if notification_message is not None else None
+        notification_response_text = response_text
+        if str((ux_plan or {}).get("assistant_surface_mode") or "").strip() == "reaction_only":
+            notification_response_text = self._resolve_reaction_notification_text(ux_plan, fallback=response_text)
+            notification_message_id = None
+            notification_message_kind = "assistant_reaction"
         final_message = notification_message if notification_message and notification_message.message_kind == "assistant_final" else None
         await self._project_final_chat_message(context=context, final_message=final_message)
 
@@ -249,13 +256,13 @@ class ChatPostProcessService:
             user_id=context.user_id,
             session_id=context.session_id,
             turn_id=turn_id,
-            response_text=response_text,
+            response_text=notification_response_text,
             orchestration_id=result.orchestration_id,
             trace_summary=trace_summary,
             trace_available=trace_available,
             ux_plan=result.ux_plan,
-            message_id=notification_message.message_id if notification_message is not None else None,
-            message_kind=notification_message.message_kind if notification_message is not None else None,
+            message_id=notification_message_id,
+            message_kind=notification_message_kind,
         )
 
         await action_emitter.emit_chat_response_event(
@@ -1174,6 +1181,15 @@ class ChatPostProcessService:
             payload = to_dict()
             return payload if isinstance(payload, dict) else None
         return plan if isinstance(plan, dict) else None
+
+    @staticmethod
+    def _resolve_reaction_notification_text(
+        ux_plan: dict[str, Any] | None,
+        *,
+        fallback: str,
+    ) -> str:
+        reaction_text = ChatOutcomeWriter.resolve_reaction_text(ux_plan)
+        return reaction_text or fallback
 
     @staticmethod
     def _resolve_started_at_ms(result: ExecutionResult | None, latest_fact: FactRecord) -> int:

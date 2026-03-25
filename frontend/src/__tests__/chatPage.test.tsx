@@ -915,15 +915,13 @@ describe('ChatPage', () => {
           timestamp: 1000,
           turn_id: 'turn-reaction-history',
           kind: 'user',
-        },
-        {
-          message_id: 'msg-reaction-only',
-          message_kind: 'assistant_reaction',
-          role: 'assistant',
-          content: '👌',
-          timestamp: 1001,
-          turn_id: 'turn-reaction-history',
-          kind: 'assistant',
+          label: {
+            kind: 'emoji',
+            text: '👌',
+            applied_by: 'assistant',
+            source: 'reaction_only',
+            created_at_ms: 1001,
+          },
         },
       ])
     );

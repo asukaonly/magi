@@ -78,7 +78,7 @@ class ChatOutcomeWriter:
             )
             return
         if response_mode == "reaction_only":
-            await self._append_reaction_message(
+            await self._apply_reaction_label(
                 turn=existing_turn,
                 turn_id=turn_id,
                 ux_plan=ux_plan,
@@ -221,7 +221,7 @@ class ChatOutcomeWriter:
     ) -> ChatMessageRecord | None:
         response_mode = str((ux_plan or {}).get("assistant_surface_mode") or "").strip()
         if response_mode == "reaction_only":
-            return await self.get_chat_message(turn_id=turn_id, message_kind="assistant_reaction")
+            return None
         return await self.get_chat_message(turn_id=turn_id, message_kind="assistant_final")
 
     async def get_turn_ux_chat_message(
@@ -232,7 +232,7 @@ class ChatOutcomeWriter:
     ) -> ChatMessageRecord | None:
         response_mode = str((ux_plan or {}).get("assistant_surface_mode") or "").strip()
         if response_mode == "reaction_only":
-            return await self.get_chat_message(turn_id=turn_id, message_kind="assistant_reaction")
+            return None
         if response_mode == "interim_then_final":
             return await self.get_chat_message(turn_id=turn_id, message_kind="assistant_interim")
         return None
@@ -305,7 +305,7 @@ class ChatOutcomeWriter:
             )
         )
 
-    async def _append_reaction_message(
+    async def _apply_reaction_label(
         self,
         *,
         turn: ChatTurnRecord,
@@ -316,29 +316,26 @@ class ChatOutcomeWriter:
         reaction_text = self.resolve_reaction_text(ux_plan)
         if not reaction_text or self._chat_store is None:
             return
-        existing_reaction = await self._chat_store.get_latest_message_for_turn(
+        target_message = await self._chat_store.get_latest_message_for_turn(
             turn_id,
-            message_kind="assistant_reaction",
+            message_kind="user_text",
         )
-        if existing_reaction is not None:
+        if target_message is None:
             return
-        await self._chat_store.append_message(
-            ChatMessageRecord(
-                message_id=f"msg_{uuid.uuid4().hex[:16]}",
-                session_id=turn.session_id,
-                turn_id=turn_id,
-                user_id=turn.user_id,
-                role="assistant",
-                message_kind="assistant_reaction",
-                content_text=reaction_text,
-                payload_json="{}",
-                is_final=True,
-                is_visible=True,
-                created_at_ms=updated_at_ms,
-                sequence_no=await self._chat_store.next_sequence_no(session_id=turn.session_id),
-                replaces_message_id=None,
-                replaced_by_message_id=None,
-            )
+        next_label = {
+            "kind": "emoji",
+            "text": reaction_text,
+            "applied_by": "assistant",
+            "source": "reaction_only",
+            "created_at_ms": int(target_message.created_at_ms or updated_at_ms),
+        }
+        existing_label = target_message.label.to_dict() if target_message.label is not None else None
+        if existing_label == next_label:
+            return
+        await self._chat_store.update_message_label(
+            session_id=turn.session_id,
+            message_id=target_message.message_id,
+            label=next_label,
         )
 
     @staticmethod
