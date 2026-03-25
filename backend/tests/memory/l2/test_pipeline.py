@@ -733,30 +733,17 @@ async def test_enqueue_event_flushes_when_bucket_hits_token_cap():
             await pipeline.shutdown()
 
 
-def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
+def test_reconcile_prompt_rendering_is_deterministic():
     from magi.memory.l2.models import (
-        L2ExistingRecord,
         L2ReconcileAssertion,
         L2ReconcileEntity,
         L2ReconcileGraphFact,
         L2SourceEvent,
     )
     from magi.memory.l2.prompts import (
-        render_contradiction_hint_prompt,
         render_entity_reconcile_prompt,
     )
 
-    contradiction_prompt = render_contradiction_hint_prompt(
-        new_event={"event_id": "evt-1", "text": "I do not like sushi anymore."},
-        existing_records=[
-            L2ExistingRecord(
-                record_id="triple-1",
-                record_type="knowledge_graph",
-                predicate="LIKES",
-                object_id="food:sushi",
-            )
-        ],
-    )
     reconcile_prompt = render_entity_reconcile_prompt(
         entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
         graph_facts=[L2ReconcileGraphFact(predicate="LIKES", object_id="food:sushi")],
@@ -772,8 +759,6 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
         ],
     )
 
-    assert '"event_id": "evt-1"' in contradiction_prompt
-    assert '"predicate": "LIKES"' in contradiction_prompt
     assert '"entity_id": "user:u1"' in reconcile_prompt
     assert '"trait_name": "stress_level"' in reconcile_prompt
 
@@ -823,19 +808,14 @@ async def test_low_confidence_resolution_is_returned_as_unresolved():
 
 
 @pytest.mark.asyncio
-async def test_invalid_json_from_contradiction_and_reconcile_llm_fails_closed():
+async def test_invalid_json_from_reconcile_llm_fails_closed():
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import (
-        L2ExistingRecord,
         L2ReconcileEntity,
     )
 
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(["not-json", "still-not-json"])))
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
 
-    hints = await service.detect_contradiction_hints(
-        new_event={"event_id": "evt-1"},
-        existing_records=[L2ExistingRecord(record_id="triple-1", record_type="knowledge_graph")],
-    )
     outcomes = await service.reconcile_entity_state(
         entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
         graph_facts=[],
@@ -843,7 +823,6 @@ async def test_invalid_json_from_contradiction_and_reconcile_llm_fails_closed():
         recent_events=[],
     )
 
-    assert hints == []
     assert outcomes == []
 
 
@@ -1099,7 +1078,7 @@ async def test_prepare_unified_graph_candidates_rejects_generic_preference_domai
 
 @pytest.mark.asyncio
 async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
-    from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
+    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     adapter = _FakeAdapter(
         [
@@ -1174,7 +1153,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
             unified_prompts = [
                 str(call["prompt"])
                 for call in adapter.calls
-                if call.get("system_prompt") == UNIFIED_EXTRACTION_SYSTEM_PROMPT
+                if call.get("system_prompt") == PHASE1_EXTRACT_SYSTEM_PROMPT
             ]
 
             assert len(unified_prompts) == 2
@@ -1186,7 +1165,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
 
 @pytest.mark.asyncio
 async def test_extract_worker_uses_related_cross_session_history_in_unified_prompt():
-    from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
+    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     adapter = _FakeAdapter(
         [
@@ -1252,7 +1231,7 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
             unified_prompts = [
                 str(call["prompt"])
                 for call in adapter.calls
-                if call.get("system_prompt") == UNIFIED_EXTRACTION_SYSTEM_PROMPT
+                if call.get("system_prompt") == PHASE1_EXTRACT_SYSTEM_PROMPT
             ]
 
             assert len(unified_prompts) == 1
@@ -1264,7 +1243,7 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
 
 @pytest.mark.asyncio
 async def test_extract_worker_orders_history_contexts_chronologically_in_prompt():
-    from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
+    from magi.memory.l2.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
     adapter = _FakeAdapter(
         [
@@ -1339,7 +1318,7 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
             unified_prompts = [
                 str(call["prompt"])
                 for call in adapter.calls
-                if call.get("system_prompt") == UNIFIED_EXTRACTION_SYSTEM_PROMPT
+                if call.get("system_prompt") == PHASE1_EXTRACT_SYSTEM_PROMPT
             ]
 
             assert len(unified_prompts) == 1

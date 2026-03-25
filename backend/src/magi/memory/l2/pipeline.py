@@ -1614,7 +1614,7 @@ class L2Pipeline:
                     "confidence": raw_candidate.confidence,
                     "observed_at": event.timestamp,
                     "source_type": event.source,
-                    "extraction_method": "llm_unified_extraction",
+                    "extraction_method": "llm_two_phase_extraction",
                 }
             )
         return prepared, rejected_count
@@ -2010,30 +2010,6 @@ class L2Pipeline:
         text = str(value).strip()
         return text or None
 
-    async def _detect_contradiction_hints(
-        self,
-        *,
-        event: MemoryEvent,
-        focal_entities: list[L2FocalEntityRef],
-    ) -> list[ContradictionHint]:
-        if self._cognition_store is None or self._llm_service is None:
-            return []
-
-        existing_records = await self._load_existing_records(focal_entities)
-        if not existing_records:
-            return []
-
-        return await self._llm_service.detect_contradiction_hints(
-            new_event={
-                "event_id": event.event_id,
-                "event_type": event.event_type,
-                "content": event.content,
-                "source": event.source,
-                "timestamp": event.timestamp,
-            },
-            existing_records=existing_records,
-        )
-
     def _severe_contradiction_hints(self, hints: list[ContradictionHint]) -> list[ContradictionHint]:
         severe: list[ContradictionHint] = []
         for hint in hints:
@@ -2150,58 +2126,6 @@ class L2Pipeline:
                 next_hint.recommended_action = "revalidate_only"
             rewritten_hints.append(next_hint)
         return rewritten_hints
-
-    async def _load_existing_records(self, focal_entities: list[L2FocalEntityRef]) -> list[L2ExistingRecord]:
-        if self._cognition_store is None:
-            return []
-
-        records: list[L2ExistingRecord] = []
-        seen_record_ids: set[str] = set()
-        for entity in focal_entities:
-            entity_id = entity.entity_id
-            entity_type = entity.entity_type
-            assertions = await self._cognition_store.list_tom_assertions(
-                entity_id=entity_id,
-                entity_type=entity_type,
-                limit=50,
-            )
-            for assertion in assertions:
-                record_id = str(assertion["assertion_id"])
-                if record_id in seen_record_ids:
-                    continue
-                seen_record_ids.add(record_id)
-                records.append(
-                    L2ExistingRecord(
-                        record_id=record_id,
-                        record_type="tom_trait_assertion",
-                        entity_id=assertion["entity_id"],
-                        entity_type=assertion["entity_type"],
-                        trait_name=assertion["trait_name"],
-                        trait_value=assertion["trait_value"],
-                        validation_state=assertion["validation_state"],
-                        confidence=assertion["confidence_score"],
-                    )
-                )
-
-            relations = await self._cognition_store.get_relationships(subject_id=entity_id, limit=50)
-            relations.extend(await self._cognition_store.get_relationships(object_id=entity_id, limit=50))
-            for relation in relations:
-                record_id = str(relation["triple_id"])
-                if record_id in seen_record_ids:
-                    continue
-                seen_record_ids.add(record_id)
-                records.append(
-                    L2ExistingRecord(
-                        record_id=record_id,
-                        record_type="knowledge_graph",
-                        subject_id=relation["subject_id"],
-                        predicate=relation["predicate"],
-                        object_id=relation["object_id"],
-                        status=relation["status"],
-                        confidence=relation["confidence"],
-                    )
-                )
-        return records
 
     async def _load_target_records_for_hints(self, hints: list[ContradictionHint]) -> list[L2ExistingRecord]:
         if self._cognition_store is None:

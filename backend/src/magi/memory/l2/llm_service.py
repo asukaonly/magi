@@ -9,11 +9,8 @@ from typing import Any, Optional
 
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, LLMScenario, ProviderResponse, ScenarioLLMPool
-from .context_bundle import ContextBundle
-from .extraction_profiles import ExtractionProfile
 from .models import (
     ContradictionHint,
-    L2AssertionCandidate,
     L2CandidateSet,
     L2ConflictArbitrationResult,
     L2EntityCandidate,
@@ -27,25 +24,19 @@ from .models import (
     L2ReconcileGraphFact,
     L2SourceEvent,
     L2EventWindow,
-    L2GraphCandidate,
-    L2UnifiedExtractionResult,
     ReconciledTraitOutcome,
 )
 from .prompts import (
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
-    CONTRADICTION_HINT_SYSTEM_PROMPT,
     ENTITY_RECONCILE_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
     PHASE1_EXTRACT_SYSTEM_PROMPT,
     PHASE2_INTEGRATE_SYSTEM_PROMPT,
-    UNIFIED_EXTRACTION_SYSTEM_PROMPT,
     render_conflict_arbitration_prompt,
-    render_contradiction_hint_prompt,
     render_entity_reconcile_prompt,
     render_entity_resolution_prompt,
     render_phase1_extract_prompt,
     render_phase2_integrate_prompt,
-    render_unified_extraction_prompt,
 )
 
 logger = get_logger(__name__)
@@ -57,117 +48,6 @@ class L2LLMService:
 
     def __init__(self, scenario_llm_pool: ScenarioLLMPool | None) -> None:
         self._scenario_llm_pool = scenario_llm_pool
-
-    def render_unified_extraction_prompt(
-        self,
-        *,
-        event_window: L2EventWindow,
-        profile: ExtractionProfile,
-        focal_subject: dict[str, Any],
-        context_bundle: ContextBundle | None = None,
-    ) -> str:
-        return render_unified_extraction_prompt(
-            event_window=event_window,
-            profile=profile,
-            focal_subject=focal_subject,
-            context_bundle=context_bundle,
-        )
-
-    async def extract_unified_candidates(
-        self,
-        *,
-        event_window: L2EventWindow,
-        profile: ExtractionProfile,
-        focal_subject: dict[str, Any],
-        context_bundle: ContextBundle | None = None,
-    ) -> L2UnifiedExtractionResult:
-        started_at = time.perf_counter()
-        event_ids = list(event_window.event_ids)
-        batch_event_count = len(event_window.events)
-        session_id = self._non_empty_text(event_window.summary.session_id)
-        user_id = self._non_empty_text(event_window.summary.user_id)
-        logger.info(
-            "L2 unified extraction started",
-            event_ids=event_ids,
-            profile_id=profile.profile_id,
-            batch_event_count=batch_event_count or len(event_ids),
-            text_count=len(event_window.texts),
-            context_count=len(event_window.context_texts),
-            session_id=session_id,
-            user_id=user_id,
-        )
-        payload = await self._generate_json(
-            system_prompt=UNIFIED_EXTRACTION_SYSTEM_PROMPT,
-            prompt=self.render_unified_extraction_prompt(
-                event_window=event_window,
-                profile=profile,
-                focal_subject=focal_subject,
-                context_bundle=context_bundle,
-            ),
-            request_kind="memory:l2_unified_extraction",
-            turn_id=event_ids[0] if event_ids else None,
-            session_id=session_id,
-            log_context={
-                "event_ids": event_ids,
-                "profile_id": profile.profile_id,
-                "batch_event_count": batch_event_count or len(event_ids),
-                "session_id": session_id,
-                "user_id": user_id,
-            },
-        )
-        mentions = payload.get("mentions")
-        resolved_context_refs = payload.get("resolved_context_refs")
-        graph_candidates = payload.get("graph_candidates")
-        assertion_candidates = payload.get("assertion_candidates")
-        diagnostics = payload.get("diagnostics")
-
-        normalized_mentions = [item for item in mentions if isinstance(item, dict)] if isinstance(mentions, list) else []
-        normalized_resolved_context_refs = (
-            [item for item in resolved_context_refs if isinstance(item, dict)]
-            if isinstance(resolved_context_refs, list)
-            else []
-        )
-        normalized_graph_candidates: list[L2GraphCandidate] = []
-        if isinstance(graph_candidates, list):
-            for item in graph_candidates:
-                if not isinstance(item, dict):
-                    continue
-                normalized_graph_candidates.append(L2GraphCandidate.from_dict(item))
-        normalized_assertions: list[L2AssertionCandidate] = []
-        is_single_event = len(event_window.event_ids) <= 1
-        if isinstance(assertion_candidates, list):
-            for item in assertion_candidates:
-                if not isinstance(item, dict):
-                    continue
-                candidate = dict(item)
-                confidence = float(candidate.get("confidence", 0.0) or 0.0)
-                if is_single_event:
-                    confidence = min(confidence, 0.3)
-                candidate["confidence"] = round(confidence, 4)
-                normalized_assertions.append(L2AssertionCandidate.from_dict(candidate))
-
-        result = L2UnifiedExtractionResult(
-            mentions=normalized_mentions,
-            resolved_context_refs=normalized_resolved_context_refs,
-            graph_candidates=normalized_graph_candidates,
-            assertion_candidates=normalized_assertions,
-            diagnostics=diagnostics if isinstance(diagnostics, dict) else {"entity_status": "none"},
-        )
-        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
-        logger.info(
-            "L2 unified extraction completed",
-            duration_ms=duration_ms,
-            event_ids=event_ids,
-            profile_id=profile.profile_id,
-            batch_event_count=batch_event_count or len(event_ids),
-            mention_count=len(normalized_mentions),
-            resolved_context_ref_count=len(normalized_resolved_context_refs),
-            graph_candidate_count=len(normalized_graph_candidates),
-            assertion_candidate_count=len(normalized_assertions),
-            session_id=session_id,
-            user_id=user_id,
-        )
-        return result
 
     # ------------------------------------------------------------------
     # Two-phase extraction
@@ -324,44 +204,6 @@ class L2LLMService:
             should_merge=bool(resolution.get("should_merge", False)),
             canonical_name_suggestion=resolution.get("canonical_name_suggestion"),
         )
-
-    async def detect_contradiction_hints(
-        self,
-        *,
-        new_event: dict[str, Any],
-        existing_records: list[L2ExistingRecord],
-    ) -> list[ContradictionHint]:
-        payload = await self._generate_json(
-            system_prompt=CONTRADICTION_HINT_SYSTEM_PROMPT,
-            prompt=render_contradiction_hint_prompt(new_event=new_event, existing_records=existing_records),
-            request_kind="memory:l2_contradiction_hint",
-            turn_id=str(new_event.get("event_id") or "") or None,
-        )
-        hints = payload.get("contradiction_hints")
-        if not isinstance(hints, list):
-            return []
-        normalized_hints: list[ContradictionHint] = []
-        for hint in hints:
-            if not isinstance(hint, dict):
-                continue
-            target_record_id = str(hint.get("target_record_id") or "").strip()
-            target_record_type = str(hint.get("target_record_type") or "").strip()
-            contradiction_kind = str(hint.get("contradiction_kind") or "").strip()
-            evidence_text = str(hint.get("evidence_text") or "").strip()
-            recommended_action = str(hint.get("recommended_action") or "").strip()
-            if not all((target_record_id, target_record_type, contradiction_kind, recommended_action)):
-                continue
-            normalized_hints.append(
-                ContradictionHint(
-                    target_record_id=target_record_id,
-                    target_record_type=target_record_type,
-                    contradiction_kind=contradiction_kind,
-                    confidence=float(hint.get("confidence", 0.0) or 0.0),
-                    evidence_text=evidence_text,
-                    recommended_action=recommended_action,
-                )
-            )
-        return normalized_hints
 
     async def arbitrate_conflict(
         self,

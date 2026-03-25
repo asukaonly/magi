@@ -6,8 +6,6 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from .context_bundle import ContextBundle
-from .extraction_profiles import ExtractionProfile
 from .models import (
     L2CandidateSet,
     L2EntityCandidate,
@@ -206,11 +204,6 @@ Return exactly one final arbitration decision: keep_new, keep_existing, or mark_
 Do not hedge, and do not return multiple competing outcomes.
 """
 
-# Keep old prompts as aliases for backward compatibility during transition.
-UNIFIED_EXTRACTION_SYSTEM_PROMPT = PHASE1_EXTRACT_SYSTEM_PROMPT
-CONTRADICTION_HINT_SYSTEM_PROMPT = PHASE2_INTEGRATE_SYSTEM_PROMPT
-
-
 # ---------------------------------------------------------------------------
 # Helper: format timestamp for prompts
 # ---------------------------------------------------------------------------
@@ -400,30 +393,6 @@ def render_phase2_integrate_prompt(
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Legacy unified extraction prompt (kept for backward compatibility)
-# ---------------------------------------------------------------------------
-
-def render_unified_extraction_prompt(
-    *,
-    event_window: L2EventWindow,
-    profile: ExtractionProfile,
-    focal_subject: dict[str, Any],
-    context_bundle: ContextBundle | None = None,
-) -> str:
-    """Render the legacy unified extraction prompt. Delegates to Phase 1."""
-
-    return render_phase1_extract_prompt(
-        event_window=event_window,
-        focal_subject=focal_subject,
-        context_messages=[
-            {"role": "user", "content": text}
-            for text in (event_window.context_texts or [])
-            if text and text.strip()
-        ],
-    )
-
-
 def render_entity_resolution_prompt(
     *,
     mention: L2EntityResolutionMention,
@@ -437,19 +406,6 @@ def render_entity_resolution_prompt(
         '{\n  "resolution": {\n    "decision": "match|unresolved|create_new_candidate",\n    "matched_entity_id": "string or null",\n'
         '    "matched_entity_name": "string or null",\n    "confidence": 0.0,\n    "reason_tags": ["string"],\n'
         '    "should_merge": true,\n    "canonical_name_suggestion": "string or null"\n  }\n}'
-    )
-
-
-def render_contradiction_hint_prompt(*, new_event: dict[str, Any], existing_records: list[L2ExistingRecord]) -> str:
-    return (
-        "Compare the new event against existing memory records and identify possible contradiction hints.\n\n"
-        f"New event:\n{json.dumps(new_event, ensure_ascii=False, indent=2)}\n\n"
-        f"Existing records:\n{json.dumps([item.to_dict() for item in existing_records], ensure_ascii=False, indent=2)}\n\n"
-        "Return JSON with this schema:\n"
-        '{\n  "contradiction_hints": [\n    {\n      "target_record_id": "string",\n      "target_record_type": "knowledge_graph|tom_trait_assertion",\n'
-        '      "contradiction_kind": "direct_negation|state_reversal|temporal_expiration|exclusive_role_conflict|preference_reversal|weak_tension",\n'
-        '      "confidence": 0.0,\n      "evidence_text": "string",\n      "recommended_action": "downgrade_confidence|mark_conflicted|mark_deprecated|revalidate_only"\n'
-        "    }\n  ]\n}"
     )
 
 
@@ -499,14 +455,14 @@ def render_entity_reconcile_prompt(
 
 
 __all__ = [
-    "UNIFIED_EXTRACTION_SYSTEM_PROMPT",
+    "PHASE1_EXTRACT_SYSTEM_PROMPT",
+    "PHASE2_INTEGRATE_SYSTEM_PROMPT",
     "ENTITY_RECONCILE_SYSTEM_PROMPT",
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
-    "CONTRADICTION_HINT_SYSTEM_PROMPT",
     "CONFLICT_ARBITRATION_SYSTEM_PROMPT",
+    "render_phase1_extract_prompt",
+    "render_phase2_integrate_prompt",
     "render_conflict_arbitration_prompt",
-    "render_contradiction_hint_prompt",
     "render_entity_reconcile_prompt",
     "render_entity_resolution_prompt",
-    "render_unified_extraction_prompt",
 ]
