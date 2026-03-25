@@ -771,6 +771,23 @@ def _normalize_masked_secrets(config: SystemConfigModel) -> SystemConfigModel:
     return normalized
 
 
+def _prune_sparse_value(value: Any) -> Any:
+    """Remove None leaves and empty dict nodes from persisted config payloads."""
+    if isinstance(value, dict):
+        pruned: Dict[str, Any] = {}
+        for key, item in value.items():
+            next_value = _prune_sparse_value(item)
+            if next_value is None:
+                continue
+            if isinstance(next_value, dict) and not next_value:
+                continue
+            pruned[key] = next_value
+        return pruned
+    if isinstance(value, list):
+        return [_prune_sparse_value(item) for item in value]
+    return value
+
+
 def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     _apply_llm_registry_defaults(config, _load_llm_provider_registry())
 
@@ -789,10 +806,10 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
 
     llm_providers: Dict[str, Any] = {}
     for provider_id, provider in config.llm.providers.items():
-        llm_providers[provider_id] = provider.model_dump()
+        llm_providers[provider_id] = _prune_sparse_value(provider.model_dump(exclude_none=True))
 
     model_runtime_overrides = {
-        runtime_key: limits.model_dump()
+        runtime_key: _prune_sparse_value(limits.model_dump(exclude_none=True))
         for runtime_key, limits in config.llm.model_runtime_overrides.items()
     }
 
@@ -801,7 +818,7 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.description": config.agent.description,
         "llm.providers": llm_providers,
         "llm.selections": {
-            selection_id: selection.model_dump()
+            selection_id: _prune_sparse_value(selection.model_dump(exclude_none=True))
             for selection_id, selection in config.llm.selections.items()
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
@@ -830,12 +847,12 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l4.enabled": config.memory.l4.enabled,
         "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
         "agent.memory.l4.skill_extraction_enabled": config.memory.l4.skill_extraction_enabled,
-        "preferences": config.preferences.model_dump(),
+        "preferences": _prune_sparse_value(config.preferences.model_dump(exclude_none=True)),
         "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",
         "agent.personality.path": "~/.magi/personalities",
         "agent.personality.enable_evolution": True,
-        "timeline": config.timeline.model_dump(),
-        "tools.builtIn": config.tools.builtIn.model_dump(),
+        "timeline": _prune_sparse_value(config.timeline.model_dump(exclude_none=True)),
+        "tools.builtIn": _prune_sparse_value(config.tools.builtIn.model_dump(exclude_none=True)),
         "tools.skills": config.tools.skills,
         "tools.weather.enabled": config.tools.builtIn.weather.enabled,
         "tools.weather.default_provider": config.tools.builtIn.weather.provider,

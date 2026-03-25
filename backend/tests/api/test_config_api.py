@@ -229,6 +229,27 @@ def test_build_update_paths_persists_model_metadata_overrides():
     assert updates["llm.providers"]["openai"]["model_metadata_overrides"]["gpt-4o-mini"]["limits"]["max_output_tokens"] == 4096
 
 
+def test_build_update_paths_prunes_empty_null_fields_from_model_metadata_overrides():
+    current = _build_system_config(mask_api_key=False)
+    config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
+    config.llm.providers["openai"].model_metadata_overrides = {
+        "gpt-5.2": LLMModelMetadataOverrideSettings(
+            capabilities=LLMCapabilityOverridesSettings(vision=True),
+        ),
+        "gpt-empty": LLMModelMetadataOverrideSettings(),
+    }
+
+    updates = _build_update_paths(config)
+
+    override_payload = updates["llm.providers"]["openai"]["model_metadata_overrides"]
+    assert override_payload["gpt-5.2"] == {
+        "capabilities": {
+            "vision": True,
+        }
+    }
+    assert "gpt-empty" not in override_payload
+
+
 def test_timeline_defaults_include_source_retention_and_edge_whitelists():
     config = SystemConfigModel()
 

@@ -720,17 +720,24 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             key={model.id}
                             type="button"
                             onClick={() => setSelectedModelId(model.id)}
+                            aria-current={activeWorkbenchModel?.id === model.id ? 'true' : undefined}
                             className={cn(
-                              'w-full rounded-xl px-3 py-2.5 text-left transition',
+                              'relative w-full rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45',
                               activeWorkbenchModel?.id === model.id
-                                ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
-                                : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
+                                ? 'border-border/70 bg-background text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
+                                : 'border-transparent text-muted-foreground hover:border-border/45 hover:bg-background/70 hover:text-foreground',
                               isSettingsSurface &&
                                 (activeWorkbenchModel?.id === model.id
-                                  ? 'rounded-md bg-background/90'
+                                  ? 'rounded-md border-[hsl(var(--settings-subnav-border)/0.95)] bg-background/95 shadow-[0_2px_8px_rgba(15,23,42,0.04)]'
                                   : 'rounded-md hover:bg-background/60')
                             )}
                           >
+                            {activeWorkbenchModel?.id === model.id ? (
+                              <span
+                                aria-hidden="true"
+                                className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-[hsl(var(--settings-nav-active-foreground)/0.7)]"
+                              />
+                            ) : null}
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-medium">{model.label}</div>
@@ -853,8 +860,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             ] as const).map(([field, label]) => {
                               const checked =
                                 field === 'hidden' || field === 'preferred'
-                                  ? Boolean(activeWorkbenchModel[field])
-                                  : Boolean(activeWorkbenchModel.capabilities[field]);
+                                  ? Boolean(activeModelOverride?.[field] ?? activeWorkbenchModel[field])
+                                  : Boolean(activeModelOverride?.capabilities?.[field] ?? activeWorkbenchModel.capabilities[field]);
 
                               return (
                                 <div

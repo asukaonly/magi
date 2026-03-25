@@ -1056,6 +1056,40 @@ describe('config forms', () => {
     expect(latest.providers.openai.model_metadata_overrides['gpt-5.2'].capabilities.embedding).toBe(true);
   });
 
+  it('reflects persisted capability overrides in the provider workbench toggles', async () => {
+    const user = userEvent.setup();
+    const overrideValue = {
+      ...structuredClone(llmValue),
+      providers: {
+        ...structuredClone(llmValue.providers),
+        glm: {
+          ...structuredClone(llmValue.providers.glm),
+          model_metadata_overrides: {
+            'glm-5': {
+              capabilities: {
+                vision: true,
+              },
+            },
+          },
+        },
+      },
+    };
+
+    render(
+      <Form initialValues={{ llm: overrideValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click((await screen.findByText('Z.ai')).closest('button') as HTMLButtonElement);
+    const modelList = await screen.findByTestId('llm-provider-model-list-pane');
+    await user.click((within(modelList).getByText('GLM-5') as HTMLElement).closest('button') as HTMLButtonElement);
+
+    const editor = screen.getByTestId('llm-provider-model-editor');
+    expect((within(modelList).getByText('GLM-5') as HTMLElement).closest('button')).toHaveAttribute('aria-current', 'true');
+    expect(within(editor).getByRole('switch', { name: 'llm.modelFields.vision' })).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('lets users remove a custom provider and falls back to builtin providers', async () => {
     const user = userEvent.setup();
 
