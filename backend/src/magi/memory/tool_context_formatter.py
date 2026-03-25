@@ -5,6 +5,16 @@ from __future__ import annotations
 from typing import Any, Dict
 
 
+def _coalesce_text(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return ""
+
+
 def compact_memory_tool_data(
     data: Dict[str, Any],
     *,
@@ -192,9 +202,11 @@ def _compact_relationships(items: Any, *, max_items: int) -> list[dict[str, Any]
             continue
         compact.append(
             {
-                "subject": item.get("subject"),
+                "subject": _coalesce_text(item.get("subject"), item.get("subject_id")),
+                "subject_type": item.get("subject_type"),
                 "predicate": item.get("predicate"),
-                "object": item.get("object"),
+                "object": _coalesce_text(item.get("object"), item.get("object_id")),
+                "object_type": item.get("object_type"),
                 "confidence": item.get("confidence"),
             }
         )
@@ -208,17 +220,24 @@ def _compact_assertions(items: Any, *, max_items: int, max_text_chars: int) -> l
     for item in items[:max_items]:
         if not isinstance(item, dict):
             continue
+        assertion_text = _coalesce_text(
+            item.get("claim"),
+            item.get("content"),
+            item.get("trait_value"),
+            item.get("target_entity_id"),
+        )
         preview, truncated = _truncate_text(
-            item.get("claim") or item.get("content"),
+            assertion_text,
             max_text_chars=max_text_chars,
         )
         compact.append(
             {
-                "subject": item.get("subject"),
-                "predicate": item.get("predicate"),
+                "subject": _coalesce_text(item.get("subject"), item.get("entity_id")),
+                "predicate": _coalesce_text(item.get("predicate"), item.get("trait_name"), item.get("trait_family")),
                 "claim_preview": preview,
                 "claim_truncated": truncated,
-                "confidence": item.get("confidence"),
+                "target_entity_id": _coalesce_text(item.get("target_entity_id")),
+                "confidence": item.get("confidence") or item.get("confidence_score"),
             }
         )
     return compact
@@ -326,7 +345,8 @@ def _render_memory_context(compact_results: Dict[str, Any]) -> str:
         for item in entity_cards:
             lines.append(
                 "- "
-                f"{item.get('name')} ({item.get('entity_type')}): "
+                f"{_coalesce_text(item.get('name'), item.get('entity_id'), 'unknown')} "
+                f"({_coalesce_text(item.get('entity_type'), 'unknown')}): "
                 f"{item.get('summary_preview')}"
             )
         sections.append("\n".join(lines))
@@ -335,9 +355,12 @@ def _render_memory_context(compact_results: Dict[str, Any]) -> str:
     if relationships:
         lines = ["Relationships:"]
         for item in relationships:
+            subject = _coalesce_text(item.get("subject"), "unknown")
+            predicate = _coalesce_text(item.get("predicate"), "RELATED_TO")
+            object_value = _coalesce_text(item.get("object"), "unknown")
             lines.append(
                 "- "
-                f"{item.get('subject')} {item.get('predicate')} {item.get('object')} "
+                f"{subject} {predicate} {object_value} "
                 f"(confidence={item.get('confidence')})"
             )
         sections.append("\n".join(lines))
@@ -346,10 +369,15 @@ def _render_memory_context(compact_results: Dict[str, Any]) -> str:
     if assertions:
         lines = ["Assertions:"]
         for item in assertions:
+            subject = _coalesce_text(item.get("subject"), "unknown")
+            predicate = _coalesce_text(item.get("predicate"), "assertion")
+            claim_preview = _coalesce_text(item.get("claim_preview"))
+            if item.get("target_entity_id"):
+                claim_preview = _coalesce_text(claim_preview, item.get("target_entity_id"))
             lines.append(
                 "- "
-                f"{item.get('subject')} {item.get('predicate')}: "
-                f"{item.get('claim_preview')} (confidence={item.get('confidence')})"
+                f"{subject} {predicate}: {claim_preview} "
+                f"(confidence={item.get('confidence')})"
             )
         sections.append("\n".join(lines))
 

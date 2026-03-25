@@ -538,18 +538,23 @@ def test_build_tool_message_payload_compacts_memory_query_results() -> None:
                     ],
                     "l2_relationships": [
                         {
-                            "subject": "user:u1",
+                            "subject_id": "user:u1",
+                            "subject_type": "user",
                             "predicate": "LIKES",
-                            "object": "weather_state:rainy",
+                            "object_id": "weather_state:rainy",
+                            "object_type": "weather_state",
                             "confidence": 0.94,
                         }
                     ],
                     "l2_assertions": [
                         {
-                            "subject": "user:u1",
-                            "predicate": "preference.weather",
-                            "claim": "User likes rainy weather.",
-                            "confidence": 0.91,
+                            "entity_id": "user:u1",
+                            "entity_type": "user",
+                            "trait_family": "preference",
+                            "trait_name": "preference.weather",
+                            "trait_value": "rainy weather",
+                            "target_entity_id": "weather_state:rainy",
+                            "confidence_score": 0.91,
                         }
                     ],
                     "l1_events": [
@@ -611,6 +616,8 @@ def test_build_tool_message_payload_compacts_memory_query_results() -> None:
     assert "I met Rachel" in memory_context
     assert "LIKES" in memory_context
     assert "rainy weather" in memory_context
+    assert "user:u1" in memory_context
+    assert "weather_state:rainy" in memory_context
     assert "sess-1:turn-3" in memory_context
     assert "event_id" not in memory_context
     assert "created_at" not in memory_context
