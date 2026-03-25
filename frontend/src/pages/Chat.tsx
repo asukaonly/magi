@@ -333,6 +333,7 @@ export const ChatPage: React.FC = () => {
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
+  const [cancellingTurnIds, setCancellingTurnIds] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
@@ -848,6 +849,24 @@ export const ChatPage: React.FC = () => {
     }, 0);
   }, [loadTrace, openDrawer]);
 
+  const requestRunCancel = useCallback(async (turnId: string) => {
+    const normalizedTurnId = String(turnId || '').trim();
+    if (!currentSessionId || !normalizedTurnId) return;
+    if (cancellingTurnIds.includes(normalizedTurnId)) return;
+    setCancellingTurnIds((current) => [...current, normalizedTurnId]);
+    try {
+      await messagesApi.cancelRun(USER_ID, currentSessionId, {
+        reason: 'user_cancel',
+        turnId: normalizedTurnId,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error(t('chat.trace.cancelFailed'));
+    } finally {
+      setCancellingTurnIds((current) => current.filter((item) => item !== normalizedTurnId));
+    }
+  }, [cancellingTurnIds, currentSessionId, t]);
+
   const renderTraceEntry = (message: ChatTimelineMessage) => {
     const turnId = message.turnId;
     const traceSummary = turnId ? summaries[turnId] : undefined;
@@ -877,40 +896,65 @@ export const ChatPage: React.FC = () => {
     );
   };
 
-  const renderStatusCard = (message: ChatTimelineMessage) => (
-    <motion.div
-      key={message.id}
-      initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
-      className="mb-4 flex justify-start"
-    >
-      <div className="flex max-w-[76%] gap-3">
-        {getAvatar('assistant')}
-        <div className="rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>
-          </div>
-          {message.traceSummary && (
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-              <span className="rounded-full bg-muted px-2.5 py-1">
-                {t('chat.trace.active', { count: message.traceSummary.activeSteps })}
-              </span>
-              <span className="rounded-full bg-muted px-2.5 py-1">
-                {t('chat.trace.done', { count: message.traceSummary.completedSteps })}
-              </span>
-              {message.traceSummary.failedSteps > 0 && (
-                <span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-600">
-                  {t('chat.trace.failedCount', { count: message.traceSummary.failedSteps })}
+  const renderStatusCard = (message: ChatTimelineMessage) => {
+    const turnId = String(message.turnId || '').trim();
+    const isRunning = String(message.traceSummary?.status || '').trim() === 'running';
+    const isCancelling = turnId ? cancellingTurnIds.includes(turnId) : false;
+
+    return (
+      <motion.div
+        key={message.id}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+        className="mb-4 flex justify-start"
+      >
+        <div className="flex max-w-[76%] gap-3">
+          {getAvatar('assistant')}
+          <div className="rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>
+            </div>
+            {message.traceSummary && (
+              <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                <span className="rounded-full bg-muted px-2.5 py-1">
+                  {t('chat.trace.active', { count: message.traceSummary.activeSteps })}
                 </span>
+                <span className="rounded-full bg-muted px-2.5 py-1">
+                  {t('chat.trace.done', { count: message.traceSummary.completedSteps })}
+                </span>
+                {message.traceSummary.failedSteps > 0 && (
+                  <span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-600">
+                    {t('chat.trace.failedCount', { count: message.traceSummary.failedSteps })}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {renderTraceEntry(message)}
+              {isRunning && turnId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={isCancelling}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void requestRunCancel(turnId);
+                  }}
+                  className="h-7 rounded-full px-2.5 text-[11px]"
+                >
+                  {t('chat.trace.cancelRun')}
+                </Button>
               )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
-    </motion.div>
-  );
+      </motion.div>
+    );
+  };
 
   const renderUserTurnTraceStatus = (message: ChatTimelineMessage) => {
     if (message.role !== 'user' || !message.traceSummary) return null;

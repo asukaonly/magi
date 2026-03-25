@@ -221,6 +221,8 @@
       "subtitle": "查看本轮回答的执行顺序、并行分支和步骤结果。",
       "pending": "思考中",
       "view": "查看调用链路",
+      "cancelRun": "取消执行",
+      "cancelFailed": "取消执行失败",
       "loadFailed": "加载调用链路失败",
       "loading": "正在加载调用链路...",
       "empty": "暂无调用链路详情",

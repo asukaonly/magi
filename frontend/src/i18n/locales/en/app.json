@@ -221,6 +221,8 @@
       "subtitle": "View the execution order, parallel branches, and step results for this response.",
       "pending": "Thinking",
       "view": "View Call Trace",
+      "cancelRun": "Cancel Run",
+      "cancelFailed": "Failed to cancel run",
       "loadFailed": "Failed to load call trace",
       "loading": "Loading call trace...",
       "empty": "No call trace details yet",

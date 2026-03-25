@@ -75,6 +75,7 @@ vi.mock('@/api', () => ({
     getTrace: vi.fn(),
     uploadAttachment: vi.fn(),
     updateSessionWorkspace: vi.fn(),
+    cancelRun: vi.fn(),
   },
 }));
 
@@ -936,6 +937,55 @@ describe('ChatPage', () => {
     });
 
     expect(screen.getAllByRole('button', { name: 'chat.trace.view' }).length).toBeGreaterThan(0);
+  });
+
+  it('requests run cancellation from the running trace status card', async () => {
+    vi.mocked(messagesApi.cancelRun).mockResolvedValue({
+      success: true,
+      message: 'cancelled',
+      data: {
+        user_id: 'local_user',
+        session_id: 'session-1',
+        run_id: 'run-1',
+        status: 'cancelling',
+      },
+    });
+
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-running',
+          trace_summary: {
+            turn_id: 'turn-running',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.4,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('正在分析项目')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'chat.trace.cancelRun' }));
+
+    await waitFor(() => {
+      expect(messagesApi.cancelRun).toHaveBeenCalledWith('local_user', 'session-1', {
+        reason: 'user_cancel',
+        turnId: 'turn-running',
+      });
+    });
   });
 
   it('does not ask the backend for a current session after websocket subscribe', () => {
