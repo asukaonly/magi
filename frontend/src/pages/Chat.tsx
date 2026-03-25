@@ -1157,7 +1157,7 @@ export const ChatPage: React.FC = () => {
   const getAvatar = (role: 'user' | 'assistant') => {
     if (role === 'user') {
       return (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d6a893]/70 bg-[#c96b45] text-white shadow-[0_10px_20px_rgba(168,93,62,0.18)]">
           <UserRound className="h-4 w-4" />
         </div>
       );
@@ -1491,7 +1491,7 @@ export const ChatPage: React.FC = () => {
     return (
       <div
         className={align === 'user'
-          ? 'mb-3 rounded-lg border border-accent-foreground/15 bg-background/85 px-3 py-2 text-left text-foreground'
+          ? 'mb-3 rounded-lg border border-white/70 bg-white/72 px-3 py-2 text-left text-[#5f3427] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-sm'
           : 'mb-3 rounded-lg border border-border/45 bg-background/80 px-3 py-2 text-left text-foreground'}
       >
         <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
@@ -1839,7 +1839,7 @@ export const ChatPage: React.FC = () => {
                       });
                     }}
                     className={msg.role === 'user'
-                      ? 'rounded-xl rounded-tr-sm border border-accent/15 bg-accent/75 px-4 py-2.5 text-accent-foreground'
+                      ? 'rounded-xl rounded-tr-sm border border-[#ddb29f]/60 bg-[#f6e7de] px-4 py-2.5 text-[#6f3f2d] shadow-[0_12px_28px_rgba(168,93,62,0.08)]'
                       : 'rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}
                   >
                     {renderReplyStrip(msg.replyTo, msg.role)}

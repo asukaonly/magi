@@ -577,6 +577,37 @@ describe('ChatPage', () => {
     expect(screen.queryByTestId('chat-composer-reply-preview')).not.toBeInTheDocument();
   });
 
+  it('renders a lighter user bubble palette and a layered reply card for replied user turns', async () => {
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-user-reply-styled',
+          message_kind: 'user_text',
+          role: 'user',
+          content: '你觉得喜欢什么天气',
+          timestamp: 1100,
+          turn_id: 'turn-user-reply-styled',
+          kind: 'user',
+          reply_to: {
+            message_id: 'msg-assistant-root-style',
+            role: 'assistant',
+            message_kind: 'assistant_final',
+            content_excerpt: '引用条预览',
+          },
+        },
+      ])
+    );
+
+    render(<ChatPage />);
+
+    const userBubble = screen.getByText('你觉得喜欢什么天气').parentElement;
+    const replyStrip = screen.getByText('引用条预览').parentElement;
+
+    expect(userBubble).toHaveClass('bg-[#f6e7de]', 'text-[#6f3f2d]', 'border-[#ddb29f]/60');
+    expect(replyStrip).toHaveClass('bg-white/72', 'border-white/70', 'text-[#5f3427]');
+  });
+
   it('merges a durable user reply event and does not request history again on terminal trace updates', async () => {
     const user = userEvent.setup();
 
