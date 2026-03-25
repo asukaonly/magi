@@ -56,7 +56,43 @@ class _FakeRuntimeTraceStore:
                     }
                 ),
                 "created_at_ms": 101,
-            }
+            },
+            {
+                "notification_id": 3,
+                "channel": "execution_control",
+                "user_id": "local_user",
+                "session_id": "session-1",
+                "turn_id": "turn-1",
+                "payload_json": json.dumps(
+                    {
+                        "user_id": "local_user",
+                        "session_id": "session-1",
+                        "turn_id": "turn-1",
+                        "state": "cancelling",
+                        "can_cancel": False,
+                        "label": "Cancelling run",
+                    }
+                ),
+                "created_at_ms": 102,
+            },
+            {
+                "notification_id": 4,
+                "channel": "execution_control",
+                "user_id": "local_user",
+                "session_id": "session-1",
+                "turn_id": "turn-1",
+                "payload_json": json.dumps(
+                    {
+                        "user_id": "local_user",
+                        "session_id": "session-1",
+                        "turn_id": "turn-1",
+                        "state": "cancelled",
+                        "can_cancel": False,
+                        "label": "Run cancelled",
+                    }
+                ),
+                "created_at_ms": 103,
+            },
         ]
 
     async def get_latest_notification_id(self) -> int:
@@ -109,3 +145,8 @@ async def test_websocket_bridge_polls_runtime_notifications(monkeypatch: pytest.
     assert broadcasts[0][2] == "user_local_user"
     assert broadcasts[1][0] == "turn_ux_plan"
     assert broadcasts[1][1]["ux_plan"]["assistant_surface_mode"] == "interim_then_final"
+    assert broadcasts[2][0] == "turn_execution_control"
+    assert broadcasts[2][1]["state"] == "cancelling"
+    assert broadcasts[2][1]["can_cancel"] is False
+    assert broadcasts[3][0] == "turn_execution_control"
+    assert broadcasts[3][1]["state"] == "cancelled"

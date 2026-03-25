@@ -54,6 +54,11 @@ export interface WSExecutionTraceUpdateMessage {
   data: ExecutionTraceUpdateData;
 }
 
+export interface WSTurnExecutionControlMessage {
+  type: 'turn_execution_control';
+  data: TurnExecutionControlData;
+}
+
 export interface WSAgentResponseMessage {
   type: 'agent_response';
   data: AgentResponseData;
@@ -124,6 +129,16 @@ export interface AgentResponseData {
   trace_available?: boolean;
 }
 
+export interface TurnExecutionControlData {
+  session_id?: string;
+  turn_id: string;
+  run_id?: string | null;
+  orchestration_id?: string | null;
+  state: string;
+  can_cancel: boolean;
+  label?: string | null;
+}
+
 // ============================================================================
 // Client Message Types (Client -> Server)
 // ============================================================================
@@ -166,6 +181,7 @@ export type WSServerMessage =
   | WSPersonalityInfoMessage
   | WSMessageSentMessage
   | WSExecutionTraceUpdateMessage
+  | WSTurnExecutionControlMessage
   | WSAgentResponseMessage
   | WSErrorMessage;
 

@@ -334,6 +334,16 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             run_id=active_run.run_id,
             run_revision=active_run.revision,
         )
+        await self._postprocess_service.emit_execution_control_notification(
+            user_id=self.agent_id,
+            session_id=session_id,
+            turn_id=active_run.cancel_anchor_turn_id or active_run.root_turn_id,
+            run_id=active_run.run_id,
+            orchestration_id=(cancelled_orchestration_ids[0] if cancelled_orchestration_ids else None),
+            state="cancelling",
+            can_cancel=False,
+            label="Cancelling run",
+        )
         return {
             "session_id": session_id,
             "run_id": active_run.run_id,

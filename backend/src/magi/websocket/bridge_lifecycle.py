@@ -79,6 +79,9 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         if notification.channel == "turn_ux_plan":
             await self._broadcast_turn_ux_plan(notification=notification, payload=payload)
             return
+        if notification.channel == "execution_control":
+            await self._broadcast_execution_control(notification=notification, payload=payload)
+            return
         if notification.channel == "trace_update":
             await self._broadcast_trace_update(notification=notification)
 
@@ -149,6 +152,33 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 "turn_id": turn_id,
                 "trace_summary": summary,
                 "trace_available": bool(summary.get("trace_available")),
+            },
+            room=f"user_{user_id}",
+        )
+
+    async def _broadcast_execution_control(
+        self,
+        *,
+        notification: RuntimeNotificationRecord,
+        payload: dict[str, object],
+    ) -> None:
+        user_id = str(notification.user_id or payload.get("user_id") or "").strip()
+        session_id = str(notification.session_id or payload.get("session_id") or "").strip()
+        turn_id = str(notification.turn_id or payload.get("turn_id") or "").strip()
+        if not user_id or not session_id or not turn_id:
+            return
+
+        await manager.broadcast(
+            "turn_execution_control",
+            {
+                "user_id": user_id,
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "run_id": str(payload.get("run_id") or "").strip() or None,
+                "orchestration_id": str(payload.get("orchestration_id") or "").strip() or None,
+                "state": str(payload.get("state") or "").strip() or "running",
+                "can_cancel": bool(payload.get("can_cancel")),
+                "label": str(payload.get("label") or "").strip() or None,
             },
             room=f"user_{user_id}",
         )

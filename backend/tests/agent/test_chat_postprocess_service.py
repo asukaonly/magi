@@ -291,11 +291,22 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
         session_id="session-1",
         turn_id="turn-1",
     )
+    await notifier.emit_execution_control(
+        user_id="local_user",
+        session_id="session-1",
+        turn_id="turn-1",
+        run_id="run-1",
+        orchestration_id="orch-1",
+        state="cancelling",
+        can_cancel=False,
+        label="Cancelling run",
+    )
 
     notifications = await runtime_trace_store.list_notifications(after_id=0)
     assert [notification.channel for notification in notifications] == [
         "agent_response",
         "trace_update",
+        "execution_control",
     ]
 
 

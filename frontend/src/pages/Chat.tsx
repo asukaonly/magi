@@ -671,6 +671,28 @@ export const ChatPage: React.FC = () => {
     [applyTurnUxPlan, currentSessionId, t]
   );
 
+  const handleTurnExecutionControlEvent = useCallback(
+    (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
+      const turnId = String(payload?.turn_id || '').trim();
+      const state = String(payload?.state || '').trim();
+      if (!sessionId || !turnId || !state) return;
+
+      if (state === 'cancelling') {
+        setCancellingTurnIds((current) => (current.includes(turnId) ? current : [...current, turnId]));
+        return;
+      }
+
+      if (['cancelled', 'completed', 'failed', 'interrupted', 'merged'].includes(state)) {
+        setCancellingTurnIds((current) => current.filter((item) => item !== turnId));
+        if (state === 'cancelled') {
+          requestHistory(sessionId);
+        }
+      }
+    },
+    [currentSessionId, requestHistory]
+  );
+
   const handleWSMessage = useCallback(
     (data: WSMessage) => {
       switch (data.type) {
@@ -722,6 +744,11 @@ export const ChatPage: React.FC = () => {
         return;
       }
 
+      if (eventName === 'turn_execution_control' && data.data) {
+        handleTurnExecutionControlEvent(data.data);
+        return;
+      }
+
       if (eventName === 'agent_response' && data.data) {
         handleAgentResponseEvent(data.data);
       }
@@ -729,6 +756,7 @@ export const ChatPage: React.FC = () => {
     [
       currentSessionId,
       handleAgentResponseEvent,
+      handleTurnExecutionControlEvent,
       handleExecutionTraceUpdate,
       handleTurnUxPlanEvent,
       messages.length,
