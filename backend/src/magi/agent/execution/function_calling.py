@@ -381,7 +381,8 @@ class FunctionCallingOrchestrator:
                             self.postprocessor.build_tool_message_payload(
                                 tool_name=tool_call.name,
                                 result=result,
-                            )
+                            ),
+                            ensure_ascii=False,
                         ),
                     },
                 )

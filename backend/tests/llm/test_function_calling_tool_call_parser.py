@@ -528,6 +528,30 @@ def test_build_tool_message_payload_compacts_memory_query_results() -> None:
             "data": {
                 "results": {
                     "l0_workbench": [],
+                    "l2_entity_cards": [
+                        {
+                            "entity_id": "user:u1",
+                            "entity_type": "user",
+                            "name": "Asuka",
+                            "summary": "Likes rainy weather.",
+                        }
+                    ],
+                    "l2_relationships": [
+                        {
+                            "subject": "user:u1",
+                            "predicate": "LIKES",
+                            "object": "weather_state:rainy",
+                            "confidence": 0.94,
+                        }
+                    ],
+                    "l2_assertions": [
+                        {
+                            "subject": "user:u1",
+                            "predicate": "preference.weather",
+                            "claim": "User likes rainy weather.",
+                            "confidence": 0.91,
+                        }
+                    ],
                     "l1_events": [
                         {
                             "event_id": "evt-1",
@@ -559,6 +583,13 @@ def test_build_tool_message_payload_compacts_memory_query_results() -> None:
                         "intent_source": "llm",
                         "primary_count": 1,
                         "l1_hit_count": 1,
+                        "l2_entity_card_count": 1,
+                        "l2_relationship_count": 1,
+                        "l2_assertion_count": 1,
+                        "l2_query_trace": {
+                            "resolved_entities": [{"entity_id": "user:u1"}],
+                            "predicates": ["LIKES"],
+                        },
                     },
                 },
                 "meta": {"intent_source": "llm", "l1_hit_count": 1},
@@ -574,12 +605,28 @@ def test_build_tool_message_payload_compacts_memory_query_results() -> None:
     memory_context = payload["data"]["memory_context"]
     assert "Timeline Summary:" in memory_context
     assert "Key Events:" in memory_context
+    assert "Entity Cards:" in memory_context
+    assert "Relationships:" in memory_context
+    assert "Assertions:" in memory_context
     assert "I met Rachel" in memory_context
+    assert "LIKES" in memory_context
+    assert "rainy weather" in memory_context
     assert "sess-1:turn-3" in memory_context
     assert "event_id" not in memory_context
     assert "created_at" not in memory_context
     assert "tom_depth" not in memory_context
-    assert payload["data"]["meta"] == {"intent_source": "llm", "l1_hit_count": 1}
+    assert payload["data"]["meta"] == {
+        "intent_source": "llm",
+        "primary_count": 1,
+        "l1_hit_count": 1,
+        "l2_entity_card_count": 1,
+        "l2_relationship_count": 1,
+        "l2_assertion_count": 1,
+        "l2_query_trace": {
+            "resolved_entities": [{"entity_id": "user:u1"}],
+            "predicates": ["LIKES"],
+        },
+    }
 
 
 def test_postprocessor_uses_registered_tool_context_formatter() -> None:

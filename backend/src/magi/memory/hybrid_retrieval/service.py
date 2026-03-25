@@ -275,6 +275,9 @@ class HybridRetrievalService:
             evidence_bundles=payload.l1_evidence_bundles,
         )
         payload.trace["l1_timeline_summary_count"] = len(payload.l1_timeline_summary)
+        payload.trace["l2_entity_card_count"] = len(payload.l2_entity_cards)
+        payload.trace["l2_relationship_count"] = len(payload.l2_relationships)
+        payload.trace["l2_assertion_count"] = len(payload.l2_assertions)
 
         return payload
 

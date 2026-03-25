@@ -58,7 +58,12 @@ def compact_memory_tool_data(
             results.get("l4_procedures"), max_items=max_items, max_text_chars=max_text_chars
         )
 
-    compact_meta = _compact_trace_meta(data.get("meta") or results.get("trace"))
+    merged_trace: dict[str, Any] = {}
+    if isinstance(results.get("trace"), dict):
+        merged_trace.update(results.get("trace") or {})
+    if isinstance(data.get("meta"), dict):
+        merged_trace.update(data.get("meta") or {})
+    compact_meta = _compact_trace_meta(merged_trace)
 
     compact_payload: Dict[str, Any] = {
         "memory_context": _render_memory_context(compact_results),
@@ -276,6 +281,10 @@ def _compact_trace_meta(trace: Any) -> dict[str, Any]:
         "l1_hit_count",
         "l1_evidence_bundle_count",
         "l1_timeline_summary_count",
+        "l2_entity_card_count",
+        "l2_relationship_count",
+        "l2_assertion_count",
+        "l2_query_trace",
         "rule_backstop_triggered",
         "rule_backstop_reason",
         "comparison_backstop_triggered",
@@ -319,6 +328,28 @@ def _render_memory_context(compact_results: Dict[str, Any]) -> str:
                 "- "
                 f"{item.get('name')} ({item.get('entity_type')}): "
                 f"{item.get('summary_preview')}"
+            )
+        sections.append("\n".join(lines))
+
+    relationships = list(compact_results.get("l2_relationships") or [])
+    if relationships:
+        lines = ["Relationships:"]
+        for item in relationships:
+            lines.append(
+                "- "
+                f"{item.get('subject')} {item.get('predicate')} {item.get('object')} "
+                f"(confidence={item.get('confidence')})"
+            )
+        sections.append("\n".join(lines))
+
+    assertions = list(compact_results.get("l2_assertions") or [])
+    if assertions:
+        lines = ["Assertions:"]
+        for item in assertions:
+            lines.append(
+                "- "
+                f"{item.get('subject')} {item.get('predicate')}: "
+                f"{item.get('claim_preview')} (confidence={item.get('confidence')})"
             )
         sections.append("\n".join(lines))
 

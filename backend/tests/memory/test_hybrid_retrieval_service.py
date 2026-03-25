@@ -371,8 +371,8 @@ class TestServiceLayerRouting:
     async def test_graph_mode_populates_l2_query_trace(self):
         l2 = AsyncMock()
         l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = []
-        l2.list_tom_assertions.return_value = []
+        l2.get_relationships.return_value = [{"triple_id": "triple-1", "predicate": "KNOWS"}]
+        l2.list_tom_assertions.return_value = [{"assertion_id": "assert-1"}]
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -396,6 +396,9 @@ class TestServiceLayerRouting:
         assert isinstance(l2_trace, dict)
         assert l2_trace["resolved_entities"][0]["entity_id"] == "place:shanghai"
         assert "KNOWS" in l2_trace["predicates"]
+        assert result.trace["l2_entity_card_count"] == 0
+        assert result.trace["l2_relationship_count"] == 1
+        assert result.trace["l2_assertion_count"] == 1
 
 
 class TestServiceFallback:
