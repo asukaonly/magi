@@ -196,6 +196,42 @@ async def test_set_message_label_route_updates_message_without_creating_new_row(
 
 
 @pytest.mark.asyncio
+async def test_delete_message_route_soft_deletes_existing_chat_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeChatStore:
+        async def hide_message(self, *, session_id: str, message_id: str):
+            captured["session_id"] = session_id
+            captured["message_id"] = message_id
+            return {
+                "message_id": message_id,
+                "session_id": session_id,
+                "is_visible": False,
+            }
+
+    monkeypatch.setattr(messages_router, "require_chat_store", lambda: _FakeChatStore())
+
+    response = await messages_router.delete_message(
+        session_id="s1",
+        message_id="msg-1",
+        user_id="u1",
+    )
+
+    assert response == {
+        "success": True,
+        "user_id": "u1",
+        "session_id": "s1",
+        "deleted_message_id": "msg-1",
+    }
+    assert captured == {
+        "session_id": "s1",
+        "message_id": "msg-1",
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_execution_trace_uses_async_trace_service(monkeypatch: pytest.MonkeyPatch) -> None:
     class _FakeReadService:
         pass

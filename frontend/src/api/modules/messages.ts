@@ -267,6 +267,20 @@ export const messagesApi = {
     return response;
   },
 
+  deleteMessage: async (
+    userId: string = DEFAULT_USER_ID,
+    sessionId: string,
+    messageId: string,
+  ): Promise<{ success: boolean; user_id: string; session_id: string; deleted_message_id: string }> => {
+    const response = await api.delete<{ success: boolean; user_id: string; session_id: string; deleted_message_id: string }>(
+      `/messages/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`,
+      {
+        params: { user_id: userId },
+      }
+    );
+    return (response.data || response) as { success: boolean; user_id: string; session_id: string; deleted_message_id: string };
+  },
+
   uploadAttachment: async (
     userId: string = DEFAULT_USER_ID,
     sessionId: string,

@@ -673,6 +673,42 @@ class ChatStore:
             await db.commit()
         return await self.get_message(message_id)
 
+    async def hide_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+    ) -> ChatMessageRecord | None:
+        """Soft-delete one transcript message from display history."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            cur = await db.execute(
+                """
+                UPDATE chat_messages
+                SET is_visible = 0
+                WHERE session_id = ?
+                  AND message_id = ?
+                  AND is_visible = 1
+                """,
+                (
+                    session_id,
+                    message_id,
+                ),
+            )
+            if int(cur.rowcount or 0) <= 0:
+                await db.rollback()
+                return None
+            await db.execute(
+                """
+                UPDATE chat_sessions
+                SET history_version = history_version + 1
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            await db.commit()
+        return await self.get_message(message_id)
+
     async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:

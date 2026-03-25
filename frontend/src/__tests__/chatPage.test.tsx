@@ -77,6 +77,7 @@ vi.mock('@/api', () => ({
     updateSessionWorkspace: vi.fn(),
     cancelRun: vi.fn(),
     labelMessage: vi.fn(),
+    deleteMessage: vi.fn(),
   },
 }));
 
@@ -126,6 +127,7 @@ describe('ChatPage', () => {
     pickDirectoryMock.mockResolvedValue(undefined);
     toastWarningMock.mockReset();
     vi.mocked(messagesApi.labelMessage).mockReset();
+    vi.mocked(messagesApi.deleteMessage).mockReset();
     vi.mocked(configApi.get).mockResolvedValue(buildConfigWithVision(true) as any);
     Element.prototype.scrollIntoView = vi.fn();
     URL.createObjectURL = vi.fn(() => 'blob:chat-attachment');
@@ -574,7 +576,7 @@ describe('ChatPage', () => {
     expect(screen.queryByTestId('chat-composer-reply-preview')).not.toBeInTheDocument();
   });
 
-  it('renders persisted labels and applies a quick label without adding a new bubble', async () => {
+  it('opens the label popover and applies an emoji label without adding a new bubble', async () => {
     const user = userEvent.setup();
     vi.mocked(messagesApi.labelMessage).mockResolvedValue({
       success: true,
@@ -626,8 +628,11 @@ describe('ChatPage', () => {
     expect(screen.getByText('👌')).toBeInTheDocument();
 
     const beforeCount = useConversationStore.getState().messagesBySession['session-1']?.length;
-    const quickLabelButtons = screen.getAllByRole('button', { name: 'chat.label.quickLike' });
-    await user.click(quickLabelButtons[1]);
+    const labelButtons = screen.getAllByRole('button', { name: 'chat.label.action' });
+    await user.click(labelButtons[1]);
+    expect(screen.getByTestId('chat-label-popover')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '👍' }));
 
     await waitFor(() => {
       expect(messagesApi.labelMessage).toHaveBeenCalledWith('local_user', 'session-1', 'msg-assistant-plain', {
@@ -653,6 +658,122 @@ describe('ChatPage', () => {
       source: 'manual',
       createdAtMs: 1200,
     });
+  });
+
+  it('applies a custom text label from the popover and closes it afterwards', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.labelMessage).mockResolvedValue({
+      success: true,
+      data: {
+        message_id: 'msg-assistant-custom-label',
+        label: {
+          kind: 'text',
+          text: '记一下',
+          applied_by: 'user',
+          source: 'manual',
+          created_at_ms: 2200,
+        },
+      },
+    } as any);
+
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-assistant-custom-label',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: 'Custom label target',
+          timestamp: 2100,
+          turn_id: 'turn-custom',
+          kind: 'assistant',
+        } as any,
+      ])
+    );
+
+    render(<ChatPage />);
+
+    await user.click(screen.getByRole('button', { name: 'chat.label.action' }));
+    await user.type(screen.getByPlaceholderText('chat.label.customPlaceholder'), '记一下');
+    await user.click(screen.getByRole('button', { name: 'chat.label.send' }));
+
+    await waitFor(() => {
+      expect(messagesApi.labelMessage).toHaveBeenCalledWith('local_user', 'session-1', 'msg-assistant-custom-label', {
+        kind: 'text',
+        text: '记一下',
+        applied_by: 'user',
+        source: 'manual',
+      });
+    });
+
+    expect(screen.queryByTestId('chat-label-popover')).not.toBeInTheDocument();
+    expect(screen.getByText('记一下')).toBeInTheDocument();
+  });
+
+  it('opens a message context menu with reply, copy, and delete actions', async () => {
+    const user = userEvent.setup();
+    const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: clipboardWriteText,
+      },
+    });
+    vi.mocked(messagesApi.deleteMessage).mockResolvedValue({
+      success: true,
+      user_id: 'local_user',
+      session_id: 'session-1',
+      deleted_message_id: 'msg-assistant-context',
+    } as any);
+
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-user-context',
+          message_kind: 'user_text',
+          role: 'user',
+          content: 'User asks here',
+          timestamp: 1000,
+          turn_id: 'turn-user-context',
+          kind: 'user',
+        } as any,
+        {
+          message_id: 'msg-assistant-context',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: '**Answer** from AI',
+          timestamp: 1100,
+          turn_id: 'turn-assistant-context',
+          kind: 'assistant',
+        } as any,
+      ])
+    );
+
+    render(<ChatPage />);
+
+    fireEvent.contextMenu(screen.getByText('Answer'));
+
+    const menu = screen.getByTestId('chat-message-context-menu');
+    expect(within(menu).getByRole('button', { name: 'chat.context.reply' })).toBeInTheDocument();
+    expect(within(menu).getByRole('button', { name: 'chat.context.copyMarkdown' })).toBeInTheDocument();
+    expect(within(menu).getByRole('button', { name: 'chat.context.copyPlain' })).toBeInTheDocument();
+    expect(within(menu).getByRole('button', { name: 'chat.context.delete' })).toBeInTheDocument();
+
+    await user.click(within(menu).getByRole('button', { name: 'chat.context.copyPlain' }));
+    expect(clipboardWriteText).toHaveBeenCalledWith('Answer from AI');
+
+    fireEvent.contextMenu(screen.getByText('Answer'));
+    await user.click(screen.getByRole('button', { name: 'chat.context.reply' }));
+    expect(screen.getByTestId('chat-composer-reply-preview')).toHaveTextContent('**Answer** from AI');
+
+    fireEvent.contextMenu(screen.getByText('Answer'));
+    await user.click(screen.getByRole('button', { name: 'chat.context.delete' }));
+
+    await waitFor(() => {
+      expect(messagesApi.deleteMessage).toHaveBeenCalledWith('local_user', 'session-1', 'msg-assistant-context');
+    });
+    expect(screen.queryByText('Answer')).not.toBeInTheDocument();
   });
 
   it('renders trace entry when an agent response arrives through chat subscription', async () => {

@@ -193,8 +193,19 @@
       "user": "Replying to user"
     },
     "label": {
-      "quickLike": "Like",
-      "applyFailed": "Failed to update message label"
+      "action": "Label",
+      "applyFailed": "Failed to update message label",
+      "customHint": "You can also enter a label up to 4 characters. Sending will replace the existing label.",
+      "customPlaceholder": "Enter a label",
+      "send": "Send"
+    },
+    "context": {
+      "reply": "Reply",
+      "copyMarkdown": "Copy Markdown",
+      "copyPlain": "Copy Plain Text",
+      "delete": "Delete Message",
+      "copyFailed": "Failed to copy message",
+      "deleteFailed": "Failed to delete message"
     },
     "workspace": {
       "label": "Conversation Workspace",

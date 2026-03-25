@@ -439,6 +439,29 @@ async def set_message_label(
     }
 
 
+@user_messages_router.delete("/session/{session_id}/message/{message_id}", response_model=Dict[str, Any])
+async def delete_message(session_id: str, message_id: str, user_id: str = DEFAULT_USER_ID):
+    """Soft-delete one chat message from the visible transcript."""
+    try:
+        chat_store = require_chat_store()
+        message = await chat_store.hide_message(
+            session_id=session_id,
+            message_id=message_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    return {
+        "success": True,
+        "user_id": user_id,
+        "session_id": session_id,
+        "deleted_message_id": message_id,
+    }
+
+
 @user_messages_router.delete("/session/{session_id}", response_model=Dict[str, Any])
 async def delete_session(session_id: str, user_id: str = DEFAULT_USER_ID):
     """Delete one session and its related chat data."""

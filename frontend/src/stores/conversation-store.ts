@@ -58,6 +58,7 @@ type ConversationState = {
   applyTurnUxPlan: (payload: TurnUxPlanPayload) => void;
   receiveAgentResponse: (payload: AgentResponsePayload) => void;
   applyMessageLabel: (sessionId: string, messageId: string, label: ChatTimelineMessageLabel) => void;
+  removeMessage: (sessionId: string, messageId: string) => void;
   upsertTraceSummary: (sessionId: string, turnId: string, summary: NormalizedExecutionTraceSummary | null) => void;
   reset: () => void;
 };
@@ -309,6 +310,42 @@ export const useConversationStore = create<ConversationState>((set) => ({
         ...state.messagesBySession,
         [sessionId]: nextMessages,
       },
+    };
+  }),
+  removeMessage: (sessionId, messageId) => set((state) => {
+    if (!sessionId || !messageId) {
+      return state;
+    }
+    const previousMessages = state.messagesBySession[sessionId] || [];
+    const nextMessages = previousMessages.filter((message) => message.messageId !== messageId);
+    if (nextMessages.length === previousMessages.length) {
+      return state;
+    }
+    const currentSession = state.sessionsById[sessionId];
+    const visibleMessages = nextMessages.filter((message) => message.kind !== 'status');
+    const lastVisibleMessage = [...visibleMessages].reverse().find((message) => Boolean(String(message.content || '').trim()));
+    const lastVisibleUserMessage = [...visibleMessages]
+      .reverse()
+      .find((message) => message.role === 'user' && Boolean(String(message.content || '').trim()));
+    return {
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: nextMessages,
+      },
+      sessionsById: currentSession
+        ? {
+          ...state.sessionsById,
+          [sessionId]: {
+            ...currentSession,
+            last_message_preview: lastVisibleMessage?.content || '',
+            last_user_message_preview: lastVisibleUserMessage?.content || '',
+            message_count: visibleMessages.length,
+            last_timestamp: visibleMessages.length > 0
+              ? Math.floor((visibleMessages[visibleMessages.length - 1]?.timestamp || 0) / 1000)
+              : 0,
+          },
+        }
+        : state.sessionsById,
     };
   }),
   upsertTraceSummary: (sessionId, turnId, summary) => set((state) => ({

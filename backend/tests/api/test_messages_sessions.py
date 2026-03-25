@@ -924,6 +924,38 @@ def test_update_message_label_persists_and_display_history_returns_label(tmp_pat
     }
 
 
+def test_hide_message_excludes_it_from_display_history(tmp_path):
+    chat_db_path = tmp_path / "chat.db"
+    store = ChatStore(db_path=str(chat_db_path))
+    __import__("asyncio").run(store.initialize())
+
+    user_message = __import__("asyncio").run(
+        store.create_user_turn(
+            session_id="s-hide",
+            user_id="u1",
+            turn_id="turn-hide",
+            message_text="hide me",
+            created_at_ms=100,
+        )
+    )
+
+    __import__("asyncio").run(
+        store.hide_message(
+            session_id="s-hide",
+            message_id=user_message.message_id,
+        )
+    )
+
+    service = ChatReadService()
+    service._chat_db_path = chat_db_path
+    service._l1_db_path = tmp_path / "l1.sqlite3"
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+
+    history = service.get_display_history("u1", "s-hide", limit=20)
+
+    assert history == []
+
+
 def test_delete_session_bumps_history_version(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)

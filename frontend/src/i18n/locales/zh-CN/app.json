@@ -193,8 +193,19 @@
       "user": "回复用户"
     },
     "label": {
-      "quickLike": "点赞",
-      "applyFailed": "更新消息标签失败"
+      "action": "标签",
+      "applyFailed": "更新消息标签失败",
+      "customHint": "也可以输入 4 字内标签，发送后覆盖旧标签",
+      "customPlaceholder": "输入标签",
+      "send": "发送"
+    },
+    "context": {
+      "reply": "回复",
+      "copyMarkdown": "复制 Markdown",
+      "copyPlain": "复制纯文本",
+      "delete": "删除消息",
+      "copyFailed": "复制消息失败",
+      "deleteFailed": "删除消息失败"
     },
     "workspace": {
       "label": "当前会话目录",
