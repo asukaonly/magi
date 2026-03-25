@@ -910,11 +910,23 @@ class RetrievalQuery:
     user_id: str | None
     session_id: str | None
     time_range: dict[str, Any]
-    query_mode: Literal["detail", "summary", "experience", "graph", "strategy"]
+    recall_intent: Literal[
+        "event_recall",
+        "preference_recall",
+        "profile_fact_recall",
+        "relationship_recall",
+        "workflow_reuse",
+    ] | None
+    query_mode: Literal["detail", "summary", "experience", "graph", "strategy"] | None
     source_filters: list[str]
     domain_filters: list[str]
     limit: int
 ```
+
+说明：
+
+1. `recall_intent` 负责表达“用户到底在回忆什么类型的记忆”，它决定检索层的优先层路由。
+2. `query_mode` 负责表达结果粒度（细节、总结、经验、图谱、策略），不再单独承担回忆类型分类。
 
 ```python
 @dataclass
@@ -1170,15 +1182,16 @@ retrieved_memory_payload = {
 
 1. 新增 `backend/src/magi/memory/hybrid_retrieval/`
 2. 删除/替换 `backend/src/magi/memory/query/`
-3. 修改 `backend/src/magi/tools/memory_query.py`
+3. 修改 `backend/src/magi/tools/builtin/memory_query_tool.py`
 4. 修改 `backend/src/magi/memory/prompt_context_assembler.py`
 5. 修改 `backend/src/magi/agent/task_agents/chat/prompt_service.py`
 
 验收：
 
 1. `detail / summary / experience / graph / strategy` 五种模式可跑通
-2. prompt payload 中能读取 L0/L2/L3/L4
-3. 检索结果默认不被 runtime telemetry 主导
+2. `event_recall / preference_recall / profile_fact_recall / relationship_recall / workflow_reuse` 五类回忆意图可被显式表达并驱动检索层路由
+3. prompt payload 中能读取 L0/L2/L3/L4
+4. 检索结果默认不被 runtime telemetry 主导
 
 ### 13.7 Phase 6: 维护、API 与清理
 

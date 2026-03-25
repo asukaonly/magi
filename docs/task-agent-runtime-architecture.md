@@ -181,7 +181,7 @@ Prompt assembly ownership lives in `backend/src/magi/context/`.
 The current split is:
 
 - `ChatTaskAgent.build_context`
-  Builds typed runtime context such as fact classification, explicit session identity, conversation history, tool errors, and active orchestrations
+  Builds typed runtime context such as fact classification, explicit session identity, conversation history, tool errors, active orchestrations, and routing environment facts like OS, current datetime, timezone, workspace path, and home directory
 
 - `ContextAssemblyService`
   Owns prompt-context policy, implicit retrieval query selection, prompt module assembly, and final system prompt rendering
@@ -201,8 +201,10 @@ Current implicit-memory policy is intentionally conservative:
 Explicit historical recall is handled separately from implicit prompt injection:
 
 - `ContextDecider` remains a fast classifier and only performs a lightweight rule-based post-pass to mark explicit memory recall requests
-- when such a request is detected, `memory_query` is promoted into the selected tool set and a small structured hint payload is attached for first-attempt parameters
+- when such a request is detected, `memory_query` is promoted into the selected tool set and a routing-scoped structured hint payload (`routing_memory_hint`) is attached for first-attempt parameters
+- that first-attempt hint now carries a recall-intent taxonomy such as `event_recall`, `preference_recall`, `profile_fact_recall`, `relationship_recall`, or `workflow_reuse`
 - parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
+- the main LLM may still discover additional memory needs later during function calling and issue a refined tool call; the routing hint is advisory, not the final execution payload
 - once `memory_query` has returned, its tool payload is marked as the source of truth for historical recall in the current turn, and final-response prompt rules explicitly forbid replacing missing recall results with implicit memory or guesses
 
 ### `ExploreTaskAgent`
