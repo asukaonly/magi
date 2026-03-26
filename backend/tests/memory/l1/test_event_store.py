@@ -195,6 +195,76 @@ async def test_l1_event_store_restores_final_memory_event_shape(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_l1_event_store_queries_by_content_source_and_time_range(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        base_time = 1710000000.0
+        events = [
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "West Lake walk notes",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat_projector",
+                level=EventLevel.INFO,
+                correlation_id="corr-query-1",
+                timestamp=base_time,
+            ),
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "Longjing tea hills",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="timeline_importer",
+                level=EventLevel.INFO,
+                correlation_id="corr-query-2",
+                timestamp=base_time + 60,
+            ),
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "West Lake sunset review",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat_projector",
+                level=EventLevel.INFO,
+                correlation_id="corr-query-3",
+                timestamp=base_time + 3600,
+            ),
+        ]
+
+        for index, event in enumerate(events, start=1):
+            await store.store(normalize_runtime_event(event, event_id=f"evt-query-{index}"))
+
+        queried = await store.query_events(
+            query="west lake",
+            source_filters=["chat_projector"],
+            start_time=base_time - 1,
+            end_time=base_time + 120,
+            limit=10,
+        )
+
+        assert [event["event_id"] for event in queried] == ["evt-query-1"]
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_l1_timeline_roundtrip_uses_timeline_metadata(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
     from magi.timeline.contracts import TimelineContentBlock, TimelineEvent

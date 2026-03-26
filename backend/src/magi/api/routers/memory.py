@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime, time as datetime_time
 import re
 import time
 from typing import Any, Dict, List, Literal, Optional
@@ -316,6 +316,21 @@ def _serialize_memory_event(event: MemoryEvent | Dict[str, Any]) -> Dict[str, An
     if isinstance(event, MemoryEvent):
         return event.to_dict()
     return dict(event)
+
+
+def _parse_day_boundary(value: str | None, *, end_of_day: bool) -> float | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    try:
+        parsed = date.fromisoformat(normalized)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid date value: {normalized}",
+        ) from exc
+    boundary = datetime_time.max if end_of_day else datetime_time.min
+    return datetime.combine(parsed, boundary).timestamp()
 
 
 # =============================================================================
@@ -950,15 +965,25 @@ async def get_l1_events(
     event_type: Optional[str] = Query(default=None),
     user_id: Optional[str] = Query(default=None),
     session_id: Optional[str] = Query(default=None),
+    query: Optional[str] = Query(default=None),
+    source: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
 ):
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l1:
         return {"events": [], "stats": {"total": 0}}
 
+    start_time = _parse_day_boundary(start_date, end_of_day=False)
+    end_time = _parse_day_boundary(end_date, end_of_day=True)
     events = await unified_memory.l1.query_events(
         session_id=session_id,
         user_id=user_id,
         event_type=event_type,
+        query=str(query or "").strip() or None,
+        source_filters=[str(source).strip()] if str(source or "").strip() else None,
+        start_time=start_time,
+        end_time=end_time,
         limit=limit,
     )
     total = await unified_memory.l1.count_events()

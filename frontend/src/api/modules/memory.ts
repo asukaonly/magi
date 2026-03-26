@@ -62,6 +62,17 @@ export interface L1Event {
   deleted_at?: number | null;
 }
 
+export interface L1EventQueryParams {
+  limit?: number;
+  event_type?: string;
+  user_id?: string;
+  session_id?: string;
+  query?: string;
+  source?: string;
+  start_date?: string;
+  end_date?: string;
+}
+
 // L2 Cognition Types
 export interface L2Relation {
   triple_id: string;
@@ -262,7 +273,7 @@ export const memoryApi = {
     api.get<L0Workbench>(`/memory/l0/workbench/${sessionId}`) as unknown as Promise<L0Workbench>,
 
   // L1 Event Stream
-  getL1Events: (params?: { limit?: number; event_type?: string; user_id?: string; session_id?: string }) =>
+  getL1Events: (params?: L1EventQueryParams) =>
     api.get<{ events: L1Event[]; stats: { total: number } }>('/memory/l1/events', { params }) as unknown as Promise<{ events: L1Event[]; stats: { total: number } }>,
 
   // L2 Cognition

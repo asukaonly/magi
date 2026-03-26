@@ -1155,16 +1155,19 @@
       },
       "events": {
         "eyebrow": "L1 事件流",
-        "subtitle": "查看进入长期事件流的记录，并按内容或来源筛选。",
-        "searchPlaceholder": "按事件内容、类型或域筛选事件记忆",
+        "subtitle": "查看进入长期事件流的记录，并按条件查询。",
+        "contentLabel": "内容",
+        "dateRangeLabel": "时间范围",
+        "startDateLabel": "开始日期",
+        "endDateLabel": "结束日期",
+        "sourceFilterLabel": "来源",
+        "resetButton": "重置",
+        "searchPlaceholder": "按事件内容查询事件记忆",
         "focusTitle": "事件观察",
         "focusHeadline": "从来源和内容去看记忆流入的密度",
         "focusBody": "这一层更像时间沉淀后的底稿，适合先按来源缩小范围，再逐步查看事件内容。",
         "sourceSummaryTitle": "来源分布",
-        "sourceSummaryBody": "先看当前筛选条件下，哪些来源正在持续向记忆流入内容。",
-        "domainSummaryTitle": "事件域感知",
-        "domainSummaryBody": "事件域会帮助你判断这些记录更偏向行为、偏好还是背景事实。",
-        "latestEventLabel": "最近一条命中记录时间：{{time}}"
+        "domainSummaryTitle": "事件域感知"
       },
       "knowledge": {
         "eyebrow": "L2 知识花园",

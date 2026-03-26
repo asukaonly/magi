@@ -403,6 +403,7 @@ class L1EventStore:
         user_id: Optional[str] = None,
         memory_domain: Optional[str] = None,
         event_type: Optional[str] = None,
+        query: Optional[str] = None,
         source_filters: Optional[List[str]] = None,
         cognition_eligible: Optional[bool] = None,
         start_time: Optional[float] = None,
@@ -411,41 +412,44 @@ class L1EventStore:
     ) -> List[Dict[str, Any]]:
         """Query events with SQL-level filters."""
         await self.initialize()
-        query = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
+        sql = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
         args: List[Any] = []
 
         if session_id:
-            query += " AND session_id = ?"
+            sql += " AND session_id = ?"
             args.append(session_id)
         if user_id:
-            query += " AND user_id = ?"
+            sql += " AND user_id = ?"
             args.append(user_id)
         if memory_domain:
-            query += " AND memory_domain = ?"
+            sql += " AND memory_domain = ?"
             args.append(int(MemoryDomain.from_value(memory_domain)))
         if event_type:
-            query += " AND event_type = ?"
+            sql += " AND event_type = ?"
             args.append(event_type)
+        if query:
+            sql += " AND LOWER(content) LIKE ?"
+            args.append(f"%{str(query).strip().lower()}%")
         if source_filters:
             placeholders = ", ".join("?" for _ in source_filters)
-            query += f" AND source IN ({placeholders})"
+            sql += f" AND source IN ({placeholders})"
             args.extend(source_filters)
         if cognition_eligible is not None:
-            query += " AND cognition_eligible = ?"
+            sql += " AND cognition_eligible = ?"
             args.append(1 if cognition_eligible else 0)
         if start_time is not None:
-            query += " AND timestamp >= ?"
+            sql += " AND timestamp >= ?"
             args.append(float(start_time))
         if end_time is not None:
-            query += " AND timestamp <= ?"
+            sql += " AND timestamp <= ?"
             args.append(float(end_time))
 
-        query += " ORDER BY timestamp DESC LIMIT ?"
+        sql += " ORDER BY timestamp DESC LIMIT ?"
         args.append(int(limit))
 
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(query, tuple(args)) as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 

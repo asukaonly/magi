@@ -4,51 +4,92 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L1Tab } from '@/components/memory';
-import { formatTimestamp } from '@/hooks/useMemory';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
-  MEMORY_INFO_PANEL_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
-  MemoryTag,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
 
+const SUMMARY_PREVIEW_LIMIT = 6;
+
+const buildSummaryText = (items: Array<[string, number]>, emptyLabel: string) => {
+  if (items.length === 0) {
+    return { full: emptyLabel, preview: emptyLabel };
+  }
+  const segments = items.map(([label, count]) => `${label} · ${count}`);
+  return {
+    full: segments.join(' / '),
+    preview: [...segments.slice(0, SUMMARY_PREVIEW_LIMIT), ...(segments.length > SUMMARY_PREVIEW_LIMIT ? ['...'] : [])].join(' / '),
+  };
+};
+
 export const MemoryEventsPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l1Events, refresh } = useMemory({ initialLoadScope: 'l1' });
-  const [query, setQuery] = useState('');
+  const { loading, l1Events, queryL1Events } = useMemory({ initialLoadScope: 'l1' });
+  const [contentQuery, setContentQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [appliedFilters, setAppliedFilters] = useState<
+    { query?: string; source?: string; start_date?: string; end_date?: string } | undefined
+  >(undefined);
 
   const sources = useMemo(
     () => Array.from(new Set(l1Events.map((event) => event.source).filter(Boolean))).sort(),
     [l1Events]
   );
 
-  const filteredEvents = useMemo(
-    () =>
-      l1Events.filter((event) => {
-        const normalizedQuery = query.trim().toLowerCase();
-        const matchesQuery =
-          normalizedQuery.length === 0 ||
-          event.content.toLowerCase().includes(normalizedQuery) ||
-          event.event_type.toLowerCase().includes(normalizedQuery) ||
-          event.memory_domain.toLowerCase().includes(normalizedQuery);
-        const matchesSource = sourceFilter === 'all' || event.source === sourceFilter;
-        return matchesQuery && matchesSource;
-      }),
-    [l1Events, query, sourceFilter]
-  );
-
   const domainCounts = Array.from(
-    filteredEvents.reduce((map, event) => {
+    l1Events.reduce((map, event) => {
       const key = event.memory_domain || 'general';
       map.set(key, (map.get(key) ?? 0) + 1);
       return map;
     }, new Map<string, number>())
   ).sort((left, right) => right[1] - left[1]);
-  const latestEvent = filteredEvents[0] ?? null;
+  const sourceCounts = Array.from(
+    l1Events.reduce((map, event) => {
+      const key = event.source || 'unknown';
+      map.set(key, (map.get(key) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>())
+  ).sort((left, right) => right[1] - left[1]);
+  const sourceSummary = buildSummaryText(sourceCounts, t('memory.filters.all'));
+  const domainSummary = buildSummaryText(domainCounts, t('memory.filters.all'));
+
+  const buildSearchFilters = () => {
+    const normalizedStartDate = startDate.trim();
+    const normalizedEndDate = endDate.trim();
+    const start = normalizedStartDate && normalizedEndDate && normalizedStartDate > normalizedEndDate
+      ? normalizedEndDate
+      : normalizedStartDate;
+    const end = normalizedStartDate && normalizedEndDate && normalizedStartDate > normalizedEndDate
+      ? normalizedStartDate
+      : normalizedEndDate;
+    const filters = {
+      query: contentQuery.trim() || undefined,
+      source: sourceFilter === 'all' ? undefined : sourceFilter,
+      start_date: start || undefined,
+      end_date: end || undefined,
+    };
+    return Object.values(filters).some(Boolean) ? filters : undefined;
+  };
+
+  const handleSearch = async () => {
+    const filters = buildSearchFilters();
+    setAppliedFilters(filters);
+    await queryL1Events(filters);
+  };
+
+  const handleReset = async () => {
+    setContentQuery('');
+    setSourceFilter('all');
+    setStartDate('');
+    setEndDate('');
+    setAppliedFilters(undefined);
+    await queryL1Events(undefined);
+  };
 
   return (
     <MemoryPageFrame
@@ -58,7 +99,7 @@ export const MemoryEventsPage = () => {
         <Button
           variant="outline"
           className={MEMORY_ACTION_BUTTON_CLASS}
-          onClick={() => void refresh('l1')}
+          onClick={() => void queryL1Events(appliedFilters)}
           disabled={loading}
         >
           {loading ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
@@ -66,25 +107,56 @@ export const MemoryEventsPage = () => {
         </Button>
       }
       filters={(
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+        <form
+          className="grid gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.95fr)_260px_auto] lg:items-end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSearch();
+          }}
+        >
           <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="memory-events-query">
-              {t('memory.filters.searchLabel')}
+            <label className="text-sm font-medium" htmlFor="memory-events-content">
+              {t('memory.pages.events.contentLabel')}
             </label>
             <Input
-              id="memory-events-query"
+              id="memory-events-content"
               className={MEMORY_FILTER_INPUT_CLASS}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              value={contentQuery}
+              onChange={(event) => setContentQuery(event.target.value)}
               placeholder={t('memory.pages.events.searchPlaceholder')}
             />
           </div>
           <div className="space-y-1.5">
+            <label className="text-sm font-medium" htmlFor="memory-events-start-date">
+              {t('memory.pages.events.dateRangeLabel')}
+            </label>
+            <div className="grid grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-center gap-3">
+              <Input
+                id="memory-events-start-date"
+                type="date"
+                aria-label={t('memory.pages.events.startDateLabel')}
+                className={MEMORY_FILTER_INPUT_CLASS}
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+              />
+              <span className="text-center text-sm text-[hsl(var(--memory-muted))]">~</span>
+              <Input
+                id="memory-events-end-date"
+                type="date"
+                aria-label={t('memory.pages.events.endDateLabel')}
+                className={MEMORY_FILTER_INPUT_CLASS}
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="memory-events-source">
-              {t('memory.filters.sourceLabel')}
+              {t('memory.pages.events.sourceFilterLabel')}
             </label>
             <select
               id="memory-events-source"
+              aria-label={t('memory.pages.events.sourceFilterLabel')}
               className={MEMORY_FILTER_SELECT_CLASS}
               value={sourceFilter}
               onChange={(event) => setSourceFilter(event.target.value)}
@@ -97,48 +169,45 @@ export const MemoryEventsPage = () => {
               ))}
             </select>
           </div>
-        </div>
+          <div className="flex items-end gap-2">
+            <Button type="submit" variant="outline" className={MEMORY_ACTION_BUTTON_CLASS} disabled={loading}>
+              {t('memory.search')}
+            </Button>
+            <Button type="button" variant="ghost" className="rounded-lg px-4" onClick={() => void handleReset()} disabled={loading}>
+              {t('memory.pages.events.resetButton')}
+            </Button>
+          </div>
+        </form>
       )}
     >
       {loading ? <LoadingSpinner /> : (
         <div className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="grid gap-4 xl:grid-cols-2">
             <MemoryWorkspacePanel
               testId="memory-events-source-summary"
               title={t('memory.pages.events.sourceSummaryTitle')}
-              description={t('memory.pages.events.sourceSummaryBody')}
             >
-              <div className="flex flex-wrap gap-2">
-                {sources.map((source) => (
-                  <MemoryTag key={source}>
-                    {source} · {filteredEvents.filter((event) => event.source === source).length}
-                  </MemoryTag>
-                ))}
-                {sources.length === 0 ? <MemoryTag>{t('memory.filters.all')}</MemoryTag> : null}
-              </div>
+              <p
+                className="min-h-[3.5rem] text-sm leading-7 text-[hsl(var(--memory-body))] line-clamp-2"
+                title={sourceSummary.full}
+              >
+                {sourceSummary.preview}
+              </p>
             </MemoryWorkspacePanel>
 
             <MemoryWorkspacePanel
               title={t('memory.pages.events.domainSummaryTitle')}
-              description={t('memory.pages.events.domainSummaryBody')}
             >
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {domainCounts.slice(0, 5).map(([domain, count]) => (
-                    <MemoryTag key={domain}>{domain} · {count}</MemoryTag>
-                  ))}
-                  {domainCounts.length === 0 ? <MemoryTag>{t('memory.filters.all')}</MemoryTag> : null}
-                </div>
-                {latestEvent ? (
-                  <div className={MEMORY_INFO_PANEL_CLASS}>
-                    {t('memory.pages.events.latestEventLabel', { time: formatTimestamp(latestEvent.timestamp) })}
-                  </div>
-                ) : null}
-              </div>
+              <p
+                className="min-h-[3.5rem] text-sm leading-7 text-[hsl(var(--memory-body))] line-clamp-2"
+                title={domainSummary.full}
+              >
+                {domainSummary.preview}
+              </p>
             </MemoryWorkspacePanel>
           </div>
 
-          <L1Tab stats={stats.l1} events={filteredEvents} />
+          <L1Tab stats={{ event_count: l1Events.length }} events={l1Events} showStats={false} />
         </div>
       )}
     </MemoryPageFrame>

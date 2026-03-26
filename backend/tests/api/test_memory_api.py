@@ -31,11 +31,34 @@ class _FakeL0Store:
 class _FakeL1Store:
     db_path = "/tmp/l1.db"
 
+    def __init__(self):
+        self.last_query_kwargs = None
+
     async def count_events(self):
         return 12
 
-    async def query_events(self, *, session_id=None, user_id=None, event_type=None, limit=50):
-        _ = (session_id, user_id, event_type, limit)
+    async def query_events(
+        self,
+        *,
+        session_id=None,
+        user_id=None,
+        event_type=None,
+        query=None,
+        source_filters=None,
+        start_time=None,
+        end_time=None,
+        limit=50,
+    ):
+        self.last_query_kwargs = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "event_type": event_type,
+            "query": query,
+            "source_filters": source_filters,
+            "start_time": start_time,
+            "end_time": end_time,
+            "limit": limit,
+        }
         return [
             MemoryEvent(
                 event_id="evt-1",
@@ -1968,6 +1991,35 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["events"][0]["content"] == "hello"
     assert body["events"][0]["memory_domain"] == "interaction"
     assert body["events"][0]["retention_class"] == "compressible"
+
+
+def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get(
+        "/api/memory/l1/events",
+        params={
+            "query": "lake",
+            "source": "chat_projector",
+            "start_date": "2026-03-01",
+            "end_date": "2026-03-02",
+        },
+    )
+
+    assert response.status_code == 200
+    assert memory.l1.last_query_kwargs is not None
+    assert memory.l1.last_query_kwargs["query"] == "lake"
+    assert memory.l1.last_query_kwargs["source_filters"] == ["chat_projector"]
+    assert memory.l1.last_query_kwargs["limit"] == 50
+    assert isinstance(memory.l1.last_query_kwargs["start_time"], float)
+    assert isinstance(memory.l1.last_query_kwargs["end_time"], float)
+    assert memory.l1.last_query_kwargs["end_time"] > memory.l1.last_query_kwargs["start_time"]
 
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):

@@ -5,7 +5,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileText } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { L1Event, MemoryStatistics } from '@/api/modules/memory';
 import { formatTimestamp } from '@/hooks/useMemory';
@@ -13,9 +12,10 @@ import { formatTimestamp } from '@/hooks/useMemory';
 interface L1TabProps {
   stats: MemoryStatistics['l1'];
   events: L1Event[];
+  showStats?: boolean;
 }
 
-export const L1Tab: React.FC<L1TabProps> = ({ stats, events }) => {
+export const L1Tab: React.FC<L1TabProps> = ({ stats, events, showStats = true }) => {
   const { t } = useTranslation('app');
 
   const userAuthoredCount = events.filter((event) => event.author_type === 'user').length;
@@ -23,71 +23,58 @@ export const L1Tab: React.FC<L1TabProps> = ({ stats, events }) => {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4">
+      {showStats ? (
+        <div className="grid grid-cols-3 gap-4">
+          <div className="rounded-xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-4 py-3">
             <div className="text-2xl font-bold">{stats.event_count}</div>
             <div className="text-sm text-muted-foreground">{t('memory.l1.totalEvents')}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
+          </div>
+          <div className="rounded-xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-4 py-3">
             <div className="text-2xl font-bold">{userAuthoredCount}</div>
             <div className="text-sm text-muted-foreground">{t('memory.l1.userAuthored')}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
+          </div>
+          <div className="rounded-xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-4 py-3">
             <div className="text-2xl font-bold">{interactionCount}</div>
             <div className="text-sm text-muted-foreground">{t('memory.l1.interaction')}</div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </div>
+      ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+      <section className="border-t border-[hsl(var(--memory-divider)/0.72)] pt-4">
+        <div className="mb-4 flex items-center gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-[hsl(var(--memory-title))]">
             <FileText className="h-5 w-5" />
             {t('memory.l1.events')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+          </h2>
+        </div>
+        <div>
           {events.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               {t('memory.l1.noEvents')}
             </div>
           ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
+            <div className="max-h-96 divide-y divide-[hsl(var(--memory-divider)/0.72)] overflow-y-auto">
               {events.map((event) => (
-                <div key={event.event_id} className="p-3 border rounded-lg">
-                  <div className="flex items-center justify-between mb-1">
+                <article key={event.event_id} className="py-4 first:pt-0 last:pb-0">
+                  <div className="mb-1 flex items-center justify-between gap-3">
                     <Badge variant="outline">{event.event_type}</Badge>
                     <span className="text-xs text-muted-foreground">
                       {formatTimestamp(event.timestamp)}
                     </span>
                   </div>
-                  <div className="text-sm truncate">{event.content}</div>
+                  <div className="text-sm leading-6 text-[hsl(var(--memory-title))]">{event.content}</div>
                   {event.user_id ? (
                     <div className="mt-2 font-mono text-xs text-muted-foreground">{event.user_id}</div>
                   ) : null}
-                  <div className="flex gap-2 mt-2">
-                    {event.source ? (
-                      <Badge variant="secondary" className="text-xs">{event.source}</Badge>
-                    ) : null}
-                    <Badge variant="secondary" className="text-xs">{event.memory_domain}</Badge>
-                    {event.author_type ? (
-                      <Badge variant="secondary" className="text-xs">{event.author_type}</Badge>
-                    ) : null}
-                    {event.content_type ? (
-                      <Badge variant="secondary" className="text-xs">{event.content_type}</Badge>
-                    ) : null}
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {[event.source, event.memory_domain, event.author_type, event.content_type].filter(Boolean).join(' · ')}
                   </div>
-                </div>
+                </article>
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 };

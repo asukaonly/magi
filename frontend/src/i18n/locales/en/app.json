@@ -1160,16 +1160,19 @@
       },
       "events": {
         "eyebrow": "L1 Event Stream",
-        "subtitle": "Inspect the long-term event stream and filter it by content or source.",
-        "searchPlaceholder": "Filter event memory by content, type, or domain",
+        "subtitle": "Inspect the long-term event stream and query it with explicit filters.",
+        "contentLabel": "Content",
+        "dateRangeLabel": "Date range",
+        "startDateLabel": "Start date",
+        "endDateLabel": "End date",
+        "sourceFilterLabel": "Source",
+        "resetButton": "Reset",
+        "searchPlaceholder": "Query event memory by content",
         "focusTitle": "Event watch",
         "focusHeadline": "Read the density of memory intake by source and content",
         "focusBody": "This layer behaves like a retained draft of experience. Narrow by source first, then move into the event contents.",
         "sourceSummaryTitle": "Source distribution",
-        "sourceSummaryBody": "Start by seeing which sources are still feeding the memory stream under the current filters.",
-        "domainSummaryTitle": "Domain signal",
-        "domainSummaryBody": "Event domains help you judge whether the current slice is about behavior, preference, or background context.",
-        "latestEventLabel": "Most recent matching event: {{time}}"
+        "domainSummaryTitle": "Domain signal"
       },
       "knowledge": {
         "eyebrow": "L2 Knowledge Garden",

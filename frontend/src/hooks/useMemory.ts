@@ -16,6 +16,7 @@ import type {
   L0Session,
   L0Workbench,
   L1Event,
+  L1EventQueryParams,
   L2Relation,
   L2Assertion,
   L2Entity,
@@ -51,6 +52,7 @@ export interface UseMemoryReturn {
 
   // L1 data
   l1Events: L1Event[];
+  queryL1Events: (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => Promise<void>;
 
   // L2 data
   l2Relations: L2Relation[];
@@ -209,14 +211,26 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     }
   }, []);
 
-  const loadL1Events = useCallback(async () => {
+  const loadL1Events = useCallback(async (params?: L1EventQueryParams) => {
     try {
-      const data = await memoryApi.getL1Events({ limit: 100 });
+      const data = await memoryApi.getL1Events({ limit: 100, ...params });
       setL1Events(data.events || []);
     } catch (error) {
       console.error('Failed to load L1 events:', error);
     }
   }, []);
+
+  const queryL1Events = useCallback(
+    async (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => {
+      setLoading(true);
+      try {
+        await loadL1Events(params);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadL1Events]
+  );
 
   const loadL2Data = useCallback(async () => {
     try {
@@ -559,6 +573,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
 
     // L1 data
     l1Events,
+    queryL1Events,
 
     // L2 data
     l2Relations,
