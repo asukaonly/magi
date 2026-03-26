@@ -1148,4 +1148,16 @@ describe('settings page draft saving', () => {
     expect(screen.getByRole('heading', { name: 'settings.tabs.conversation' })).toBeInTheDocument();
     expect(screen.getByLabelText('settings.fields.defaultChatWorkspace')).toBeInTheDocument();
   });
+
+  it('keeps a small horizontal gutter so field borders are not clipped in scrolling sections', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+
+    const content = screen.getByTestId('settings-section-content');
+
+    expect(content.className).toContain('pl-1');
+    expect(content.className).toContain('pr-2');
+  });
 });

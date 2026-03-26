@@ -723,8 +723,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     usesInnerPaneScroll
                       ? 'flex h-full min-h-0 w-full flex-col overflow-hidden'
                       : isWideSection || activeSection === 'preferences'
-                        ? 'h-full overflow-y-auto pr-1'
-                        : 'h-full max-w-3xl overflow-y-auto pr-1'
+                        ? 'h-full overflow-y-auto pl-1 pr-2'
+                        : 'h-full max-w-3xl overflow-y-auto pl-1 pr-2'
                   )}
                 >
                   {renderSectionContent()}
