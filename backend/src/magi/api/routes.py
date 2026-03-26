@@ -74,6 +74,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/context/{anchor_id}": {"GET"},
         "/sources/status": {"GET"},
         "/sources/{source_name}/sync": {"POST"},
+        "/sources/{source_name}/authorize": {"POST"},
     },
     "plugins": {
         "": {"GET"},
