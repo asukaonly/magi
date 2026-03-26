@@ -114,12 +114,15 @@ export interface LLMProviderFieldConfig {
 
 export interface LLMProviderMeta {
   id: string;
+  provider_type?: LLMProvider | string;
+  source?: 'builtin' | 'custom';
   display_name?: string;
   description?: string;
   icon?: string;
   default_model?: string;
   default_classify_model?: string;
   default_base_url?: string;
+  api_format?: ApiFormat;
   chat_models?: LLMChatModelMeta[];
   embedding_models?: LLMEmbeddingModelMeta[];
   image_generation_models?: LLMGenerationModelMeta[];
@@ -195,6 +198,19 @@ export interface LLMGenerationModelMeta {
 export interface LLMProviderRegistry {
   providers: LLMProviderMeta[];
   custom_provider: LLMCustomProviderMeta;
+}
+
+export interface LLMProviderCatalog {
+  providers: LLMProviderMeta[];
+}
+
+export interface LLMProviderCatalogResolveRequest {
+  providers: Record<string, LLMProviderConfig>;
+}
+
+export interface LLMCustomProviderTemplateData {
+  template: LLMCustomProviderMeta;
+  defaults: LLMProviderConfig;
 }
 
 export interface OnboardingTemplateData {
@@ -441,9 +457,17 @@ export interface ResolvedProviderModels {
 
 export const resolveProviderModels = (
   registry: LLMProviderRegistry,
-  _providerId: string,
+  providerId: string,
   provider?: LLMProviderConfig
 ): ResolvedProviderModels => {
+  const resolvedProviderMeta = registry.providers.find((item) => item.id === providerId);
+  if (resolvedProviderMeta?.resolved_chat_models || resolvedProviderMeta?.resolved_embedding_models) {
+    return {
+      chat_models: [...(resolvedProviderMeta.resolved_chat_models || [])],
+      embedding_models: [...(resolvedProviderMeta.resolved_embedding_models || [])],
+    };
+  }
+
   const providerMeta =
     provider?.provider_type && provider.provider_type !== 'custom'
       ? registry.providers.find((item) => item.id === provider.provider_type)
@@ -751,6 +775,10 @@ export const configApi = {
   update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
   getTemplate: () => api.get<SystemConfig>('/config/template'),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
+  getLLMProviderCatalog: () => api.get<LLMProviderCatalog>('/llm/providers/catalog'),
+  resolveLLMProviderCatalog: (payload: LLMProviderCatalogResolveRequest) =>
+    api.post<LLMProviderCatalog>('/llm/providers/catalog', payload),
+  getLLMCustomProviderTemplate: () => api.get<LLMCustomProviderTemplateData>('/llm/providers/custom-template'),
   getLLMProviders: () => api.get<LLMProviderRegistry>('/config/llm-providers'),
   discoverLLMProviderModels: (payload: DiscoverLLMProviderModelsRequest) =>
     api.post<DiscoverLLMProviderModelsResponse>('/config/llm/providers/discover-models', payload),

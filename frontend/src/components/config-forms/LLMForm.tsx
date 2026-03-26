@@ -10,8 +10,10 @@ import {
   type LLMCapabilities,
   type LLMConcurrencyOverrideConfig,
   type LLMConfig,
+  type LLMCustomProviderTemplateData,
   type LLMLimits,
   type LLMProviderConfig,
+  type LLMProviderCatalog,
   type LLMProviderRegistry,
   type LLMScenario,
   type LLMSelectionConfig,
@@ -136,6 +138,14 @@ const cloneLLMConfig = (value?: LLMConfig): LLMConfig => ({
 });
 
 const llmSignature = (value: LLMConfig): string => JSON.stringify(value);
+
+const buildRegistryFromCatalog = (
+  catalog: LLMProviderCatalog,
+  customTemplate: LLMCustomProviderTemplateData
+): LLMProviderRegistry => ({
+  providers: catalog.providers,
+  custom_provider: customTemplate.template,
+});
 
 const getProviderMeta = (registry: LLMProviderRegistry, providerId?: string) =>
   registry.providers.find((provider) => provider.id === providerId);
@@ -394,11 +404,11 @@ const applySelectionDefaults = (
 const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LLMConfig => {
   const next = cloneLLMConfig(value);
 
-  for (const providerMeta of registry.providers) {
+  for (const providerMeta of registry.providers.filter((provider) => provider.source !== 'custom')) {
     if (!next.providers[providerMeta.id]) {
       next.providers[providerMeta.id] = {
         enabled: false,
-        provider_type: providerMeta.id as LLMProviderConfig['provider_type'],
+        provider_type: (providerMeta.provider_type || providerMeta.id) as LLMProviderConfig['provider_type'],
         display_name: providerMeta.display_name || providerMeta.id,
         api_key: '',
         base_url: '',
@@ -407,7 +417,7 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
     } else {
       next.providers[providerMeta.id] = {
         ...cloneProvider(next.providers[providerMeta.id]),
-        provider_type: providerMeta.id as LLMProviderConfig['provider_type'],
+        provider_type: (providerMeta.provider_type || providerMeta.id) as LLMProviderConfig['provider_type'],
         display_name: next.providers[providerMeta.id].display_name || providerMeta.display_name || providerMeta.id,
       };
     }
@@ -494,6 +504,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const formCtx = useContext(FormContext);
   const controlled = value !== undefined && typeof onChange === 'function';
   const [registry, setRegistry] = useState<LLMProviderRegistry | null>(null);
+  const [customProviderTemplate, setCustomProviderTemplate] = useState<LLMCustomProviderTemplateData | null>(null);
+  const [customProviderDefaults, setCustomProviderDefaults] = useState<LLMProviderConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeProviderId, setActiveProviderId] = useState<string>('openai');
@@ -504,6 +516,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const [pendingEmbeddingDimensionChange, setPendingEmbeddingDimensionChange] =
     useState<PendingEmbeddingDimensionChange | null>(null);
   const pendingEmbeddingDialogTimerRef = useRef<number | null>(null);
+  const registryPreviewRequestRef = useRef(0);
 
   const currentValue = useMemo(() => {
     if (controlled) {
@@ -511,6 +524,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }
     return cloneLLMConfig(formCtx?.values?.llm as LLMConfig | undefined);
   }, [controlled, formCtx?.values?.llm, value]);
+  const initialProvidersRef = useRef(currentValue.providers);
   const fillAvailableHeight = surface === 'settings' && view === 'providers';
 
   const updateValue = (updater: (draft: LLMConfig) => void) => {
@@ -528,9 +542,16 @@ const LLMForm: React.FC<LLMFormProps> = ({
       try {
         setLoading(true);
         setError(null);
-        const response = await configApi.getLLMProviders();
-        if (response.data) {
-          setRegistry(response.data);
+        const [catalogResponse, templateResponse] = await Promise.all([
+          configApi.resolveLLMProviderCatalog({
+            providers: initialProvidersRef.current,
+          }),
+          configApi.getLLMCustomProviderTemplate(),
+        ]);
+        if (catalogResponse.data && templateResponse.data) {
+          setCustomProviderTemplate(templateResponse.data);
+          setCustomProviderDefaults(cloneProvider(templateResponse.data.defaults));
+          setRegistry(buildRegistryFromCatalog(catalogResponse.data, templateResponse.data));
         } else {
           setError(t('llm.loadFailed'));
         }
@@ -543,6 +564,34 @@ const LLMForm: React.FC<LLMFormProps> = ({
 
     void loadRegistry();
   }, [t]);
+
+  useEffect(() => {
+    if (!customProviderTemplate) {
+      return;
+    }
+
+    const requestId = registryPreviewRequestRef.current + 1;
+    registryPreviewRequestRef.current = requestId;
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await configApi.resolveLLMProviderCatalog({
+            providers: currentValue.providers,
+          });
+          if (registryPreviewRequestRef.current !== requestId || !response.data) {
+            return;
+          }
+          setRegistry(buildRegistryFromCatalog(response.data, customProviderTemplate));
+        } catch {
+          // Preserve the last successful catalog snapshot while the user edits draft values.
+        }
+      })();
+    }, 120);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentValue.providers, customProviderTemplate]);
 
   useEffect(() => {
     return () => {
@@ -778,17 +827,23 @@ const LLMForm: React.FC<LLMFormProps> = ({
 
   const handleAddCustomProvider = () => {
     const nextProviderId = `custom_${Date.now()}`;
+    const defaultProvider = customProviderDefaults
+      ? cloneProvider(customProviderDefaults)
+      : {
+          enabled: true,
+          provider_type: 'custom' as const,
+          display_name: '',
+          api_key: '',
+          base_url: '',
+          api_format: 'openai' as const,
+          custom_models: [],
+          custom_default_model: '',
+          model_metadata_overrides: {},
+        };
     updateValue((draft) => {
       draft.providers[nextProviderId] = {
-        enabled: true,
-        provider_type: 'custom',
-        display_name: t('llm.customProviderDefaultName'),
-        api_key: '',
-        base_url: '',
-        api_format: 'openai',
-        custom_models: [],
-        custom_default_model: '',
-        model_metadata_overrides: {},
+        ...defaultProvider,
+        display_name: defaultProvider.display_name || t('llm.customProviderDefaultName'),
       };
     });
     setActiveProviderId(nextProviderId);

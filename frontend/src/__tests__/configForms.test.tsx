@@ -9,268 +9,104 @@ import MemoryForm from '../components/config-forms/MemoryForm';
 
 vi.mock('../api/modules/config', async () => {
   const actual = await vi.importActual<typeof import('../api/modules/config')>('../api/modules/config');
-  return {
-    ...actual,
-    configApi: {
-      ...actual.configApi,
-      getLLMProviders: vi.fn().mockResolvedValue({
-        data: {
-          providers: [
-            {
-              id: 'openai',
-              display_name: 'OpenAI',
-              description: 'General purpose',
-              icon: 'openai',
-              default_model: 'gpt-5.2',
-              default_classify_model: 'gpt-4.1-mini',
-              default_base_url: 'https://api.openai.com/v1',
-              chat_models: [
-                {
-                  id: 'gpt-5.2',
-                  label: 'GPT-5.2',
-                  capabilities: {
-                    vision: true,
-                    image_output: false,
-                    tool_calling: true,
-                    reasoning: true,
-                    embedding: false,
-                  },
-                  limits: {
-                    context_window: 400000,
-                    max_output_tokens: 128000,
-                  },
-                  provider_options_example: {},
-                },
-                {
-                  id: 'gpt-4.1-mini',
-                  label: 'GPT-4.1 Mini',
-                  capabilities: {
-                    vision: true,
-                    image_output: false,
-                    tool_calling: true,
-                    reasoning: true,
-                    embedding: false,
-                  },
-                  limits: {
-                    context_window: 128000,
-                    max_output_tokens: 32000,
-                  },
-                  provider_options_example: {},
-                },
-              ],
-              embedding_models: [
-                {
-                  id: 'text-embedding-3-small',
-                  label: 'Text Embedding 3 Small',
-                  dimensions: [1536, 512],
-                },
-              ],
-              fields: {
-                api_key: { visible: true, required: true },
-                base_url: { visible: true, required: false },
-              },
+  const providerRegistry = {
+    providers: [
+      {
+        id: 'openai',
+        display_name: 'OpenAI',
+        description: 'General purpose',
+        icon: 'openai',
+        default_model: 'gpt-5.2',
+        default_classify_model: 'gpt-4.1-mini',
+        default_base_url: 'https://api.openai.com/v1',
+        chat_models: [
+          {
+            id: 'gpt-5.2',
+            label: 'GPT-5.2',
+            capabilities: {
+              vision: true,
+              image_output: false,
+              tool_calling: true,
+              reasoning: true,
+              embedding: false,
             },
-            {
-              id: 'anthropic',
-              display_name: 'Anthropic',
-              description: 'Reasoning',
-              icon: 'anthropic',
-              default_model: 'claude-sonnet-4-6',
-              default_base_url: 'https://api.anthropic.com/v1',
-              chat_models: [
-                {
-                  id: 'claude-sonnet-4-6',
-                  label: 'Claude Sonnet 4.6',
-                  capabilities: {
-                    vision: true,
-                    image_output: false,
-                    tool_calling: true,
-                    reasoning: true,
-                    embedding: false,
-                  },
-                  limits: {
-                    context_window: 200000,
-                    max_output_tokens: 64000,
-                  },
-                  provider_options_example: {},
-                },
-              ],
-              fields: {
-                api_key: { visible: true, required: true },
-                base_url: { visible: true, required: false },
-              },
+            limits: {
+              context_window: 400000,
+              max_output_tokens: 128000,
             },
-            {
-              id: 'glm',
-              display_name: 'Z.ai',
-              description: 'Fast',
-              icon: 'zai',
-              default_model: 'glm-5',
-              default_classify_model: 'glm-5',
-              default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
-              chat_models: [
-                {
-                  id: 'glm-5',
-                  label: 'GLM-5',
-                  capabilities: {
-                    vision: false,
-                    image_output: false,
-                    tool_calling: true,
-                    reasoning: true,
-                    embedding: false,
-                  },
-                  limits: {
-                    context_window: 128000,
-                    max_output_tokens: 32000,
-                  },
-                  provider_options_example: {
-                    thinking: { type: 'disabled' },
-                  },
-                },
-              ],
-              embedding_models: [
-                {
-                  id: 'embedding-3',
-                  label: 'Embedding-3',
-                  dimensions: [1024],
-                },
-              ],
-              fields: {
-                api_key: { visible: true, required: true },
-                base_url: { visible: true, required: false },
-              },
+            provider_options_example: {},
+          },
+          {
+            id: 'gpt-4.1-mini',
+            label: 'GPT-4.1 Mini',
+            capabilities: {
+              vision: true,
+              image_output: false,
+              tool_calling: true,
+              reasoning: true,
+              embedding: false,
             },
-            {
-              id: 'gemini',
-              display_name: 'Google Gemini',
-              description: 'Multimodal models from Google',
-              icon: 'gemini',
-              default_model: 'gemini-2.5-flash',
-              default_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
-              chat_models: [
-                {
-                  id: 'gemini-2.5-flash',
-                  label: 'Gemini 2.5 Flash',
-                  capabilities: {
-                    vision: true,
-                    image_output: false,
-                    tool_calling: true,
-                    reasoning: true,
-                    embedding: false,
-                  },
-                  limits: {
-                    context_window: 1048576,
-                    max_output_tokens: 65536,
-                  },
-                  provider_options_example: {},
-                },
-              ],
-              fields: {
-                api_key: { visible: true, required: true },
-                base_url: { visible: true, required: false },
-              },
+            limits: {
+              context_window: 128000,
+              max_output_tokens: 32000,
             },
-            {
-              id: 'deepseek',
-              display_name: 'DeepSeek',
-              description: 'Reasoning and coding models',
-              icon: 'deepseek',
-              default_model: 'deepseek-chat',
-              default_base_url: 'https://api.deepseek.com',
-              chat_models: [
-                {
-                  id: 'deepseek-chat',
-                  label: 'DeepSeek Chat',
-                  capabilities: {
-                    vision: false,
-                    image_output: false,
-                    tool_calling: true,
-                    reasoning: true,
-                    embedding: false,
-                  },
-                  limits: {
-                    context_window: 128000,
-                    max_output_tokens: 8192,
-                  },
-                  provider_options_example: {},
-                },
-              ],
-              fields: {
-                api_key: { visible: true, required: true },
-                base_url: { visible: true, required: false },
-              },
+            provider_options_example: {},
+          },
+        ],
+        embedding_models: [
+          {
+            id: 'text-embedding-3-small',
+            label: 'Text Embedding 3 Small',
+            dimensions: [1536, 512],
+          },
+        ],
+        fields: {
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
+        },
+      },
+      {
+        id: 'anthropic',
+        display_name: 'Anthropic',
+        description: 'Reasoning',
+        icon: 'anthropic',
+        default_model: 'claude-sonnet-4-6',
+        default_base_url: 'https://api.anthropic.com/v1',
+        chat_models: [
+          {
+            id: 'claude-sonnet-4-6',
+            label: 'Claude Sonnet 4.6',
+            capabilities: {
+              vision: true,
+              image_output: false,
+              tool_calling: true,
+              reasoning: true,
+              embedding: false,
             },
-            {
-              id: 'kimi',
-              display_name: 'Kimi',
-              description: 'Long context models from Moonshot AI',
-              icon: 'kimi',
-              default_model: 'moonshot-v1-32k',
-              default_base_url: 'https://api.moonshot.cn/v1',
-              chat_models: [
-                {
-                  id: 'moonshot-v1-32k',
-                  label: 'Moonshot V1 32K',
-                  capabilities: {
-                    vision: false,
-                    image_output: false,
-                    tool_calling: true,
-                    reasoning: true,
-                    embedding: false,
-                  },
-                  limits: {
-                    context_window: 32768,
-                    max_output_tokens: 8192,
-                  },
-                  provider_options_example: {},
-                },
-              ],
-              fields: {
-                api_key: { visible: true, required: true },
-                base_url: { visible: true, required: false },
-              },
+            limits: {
+              context_window: 200000,
+              max_output_tokens: 64000,
             },
-            {
-              id: 'minimax',
-              display_name: 'MiniMax',
-              description: 'General multimodal models from MiniMax',
-              icon: 'minimax',
-              default_model: 'MiniMax-M2.5',
-              default_base_url: 'https://api.minimaxi.com/v1',
-              chat_models: [
-                {
-                  id: 'MiniMax-M2.5',
-                  label: 'MiniMax M2.5',
-                  capabilities: {
-                    vision: true,
-                    image_output: false,
-                    tool_calling: true,
-                    reasoning: true,
-                    embedding: false,
-                  },
-                  limits: {
-                    context_window: 1000192,
-                    max_output_tokens: 8192,
-                  },
-                  provider_options_example: {},
-                },
-              ],
-              fields: {
-                api_key: { visible: true, required: true },
-                base_url: { visible: true, required: false },
-              },
-            },
-          ],
-          custom_provider: {
-            enabled: true,
-            display_name: 'Custom Provider',
-            fields: {
-              custom_name: { visible: true, required: true },
-              api_format: { visible: true, required: true, options: ['openai', 'anthropic'] },
-              model: { visible: true, required: true },
-              api_key: { visible: true, required: true },
-              base_url: { visible: true, required: false },
-            },
+            provider_options_example: {},
+          },
+        ],
+        fields: {
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
+        },
+      },
+      {
+        id: 'glm',
+        display_name: 'Z.ai',
+        description: 'Fast',
+        icon: 'zai',
+        default_model: 'glm-5',
+        default_classify_model: 'glm-5',
+        default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
+        chat_models: [
+          {
+            id: 'glm-5',
+            label: 'GLM-5',
             capabilities: {
               vision: false,
               image_output: false,
@@ -279,11 +115,249 @@ vi.mock('../api/modules/config', async () => {
               embedding: false,
             },
             limits: {
-              context_window: null,
-              max_output_tokens: null,
+              context_window: 128000,
+              max_output_tokens: 32000,
+            },
+            provider_options_example: {
+              thinking: { type: 'disabled' },
+            },
+          },
+        ],
+        embedding_models: [
+          {
+            id: 'embedding-3',
+            label: 'Embedding-3',
+            dimensions: [1024],
+          },
+        ],
+        fields: {
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
+        },
+      },
+      {
+        id: 'gemini',
+        display_name: 'Google Gemini',
+        description: 'Multimodal models from Google',
+        icon: 'gemini',
+        default_model: 'gemini-2.5-flash',
+        default_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        chat_models: [
+          {
+            id: 'gemini-2.5-flash',
+            label: 'Gemini 2.5 Flash',
+            capabilities: {
+              vision: true,
+              image_output: false,
+              tool_calling: true,
+              reasoning: true,
+              embedding: false,
+            },
+            limits: {
+              context_window: 1048576,
+              max_output_tokens: 65536,
             },
             provider_options_example: {},
           },
+        ],
+        fields: {
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
+        },
+      },
+      {
+        id: 'deepseek',
+        display_name: 'DeepSeek',
+        description: 'Reasoning and coding models',
+        icon: 'deepseek',
+        default_model: 'deepseek-chat',
+        default_base_url: 'https://api.deepseek.com',
+        chat_models: [
+          {
+            id: 'deepseek-chat',
+            label: 'DeepSeek Chat',
+            capabilities: {
+              vision: false,
+              image_output: false,
+              tool_calling: true,
+              reasoning: true,
+              embedding: false,
+            },
+            limits: {
+              context_window: 128000,
+              max_output_tokens: 8192,
+            },
+            provider_options_example: {},
+          },
+        ],
+        fields: {
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
+        },
+      },
+      {
+        id: 'kimi',
+        display_name: 'Kimi',
+        description: 'Long context models from Moonshot AI',
+        icon: 'kimi',
+        default_model: 'moonshot-v1-32k',
+        default_base_url: 'https://api.moonshot.cn/v1',
+        chat_models: [
+          {
+            id: 'moonshot-v1-32k',
+            label: 'Moonshot V1 32K',
+            capabilities: {
+              vision: false,
+              image_output: false,
+              tool_calling: true,
+              reasoning: true,
+              embedding: false,
+            },
+            limits: {
+              context_window: 32768,
+              max_output_tokens: 8192,
+            },
+            provider_options_example: {},
+          },
+        ],
+        fields: {
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
+        },
+      },
+      {
+        id: 'minimax',
+        display_name: 'MiniMax',
+        description: 'General multimodal models from MiniMax',
+        icon: 'minimax',
+        default_model: 'MiniMax-M2.5',
+        default_base_url: 'https://api.minimaxi.com/v1',
+        chat_models: [
+          {
+            id: 'MiniMax-M2.5',
+            label: 'MiniMax M2.5',
+            capabilities: {
+              vision: true,
+              image_output: false,
+              tool_calling: true,
+              reasoning: true,
+              embedding: false,
+            },
+            limits: {
+              context_window: 1000192,
+              max_output_tokens: 8192,
+            },
+            provider_options_example: {},
+          },
+        ],
+        fields: {
+          api_key: { visible: true, required: true },
+          base_url: { visible: true, required: false },
+        },
+      },
+    ],
+    custom_provider: {
+      enabled: true,
+      display_name: 'Custom Provider',
+      fields: {
+        custom_name: { visible: true, required: true },
+        api_format: { visible: true, required: true, options: ['openai', 'anthropic'] },
+        model: { visible: true, required: true },
+        api_key: { visible: true, required: true },
+        base_url: { visible: true, required: false },
+      },
+      capabilities: {
+        vision: false,
+        image_output: false,
+        tool_calling: true,
+        reasoning: true,
+        embedding: false,
+      },
+      limits: {
+        context_window: null,
+        max_output_tokens: null,
+      },
+      provider_options_example: {},
+    },
+  };
+
+  const defaultCustomProvider = {
+    enabled: true,
+    provider_type: 'custom' as const,
+    display_name: '',
+    api_key: '',
+    base_url: '',
+    api_format: 'openai' as const,
+    custom_models: [],
+    custom_default_model: '',
+    model_metadata_overrides: {},
+  };
+
+  const toCatalogProvider = (providerId: string, provider: Record<string, any>) => {
+    const builtinMeta =
+      provider.provider_type === 'custom'
+        ? undefined
+        : providerRegistry.providers.find((item) => item.id === provider.provider_type);
+    const resolved = actual.resolveProviderModels(providerRegistry as any, providerId, provider as any);
+    return {
+      ...(builtinMeta || {}),
+      id: providerId,
+      provider_type: provider.provider_type,
+      source: provider.provider_type === 'custom' ? 'custom' : 'builtin',
+      display_name: provider.display_name || builtinMeta?.display_name || providerId,
+      description: builtinMeta?.description,
+      icon: provider.provider_type === 'custom' ? 'custom' : builtinMeta?.icon,
+      default_model: provider.custom_default_model || builtinMeta?.default_model || resolved.chat_models[0]?.id,
+      default_classify_model:
+        builtinMeta?.default_classify_model ||
+        provider.custom_default_model ||
+        builtinMeta?.default_model ||
+        resolved.chat_models[0]?.id,
+      default_base_url: provider.base_url || builtinMeta?.default_base_url || '',
+      api_format: provider.api_format,
+      fields: provider.provider_type === 'custom' ? providerRegistry.custom_provider.fields : builtinMeta?.fields,
+      resolved_chat_models: resolved.chat_models,
+      resolved_embedding_models: resolved.embedding_models,
+    };
+  };
+
+  const buildCatalog = (providers: Record<string, any> = {}) => {
+    const builtinProviders = providerRegistry.providers.map((providerMeta) =>
+      toCatalogProvider(providerMeta.id, {
+        enabled: providers[providerMeta.id]?.enabled ?? false,
+        provider_type: providerMeta.id,
+        display_name: providers[providerMeta.id]?.display_name || providerMeta.display_name || providerMeta.id,
+        api_key: providers[providerMeta.id]?.api_key || '',
+        base_url: providers[providerMeta.id]?.base_url || providerMeta.default_base_url || '',
+        api_format: providers[providerMeta.id]?.api_format,
+        custom_models: providers[providerMeta.id]?.custom_models || [],
+        custom_default_model: providers[providerMeta.id]?.custom_default_model || '',
+        model_metadata_overrides: providers[providerMeta.id]?.model_metadata_overrides || {},
+      })
+    );
+    const customProviders = Object.entries(providers)
+      .filter(([, provider]) => provider?.provider_type === 'custom')
+      .map(([providerId, provider]) => toCatalogProvider(providerId, provider));
+    return {
+      providers: [...builtinProviders, ...customProviders],
+    };
+  };
+
+  return {
+    ...actual,
+    configApi: {
+      ...actual.configApi,
+      getLLMProviders: vi.fn().mockResolvedValue({ data: providerRegistry }),
+      getLLMProviderCatalog: vi.fn().mockResolvedValue({
+        data: buildCatalog(),
+      }),
+      resolveLLMProviderCatalog: vi.fn().mockImplementation(async (payload?: { providers?: Record<string, any> }) => ({
+        data: buildCatalog(payload?.providers || {}),
+      })),
+      getLLMCustomProviderTemplate: vi.fn().mockResolvedValue({
+        data: {
+          template: providerRegistry.custom_provider,
+          defaults: defaultCustomProvider,
         },
       }),
       discoverLLMProviderModels: vi.fn().mockResolvedValue({
@@ -709,6 +783,9 @@ describe('config forms', () => {
     ].map((id) => ({
       id,
       label: id,
+      source: 'builtin' as const,
+      hidden: false,
+      preferred: false,
       capabilities: {
         vision: true,
         image_output: false,
@@ -720,31 +797,41 @@ describe('config forms', () => {
         context_window: 128000,
         max_output_tokens: 32000,
       },
+      input_modalities: ['text', 'image'],
+      output_modalities: ['text'],
       provider_options_example: {},
     }));
 
-    vi.mocked(configApi.getLLMProviders).mockResolvedValueOnce({
+    vi.mocked(configApi.resolveLLMProviderCatalog).mockResolvedValueOnce({
       success: true,
       message: '',
       data: {
         providers: [
           {
             id: 'openai',
+            provider_type: 'openai',
+            source: 'builtin',
             display_name: 'OpenAI',
             description: 'General purpose',
             icon: 'openai',
             default_model: 'alpha-model',
             default_classify_model: 'alpha-model',
             default_base_url: 'https://api.openai.com/v1',
-            chat_models: manyModels,
-            embedding_models: [],
+            resolved_chat_models: manyModels,
+            resolved_embedding_models: [],
             fields: {
               api_key: { visible: true, required: true },
               base_url: { visible: true, required: false },
             },
           },
         ],
-        custom_provider: {
+      },
+    });
+    vi.mocked(configApi.getLLMCustomProviderTemplate).mockResolvedValueOnce({
+      success: true,
+      message: '',
+      data: {
+        template: {
           enabled: true,
           display_name: 'Custom Provider',
           fields: {
@@ -766,6 +853,17 @@ describe('config forms', () => {
             max_output_tokens: null,
           },
           provider_options_example: {},
+        },
+        defaults: {
+          enabled: true,
+          provider_type: 'custom',
+          display_name: '',
+          api_key: '',
+          base_url: '',
+          api_format: 'openai',
+          custom_models: [],
+          custom_default_model: '',
+          model_metadata_overrides: {},
         },
       },
     });
