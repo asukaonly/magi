@@ -395,11 +395,8 @@ class L2Handler:
         del time_range
         results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": [], "trace": {}}
         resolved_entities = await self._resolve_entities(conditions, user_id=user_id)
-        predicates = conditions.predicates or self._infer_predicates(conditions.content_query)
-        predicate_family = conditions.predicate_family or self._infer_predicate_family(
-            conditions.content_query,
-            predicates=predicates,
-        )
+        predicate_family = conditions.predicate_family or "unknown"
+        predicates = conditions.predicates or self._predicates_for_family(predicate_family)
         status_filters = conditions.status_filter or self._infer_status_filters(conditions.content_query)
         relation_direction = conditions.relation_direction or self._infer_relation_direction(conditions.content_query)
         query_frame = self._build_query_frame(
@@ -412,7 +409,7 @@ class L2Handler:
         )
         target_entity_id = self._infer_target_entity_id(
             query_frame=query_frame,
-            predicates=predicates,
+            predicate_family=predicate_family,
         )
 
         snapshot_entities = query_frame["snapshot_entities"] or resolved_entities
@@ -635,37 +632,15 @@ class L2Handler:
             seen.add(entity_id)
         return resolved
 
-    def _infer_predicates(self, query: str) -> list[str] | None:
-        query_lower = query.lower()
-        predicates: list[str] = []
-        if any(token in query_lower for token in ("讨厌", "dislike", "dislikes", "不喜欢")):
-            predicates.append("DISLIKES")
-        if any(token in query_lower for token in ("喜欢", "like", "likes")):
-            predicates.append("LIKES")
-        if "偏好" in query_lower or "preference" in query_lower:
-            predicates.extend(["LIKES", "DISLIKES", "INTERESTED_IN"])
-        if "关系" in query_lower or "relationship" in query_lower:
-            predicates.extend(["KNOWS", "FAMILY_OF", "INTERACTED_WITH", "MEMBER_OF"])
-        unique = []
-        seen: set[str] = set()
-        for predicate in predicates:
-            if predicate in seen:
-                continue
-            seen.add(predicate)
-            unique.append(predicate)
-        return unique or None
+    _FAMILY_PREDICATES: dict[str, list[str]] = {
+        "preference": ["LIKES", "DISLIKES", "INTERESTED_IN"],
+        "relationship": ["KNOWS", "FAMILY_OF", "INTERACTED_WITH", "MEMBER_OF"],
+    }
 
-    def _infer_predicate_family(self, query: str, *, predicates: list[str] | None) -> str:
-        if predicates and any(predicate in {"LIKES", "DISLIKES", "INTERESTED_IN"} for predicate in predicates):
-            return "preference"
-        query_lower = query.lower()
-        if any(token in query_lower for token in ("关系", "认识", "friend", "relationship", "know", "knows")):
-            return "relationship"
-        if any(token in query_lower for token in ("设置", "默认", "资料", "profile", "setting", "settings")):
-            return "profile_fact"
-        if any(token in query_lower for token in ("访问", "浏览", "去过", "看过", "visit", "visited", "browse", "browsed")):
-            return "activity"
-        return "unknown"
+    @classmethod
+    def _predicates_for_family(cls, family: str) -> list[str] | None:
+        """Derive predicate list from predicate_family set by the intent decider."""
+        return list(cls._FAMILY_PREDICATES[family]) if family in cls._FAMILY_PREDICATES else None
 
     def _infer_status_filters(self, query: str) -> list[str]:
         query_lower = query.lower()
@@ -697,11 +672,9 @@ class L2Handler:
         self,
         *,
         query_frame: dict[str, Any],
-        predicates: list[str] | None,
+        predicate_family: str,
     ) -> str | None:
-        if not predicates:
-            return None
-        if not any(predicate in {"LIKES", "DISLIKES", "INTERESTED_IN"} for predicate in predicates):
+        if predicate_family != "preference":
             return None
         if query_frame["target_entity_id_exact"]:
             return str(query_frame["target_entity_id_exact"])

@@ -386,7 +386,7 @@ class TestL2Handler:
         assert relationship_kwargs["subject_id"] == "user:u1"
         assert relationship_kwargs["object_types"] == ["weather_state"]
         assert relationship_kwargs.get("object_id") is None
-        assert relationship_kwargs["predicates"] == ["LIKES"]
+        assert relationship_kwargs["predicates"] == ["LIKES", "DISLIKES", "INTERESTED_IN"]
         assert results["trace"]["query_frame"]["chosen_subject_entity_id"] == "user:u1"
         assert results["trace"]["query_frame"]["subject_binding_source"] == "self_anchor"
 
