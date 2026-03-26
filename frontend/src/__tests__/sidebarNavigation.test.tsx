@@ -67,6 +67,18 @@ describe('sidebar navigation', () => {
     expect(screen.queryByRole('button', { name: 'shell.personality' })).not.toBeInTheDocument();
   });
 
+  it('does not fetch or auto-create sessions on the settings route', async () => {
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('button', { name: 'shell.settings' })).toBeInTheDocument();
+    expect(messagesApi.listSessions).not.toHaveBeenCalled();
+    expect(messagesApi.createNewSession).not.toHaveBeenCalled();
+  });
+
   it('shows conversation search tools and filters visible sessions locally', async () => {
     const user = userEvent.setup();
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({

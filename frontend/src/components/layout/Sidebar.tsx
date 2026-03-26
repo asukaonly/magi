@@ -82,6 +82,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const [loading, setLoading] = useState(false);
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
   const isMemoryRoute = location.pathname === '/events' || location.pathname.startsWith('/memory');
+  const shouldRefreshSessions = isConversationRoute;
   const [expandedSection, setExpandedSection] = useState<'conversation' | 'memory' | null>(
     isMemoryRoute ? 'memory' : isConversationRoute ? 'conversation' : null
   );
@@ -159,6 +160,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   }, [hydrateSessions, setCurrentSessionId]);
 
   useEffect(() => {
+    if (!shouldRefreshSessions) {
+      return undefined;
+    }
+
     void refreshSessions();
     const handleSync = () => {
       void refreshSessions();
@@ -179,7 +184,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshSessions]);
+  }, [refreshSessions, shouldRefreshSessions]);
 
   useEffect(() => {
     if (isMemoryRoute) {
