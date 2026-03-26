@@ -14,6 +14,13 @@ from .sensors import (
     TimerSensor,
 )
 
+# New sensor decoupling contracts (L9)
+from .sensor_base import SensorBase
+from .sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata
+from .sensor_state import SensorStateStore, SqliteSensorStateStore
+from .sensor_sync import PullSyncSensor, SensorSyncContext, SensorSyncResult
+from .ingestion_gateway import SensorIngestionGateway, SensorIngestionResult
+
 __all__ = [
     "Perception",
     "PerceptionType",
@@ -26,4 +33,17 @@ __all__ = [
     "EventSensor",
     "SensordataSensor",
     "TimerSensor",
+    # New sensor decoupling contracts
+    "ContentBlock",
+    "PullSyncSensor",
+    "SensorBase",
+    "SensorIngestionGateway",
+    "SensorIngestionResult",
+    "SensorMemoryPolicy",
+    "SensorOutput",
+    "SensorOutputMetadata",
+    "SensorStateStore",
+    "SensorSyncContext",
+    "SensorSyncResult",
+    "SqliteSensorStateStore",
 ]

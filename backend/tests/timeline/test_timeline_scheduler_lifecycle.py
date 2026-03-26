@@ -12,6 +12,14 @@ from magi.timeline.sync import PullSyncSensor
 from magi.utils.runtime import RuntimePaths
 
 
+class _FakeUnifiedMemory:
+    async def ingest_event(self, event_dict):
+        pass
+
+    async def upsert_user_graph_edge(self, **kwargs):
+        pass
+
+
 class _FakeTimelineService:
     def __init__(self) -> None:
         self.events: list[TimelineEvent] = []
@@ -152,6 +160,7 @@ async def test_timeline_schedule_registration_module_registers_handler_and_syncs
     context.plugins.plugin_manager = _FakePluginManager()
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
+    context.memory.unified_memory = _FakeUnifiedMemory()
     monkeypatch.setattr(
         "magi.timeline.lifecycle.get_config",
         lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),
@@ -183,6 +192,7 @@ async def test_timeline_schedule_registration_module_supports_manual_sync(monkey
     context.plugins.plugin_manager = _FakePluginManager()
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
+    context.memory.unified_memory = _FakeUnifiedMemory()
     monkeypatch.setattr(
         "magi.timeline.lifecycle.get_config",
         lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),

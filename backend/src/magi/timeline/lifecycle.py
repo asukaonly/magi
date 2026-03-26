@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from ..awareness.ingestion_gateway import SensorIngestionGateway
+from ..awareness.sensor_state import SqliteSensorStateStore
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..config import get_config
 from ..core.logger import get_logger
+from .adapter import TimelineAdapter
 from .service import TimelineService
 from .scheduler_contrib import TimelineSchedulerContrib
 
@@ -49,6 +52,19 @@ class TimelineScheduleRegistrationModule(LifecycleModule):
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+
+        # Build the new sensor ingestion pipeline
+        sensor_state_store = SqliteSensorStateStore(
+            runtime_paths.memories_dir / "sensor_state.db"
+        )
+        timeline_adapter = TimelineAdapter(timeline_service)
+        ingestion_gateway = SensorIngestionGateway(
+            unified_memory=unified_memory,
+            timeline_adapter=timeline_adapter,
+            sensor_state_store=sensor_state_store,
+        )
+
         self._contrib = TimelineSchedulerContrib(
             scheduler_service=scheduler_service,
             sensor_registry=sensor_registry,
@@ -56,6 +72,7 @@ class TimelineScheduleRegistrationModule(LifecycleModule):
             timeline_service=timeline_service,
             runtime_paths=runtime_paths,
             get_config=get_config,
+            ingestion_gateway=ingestion_gateway,
         )
         self._context.timeline.timeline_scheduler_contrib = self._contrib
         await self._contrib.register_schedules(scheduler_service)

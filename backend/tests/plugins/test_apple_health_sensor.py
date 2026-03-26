@@ -191,8 +191,8 @@ class TestAppleHealthTimelineSensor:
             assert reader_instance.read_daily_aggregate.call_count == 2
 
     @patch('apple_health.sensor.NORMALIZERS')
-    async def test_build_timeline_event_with_normalizer(self, mock_normalizers):
-        """Test build_timeline_event with normalizer."""
+    async def test_build_output_with_normalizer(self, mock_normalizers):
+        """Test build_output with normalizer."""
         # Setup mock normalizer that mimics real normalizer
         def mock_normalizer(item, sensor):
             return {
@@ -215,18 +215,17 @@ class TestAppleHealthTimelineSensor:
             "value": 5000
         }
 
-        event = await sensor.build_timeline_event(item)
+        output = await sensor.build_output(item)
 
-        # The normalizer returns a custom event_id but we want to verify the sensor uses it
-        assert event.event_id == "test_event"
-        assert event.source_type == "apple_health"
-        assert event.title == "Test Event"
-        assert event.summary == "Test Summary"
-        assert len(event.content_blocks) == 1
+        assert output.source_item_id == "test_item"
+        assert output.source_type == "apple_health"
+        assert output.title == "Test Event"
+        assert output.summary == "Test Summary"
+        assert len(output.content_blocks) == 1
 
     @patch('apple_health.sensor.NORMALIZERS')
-    async def test_build_timeline_event_without_normalizer(self, mock_normalizers):
-        """Test build_timeline_event without normalizer (fallback)."""
+    async def test_build_output_without_normalizer(self, mock_normalizers):
+        """Test build_output without normalizer (fallback)."""
         mock_normalizers.get.return_value = None
 
         sensor = AppleHealthTimelineSensor()
@@ -239,13 +238,13 @@ class TestAppleHealthTimelineSensor:
         }
 
         item["occurred_at"] = 1000
-        event = await sensor.build_timeline_event(item)
+        output = await sensor.build_output(item)
 
-        assert event.source_type == "apple_health"
-        assert event.title == "Health Data: Unknown Type"
-        assert event.summary == "5000"
-        assert "apple_health" in event.tags
-        assert "unknown_type" in event.tags
+        assert output.source_type == "apple_health"
+        assert output.title == "Health Data: Unknown Type"
+        assert output.summary == "5000"
+        assert "apple_health" in output.tags
+        assert "unknown_type" in output.tags
 
     @patch('apple_health.reader.HealthKitReader')
     @patch('apple_health.sensor.sys.platform', 'darwin')

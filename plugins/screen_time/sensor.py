@@ -7,8 +7,7 @@ import time
 from datetime import datetime, timedelta, date
 from typing import Any
 
-from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
-from magi.timeline.sensors.base import TimelineSensorBase
+from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorSyncContext, SensorSyncResult
 
 from .exceptions import PlatformNotSupportedError
 from .normalizers import normalize_daily_screen_time
@@ -16,7 +15,7 @@ from .reader import ScreenTimeReader
 from .types import DailyScreenTime, AppUsage
 
 
-class ScreenTimeTimelineSensor(TimelineSensorBase):
+class ScreenTimeTimelineSensor(SensorBase):
     """Timeline sensor for Screen Time data."""
 
     sensor_id = "timeline.screen_time"
@@ -28,8 +27,15 @@ class ScreenTimeTimelineSensor(TimelineSensorBase):
     relation_edge_whitelist = ("TRACKed", "used")
     supports_pull_sync = True
 
+    memory_policy = SensorMemoryPolicy(
+        retention_class="disposable",
+        cognition_eligible=False,
+        importance_bias=0.3,
+    )
+
     def __init__(self, *, retention_mode=None, reader=None):
-        super().__init__(retention_mode=retention_mode)
+        super().__init__()
+        self.retention_mode = retention_mode or "analyze_only"
         self._reader = reader
 
     @property
@@ -135,8 +141,8 @@ class ScreenTimeTimelineSensor(TimelineSensorBase):
             },
         )
 
-    async def build_timeline_event(self, item: dict) -> TimelineEvent:
-        """Build a TimelineEvent from a screen time item."""
+    async def build_output(self, item: dict) -> SensorOutput:
+        """Build a SensorOutput from a screen time item."""
         # Normalize - pass item dict directly
         normalized_data = normalize_daily_screen_time(item, self)
 
@@ -147,24 +153,19 @@ class ScreenTimeTimelineSensor(TimelineSensorBase):
         else:
             occurred_at = time.time()
 
-        return TimelineEvent(
-            event_id=normalized_data["event_id"],
-            source_type=self.source_type,
+        return self._build_output(
             source_item_id=normalized_data["source_item_id"],
-            occurred_at=occurred_at,
-            captured_at=time.time(),
             title=normalized_data["title"],
             summary=normalized_data["summary"],
-            retention_mode=self.retention_mode,
-            raw_payload_ref=None,
+            occurred_at=occurred_at,
             content_blocks=[
-                TimelineContentBlock(kind=block["kind"], value=block["value"])
+                ContentBlock(kind=block["kind"], value=block["value"])
                 for block in normalized_data["content_blocks"]
             ],
             tags=normalized_data["tags"],
-            processing_status={"stored": False, "analyzed": False},
             provenance={
                 "sensor_id": self.sensor_id,
                 **normalized_data["provenance"],
             },
+            domain_payload={"retention_mode": self.retention_mode},
         )

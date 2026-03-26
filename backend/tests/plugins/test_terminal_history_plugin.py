@@ -223,8 +223,8 @@ def test_plugin_get_sensors_with_disabled_setting():
 
 # ============ Integration Tests ============
 
-def test_sensor_build_timeline_event():
-    """Test building a TimelineEvent from terminal command item."""
+def test_sensor_build_output():
+    """Test building a SensorOutput from terminal command item."""
     sensor = TerminalHistorySensor()
 
     item = {
@@ -235,10 +235,10 @@ def test_sensor_build_timeline_event():
         "raw_line": ": 1741903200:0;npm run build",
     }
 
-    event = asyncio.run(sensor.build_timeline_event(item))
+    output = asyncio.run(sensor.build_output(item))
 
-    assert event.source_type == "terminal_history"
-    assert "npm run build" in event.title
-    assert len(event.content_blocks) > 0
-    assert "terminal" in event.tags
-    assert "zsh" in event.tags
+    assert output.source_type == "terminal_history"
+    assert "npm run build" in output.title
+    assert len(output.content_blocks) > 0
+    assert "terminal" in output.tags
+    assert "zsh" in output.tags

@@ -7,8 +7,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
-from magi.timeline.sensors.base import TimelineSensorBase
+from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorSyncContext, SensorSyncResult
 
 from .exceptions import PlatformNotSupportedError
 from .normalizers import normalize_calendar_event
@@ -16,7 +15,7 @@ from .reader import EventKitReader
 from .types import CalendarEvent, Participant
 
 
-class CalendarTimelineSensor(TimelineSensorBase):
+class CalendarTimelineSensor(SensorBase):
     """Timeline sensor for Calendar data."""
 
     sensor_id = "timeline.calendar"
@@ -28,8 +27,15 @@ class CalendarTimelineSensor(TimelineSensorBase):
     relation_edge_whitelist = ("SCHEDULED", "ATTENDED")
     supports_pull_sync = True
 
+    memory_policy = SensorMemoryPolicy(
+        retention_class="permanent",
+        cognition_eligible=True,
+        importance_bias=0.7,
+    )
+
     def __init__(self, *, retention_mode=None, reader=None):
-        super().__init__(retention_mode=retention_mode)
+        super().__init__()
+        self.retention_mode = retention_mode or "analyze_only"
         self._reader = reader
 
     @property
@@ -146,8 +152,8 @@ class CalendarTimelineSensor(TimelineSensorBase):
             },
         )
 
-    async def build_timeline_event(self, item: dict) -> TimelineEvent:
-        """Build a TimelineEvent from a calendar event item."""
+    async def build_output(self, item: dict) -> SensorOutput:
+        """Build a SensorOutput from a calendar event item."""
         # Reconstruct CalendarEvent from item dict
         start_ts = item.get("start_time", time.time())
         end_ts = item.get("end_time", time.time())
@@ -178,24 +184,19 @@ class CalendarTimelineSensor(TimelineSensorBase):
         # Normalize
         normalized_data = normalize_calendar_event(event, self)
 
-        return TimelineEvent(
-            event_id=normalized_data["event_id"],
-            source_type=self.source_type,
+        return self._build_output(
             source_item_id=normalized_data["source_item_id"],
-            occurred_at=normalized_data["occurred_at"],
-            captured_at=time.time(),
             title=normalized_data["title"],
             summary=normalized_data["summary"],
-            retention_mode=self.retention_mode,
-            raw_payload_ref=None,
+            occurred_at=normalized_data["occurred_at"],
             content_blocks=[
-                TimelineContentBlock(kind=block["kind"], value=block["value"])
+                ContentBlock(kind=block["kind"], value=block["value"])
                 for block in normalized_data["content_blocks"]
             ],
             tags=normalized_data["tags"],
-            processing_status={"stored": False, "analyzed": False},
             provenance={
                 "sensor_id": self.sensor_id,
                 **normalized_data["provenance"],
             },
+            domain_payload={"retention_mode": self.retention_mode},
         )

@@ -197,8 +197,8 @@ def test_plugin_get_sensors_with_disabled_setting():
 
 # ============ Integration Tests ============
 
-def test_sensor_build_timeline_event():
-    """Test building a TimelineEvent from screen time item."""
+def test_sensor_build_output():
+    """Test building a SensorOutput from screen time item."""
     sensor = ScreenTimeTimelineSensor()
 
     item = {
@@ -210,10 +210,10 @@ def test_sensor_build_timeline_event():
         ]
     }
 
-    event = asyncio.run(sensor.build_timeline_event(item))
+    output = asyncio.run(sensor.build_output(item))
 
-    assert event.event_id == "screen_time_2026-03-12"
-    assert event.source_type == "screen_time"
-    assert "屏幕使用" in event.title
-    assert len(event.content_blocks) > 0
-    assert "screen_time" in event.tags
+    assert output.source_item_id == "screen_time_2026-03-12"
+    assert output.source_type == "screen_time"
+    assert "屏幕使用" in output.title
+    assert len(output.content_blocks) > 0
+    assert "screen_time" in output.tags

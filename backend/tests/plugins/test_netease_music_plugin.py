@@ -450,8 +450,8 @@ async def test_collect_items_returns_records():
 
 
 @pytest.mark.asyncio
-async def test_build_timeline_event():
-    """Test building timeline event from item."""
+async def test_build_output():
+    """Test building sensor output from item."""
     sensor = NeteaseMusicTimelineSensor()
 
     item = {
@@ -466,29 +466,29 @@ async def test_build_timeline_event():
         "track_duration_ms": 180000
     }
 
-    event = await sensor.build_timeline_event(item)
+    output = await sensor.build_output(item)
 
-    # Check event properties
-    assert event.event_id == "netease_music:netease_123_1641000000"
-    assert event.source_type == "netease_music"
-    assert event.title == "Test Song - Test Artist"
-    assert event.summary == "播放了 Test Song (30秒)"
-    assert event.occurred_at == 1641000000
+    # Check output properties
+    assert f"{output.source_type}:{output.source_item_id}" == "netease_music:netease_123_1641000000"
+    assert output.source_type == "netease_music"
+    assert output.title == "Test Song - Test Artist"
+    assert output.summary == "播放了 Test Song (30秒)"
+    assert output.occurred_at == 1641000000
 
     # Check content blocks
-    assert len(event.content_blocks) == 3
-    assert event.content_blocks[0].kind == "text"
-    assert event.content_blocks[0].value == "Test Song"
-    assert event.content_blocks[1].kind == "text"
-    assert event.content_blocks[1].value == "Test Artist"
-    assert event.content_blocks[2].kind == "text"
-    assert event.content_blocks[2].value == "Test Album"
+    assert len(output.content_blocks) == 3
+    assert output.content_blocks[0].kind == "text"
+    assert output.content_blocks[0].value == "Test Song"
+    assert output.content_blocks[1].kind == "text"
+    assert output.content_blocks[1].value == "Test Artist"
+    assert output.content_blocks[2].kind == "text"
+    assert output.content_blocks[2].value == "Test Album"
 
     # Check tags
-    assert set(event.tags) == {"netease_music", "music", "listening", "liked"}
+    assert set(output.tags) == {"netease_music", "music", "listening", "liked"}
 
     # Check provenance
-    provenance = event.provenance
+    provenance = output.provenance
     assert provenance["sensor_id"] == "timeline.netease_music"
     assert provenance["platform"] == "netease_music"
     assert provenance["track_id"] == "123"
@@ -505,8 +505,8 @@ async def test_build_timeline_event():
 
 
 @pytest.mark.asyncio
-async def test_build_timeline_event_marks_liked():
-    """Test building timeline event marks liked tracks correctly."""
+async def test_build_output_marks_liked():
+    """Test building sensor output marks liked tracks correctly."""
     sensor = NeteaseMusicTimelineSensor()
 
     liked_item = {
@@ -531,11 +531,11 @@ async def test_build_timeline_event_marks_liked():
         "is_liked": False
     }
 
-    liked_event = await sensor.build_timeline_event(liked_item)
-    not_liked_event = await sensor.build_timeline_event(not_liked_item)
+    liked_output = await sensor.build_output(liked_item)
+    not_liked_output = await sensor.build_output(not_liked_item)
 
-    assert "liked" in liked_event.tags
-    assert "liked" not in not_liked_event.tags
+    assert "liked" in liked_output.tags
+    assert "liked" not in not_liked_output.tags
 
 
 # Tests for NeteaseMusicPlugin

@@ -8,8 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
-from magi.timeline.sensors.base import TimelineSensorBase
+from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorSyncContext, SensorSyncResult
 
 from .filters import SensitiveMessageFilter
 from .normalizers import normalize_git_activity
@@ -17,7 +16,7 @@ from .reader import GitReflogReader, is_git_repo
 from .types import GitActivity
 
 
-class GitActivitySensor(TimelineSensorBase):
+class GitActivitySensor(SensorBase):
     """Timeline sensor for Git Activity data."""
 
     sensor_id = "timeline.git_activity"
@@ -29,13 +28,19 @@ class GitActivitySensor(TimelineSensorBase):
     relation_edge_whitelist = ("COMMITTED", "CHECKED_OUT", "MERGED", "REBASED")
     supports_pull_sync = True
 
+    memory_policy = SensorMemoryPolicy(
+        cognition_eligible=False,
+        importance_bias=0.4,
+    )
+
     def __init__(
         self,
         *,
         retention_mode: Optional[str] = None,
         repos: Optional[list[str]] = None,
     ):
-        super().__init__(retention_mode=retention_mode)
+        super().__init__()
+        self.retention_mode = retention_mode or "analyze_only"
         self._repos = repos or []
         self._readers: dict[str, GitReflogReader] = {}
         self._filter: Optional[SensitiveMessageFilter] = None
@@ -193,8 +198,8 @@ class GitActivitySensor(TimelineSensorBase):
             },
         )
 
-    async def build_timeline_event(self, item: dict) -> TimelineEvent:
-        """Build a TimelineEvent from a git activity item."""
+    async def build_output(self, item: dict) -> SensorOutput:
+        """Build a SensorOutput from a git activity item."""
         # Normalize the item
         normalized_data = normalize_git_activity(item, self)
 
@@ -219,9 +224,9 @@ class GitActivitySensor(TimelineSensorBase):
         )
 
         content_blocks = [
-            TimelineContentBlock(kind="text", value=self.t("content_blocks.repo", repo_path=repo_path)),
-            TimelineContentBlock(kind="text", value=self.t("content_blocks.operation", operation_type=activity_type_name)),
-            TimelineContentBlock(
+            ContentBlock(kind="text", value=self.t("content_blocks.repo", repo_path=repo_path)),
+            ContentBlock(kind="text", value=self.t("content_blocks.operation", operation_type=activity_type_name)),
+            ContentBlock(
                 kind="text",
                 value=self.t(
                     "content_blocks.commit",
@@ -231,21 +236,16 @@ class GitActivitySensor(TimelineSensorBase):
             ),
         ]
 
-        return TimelineEvent(
-            event_id=normalized_data["event_id"],
-            source_type=self.source_type,
+        return self._build_output(
             source_item_id=normalized_data["source_item_id"],
-            occurred_at=occurred_at,
-            captured_at=time.time(),
             title=normalized_data["title"],
             summary=normalized_data["summary"],
-            retention_mode=self.retention_mode,
-            raw_payload_ref=None,
+            occurred_at=occurred_at,
             content_blocks=content_blocks,
             tags=normalized_data["tags"],
-            processing_status={"stored": False, "analyzed": False},
             provenance={
                 "sensor_id": self.sensor_id,
                 **normalized_data["provenance"],
             },
+            domain_payload={"retention_mode": self.retention_mode},
         )

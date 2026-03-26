@@ -197,8 +197,8 @@ def test_plugin_get_sensors_with_no_repos():
 
 # ============ Integration Tests ============
 
-def test_sensor_build_timeline_event():
-    """Test building a TimelineEvent from git activity item."""
+def test_sensor_build_output():
+    """Test building a SensorOutput from git activity item."""
     sensor = GitActivitySensor()
 
     item = {
@@ -212,10 +212,10 @@ def test_sensor_build_timeline_event():
         "raw_line": "test line",
     }
 
-    event = asyncio.run(sensor.build_timeline_event(item))
+    output = asyncio.run(sensor.build_output(item))
 
-    assert event.source_type == "git_activity"
-    assert "commit" in event.title
-    assert len(event.content_blocks) > 0
-    assert "git" in event.tags
-    assert "commit" in event.tags
+    assert output.source_type == "git_activity"
+    assert "commit" in output.title
+    assert len(output.content_blocks) > 0
+    assert "git" in output.tags
+    assert "commit" in output.tags

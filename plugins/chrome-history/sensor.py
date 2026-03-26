@@ -4,14 +4,13 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
-from magi.timeline.sensors import TimelineSensorBase
+from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata, SensorSyncContext, SensorSyncResult
 
 from .chrome_reader import ChromeHistoryReader, DEFAULT_MACOS_CHROME_ROOT
 from .normalizers import build_relation_candidates, normalize_domain
 
 
-class ChromeHistoryTimelineSensor(TimelineSensorBase):
+class ChromeHistoryTimelineSensor(SensorBase):
     """Pull-sync sensor backed by the local Chrome history SQLite database."""
 
     sensor_id = "timeline.chrome_history"
@@ -23,6 +22,8 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
     relation_edge_whitelist = ("VISITED", "VIEWED")
     supports_pull_sync = True
 
+    memory_policy = SensorMemoryPolicy()  # defaults match design
+
     def __init__(
         self,
         *,
@@ -33,11 +34,10 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
         lookback_hours: int = 24,
         reader: ChromeHistoryReader | None = None,
     ) -> None:
-        super().__init__(
-            retention_mode=retention_mode,
-            source_path=source_path,
-            fetch_page_content=fetch_page_content,
-        )
+        super().__init__()
+        self.retention_mode = retention_mode or "analyze_only"
+        self.source_path = source_path
+        self.fetch_page_content = fetch_page_content
         self.profile = profile
         self.lookback_hours = lookback_hours
         self._reader = reader or ChromeHistoryReader()
@@ -110,7 +110,7 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
             },
         )
 
-    async def build_timeline_event(self, item: dict[str, Any]) -> TimelineEvent:
+    async def build_output(self, item: dict[str, Any]) -> SensorOutput:
         url = str(item.get("canonical_url") or item.get("url") or "")
         title = str(item.get("title") or item.get("domain") or url or "Visited page")
         domain = str(item.get("domain") or normalize_domain(url))
@@ -121,13 +121,13 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
         else:
             summary = self.t("summary.multiple_visits", title=title, count=merged_visit_count)
         content_blocks = [
-            TimelineContentBlock(kind="text", value=url),
+            ContentBlock(kind="text", value=url),
         ]
         if title:
-            content_blocks.append(TimelineContentBlock(kind="text", value=title))
+            content_blocks.append(ContentBlock(kind="text", value=title))
         if self.fetch_page_content and item.get("page_content"):
-            content_blocks.append(TimelineContentBlock(kind="text", value=str(item["page_content"])))
-        return self._build_event(
+            content_blocks.append(ContentBlock(kind="text", value=str(item["page_content"])))
+        return self._build_output(
             source_item_id=self.source_item_identity(item),
             title=title,
             summary=summary,
@@ -147,12 +147,13 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
                 "transition": str(item.get("transition") or ""),
                 "canonical_url": url,
             },
+            domain_payload={"retention_mode": self.retention_mode},
         )
 
-    async def extract_candidates(self, item: dict[str, Any]) -> dict[str, Any]:
+    async def extract_metadata(self, item: dict[str, Any]) -> SensorOutputMetadata:
         domain = str(item.get("domain") or normalize_domain(str(item.get("url") or "")))
-        return {
-            "entities": [],
-            "tags": [tag for tag in ("chrome_history", domain) if tag],
-            "relation_candidates": build_relation_candidates(item),
-        }
+        return SensorOutputMetadata(
+            entities=[],
+            tags=[tag for tag in ("chrome_history", domain) if tag],
+            relation_candidates=build_relation_candidates(item),
+        )

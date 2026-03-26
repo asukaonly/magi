@@ -285,21 +285,21 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     )
     assert [item["visit_id"] for item in incremental.items] == ["102", "103"]
 
-    event = await sensor.build_timeline_event(result.items[1])
-    assert event.event_id == "chrome_history:102"
-    assert "chrome_history" in event.tags
-    assert "github.com" in event.tags
-    assert event.provenance["browser"] == "chrome"
-    assert event.provenance["visit_id"] == "102"
+    output = await sensor.build_output(result.items[1])
+    assert f"{output.source_type}:{output.source_item_id}" == "chrome_history:102"
+    assert "chrome_history" in output.tags
+    assert "github.com" in output.tags
+    assert output.provenance["browser"] == "chrome"
+    assert output.provenance["visit_id"] == "102"
 
-    root_relations = await sensor.extract_candidates(result.items[0])
-    content_relations = await sensor.extract_candidates(result.items[1])
-    noise_relations = await sensor.extract_candidates(result.items[2])
+    root_metadata = await sensor.extract_metadata(result.items[0])
+    content_metadata = await sensor.extract_metadata(result.items[1])
+    noise_metadata = await sensor.extract_metadata(result.items[2])
 
-    assert [candidate["predicate"] for candidate in root_relations["relation_candidates"]] == ["VISITED"]
-    assert [candidate["predicate"] for candidate in content_relations["relation_candidates"]] == ["VISITED", "VIEWED"]
-    assert [candidate["predicate"] for candidate in noise_relations["relation_candidates"]] == ["VISITED"]
-    assert all(candidate["object_id"] == "site:github.com" for candidate in content_relations["relation_candidates"])
+    assert [candidate["predicate"] for candidate in root_metadata.relation_candidates] == ["VISITED"]
+    assert [candidate["predicate"] for candidate in content_metadata.relation_candidates] == ["VISITED", "VIEWED"]
+    assert [candidate["predicate"] for candidate in noise_metadata.relation_candidates] == ["VISITED"]
+    assert all(candidate["object_id"] == "site:github.com" for candidate in content_metadata.relation_candidates)
 
 
 @pytest.mark.asyncio
@@ -360,15 +360,15 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
     assert mermaid_item["url"] == "https://mermaid.live/edit"
     assert mermaid_item["canonical_url"] == "https://mermaid.live/edit"
 
-    mermaid_event = await sensor.build_timeline_event(mermaid_item)
-    assert mermaid_event.event_id == "chrome_history:201-203"
-    assert mermaid_event.summary.endswith("(3 visits)")
-    assert mermaid_event.provenance["merged_visit_count"] == 3
-    assert mermaid_event.provenance["canonical_url"] == "https://mermaid.live/edit"
+    mermaid_output = await sensor.build_output(mermaid_item)
+    assert f"{mermaid_output.source_type}:{mermaid_output.source_item_id}" == "chrome_history:201-203"
+    assert mermaid_output.summary.endswith("(3 visits)")
+    assert mermaid_output.provenance["merged_visit_count"] == 3
+    assert mermaid_output.provenance["canonical_url"] == "https://mermaid.live/edit"
 
-    mermaid_relations = await sensor.extract_candidates(mermaid_item)
-    assert [candidate["predicate"] for candidate in mermaid_relations["relation_candidates"]] == ["VISITED", "VIEWED"]
-    assert all(candidate["object_id"] == "site:mermaid.live" for candidate in mermaid_relations["relation_candidates"])
+    mermaid_metadata = await sensor.extract_metadata(mermaid_item)
+    assert [candidate["predicate"] for candidate in mermaid_metadata.relation_candidates] == ["VISITED", "VIEWED"]
+    assert all(candidate["object_id"] == "site:mermaid.live" for candidate in mermaid_metadata.relation_candidates)
 
     assert lastfm_item["source_item_id"] == "204-205"
     assert lastfm_item["merged_visit_count"] == 2

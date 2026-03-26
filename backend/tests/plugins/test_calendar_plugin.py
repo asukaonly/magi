@@ -308,11 +308,10 @@ def test_plugin_get_sensors_with_disabled_setting():
 import asyncio
 
 
-def test_sensor_build_timeline_event():
-    """Test building a TimelineEvent from calendar item."""
+def test_sensor_build_output():
+    """Test building a SensorOutput from calendar item."""
     from calendar_plugin.sensor import CalendarTimelineSensor
     from datetime import datetime
-    from magi.timeline import TimelineEvent, TimelineContentBlock
     import time
 
     sensor = CalendarTimelineSensor()
@@ -335,20 +334,19 @@ def test_sensor_build_timeline_event():
         "url": None,
     }
 
-    event = asyncio.run(sensor.build_timeline_event(item))
+    output = asyncio.run(sensor.build_output(item))
 
-    assert event.event_id == "calendar_integration-001"
-    assert event.source_type == "calendar"
-    assert "Integration Test Meeting" in event.title
-    assert len(event.content_blocks) > 0
-    assert "calendar" in event.tags
+    assert output.source_item_id == "calendar_integration-001"
+    assert output.source_type == "calendar"
+    assert "Integration Test Meeting" in output.title
+    assert len(output.content_blocks) > 0
+    assert "calendar" in output.tags
 
 
 def test_sensor_build_all_day_event():
-    """Test building TimelineEvent for all-day event."""
+    """Test building SensorOutput for all-day event."""
     from calendar_plugin.sensor import CalendarTimelineSensor
     from datetime import datetime
-    from magi.timeline import TimelineEvent, TimelineContentBlock
     import time
 
     sensor = CalendarTimelineSensor()
@@ -369,7 +367,7 @@ def test_sensor_build_all_day_event():
         "url": None,
     }
 
-    event = asyncio.run(sensor.build_timeline_event(item))
+    output = asyncio.run(sensor.build_output(item))
 
-    assert "all_day" in event.tags
-    assert "recurring" in event.tags
+    assert "all_day" in output.tags
+    assert "recurring" in output.tags

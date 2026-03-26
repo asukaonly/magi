@@ -8,8 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
-from magi.timeline.sensors.base import TimelineSensorBase
+from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorSyncContext, SensorSyncResult
 
 from .exceptions import ShellNotSupportedError
 from .filters import SensitiveCommandFilter
@@ -18,7 +17,7 @@ from .reader import TerminalHistoryReader
 from .types import TerminalCommand
 
 
-class TerminalHistorySensor(TimelineSensorBase):
+class TerminalHistorySensor(SensorBase):
     """Timeline sensor for Terminal History data."""
 
     sensor_id = "timeline.terminal_history"
@@ -30,6 +29,11 @@ class TerminalHistorySensor(TimelineSensorBase):
     relation_edge_whitelist = ("EXECUTED", "USED")
     supports_pull_sync = True
 
+    memory_policy = SensorMemoryPolicy(
+        cognition_eligible=False,
+        importance_bias=0.3,
+    )
+
     def __init__(
         self,
         *,
@@ -38,7 +42,8 @@ class TerminalHistorySensor(TimelineSensorBase):
         history_file: Optional[str] = None,
         reader: Optional[TerminalHistoryReader] = None,
     ):
-        super().__init__(retention_mode=retention_mode)
+        super().__init__()
+        self.retention_mode = retention_mode or "analyze_only"
         self._shell = shell
         self._history_file = history_file
         self._reader = reader
@@ -201,8 +206,8 @@ class TerminalHistorySensor(TimelineSensorBase):
         window = ts // window_seconds
         return f"{window}:{command}"
 
-    async def build_timeline_event(self, item: dict) -> TimelineEvent:
-        """Build a TimelineEvent from a terminal command item."""
+    async def build_output(self, item: dict) -> SensorOutput:
+        """Build a SensorOutput from a terminal command item."""
         # Normalize the item
         normalized_data = normalize_terminal_command(item, self)
 
@@ -215,24 +220,19 @@ class TerminalHistorySensor(TimelineSensorBase):
         else:
             occurred_at = time.time()
 
-        return TimelineEvent(
-            event_id=normalized_data["event_id"],
-            source_type=self.source_type,
+        return self._build_output(
             source_item_id=normalized_data["source_item_id"],
-            occurred_at=occurred_at,
-            captured_at=time.time(),
             title=normalized_data["title"],
             summary=normalized_data["summary"],
-            retention_mode=self.retention_mode,
-            raw_payload_ref=None,
+            occurred_at=occurred_at,
             content_blocks=[
-                TimelineContentBlock(kind=block["kind"], value=block["value"])
+                ContentBlock(kind=block["kind"], value=block["value"])
                 for block in normalized_data["content_blocks"]
             ],
             tags=normalized_data["tags"],
-            processing_status={"stored": False, "analyzed": False},
             provenance={
                 "sensor_id": self.sensor_id,
                 **normalized_data["provenance"],
             },
+            domain_payload={"retention_mode": self.retention_mode},
         )

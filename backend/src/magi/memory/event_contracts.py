@@ -396,6 +396,18 @@ def _classify_event(event: Event) -> Dict[str, Any]:
             "importance": 0.1,
         }
 
+    # SENSOR_EVENT is normally routed by SensorIngestionGateway with per-sensor
+    # policy. This fallback handles edge cases where it reaches _classify_event.
+    if event_type == "SENSOR_EVENT":
+        return {
+            "memory_domain": MemoryDomain.EXTERNAL_ACTIVITY,
+            "ingest_target": IngestTarget.L1_ONLY,
+            "cognition_eligible": True,
+            "tom_depth": TomDepth.NONE,
+            "retention_class": RetentionClass.COMPRESSIBLE,
+            "importance": 0.5,
+        }
+
     return {
         "memory_domain": MemoryDomain.EXTERNAL_ACTIVITY,
         "ingest_target": IngestTarget.L1_ONLY,

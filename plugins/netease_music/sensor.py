@@ -5,13 +5,12 @@ import hashlib
 import time
 from typing import Any
 
-from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
-from magi.timeline.sensors import TimelineSensorBase
+from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorSyncContext, SensorSyncResult
 from .normalizers import build_netease_url
 from .reader import DEFAULT_DB_PATH, NeteaseMusicReader
 
 
-class NeteaseMusicTimelineSensor(TimelineSensorBase):
+class NeteaseMusicTimelineSensor(SensorBase):
     """Timeline sensor for NetEase Cloud Music play records."""
 
     sensor_id = "timeline.netease_music"
@@ -23,8 +22,12 @@ class NeteaseMusicTimelineSensor(TimelineSensorBase):
     relation_edge_whitelist = ("LISTENED",)
     supports_pull_sync = True
 
+    memory_policy = SensorMemoryPolicy()  # defaults match design
+
     def __init__(self, *, retention_mode=None, source_path=None, min_play_duration=20, reader=None):
-        super().__init__(retention_mode=retention_mode, source_path=source_path)
+        super().__init__()
+        self.retention_mode = retention_mode or "analyze_only"
+        self.source_path = source_path
         self.min_play_duration = min_play_duration
         self._reader = reader or NeteaseMusicReader()
 
@@ -94,7 +97,7 @@ class NeteaseMusicTimelineSensor(TimelineSensorBase):
             },
         )
 
-    async def build_timeline_event(self, item: dict) -> TimelineEvent:
+    async def build_output(self, item: dict) -> SensorOutput:
         track_name = str(item.get("track_name", ""))
         artist_name = str(item.get("artist_name", ""))
         album_name = str(item.get("album_name", ""))
@@ -114,11 +117,11 @@ class NeteaseMusicTimelineSensor(TimelineSensorBase):
         # Build content blocks
         content_blocks = []
         if track_name:
-            content_blocks.append(TimelineContentBlock(kind="text", value=track_name))
+            content_blocks.append(ContentBlock(kind="text", value=track_name))
         if artist_name:
-            content_blocks.append(TimelineContentBlock(kind="text", value=artist_name))
+            content_blocks.append(ContentBlock(kind="text", value=artist_name))
         if album_name:
-            content_blocks.append(TimelineContentBlock(kind="text", value=album_name))
+            content_blocks.append(ContentBlock(kind="text", value=album_name))
 
         # Build tags
         tags = ["netease_music", "music", "listening"]
@@ -143,7 +146,7 @@ class NeteaseMusicTimelineSensor(TimelineSensorBase):
             "is_liked": bool(item.get("is_liked", False)),
         }
 
-        return self._build_event(
+        return self._build_output(
             source_item_id=self.source_item_identity(item),
             title=title,
             summary=summary,
@@ -151,4 +154,5 @@ class NeteaseMusicTimelineSensor(TimelineSensorBase):
             content_blocks=content_blocks,
             tags=tags,
             provenance=provenance,
+            domain_payload={"retention_mode": self.retention_mode},
         )

@@ -1,5 +1,6 @@
 """Timeline domain exports."""
 
+from .adapter import TimelineAdapter
 from .cluster_builder import TimelineClusterBuilder
 from .contracts import TimelineContentBlock, TimelineEvent
 from .context_bundle_builder import TimelineContextBundleBuilder
@@ -11,6 +12,7 @@ __all__ = [
     "PullSyncSensor",
     "SensorSyncContext",
     "SensorSyncResult",
+    "TimelineAdapter",
     "TimelineClusterBuilder",
     "TimelineContentBlock",
     "TimelineContextBundleBuilder",

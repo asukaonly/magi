@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..config import AppConfig
 from ..memory import UnifiedMemoryStore
 from ..plugins import PluginManager, SensorRegistry
 from .service import TimelineService
+
+if TYPE_CHECKING:
+    from ..awareness.ingestion_gateway import SensorIngestionGateway
 
 
 def _get_nested_setting(payload: dict[str, Any], path: str, default: Any) -> Any:
@@ -27,6 +30,7 @@ def build_timeline_handler(
     *,
     sensor_registry: SensorRegistry,
     plugin_manager: PluginManager,
+    ingestion_gateway: SensorIngestionGateway | None = None,
 ) -> Callable[[dict[str, Any]], Any]:
     """Build an async handler that processes incoming timeline payloads."""
     service = TimelineService(unified_memory)
@@ -50,6 +54,32 @@ def build_timeline_handler(
         ):
             return {"handled": False, "reason": "source_disabled", "source_type": source_type}
 
+        allowed_edge_whitelist = [
+            str(edge_type)
+            for edge_type in _get_nested_setting(
+                current_settings,
+                f"{sensor_settings_path}.edge_whitelist",
+                default_settings.get("edge_whitelist", []),
+            )
+        ]
+
+        if ingestion_gateway is not None:
+            # New path: SensorBase.build_output → SensorIngestionGateway
+            output = await sensor.build_output(payload)
+            metadata = await sensor.extract_metadata(payload)
+            output.provenance.update(
+                {
+                    "correlation_id": str(payload.get("correlation_id") or ""),
+                    "timeline_task_agent_id": str(payload.get("target_task_agent_id") or ""),
+                }
+            )
+            result = await ingestion_gateway.ingest(
+                sensor, output, metadata,
+                allowed_edge_whitelist=allowed_edge_whitelist,
+            )
+            return {"handled": True, "event_id": result.event_id, "source_type": source_type}
+
+        # Legacy fallback
         event = await sensor.build_timeline_event(payload)
         extracted = await sensor.extract_candidates(payload)
         event.entities = list(extracted.get("entities", []))
@@ -63,14 +93,7 @@ def build_timeline_handler(
         await service.upsert_event(
             event,
             relation_candidates=list(extracted.get("relation_candidates", [])),
-            allowed_edge_whitelist=[
-                str(edge_type)
-                for edge_type in _get_nested_setting(
-                    current_settings,
-                    f"{sensor_settings_path}.edge_whitelist",
-                    default_settings.get("edge_whitelist", []),
-                )
-            ],
+            allowed_edge_whitelist=allowed_edge_whitelist,
         )
         return {"handled": True, "event_id": event.event_id, "source_type": source_type}
 

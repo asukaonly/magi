@@ -6,6 +6,7 @@ import pytest
 from magi.timeline.sensors import (
     PhotoLibraryTimelineSensor,
 )
+from magi.timeline.adapter import TimelineAdapter
 from magi.timeline.insight_pipeline import TimelineInsightPipeline
 
 
@@ -79,12 +80,17 @@ async def test_insight_pipeline_enforces_source_edge_whitelist():
         ],
     }
 
-    event = await sensor.build_timeline_event(item)
-    candidates = await sensor.extract_candidates(item)
+    output = await sensor.build_output(item)
+    metadata = await sensor.extract_metadata(item)
+
+    # Pipeline expects TimelineEvent; convert via adapter
+    event_id = f"{output.source_type}:{output.source_item_id}"
+    event = TimelineAdapter._build_timeline_event(event_id, output, metadata)
+
     memory = _FakeUnifiedMemory()
     pipeline = TimelineInsightPipeline(memory)
 
-    persisted = await pipeline.process_event(event, candidates["relation_candidates"], ["LIKES", "FREEFORM"])
+    persisted = await pipeline.process_event(event, metadata.relation_candidates, ["LIKES", "FREEFORM"])
 
     assert len(persisted) == 1
     assert persisted[0]["predicate"] == "LIKES"

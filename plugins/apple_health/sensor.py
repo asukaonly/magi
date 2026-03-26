@@ -7,8 +7,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
-from magi.timeline.sensors.base import TimelineSensorBase
+from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorSyncContext, SensorSyncResult
 
 from .exceptions import PlatformNotSupportedError
 from .normalizers import NORMALIZERS
@@ -16,7 +15,7 @@ from .reader import HealthKitReader
 from .types import HealthDataType, get_default_enabled_types
 
 
-class AppleHealthTimelineSensor(TimelineSensorBase):
+class AppleHealthTimelineSensor(SensorBase):
     """Timeline sensor for Apple Health data."""
 
     sensor_id = "timeline.apple_health"
@@ -28,8 +27,15 @@ class AppleHealthTimelineSensor(TimelineSensorBase):
     relation_edge_whitelist = ("TRACKED", "EXERCISED")
     supports_pull_sync = True
 
+    memory_policy = SensorMemoryPolicy(
+        retention_class="permanent",
+        cognition_eligible=True,
+        importance_bias=0.6,
+    )
+
     def __init__(self, *, retention_mode=None, enabled_types=None, reader=None):
-        super().__init__(retention_mode=retention_mode)
+        super().__init__()
+        self.retention_mode = retention_mode or "analyze_only"
         self.enabled_types = enabled_types or get_default_enabled_types()
         self._reader = reader
 
@@ -179,8 +185,8 @@ class AppleHealthTimelineSensor(TimelineSensorBase):
             },
         )
 
-    async def build_timeline_event(self, item: dict) -> TimelineEvent:
-        """Build a TimelineEvent from a health data item."""
+    async def build_output(self, item: dict) -> SensorOutput:
+        """Build a SensorOutput from a health data item."""
         data_type = item.get("data_type", "")
 
         # Find the right normalizer
@@ -189,26 +195,21 @@ class AppleHealthTimelineSensor(TimelineSensorBase):
         if normalizer:
             # Use the normalizer to build event data
             normalized_data = normalizer(item, self)
-            return TimelineEvent(
-                event_id=normalized_data["event_id"],
-                source_type=self.source_type,
+            return self._build_output(
                 source_item_id=normalized_data["source_item_id"],
-                occurred_at=normalized_data["occurred_at"],
-                captured_at=time.time(),
                 title=normalized_data["title"],
                 summary=normalized_data["summary"],
-                retention_mode=self.retention_mode,
-                raw_payload_ref=None,
+                occurred_at=normalized_data["occurred_at"],
                 content_blocks=[
-                    TimelineContentBlock(kind=block["kind"], value=block["value"])
+                    ContentBlock(kind=block["kind"], value=block["value"])
                     for block in normalized_data["content_blocks"]
                 ],
                 tags=normalized_data["tags"],
-                processing_status={"stored": False, "analyzed": False},
                 provenance={
                     "sensor_id": self.sensor_id,
                     **normalized_data["provenance"],
                 },
+                domain_payload={"retention_mode": self.retention_mode},
             )
         else:
             # Fall back to generic event
@@ -226,13 +227,13 @@ class AppleHealthTimelineSensor(TimelineSensorBase):
             else:
                 occurred_at = time.time()
 
-            return self._build_event(
+            return self._build_output(
                 source_item_id=self.source_item_identity(item),
                 title=title,
                 summary=summary,
                 occurred_at=occurred_at,
                 content_blocks=[
-                    TimelineContentBlock(kind="text", value=str(item))
+                    ContentBlock(kind="text", value=str(item))
                 ],
                 tags=["apple_health", data_type],
                 provenance={
@@ -240,4 +241,5 @@ class AppleHealthTimelineSensor(TimelineSensorBase):
                     "data_type": data_type,
                     "raw_item": item,
                 },
+                domain_payload={"retention_mode": self.retention_mode},
             )
