@@ -726,8 +726,8 @@ class TestAppleHealthPlugin:
             # Restore original platform
             sys.platform = self.original_platform
 
-    def test_plugin_returns_empty_when_healthkit_unavailable(self):
-        """Test that plugin returns empty list when HealthKit is not available."""
+    def test_plugin_returns_sensor_when_healthkit_unavailable(self):
+        """Test that plugin still exposes sensor settings when HealthKit is unavailable."""
         # Set platform to darwin
         sys.platform = 'darwin'
 
@@ -737,8 +737,10 @@ class TestAppleHealthPlugin:
             with patch.object(HealthKitReader, 'is_available', return_value=False):
                 sensors = plugin.get_sensors()
 
-                # Should return empty list when HealthKit not available
-                assert len(sensors) == 0
+                assert len(sensors) == 1
+                sensor_id, _, sensor_spec = sensors[0]
+                assert sensor_id == "timeline.apple_health"
+                assert sensor_spec.metadata["default_settings"]["enabled"] is False
         finally:
             # Restore original platform
             sys.platform = self.original_platform

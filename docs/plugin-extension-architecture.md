@@ -135,6 +135,8 @@ The most important current consumer is timeline ingestion.
 
 Timeline no longer owns a fixed list of built-in sources in the settings surface or status API. It resolves timeline-capable sensors from `SensorRegistry`.
 
+Builtin timeline sensor packages that should be configurable in Settings are expected to stay plugin-enabled even when their own source-level `enabled` switch is off. In other words, package activation controls whether the plugin participates in runtime discovery, while source activation controls whether the sensor actually syncs.
+
 The contracts live in:
 
 - [sensors.py](/Users/asuka/code/magi/backend/src/magi/plugins/sensors.py)
@@ -252,7 +254,7 @@ Timeline source status also now reflects plugin-backed sensor registration:
 
 ## Official Built-In Plugins
 
-Magi currently ships three official built-in plugin packages:
+Magi currently ships three general built-in plugin packages:
 
 - `core-tools`
   registers built-in tools
@@ -265,10 +267,25 @@ Magi currently ships three official built-in plugin packages:
 
 These packages are enabled by default through config defaults.
 
-Magi also ships one additional sensitive built-in sensor package:
+Magi also ships additional built-in timeline sensor packages. These packages are enabled by default so their settings remain discoverable, while their individual sources stay disabled until the user opts in:
 
 - `chrome-history`
-  registers the local Chrome history timeline source, is enabled as a plugin by default so its settings surface is visible, but keeps the source itself disabled until the user explicitly turns it on
+  registers the local Chrome history timeline source
+
+- `apple-health`
+  registers Apple Health ingestion on supported Apple platforms
+
+- `calendar`
+  registers calendar event ingestion on supported Apple platforms
+
+- `git-activity`
+  registers local git activity ingestion
+
+- `screen-time`
+  registers Screen Time ingestion on supported Apple platforms
+
+- `terminal-history`
+  registers local terminal history ingestion
 
 ## Operational Rules
 

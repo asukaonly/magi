@@ -243,6 +243,11 @@ class ConfigLoader:
                 "photo-library": {"enabled": True, "trusted": True, "source": "builtin"},
                 "core-actions": {"enabled": True, "trusted": True, "source": "builtin"},
                 "chrome-history": {"enabled": True, "trusted": True, "source": "builtin"},
+                "apple-health": {"enabled": True, "trusted": True, "source": "builtin"},
+                "calendar": {"enabled": True, "trusted": True, "source": "builtin"},
+                "git-activity": {"enabled": True, "trusted": True, "source": "builtin"},
+                "screen-time": {"enabled": True, "trusted": True, "source": "builtin"},
+                "terminal-history": {"enabled": True, "trusted": True, "source": "builtin"},
             }
         }
 
@@ -292,6 +297,77 @@ class ConfigLoader:
                         "max_items_per_sync": 200,
                         "fetch_page_content": False,
                         "edge_whitelist": ["VISITED", "VIEWED"],
+                    }
+                }
+            },
+            "apple-health": {
+                "sensors": {
+                    "apple_health": {
+                        "enabled": False,
+                        "sync_mode": "manual",
+                        "sync_interval_hours": 1,
+                        "lookback_days": 7,
+                        "types": {
+                            "steps": True,
+                            "sleep": True,
+                            "heart_rate": False,
+                            "distance": False,
+                            "flights": False,
+                            "active_energy": False,
+                            "workout": False,
+                        },
+                        "default_retention_mode": "analyze_only",
+                        "storage_mode": "managed",
+                    }
+                }
+            },
+            "calendar": {
+                "sensors": {
+                    "calendar": {
+                        "enabled": False,
+                        "sync_interval_minutes": 30,
+                        "lookback_days": 30,
+                        "recurring_expansion_days": 30,
+                        "default_retention_mode": "analyze_only",
+                    }
+                }
+            },
+            "git-activity": {
+                "sensors": {
+                    "git_activity": {
+                        "enabled": False,
+                        "repos": [],
+                        "sync_interval_minutes": 30,
+                        "initial_sync_policy": "lookback_days",
+                        "initial_sync_lookback_days": 30,
+                        "sensitive_mode": "redact",
+                        "sensitive_keywords": [],
+                        "default_retention_mode": "analyze_only",
+                    }
+                }
+            },
+            "screen-time": {
+                "sensors": {
+                    "screen_time": {
+                        "enabled": False,
+                        "sync_interval_hours": 1,
+                        "lookback_days": 30,
+                        "default_retention_mode": "analyze_only",
+                    }
+                }
+            },
+            "terminal-history": {
+                "sensors": {
+                    "terminal_history": {
+                        "enabled": False,
+                        "sync_interval_minutes": 15,
+                        "initial_sync_policy": "lookback_days",
+                        "initial_sync_lookback_days": 7,
+                        "initial_sync_configured": False,
+                        "sensitive_mode": "redact",
+                        "sensitive_keywords": [],
+                        "dedup_window_seconds": 60,
+                        "default_retention_mode": "analyze_only",
                     }
                 }
             },

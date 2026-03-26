@@ -94,17 +94,17 @@ class ScreenTimePlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("screen_time", {}))
 
-        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
-            return []
+        source_enabled = bool(settings.get("enabled", DEFAULT_SETTINGS["enabled"]))
 
         # Check database availability (but still return sensor spec even if not available)
         reader = None
-        try:
-            reader = ScreenTimeReader()
-            if not reader.is_available():
+        if source_enabled:
+            try:
+                reader = ScreenTimeReader()
+                if not reader.is_available():
+                    reader = None
+            except Exception:
                 reader = None
-        except Exception:
-            reader = None
 
         # Create sensor (reader may be None if database not available)
         sensor = ScreenTimeTimelineSensor(

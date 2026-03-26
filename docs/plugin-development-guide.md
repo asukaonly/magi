@@ -191,6 +191,7 @@ Guidelines:
 - set `metadata.source_type` because timeline routing uses it
 - provide a `default_settings` object when the contribution needs stable defaults
 - store settings under a stable subtree such as `sensors.<source_name>.*`
+- keep the sensor contribution visible when the source-level `enabled` setting is false; disabled sources should stay configurable in Settings, with runtime sync gated by the saved setting instead of disappearing from discovery
 
 ## Action Plugins
 

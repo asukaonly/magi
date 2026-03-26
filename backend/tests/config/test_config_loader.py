@@ -118,6 +118,25 @@ def test_loader_default_photo_library_settings_live_in_the_dedicated_plugin(tmp_
     assert set(sensors.keys()) == {"photo_library"}
 
 
+def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    config = loader.load()
+
+    for plugin_id, source_name in (
+        ("apple-health", "apple_health"),
+        ("calendar", "calendar"),
+        ("git-activity", "git_activity"),
+        ("screen-time", "screen_time"),
+        ("terminal-history", "terminal_history"),
+    ):
+        package = config.plugins.packages[plugin_id]
+        assert package.enabled is True
+        assert package.trusted is True
+        assert package.settings["sensors"][source_name]["enabled"] is False
+
+
 def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
     config_dir = tmp_path / "config" / "plugins"

@@ -170,17 +170,17 @@ class TerminalHistoryPlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("terminal_history", {}))
 
-        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
-            return []
+        source_enabled = bool(settings.get("enabled", DEFAULT_SETTINGS["enabled"]))
 
         # Check history availability (but still return sensor spec even if not available)
         reader = None
-        try:
-            reader = TerminalHistoryReader()
-            if not reader.is_available():
+        if source_enabled:
+            try:
+                reader = TerminalHistoryReader()
+                if not reader.is_available():
+                    reader = None
+            except Exception:
                 reader = None
-        except Exception:
-            reader = None
 
         # Create sensor (reader may be None if not available)
         sensor = TerminalHistorySensor(

@@ -529,6 +529,31 @@ class PluginsSettings(BaseModel):
                 trusted=True,
                 source="builtin",
             ),
+            "apple-health": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+            "calendar": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+            "git-activity": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+            "screen-time": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+            "terminal-history": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
         }
     )
 

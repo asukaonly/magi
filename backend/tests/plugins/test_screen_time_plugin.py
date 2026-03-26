@@ -183,13 +183,16 @@ def test_plugin_get_sensors_on_non_darwin():
 
 
 def test_plugin_get_sensors_with_disabled_setting():
-    """Test plugin returns empty sensors when disabled in settings."""
+    """Test plugin still exposes sensor settings when disabled in settings."""
     plugin = ScreenTimePlugin()
     plugin.configure(manifest=None, settings={"sensors": {"screen_time": {"enabled": False}}})
 
     with patch('sys.platform', 'darwin'):
         sensors = plugin.get_sensors()
-        assert sensors == []
+        assert len(sensors) == 1
+        sensor_id, _, sensor_spec = sensors[0]
+        assert sensor_id == "timeline.screen_time"
+        assert sensor_spec.metadata["default_settings"]["enabled"] is False
 
 
 # ============ Integration Tests ============

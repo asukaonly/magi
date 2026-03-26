@@ -182,13 +182,17 @@ def test_fields_function():
 
 
 def test_plugin_get_sensors_with_no_repos():
-    """Test plugin returns empty sensors when no repos configured."""
+    """Test plugin still exposes sensor settings when no repos are configured."""
     from git_activity.plugin import GitActivityPlugin
 
     plugin = GitActivityPlugin()
     plugin.configure(manifest=None, settings={})
     sensors = plugin.get_sensors()
-    assert sensors == []
+    assert len(sensors) == 1
+    sensor_id, sensor_instance, sensor_spec = sensors[0]
+    assert sensor_id == "timeline.git_activity"
+    assert sensor_instance._repos == []
+    assert sensor_spec.metadata["default_settings"]["enabled"] is False
 
 
 # ============ Integration Tests ============

@@ -107,17 +107,17 @@ class CalendarPlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("calendar", {}))
 
-        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
-            return []
+        source_enabled = bool(settings.get("enabled", DEFAULT_SETTINGS["enabled"]))
 
         # Check EventKit availability (but still return sensor spec even if not available)
         reader = None
-        try:
-            reader = EventKitReader()
-            if not reader.is_available():
+        if source_enabled:
+            try:
+                reader = EventKitReader()
+                if not reader.is_available():
+                    reader = None
+            except Exception:
                 reader = None
-        except Exception:
-            reader = None
 
         # Create sensor (reader may be None if not available)
         sensor = CalendarTimelineSensor(

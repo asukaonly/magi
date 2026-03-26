@@ -290,16 +290,19 @@ def test_plugin_get_sensors_on_non_darwin():
 
 
 def test_plugin_get_sensors_with_disabled_setting():
-    """Test plugin returns empty sensors when disabled in settings."""
+    """Test plugin still exposes sensor settings when disabled in settings."""
     from calendar_plugin.plugin import CalendarPlugin
 
     plugin = CalendarPlugin()
     plugin.configure(manifest=None, settings={"sensors": {"calendar": {"enabled": False}}})
 
-    # Even on darwin, should return empty when disabled
+    # Even on darwin, disabled sources should still be configurable.
     with patch('sys.platform', 'darwin'):
         sensors = plugin.get_sensors()
-        assert sensors == []
+        assert len(sensors) == 1
+        sensor_id, _, sensor_spec = sensors[0]
+        assert sensor_id == "timeline.calendar"
+        assert sensor_spec.metadata["default_settings"]["enabled"] is False
 
 
 import asyncio
