@@ -190,6 +190,8 @@ describe('timeline page', () => {
     expect(await screen.findByText('March reflection')).toBeInTheDocument();
     expect(screen.getByText('A steady month of focused work.')).toBeInTheDocument();
     expect(screen.getAllByText('focused').length).toBeGreaterThan(0);
+    expect(screen.getByText('work')).toBeInTheDocument();
+    expect(screen.getByText('recovery')).toBeInTheDocument();
     expect(timelineApi.getViewport).toHaveBeenCalledWith(
       expect.objectContaining({
         scale: 'month',
@@ -211,6 +213,10 @@ describe('timeline page', () => {
       )
     );
     expect(await screen.findByText('Deep Work')).toBeInTheDocument();
+    expect(screen.getByText('coding')).toBeInTheDocument();
+    expect(screen.getByText('notes')).toBeInTheDocument();
+    expect(screen.getByText('chat')).toBeInTheDocument();
+    expect(screen.getByText('manual_journal')).toBeInTheDocument();
     expect(screen.queryByText('March reflection')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'timeline.scale.hour' }));
