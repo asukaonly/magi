@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
@@ -312,15 +312,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     <div className="w-full space-y-8" data-testid={`timeline-source-detail-${selectedSource.source_name}`}>
       <header className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => onSelectSource(null)}
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            {t('settings.timeline.workspace.backToOverview')}
-          </button>
-
           <div className="flex flex-wrap items-center gap-3">
             {activationFlow && activationConfigured ? (
               <Button

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { TimelineSourcesSection } from '@/components/settings/TimelineSourcesSection';
@@ -8,6 +8,7 @@ import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
 const translationMap: Record<string, string> = {
   'settings.tabs.browser_history': '浏览记录',
   'settings.timeline.sourceDesc.browser_history': '分析浏览行为，并控制是否继续抓取页面正文。',
+  'settings.timeline.fields.enabled': '启用',
 };
 
 vi.mock('react-i18next', () => ({
@@ -98,5 +99,27 @@ describe('TimelineSourcesSection', () => {
     expect(screen.getByText('分析浏览行为，并控制是否继续抓取页面正文。')).toBeInTheDocument();
     expect(screen.queryByText('Browser History')).not.toBeInTheDocument();
     expect(screen.queryByText('Visited URLs and optional page content snapshots.')).not.toBeInTheDocument();
+  });
+
+  it('removes the detail back link and shortens the enable label', () => {
+    render(
+      <TimelineSourcesSection
+        userMode={userModeFixture}
+        statuses={[timelineSourceFixture]}
+        loadingStatus={false}
+        selectedSourceName="browser_history"
+        pluginDrafts={{}}
+        onSelectSource={vi.fn()}
+        onRefreshSources={vi.fn().mockResolvedValue(undefined)}
+        onPluginFieldChange={vi.fn()}
+        onPluginFieldsChange={vi.fn()}
+      />
+    );
+
+    const detail = screen.getByTestId('timeline-source-detail-browser_history');
+
+    expect(screen.queryByText('settings.timeline.workspace.backToOverview')).not.toBeInTheDocument();
+    expect(screen.getByText('启用')).toBeInTheDocument();
+    expect(within(detail).queryByText('来源启用')).not.toBeInTheDocument();
   });
 });

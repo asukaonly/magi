@@ -821,7 +821,7 @@
         "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime."
       },
       "fields": {
-        "enabled": "Source enabled",
+        "enabled": "Enabled",
         "enabledHint": "Whether this source should keep contributing new memories to the timeline.",
         "status": "Source status",
         "retentionMode": "Default retention mode",

@@ -821,7 +821,7 @@
         "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。"
       },
       "fields": {
-        "enabled": "来源启用",
+        "enabled": "启用",
         "enabledHint": "控制该来源是否继续为时间线提供新的记忆内容。",
         "status": "来源状态",
         "retentionMode": "默认留存模式",
