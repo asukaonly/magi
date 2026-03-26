@@ -21,6 +21,16 @@ const getPluginTranslation = (
   return translated === translationKey ? fallback : translated;
 };
 
+const buildFieldKeyCandidates = (fieldKey: string): string[] => {
+  const candidates = [fieldKey];
+  const segments = fieldKey.split('.');
+  const leafKey = segments[segments.length - 1];
+  if (leafKey && !candidates.includes(leafKey)) {
+    candidates.push(leafKey);
+  }
+  return candidates;
+};
+
 /**
  * Helper function to get translated section title with fallback
  */
@@ -48,7 +58,34 @@ const getOptionLabel = (
   if (!pluginId) {
     return originalLabel;
   }
-  return getPluginTranslation(t, pluginId, `options.${fieldKey}.${optionValue}`, originalLabel);
+  for (const candidate of buildFieldKeyCandidates(fieldKey)) {
+    const translationPath = `options.${candidate}.${optionValue}`;
+    const translated = getPluginTranslation(t, pluginId, translationPath, translationPath);
+    if (translated !== translationPath) {
+      return translated;
+    }
+  }
+  return originalLabel;
+};
+
+const getTranslatedFieldValue = (
+  t: TFunction,
+  pluginId: string | undefined,
+  fieldKey: string,
+  property: 'label' | 'description' | 'placeholder',
+  fallback: string
+): string => {
+  if (!pluginId || !fallback) {
+    return fallback;
+  }
+  for (const candidate of buildFieldKeyCandidates(fieldKey)) {
+    const translationPath = `fields.${candidate}.${property}`;
+    const translated = getPluginTranslation(t, pluginId, translationPath, translationPath);
+    if (translated !== translationPath) {
+      return translated;
+    }
+  }
+  return fallback;
 };
 
 interface PluginSettingsFieldsProps {
@@ -114,7 +151,14 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
             {sectionFields.map((field) => (
               <DynamicConfigField
                 key={field.key}
-                spec={field}
+                spec={{
+                  ...field,
+                  label: getTranslatedFieldValue(t, pluginId, field.key, 'label', field.label),
+                  description: getTranslatedFieldValue(t, pluginId, field.key, 'description', field.description),
+                  placeholder: field.placeholder
+                    ? getTranslatedFieldValue(t, pluginId, field.key, 'placeholder', field.placeholder)
+                    : field.placeholder,
+                }}
                 value={values[field.key] ?? field.default ?? (field.type === 'tags' ? [] : '')}
                 onChange={(value) => onChange(field.key, value)}
                 disabled={disabled}

@@ -22,6 +22,19 @@ const llmFormMock = vi.fn();
 const translationMap: Record<string, string> = {
   'settings.tabs.photo_library': '照片库',
   'settings.tabs.chrome_history': 'Chrome 历史',
+  'settings.plugins.apple-health.sections.storage': '存储',
+  'settings.plugins.apple-health.sections.data_types': '数据类型',
+  'settings.plugins.apple-health.sections.retention': '保留策略',
+  'settings.plugins.apple-health.fields.sensors.apple_health.storage_mode.label': '存储模式',
+  'settings.plugins.apple-health.fields.sensors.apple_health.storage_mode.description': '决定健康数据如何落盘。',
+  'settings.plugins.apple-health.fields.sensors.apple_health.types.steps.label': '步数',
+  'settings.plugins.apple-health.fields.sensors.apple_health.types.steps.description': '同步每日步数。',
+  'settings.plugins.apple-health.fields.sensors.apple_health.default_retention_mode.label': '保留模式',
+  'settings.plugins.apple-health.fields.sensors.apple_health.default_retention_mode.description': '决定健康数据保留粒度。',
+  'settings.plugins.apple-health.activation.title': '连接 Apple 健康',
+  'settings.plugins.apple-health.activation.description': '请选择要授权读取的健康数据类型。',
+  'settings.plugins.apple-health.activation.confirm_label': '请求访问权限',
+  'settings.plugins.apple-health.activation.cancel_label': '暂不连接',
   'settings.timeline.sourceDesc.photo_library': '引用照片库或导出目录，并决定保留多少原始媒体信息。',
   'settings.plugins.chrome-history.description': '本地 Google Chrome 浏览历史接入时间线',
 };
@@ -130,6 +143,7 @@ vi.mock('@/api/modules/timeline', () => ({
   timelineApi: {
     getSourceStatus: vi.fn(),
     requestSync: vi.fn(),
+    requestAuthorization: vi.fn(),
   },
 }));
 
@@ -317,6 +331,119 @@ const chromeTimelineSourceFixture = {
         order: 20,
         depends_on_key: 'sensors.chrome_history.initial_sync_policy',
         depends_on_values: ['lookback_days'],
+      },
+    ],
+  },
+  last_error: null,
+  last_success: null,
+  last_sync_at: null,
+  last_run_at: null,
+  running: false,
+  last_result_count: 0,
+  last_raw_result_count: 0,
+  next_run_at: null,
+  scheduler_job_id: null,
+  runtime_base_dir: '/tmp/magi-runtime',
+};
+
+const appleHealthTimelineSourceFixture = {
+  source_name: 'apple_health',
+  plugin_id: 'apple-health',
+  contribution_id: 'timeline.apple_health',
+  display_name: 'Apple Health',
+  description: 'Apple Health data ingestion for the timeline.',
+  fields: [
+    {
+      key: 'sensors.apple_health.enabled',
+      type: 'switch',
+      label: 'Enabled',
+      description: 'Whether this source is active.',
+      default: false,
+      required: false,
+      options: [],
+      section: 'general',
+      surface: 'timeline',
+      order: 10,
+    },
+    {
+      key: 'sensors.apple_health.storage_mode',
+      type: 'select',
+      label: 'Storage Mode',
+      description: 'Where to store ingested health data.',
+      default: 'managed',
+      required: false,
+      options: [
+        { label: 'Managed', value: 'managed' },
+        { label: 'Local', value: 'local' },
+      ],
+      section: 'storage',
+      surface: 'timeline',
+      order: 20,
+    },
+    {
+      key: 'sensors.apple_health.types.steps',
+      type: 'switch',
+      label: 'Steps',
+      description: 'Sync daily step counts.',
+      default: true,
+      required: false,
+      options: [],
+      section: 'data_types',
+      surface: 'timeline',
+      order: 30,
+    },
+    {
+      key: 'sensors.apple_health.default_retention_mode',
+      type: 'select',
+      label: 'Retention Mode',
+      description: 'How health data should be retained.',
+      default: 'analyze_only',
+      required: false,
+      options: [
+        { label: 'Analyze Only', value: 'analyze_only' },
+        { label: 'Full Retention', value: 'full' },
+      ],
+      section: 'retention',
+      surface: 'timeline',
+      order: 40,
+    },
+  ],
+  current_settings: {
+    'sensors.apple_health.enabled': false,
+    'sensors.apple_health.storage_mode': 'managed',
+    'sensors.apple_health.types.steps': true,
+    'sensors.apple_health.default_retention_mode': 'analyze_only',
+    'sensors.apple_health.authorization_configured': false,
+  },
+  enabled: false,
+  sync_mode: 'manual',
+  sync_interval_minutes: 60,
+  default_retention_mode: 'analyze_only',
+  storage_mode: 'managed',
+  fetch_page_content: false,
+  edge_whitelist: [],
+  supports_pull_sync: true,
+  activation_required: true,
+  activation_flow: {
+    title: 'Enable Apple Health',
+    description: 'Choose which Health categories should be authorized.',
+    confirm_label: 'Authorize',
+    cancel_label: 'Not now',
+    enabled_key: 'sensors.apple_health.enabled',
+    configured_key: 'sensors.apple_health.authorization_configured',
+    authorize_on_confirm: true,
+    fields: [
+      {
+        key: 'sensors.apple_health.types.steps',
+        type: 'switch',
+        label: 'Steps',
+        description: 'Sync daily step counts.',
+        default: true,
+        required: false,
+        options: [],
+        section: 'data_types',
+        surface: 'timeline',
+        order: 10,
       },
     ],
   },
@@ -530,6 +657,12 @@ describe('settings page draft saving', () => {
     vi.mocked(timelineApi.requestSync).mockResolvedValue({
       queued: true,
       source_name: 'photo_library',
+    } as any);
+    vi.mocked(timelineApi.requestAuthorization).mockResolvedValue({
+      authorized: true,
+      granted_types: ['steps'],
+      denied_types: [],
+      requested_types: ['steps'],
     } as any);
     vi.mocked(pluginsApi.list).mockResolvedValue(pluginsListFixture as any);
     vi.mocked(pluginsApi.rescan).mockResolvedValue(pluginsListFixture as any);
@@ -1008,6 +1141,86 @@ describe('settings page draft saving', () => {
         expect.objectContaining({
           'sensors.chrome_history.enabled': true,
           'sensors.chrome_history.initial_sync_configured': true,
+        })
+      )
+    );
+  });
+
+  it('requests Apple Health authorization before enabling and renders translated fields', async () => {
+    const user = userEvent.setup();
+    vi.mocked(pluginsApi.list).mockResolvedValue({
+      ...pluginsListFixture,
+      plugins: [
+        ...pluginsListFixture.plugins,
+        {
+          manifest: {
+            plugin_id: 'apple-health',
+            name: 'Apple Health',
+            version: '1.0.0',
+            description: 'Apple Health data ingestion for the timeline.',
+            author: 'Magi Team',
+            official: true,
+            contribution_types: ['sensor'],
+            source: 'builtin',
+            plugin_dir: '/tmp/plugins/apple-health',
+            manifest_path: '/tmp/plugins/apple-health/plugin.toml',
+          },
+          enabled: true,
+          trusted: true,
+          loaded: true,
+          healthy: true,
+          last_error: null,
+          current_settings: {
+            sensors: {
+              apple_health: {
+                enabled: false,
+                authorization_configured: false,
+                types: {
+                  steps: true,
+                },
+              },
+            },
+          },
+          contributions: [],
+        },
+      ],
+      total: pluginsListFixture.total + 1,
+    } as any);
+    vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
+      sources: [appleHealthTimelineSourceFixture],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-apple_health'));
+
+    expect(await screen.findByText('存储模式')).toBeInTheDocument();
+    expect(screen.getByText('步数')).toBeInTheDocument();
+    expect(screen.getByText('保留模式')).toBeInTheDocument();
+
+    const panel = await screen.findByTestId('timeline-source-detail-apple_health');
+    await user.click(within(panel).getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+
+    expect(await screen.findByText('连接 Apple 健康')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '请求访问权限' }));
+
+    expect(timelineApi.requestAuthorization).toHaveBeenCalledWith(
+      'apple_health',
+      expect.objectContaining({
+        'sensors.apple_health.types.steps': true,
+      })
+    );
+    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
+        'apple-health',
+        expect.objectContaining({
+          'sensors.apple_health.enabled': true,
+          'sensors.apple_health.authorization_configured': true,
         })
       )
     );

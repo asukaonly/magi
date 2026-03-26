@@ -22,6 +22,7 @@ from apple_health.normalizers import (
 )
 from apple_health.exceptions import PlatformNotSupportedError
 from apple_health.reader import HealthKitReader
+from apple_health.sensor import AppleHealthTimelineSensor
 from apple_health.plugin import DEFAULT_SETTINGS, _fields, _get_enabled_types_from_settings, AppleHealthPlugin
 
 
@@ -744,6 +745,43 @@ class TestAppleHealthPlugin:
         finally:
             # Restore original platform
             sys.platform = self.original_platform
+
+    def test_plugin_exposes_activation_flow_metadata(self):
+        """Test that Apple Health exposes activation flow metadata."""
+        sys.platform = 'darwin'
+
+        try:
+            plugin = AppleHealthPlugin()
+            sensors = plugin.get_sensors()
+
+            assert len(sensors) == 1
+            _, _, sensor_spec = sensors[0]
+            activation_flow = sensor_spec.metadata["activation_flow"]
+            assert activation_flow["enabled_key"] == "sensors.apple_health.enabled"
+            assert activation_flow["configured_key"] == "sensors.apple_health.authorization_configured"
+            assert activation_flow["authorize_on_confirm"] is True
+            assert activation_flow["fields"][0]["key"].startswith("sensors.apple_health.types.")
+        finally:
+            sys.platform = self.original_platform
+
+    def test_sensor_requests_authorization_for_selected_types(self):
+        """Test that the Apple Health sensor requests authorization for selected types."""
+        reader = MagicMock()
+        reader.request_authorization.return_value = {"steps": True, "sleep": False}
+        sensor = AppleHealthTimelineSensor(reader=reader)
+
+        result = sensor.request_activation_authorization(
+            {
+                "sensors.apple_health.types.steps": True,
+                "sensors.apple_health.types.sleep": True,
+                "sensors.apple_health.types.heart_rate": False,
+            }
+        )
+
+        reader.request_authorization.assert_called_once_with(["steps", "sleep"])
+        assert result["authorized"] is False
+        assert result["granted_types"] == ["steps"]
+        assert result["denied_types"] == ["sleep"]
 
     def test_plugin_returns_empty_when_no_types_enabled(self):
         """Test that plugin returns empty list when no types are enabled."""

@@ -48,6 +48,7 @@ class ActivationFlowSpec(BaseModel):
     description: str = ""
     confirm_label: str = "Confirm"
     cancel_label: str = "Cancel"
+    authorize_on_confirm: bool = False
     enabled_key: str
     configured_key: str
     fields: list[ExtensionFieldSpec] = Field(default_factory=list)

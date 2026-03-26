@@ -492,3 +492,47 @@ def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert response.json()["schedule_id"] == "manual:photo_library"
+
+
+def test_authorize_timeline_source_returns_authorization_result(monkeypatch):
+    app = FastAPI()
+    app.include_router(timeline_router, prefix="/api/timeline")
+    monkeypatch.setattr(timeline_module, "get_config", lambda: type("Config", (), {})())
+    sensor = type(
+        "Sensor",
+        (),
+        {
+            "request_activation_authorization": lambda self, field_values: {
+                "authorized": True,
+                "granted_types": ["steps"],
+                "denied_types": [],
+                "requested_types": ["steps"],
+            }
+        },
+    )()
+    monkeypatch.setattr(
+        timeline_module,
+        "require_sensor_registry",
+        lambda: type(
+            "Registry",
+            (),
+            {
+                "resolve_domain_sensor": lambda self, domain, source_name: (
+                    ("apple-health", "timeline.apple_health", sensor, object())
+                    if domain == "timeline" and source_name == "apple_health"
+                    else None
+                ),
+            },
+        )(),
+    )
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/timeline/sources/apple_health/authorize",
+        json={"field_values": {"sensors.apple_health.types.steps": True}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["authorized"] is True
+    assert response.json()["granted_types"] == ["steps"]

@@ -1,9 +1,11 @@
 """Timeline API router."""
 from __future__ import annotations
 
+import inspect
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, Field
 
 from ...config import get_config
 from ...core.runtime_bindings import (
@@ -24,6 +26,10 @@ from ...timeline.service import TimelineService
 from ...utils.runtime import get_runtime_paths
 
 timeline_router = APIRouter()
+
+
+class TimelineSourceAuthorizationRequest(BaseModel):
+    field_values: dict[str, Any] = Field(default_factory=dict)
 
 
 def get_timeline_service() -> TimelineService:
@@ -253,3 +259,30 @@ async def trigger_timeline_source_sync(source_name: str):
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {"queued": True, "source_name": source_name, "schedule_id": schedule.schedule_id}
+
+
+@timeline_router.post("/sources/{source_name}/authorize")
+async def authorize_timeline_source(source_name: str, request: TimelineSourceAuthorizationRequest):
+    _ = get_config()
+    sensor_registry = require_sensor_registry()
+    resolved = sensor_registry.resolve_domain_sensor("timeline", source_name)
+    if resolved is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline source not found")
+
+    _, _, sensor, _ = resolved
+    authorize = getattr(sensor, "request_activation_authorization", None)
+    if not callable(authorize):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Timeline source does not support authorization",
+        )
+
+    result = authorize(dict(request.field_values))
+    if inspect.isawaitable(result):
+        result = await result
+    if not isinstance(result, dict):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Timeline source authorization returned an invalid response",
+        )
+    return result

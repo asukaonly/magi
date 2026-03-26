@@ -30,6 +30,7 @@ export interface ActivationFlowSpec {
   description: string;
   confirm_label: string;
   cancel_label: string;
+  authorize_on_confirm?: boolean;
   enabled_key: string;
   configured_key: string;
   fields: ExtensionFieldSpec[];

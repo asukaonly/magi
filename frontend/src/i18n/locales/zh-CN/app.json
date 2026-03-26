@@ -877,6 +877,7 @@
       "errors": {
         "statusLoadFailed": "来源状态加载失败：{{message}}",
         "syncFailed": "同步请求失败：{{message}}",
+        "authorizationFailed": "授权失败：{{message}}",
         "settingsSaveFailed": "来源设置保存失败：{{message}}",
         "activationFailed": "来源启用失败：{{message}}",
         "activationResetFailed": "重置首次同步设置失败：{{message}}"
@@ -960,12 +961,49 @@
       "apple-health": {
         "name": "Apple 健康",
         "description": "Apple 健康数据接入时间线",
+        "fields": {
+          "storage_mode": {
+            "label": "存储模式",
+            "description": "决定健康数据写入本地配置存储的方式。"
+          },
+          "lookback_days": {
+            "label": "回溯天数",
+            "description": "首次同步时默认回溯的历史天数。"
+          },
+          "sync_interval_hours": {
+            "label": "同步间隔（小时）",
+            "description": "定时同步 Apple 健康数据的时间间隔。"
+          },
+          "default_retention_mode": {
+            "label": "保留模式",
+            "description": "决定健康数据写入记忆时保留的粒度。"
+          },
+          "steps": { "label": "步数", "description": "同步每日步数汇总。" },
+          "sleep": { "label": "睡眠", "description": "同步睡眠会话与统计信息。" },
+          "heart_rate": { "label": "心率", "description": "同步心率采样数据。" },
+          "distance": { "label": "距离", "description": "同步步行和跑步距离。" },
+          "flights": { "label": "爬楼层数", "description": "同步每日爬楼层统计。" },
+          "active_energy": { "label": "活动能量", "description": "同步活动能量消耗数据。" },
+          "workout": { "label": "锻炼", "description": "同步锻炼记录。" }
+        },
         "options": {
           "enabled": { "true": "启用", "false": "停用" },
-          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
-          "storage_mode": { "managed": "托管", "external_reference": "外部引用" }
+          "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" },
+          "storage_mode": { "managed": "托管", "local": "本地" }
         },
-        "sections": { "data_types": "数据类型", "sync": "同步", "storage": "存储" }
+        "sections": {
+          "data_types": "数据类型",
+          "sync": "同步",
+          "storage": "存储",
+          "retention": "保留策略",
+          "activation": "激活"
+        },
+        "activation": {
+          "title": "连接 Apple 健康",
+          "description": "请选择要授权读取的健康数据类型。",
+          "confirm_label": "请求访问权限",
+          "cancel_label": "暂不连接"
+        }
       },
       "calendar": {
         "name": "日历",

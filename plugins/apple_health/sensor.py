@@ -12,7 +12,7 @@ from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorO
 from .exceptions import PlatformNotSupportedError
 from .normalizers import NORMALIZERS
 from .reader import HealthKitReader
-from .types import HealthDataType, get_default_enabled_types
+from .types import HEALTH_DATA_TYPES, HealthDataType, get_default_enabled_types
 
 
 class AppleHealthTimelineSensor(SensorBase):
@@ -184,6 +184,41 @@ class AppleHealthTimelineSensor(SensorBase):
                 "initial_sync": context.last_cursor is None,
             },
         )
+
+    def request_activation_authorization(self, field_values: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Request HealthKit authorization for the selected data types."""
+        selected_values = field_values or {}
+        requested_types = [
+            type_key
+            for type_key in HEALTH_DATA_TYPES
+            if bool(selected_values.get(f"sensors.apple_health.types.{type_key}", False))
+        ]
+        if not requested_types:
+            requested_types = [health_type.key for health_type in self.enabled_types]
+
+        if not requested_types:
+            return {
+                "authorized": False,
+                "requested_types": [],
+                "granted_types": [],
+                "denied_types": [],
+                "message": "No Apple Health data types were selected for authorization.",
+            }
+
+        result = self.reader.request_authorization(requested_types)
+        granted_types = [type_key for type_key in requested_types if result.get(type_key) is True]
+        denied_types = [type_key for type_key in requested_types if result.get(type_key) is not True]
+        return {
+            "authorized": len(denied_types) == 0,
+            "requested_types": requested_types,
+            "granted_types": granted_types,
+            "denied_types": denied_types,
+            "message": (
+                None
+                if not denied_types
+                else "Apple Health authorization was not granted for all selected data types."
+            ),
+        }
 
     async def build_output(self, item: dict) -> SensorOutput:
         """Build a SensorOutput from a health data item."""

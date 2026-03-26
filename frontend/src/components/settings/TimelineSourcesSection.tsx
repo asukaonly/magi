@@ -77,6 +77,17 @@ const formatTimestamp = (value: number | string | null | undefined) => {
 const joinSourceMeta = (source: TimelineSourceStatusItem) =>
   [source.sync_mode, `${source.sync_interval_minutes}m`, source.default_retention_mode].filter(Boolean).join(' · ');
 
+const getPluginTranslation = (
+  t: (key: string, params?: Record<string, any>) => string,
+  pluginId: string,
+  key: string,
+  fallback: string
+): string => {
+  const translationKey = `settings.plugins.${pluginId}.${key}`;
+  const translated = t(translationKey);
+  return translated === translationKey ? fallback : translated;
+};
+
 const SourceRow: React.FC<{
   source: TimelineSourceStatusItem;
   displayName: string;
@@ -184,11 +195,33 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     onPluginFieldChange(source.plugin_id, enabledKey, true);
   };
 
-  const confirmActivationFlow = () => {
+  const getActivationText = (
+    pluginId: string,
+    key: 'title' | 'description' | 'confirm_label' | 'cancel_label',
+    fallback: string
+  ) => getPluginTranslation(t, pluginId, `activation.${key}`, fallback);
+
+  const confirmActivationFlow = async () => {
     if (!activationDialog) {
       return;
     }
     const { source, flow, values } = activationDialog;
+    if (flow.authorize_on_confirm) {
+      try {
+        const result = await timelineApi.requestAuthorization(source.source_name, values);
+        if (!result.authorized) {
+          toast.error(
+            t('settings.timeline.errors.authorizationFailed', {
+              message: result.message || 'authorization_denied',
+            })
+          );
+          return;
+        }
+      } catch (error: any) {
+        toast.error(t('settings.timeline.errors.authorizationFailed', { message: error?.message || 'unknown' }));
+        return;
+      }
+    }
     onPluginFieldsChange(source.plugin_id, {
       ...values,
       [flow.enabled_key]: true,
@@ -418,6 +451,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           fields={detailFields}
           values={detailValues}
           onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+          pluginId={selectedSource.plugin_id}
         />
       </SectionBlock>
 
@@ -426,8 +460,16 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           {activationDialog ? (
             <>
               <DialogHeader>
-                <DialogTitle>{activationDialog.flow.title}</DialogTitle>
-                <DialogDescription>{activationDialog.flow.description}</DialogDescription>
+                <DialogTitle>
+                  {getActivationText(activationDialog.source.plugin_id, 'title', activationDialog.flow.title)}
+                </DialogTitle>
+                <DialogDescription>
+                  {getActivationText(
+                    activationDialog.source.plugin_id,
+                    'description',
+                    activationDialog.flow.description
+                  )}
+                </DialogDescription>
               </DialogHeader>
 
               <div className="px-6 pb-6">
@@ -447,15 +489,24 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                         : prev
                     )
                   }
+                  pluginId={activationDialog.source.plugin_id}
                 />
               </div>
 
               <DialogFooter>
                 <Button type="button" variant="ghost" onClick={() => setActivationDialog(null)}>
-                  {activationDialog.flow.cancel_label}
+                  {getActivationText(
+                    activationDialog.source.plugin_id,
+                    'cancel_label',
+                    activationDialog.flow.cancel_label
+                  )}
                 </Button>
-                <Button type="button" onClick={confirmActivationFlow}>
-                  {activationDialog.flow.confirm_label}
+                <Button type="button" onClick={() => void confirmActivationFlow()}>
+                  {getActivationText(
+                    activationDialog.source.plugin_id,
+                    'confirm_label',
+                    activationDialog.flow.confirm_label
+                  )}
                 </Button>
               </DialogFooter>
             </>

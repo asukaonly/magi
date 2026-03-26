@@ -304,6 +304,7 @@ class ConfigLoader:
                 "sensors": {
                     "apple_health": {
                         "enabled": False,
+                        "authorization_configured": False,
                         "sync_mode": "manual",
                         "sync_interval_hours": 1,
                         "lookback_days": 7,

@@ -284,18 +284,20 @@ class HealthKitReader:
         # Request authorization
         try:
             # Use NSSet for the types
-            from Foundation import NSSet
+            from Foundation import NSDate, NSRunLoop, NSSet
 
             types_set = NSSet.setWithSet_(types_to_read)
 
             # Authorization is async, but we'll use a sync wrapper
             success = False
             error = None
+            completed = False
 
             def completion_handler(granted, err):
-                nonlocal success, error
+                nonlocal success, error, completed
                 success = granted
                 error = err
+                completed = True
 
             self.health_store.requestAuthorizationToShareTypes_readTypes_completion_(
                 None,  # No write types
@@ -303,13 +305,14 @@ class HealthKitReader:
                 completion_handler
             )
 
-            # For sync operation, we'd need to run the runloop
-            # This is a simplified stub implementation
-            # In a real implementation, you'd need to handle async properly
+            run_loop = NSRunLoop.currentRunLoop()
+            deadline = datetime.now().timestamp() + 5.0
+            while not completed and datetime.now().timestamp() < deadline:
+                run_loop.runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.05))
 
             for key in type_keys:
                 if key not in result:
-                    result[key] = success
+                    result[key] = bool(success) and error is None
 
         except Exception:
             for key in type_keys:

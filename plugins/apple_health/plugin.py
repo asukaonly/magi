@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 from typing import Any, Dict, List
 
-from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
+from magi.plugins import ActivationFlowSpec, ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 
 from .reader import HealthKitReader
 from .sensor import AppleHealthTimelineSensor
@@ -12,6 +12,7 @@ from .types import HEALTH_DATA_TYPES, get_default_enabled_types, get_enabled_typ
 
 DEFAULT_SETTINGS = {
     "enabled": False,
+    "authorization_configured": False,
     "sync_mode": "manual",
     "sync_interval_hours": 1,
     "lookback_days": 7,
@@ -27,6 +28,37 @@ DEFAULT_SETTINGS = {
     "default_retention_mode": "analyze_only",
     "storage_mode": "managed",
 }
+
+
+def _activation_flow(prefix: str) -> ActivationFlowSpec:
+    """Define first-enable authorization flow for Apple Health."""
+    type_fields: list[ExtensionFieldSpec] = []
+    order = 10
+    for type_key, data_type in HEALTH_DATA_TYPES.items():
+        type_fields.append(
+            ExtensionFieldSpec(
+                key=f"{prefix}.types.{type_key}",
+                type="switch",
+                label=data_type.display_name,
+                description=data_type.description,
+                default=DEFAULT_SETTINGS["types"][type_key],
+                section="data_types",
+                surface="timeline",
+                order=order,
+            )
+        )
+        order += 5
+
+    return ActivationFlowSpec(
+        title="Connect Apple Health",
+        description="Choose which Apple Health categories should be authorized for timeline ingestion.",
+        confirm_label="Request access",
+        cancel_label="Not now",
+        authorize_on_confirm=True,
+        enabled_key=f"{prefix}.enabled",
+        configured_key=f"{prefix}.authorization_configured",
+        fields=type_fields,
+    )
 
 
 def _fields(prefix: str) -> list[ExtensionFieldSpec]:
@@ -148,16 +180,7 @@ class AppleHealthPlugin(Plugin):
         if sys.platform != "darwin":
             return []
 
-        # Check HealthKit availability (but still return sensor spec even if not available)
         reader = None
-        try:
-            reader = HealthKitReader()
-            if not reader.is_available():
-                reader = None
-        except Exception:
-            reader = None
-
-        # Get settings
         settings = {}
         sensors_settings = self.settings.get("sensors", {})
         if isinstance(sensors_settings, dict):
@@ -213,6 +236,7 @@ class AppleHealthPlugin(Plugin):
                     metadata={
                         "source_type": "apple_health",
                         "default_settings": dict(DEFAULT_SETTINGS),
+                        "activation_flow": _activation_flow("sensors.apple_health").model_dump(),
                     },
                 ),
             )

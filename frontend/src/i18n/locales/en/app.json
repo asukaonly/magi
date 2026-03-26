@@ -877,6 +877,7 @@
       "errors": {
         "statusLoadFailed": "Failed to load source status: {{message}}",
         "syncFailed": "Failed to queue sync: {{message}}",
+        "authorizationFailed": "Authorization failed: {{message}}",
         "settingsSaveFailed": "Failed to save source settings: {{message}}",
         "activationFailed": "Failed to enable source: {{message}}",
         "activationResetFailed": "Failed to reset first-sync setup: {{message}}"
@@ -960,12 +961,49 @@
       "apple-health": {
         "name": "Apple Health",
         "description": "Apple Health data ingestion for the timeline",
+        "fields": {
+          "storage_mode": {
+            "label": "Storage Mode",
+            "description": "Control how Apple Health data is stored locally."
+          },
+          "lookback_days": {
+            "label": "Lookback Days",
+            "description": "How many days of history to include during the initial sync."
+          },
+          "sync_interval_hours": {
+            "label": "Sync Interval (hours)",
+            "description": "How often Apple Health data should be synced."
+          },
+          "default_retention_mode": {
+            "label": "Retention Mode",
+            "description": "Control how much Health data is retained in memory ingestion."
+          },
+          "steps": { "label": "Steps", "description": "Sync daily step totals." },
+          "sleep": { "label": "Sleep", "description": "Sync sleep sessions and summaries." },
+          "heart_rate": { "label": "Heart Rate", "description": "Sync heart rate samples." },
+          "distance": { "label": "Distance", "description": "Sync walking and running distance." },
+          "flights": { "label": "Flights Climbed", "description": "Sync daily flights climbed totals." },
+          "active_energy": { "label": "Active Energy", "description": "Sync active energy burn data." },
+          "workout": { "label": "Workout", "description": "Sync workout sessions." }
+        },
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
-          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" }
+          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" },
+          "storage_mode": { "managed": "Managed", "local": "Local" }
         },
-        "sections": { "data_types": "Data Types", "sync": "Sync", "storage": "Storage" }
+        "sections": {
+          "data_types": "Data Types",
+          "sync": "Sync",
+          "storage": "Storage",
+          "retention": "Retention",
+          "activation": "Activation"
+        },
+        "activation": {
+          "title": "Connect Apple Health",
+          "description": "Choose which Health categories should be authorized.",
+          "confirm_label": "Request access",
+          "cancel_label": "Not now"
+        }
       },
       "calendar": {
         "name": "Calendar",

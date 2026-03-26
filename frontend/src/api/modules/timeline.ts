@@ -137,6 +137,14 @@ export interface TimelineSourceStatusResponse {
   sources: TimelineSourceStatusItem[];
 }
 
+export interface TimelineSourceAuthorizationResponse {
+  authorized: boolean;
+  requested_types: string[];
+  granted_types: string[];
+  denied_types: string[];
+  message?: string | null;
+}
+
 export const timelineApi = {
   getViewport: async (options: {
     scale: 'month' | 'week' | 'day' | 'hour';
@@ -172,5 +180,16 @@ export const timelineApi = {
   requestSync: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
     const response = await api.post<{ queued: boolean; source_name: string }>(`/timeline/sources/${sourceName}/sync`, {});
     return (response.data || response) as { queued: boolean; source_name: string };
+  },
+
+  requestAuthorization: async (
+    sourceName: string,
+    fieldValues: Record<string, any>
+  ): Promise<TimelineSourceAuthorizationResponse> => {
+    const response = await api.post<TimelineSourceAuthorizationResponse>(
+      `/timeline/sources/${sourceName}/authorize`,
+      { field_values: fieldValues }
+    );
+    return (response.data || response) as TimelineSourceAuthorizationResponse;
   },
 };
