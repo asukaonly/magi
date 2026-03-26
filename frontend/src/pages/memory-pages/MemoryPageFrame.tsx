@@ -24,7 +24,7 @@ export const MemoryPageFrame = ({
   >
     <section
       data-testid="memory-page-header"
-      className="rounded-2xl border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.82)] px-5 py-5"
+      className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-4"
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 space-y-1.5">
@@ -37,7 +37,7 @@ export const MemoryPageFrame = ({
       {filters ? (
         <div
           data-testid="memory-page-filters"
-          className="mt-4 border-t border-[hsl(var(--memory-divider)/0.72)] pt-4"
+          className="mt-3 border-t border-[hsl(var(--memory-divider)/0.68)] pt-3"
         >
           {filters}
         </div>
@@ -105,13 +105,13 @@ export const MemoryTag = ({ children }: { children: ReactNode }) => (
 );
 
 export const MEMORY_FILTER_INPUT_CLASS =
-  'h-10 rounded-md border-[hsl(var(--memory-input-border)/0.72)] bg-[hsl(var(--memory-input-bg))] text-[hsl(var(--memory-title))] placeholder:text-[hsl(var(--memory-input-placeholder))] focus-visible:ring-[hsl(var(--memory-accent)/0.16)]';
+  'h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 text-sm text-[hsl(var(--memory-title))] placeholder:text-[hsl(var(--memory-input-placeholder))] placeholder:text-sm focus-visible:ring-[hsl(var(--memory-accent)/0.12)]';
 
 export const MEMORY_FILTER_SELECT_CLASS =
-  'flex h-10 w-full rounded-md border border-[hsl(var(--memory-input-border)/0.72)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.24)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.32)]';
+  'flex h-9 w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.22)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.24)]';
 
 export const MEMORY_ACTION_BUTTON_CLASS =
-  'rounded-md border-[hsl(var(--memory-input-border)/0.72)] bg-[hsl(var(--memory-input-bg))] text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle)/0.82)]';
+  'h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-4 text-sm text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle)/0.82)]';
 
 export const MEMORY_INFO_PANEL_CLASS =
   'rounded-xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.66)] px-4 py-3 text-sm text-[hsl(var(--memory-body))]';

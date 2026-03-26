@@ -125,14 +125,14 @@ export const MemoryEventsPage = () => {
       }
       filters={(
         <form
-          className="grid gap-x-4 gap-y-3 lg:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.98fr)_minmax(240px,0.82fr)_auto] lg:items-end"
+          className="grid gap-x-3 gap-y-2.5 text-sm lg:grid-cols-[minmax(0,1.52fr)_minmax(340px,1fr)_minmax(140px,0.44fr)_auto] lg:items-end"
           onSubmit={(event) => {
             event.preventDefault();
             void handleSearch();
           }}
         >
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="memory-events-content">
+          <div className="space-y-1">
+            <label className="text-[13px] font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-events-content">
               {t('memory.pages.events.contentLabel')}
             </label>
             <Input
@@ -143,11 +143,11 @@ export const MemoryEventsPage = () => {
               placeholder={t('memory.pages.events.searchPlaceholder')}
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="memory-events-start-date">
+          <div className="space-y-1">
+            <label className="text-[13px] font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-events-start-date">
               {t('memory.pages.events.dateRangeLabel')}
             </label>
-            <div className="grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)] items-center gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_10px_minmax(0,1fr)] items-center gap-1.5">
               <Input
                 id="memory-events-start-date"
                 type="date"
@@ -156,7 +156,7 @@ export const MemoryEventsPage = () => {
                 value={startDate}
                 onChange={(event) => setStartDate(event.target.value)}
               />
-              <span className="text-center text-sm text-[hsl(var(--memory-muted))]">~</span>
+              <span className="text-center text-[13px] text-[hsl(var(--memory-muted))]">~</span>
               <Input
                 id="memory-events-end-date"
                 type="date"
@@ -167,8 +167,8 @@ export const MemoryEventsPage = () => {
               />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="memory-events-source">
+          <div className="space-y-1">
+            <label className="text-[13px] font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-events-source">
               {t('memory.pages.events.sourceFilterLabel')}
             </label>
             <select
@@ -186,11 +186,17 @@ export const MemoryEventsPage = () => {
               ))}
             </select>
           </div>
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-1.5">
             <Button type="submit" variant="outline" className={MEMORY_ACTION_BUTTON_CLASS} disabled={loading}>
               {t('memory.search')}
             </Button>
-            <Button type="button" variant="ghost" className="rounded-md px-4" onClick={() => void handleReset()} disabled={loading}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 rounded-sm px-3 text-sm text-[hsl(var(--memory-body))]"
+              onClick={() => void handleReset()}
+              disabled={loading}
+            >
               {t('memory.pages.events.resetButton')}
             </Button>
           </div>
