@@ -616,7 +616,7 @@ class L2Handler:
                 seen.add(entity_id)
 
         if resolved or self._entity_catalog is None or not conditions.content_query:
-            return resolved or self._infer_self_entities(conditions.content_query, user_id=user_id)
+            return resolved
 
         query_matches = await self._entity_catalog.resolve_query_entities(
             conditions.content_query,
@@ -633,7 +633,7 @@ class L2Handler:
                 "match_source": str(match.get("match_source") or "unknown"),
             })
             seen.add(entity_id)
-        return resolved or self._infer_self_entities(conditions.content_query, user_id=user_id)
+        return resolved
 
     def _infer_predicates(self, query: str) -> list[str] | None:
         query_lower = query.lower()
@@ -707,12 +707,9 @@ class L2Handler:
             return str(query_frame["target_entity_id_exact"])
         return None
 
-    def _infer_self_entities(self, query: str, *, user_id: Optional[str] = None) -> list[dict[str, str]]:
-        if "我" not in query and " me " not in f" {query.lower()} ":
-            return []
-        if user_id:
-            return [{"entity_id": f"user:{user_id}", "entity_type": "user"}]
-        return []
+    @staticmethod
+    def _make_self_entity(user_id: str) -> dict[str, str]:
+        return {"entity_id": f"user:{user_id}", "entity_type": "user"}
 
     def _build_query_frame(
         self,
@@ -725,17 +722,12 @@ class L2Handler:
         relation_direction: str,
     ) -> dict[str, Any]:
         explicit_entities = [dict(entity) for entity in resolved_entities]
-        self_entities = self._infer_self_entities(conditions.content_query, user_id=user_id)
-        # When subject_hint is explicitly "self", honour the hint even if
-        # the content_query was rewritten without a first-person pronoun.
-        if conditions.subject_hint == "self" and not self_entities and user_id:
-            self_entities = [{"entity_id": f"user:{user_id}", "entity_type": "user"}]
         subject_entities: list[dict[str, str]] = []
         target_entities: list[dict[str, str]] = []
         subject_binding_source = "none"
 
-        if conditions.subject_hint == "self" and self_entities:
-            subject_entities = [dict(entity) for entity in self_entities]
+        if conditions.subject_hint == "self" and user_id:
+            subject_entities = [self._make_self_entity(user_id)]
             target_entities = self._filter_target_entities_for_family(
                 entities=explicit_entities,
                 predicate_family=predicate_family,
@@ -748,19 +740,12 @@ class L2Handler:
                 predicate_family=predicate_family,
             )
             subject_binding_source = "explicit_entity"
-        elif predicate_family == "preference" and self_entities and self._looks_like_direct_self_preference(conditions.content_query):
-            subject_entities = [dict(entity) for entity in self_entities]
-            target_entities = self._filter_target_entities_for_family(
-                entities=explicit_entities,
-                predicate_family=predicate_family,
-            )
-            subject_binding_source = "self_anchor"
         elif explicit_entities:
             subject_entities = [dict(entity) for entity in explicit_entities]
             subject_binding_source = "resolved_entity"
 
-        if relation_direction == "incoming" and self_entities:
-            subject_entities = [dict(entity) for entity in self_entities]
+        if relation_direction == "incoming" and user_id:
+            subject_entities = [self._make_self_entity(user_id)]
             target_entities = explicit_entities
             subject_binding_source = "self_anchor"
 
@@ -888,14 +873,6 @@ class L2Handler:
             "place",
             "person",
         }
-
-    @staticmethod
-    def _looks_like_direct_self_preference(query: str) -> bool:
-        normalized = query.casefold()
-        return (
-            ("我" in query or " me " in f" {normalized} ")
-            and ("喜欢" in query or "讨厌" in query or "偏好" in query or " like " in f" {normalized} ")
-        )
 
     @staticmethod
     def _allows_object_id_filter(*, entity_type: str, direction: str) -> bool:
