@@ -53,6 +53,8 @@ const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const SESSION_EVENT = 'magi-session-sync';
 const USER_ID = DEFAULT_USER_ID;
 const MAX_IMAGE_ATTACHMENTS = 5;
+const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const DEFAULT_CHAT_WORKSPACE_DISPLAY = '~/.magi/chat-workspace';
 const IMAGE_ATTACHMENT_ACCEPT = 'image/png,image/jpeg,image/webp';
 const FILE_ATTACHMENT_ACCEPT = '.txt,.md,.json,.pdf,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.kt,.swift,.c,.cc,.cpp,.h,.hpp,.html,.css,.csv,.xml,.yaml,.yml,.toml,.ini,.log,.sh,.sql,.php,.rb';
@@ -202,6 +204,8 @@ interface DraftAttachmentResolution {
   nextAttachments: DraftAttachment[];
   droppedForVision: boolean;
   droppedForLimit: boolean;
+  droppedOversizedImages: File[];
+  droppedOversizedFiles: File[];
   droppedUnsupportedCount: number;
 }
 
@@ -325,12 +329,18 @@ const resolveDraftAttachments = (
   );
   let droppedForVision = false;
   let droppedForLimit = false;
+  const droppedOversizedImages: File[] = [];
+  const droppedOversizedFiles: File[] = [];
   let droppedUnsupportedCount = 0;
 
   files.forEach((file) => {
     if (isSupportedImageFile(file)) {
       if (!coreModelSupportsVision) {
         droppedForVision = true;
+        return;
+      }
+      if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+        droppedOversizedImages.push(file);
         return;
       }
       if (remainingImageSlots <= 0) {
@@ -351,6 +361,10 @@ const resolveDraftAttachments = (
     }
 
     if (isSupportedPdfFile(file) || isSupportedTextLikeFile(file)) {
+      if (file.size > MAX_FILE_ATTACHMENT_BYTES) {
+        droppedOversizedFiles.push(file);
+        return;
+      }
       nextAttachments.push({
         id: createDraftAttachmentId(),
         kind: 'file',
@@ -369,6 +383,8 @@ const resolveDraftAttachments = (
     nextAttachments,
     droppedForVision,
     droppedForLimit,
+    droppedOversizedImages,
+    droppedOversizedFiles,
     droppedUnsupportedCount,
   };
 };
@@ -630,6 +646,12 @@ export const ChatPage: React.FC = () => {
     if (resolution.droppedForLimit) {
       toast.warning(t('chat.attachments.imageLimit', { count: MAX_IMAGE_ATTACHMENTS }));
     }
+    resolution.droppedOversizedImages.forEach((file) => {
+      toast.warning(t('chat.attachments.imageTooLarge', { name: file.name, maxMb: 20 }));
+    });
+    resolution.droppedOversizedFiles.forEach((file) => {
+      toast.warning(t('chat.attachments.fileTooLarge', { name: file.name, maxMb: 50 }));
+    });
     if (resolution.droppedUnsupportedCount > 0) {
       toast.warning(t('chat.attachments.unsupportedFiles', { count: resolution.droppedUnsupportedCount }));
     }

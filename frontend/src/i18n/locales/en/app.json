@@ -225,6 +225,8 @@
       "previewDescription": "View the attached image in a larger preview.",
       "visionRequired": "The current core model does not support image attachments.",
       "imageLimit": "You can attach up to {{count}} images per message.",
+      "imageTooLarge": "Image {{name}} exceeds the {{maxMb}} MB limit.",
+      "fileTooLarge": "File {{name}} exceeds the {{maxMb}} MB limit.",
       "unsupportedFiles": "Ignored {{count}} unsupported files. Only text files and PDFs are supported.",
       "uploadFailed": "Failed to upload attachments: {{message}}"
     },

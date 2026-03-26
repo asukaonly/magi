@@ -81,6 +81,8 @@ SUPPORTED_TEXT_EXTENSIONS = {
     ".yaml",
     ".yml",
 }
+MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024
+MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 class LocalChatAttachmentIngestionService:
@@ -120,6 +122,10 @@ class LocalChatAttachmentIngestionService:
             raise ValueError("Unsupported attachment type.")
         if not content:
             raise ValueError("Empty file is not allowed.")
+        if attachment_kind == "image" and len(content) > MAX_IMAGE_ATTACHMENT_BYTES:
+            raise ValueError("Image attachment exceeds the 20 MB limit.")
+        if attachment_kind != "image" and len(content) > MAX_FILE_ATTACHMENT_BYTES:
+            raise ValueError("File attachment exceeds the 50 MB limit.")
 
         if attachment_kind == "image":
             stored = self._storage.store_image_attachment(

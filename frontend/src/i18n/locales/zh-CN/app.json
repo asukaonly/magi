@@ -225,6 +225,8 @@
       "previewDescription": "查看附件图片的大图预览。",
       "visionRequired": "当前 core 模型不支持图片附件。",
       "imageLimit": "单次消息最多可添加 {{count}} 张图片。",
+      "imageTooLarge": "图片 {{name}} 超过了 {{maxMb}} MB 限制。",
+      "fileTooLarge": "文件 {{name}} 超过了 {{maxMb}} MB 限制。",
       "unsupportedFiles": "已忽略 {{count}} 个不支持的文件，仅支持文本文件和 PDF。",
       "uploadFailed": "附件上传失败：{{message}}"
     },

@@ -42,3 +42,31 @@ def test_ingest_attachment_rejects_unsupported_file_type(tmp_path: Path) -> None
             content=b"PK",
             mime_type="application/zip",
         )
+
+
+def test_ingest_attachment_rejects_oversized_image(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
+
+    with pytest.raises(ValueError, match="Image attachment exceeds the 20 MB limit"):
+        service.ingest_attachment(
+            session_id="session-1",
+            turn_id="turn-1",
+            original_name="huge.png",
+            content=b"0" * (20 * 1024 * 1024 + 1),
+            mime_type="image/png",
+        )
+
+
+def test_ingest_attachment_rejects_oversized_text_file(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
+
+    with pytest.raises(ValueError, match="File attachment exceeds the 50 MB limit"):
+        service.ingest_attachment(
+            session_id="session-1",
+            turn_id="turn-1",
+            original_name="huge.md",
+            content=b"0" * (50 * 1024 * 1024 + 1),
+            mime_type="text/markdown",
+        )

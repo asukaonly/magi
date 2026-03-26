@@ -86,6 +86,14 @@ vi.mock('@/components/chat/ToolchainDrawer', () => ({
 }));
 
 describe('ChatPage', () => {
+  const setMockFileSize = (file: File, size: number) => {
+    Object.defineProperty(file, 'size', {
+      value: size,
+      configurable: true,
+    });
+    return file;
+  };
+
   const buildConfigWithVision = (vision: boolean) => ({
     data: {
       ...structuredClone(DEFAULT_SYSTEM_CONFIG),
@@ -368,6 +376,38 @@ describe('ChatPage', () => {
 
     expect(toastWarningMock).toHaveBeenCalledTimes(1);
     expect(toastWarningMock).toHaveBeenCalledWith('chat.attachments.unsupportedFiles');
+  });
+
+  it('rejects oversized image attachments before they enter the draft list', async () => {
+    const user = userEvent.setup();
+    render(<ChatPage />);
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+    await user.click(screen.getByRole('button', { name: 'chat.attachments.add' }));
+
+    const imageInput = screen.getByTestId('chat-attachments-image-input') as HTMLInputElement;
+    const hugeImage = setMockFileSize(new File(['image'], 'huge.png', { type: 'image/png' }), 20 * 1024 * 1024 + 1);
+
+    await user.upload(imageInput, hugeImage);
+
+    expect(screen.queryByText('huge.png')).not.toBeInTheDocument();
+    expect(toastWarningMock).toHaveBeenCalledWith('chat.attachments.imageTooLarge');
+  });
+
+  it('rejects oversized file attachments before they enter the draft list', async () => {
+    const user = userEvent.setup();
+    render(<ChatPage />);
+
+    await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+    await user.click(screen.getByRole('button', { name: 'chat.attachments.add' }));
+
+    const fileInput = screen.getByTestId('chat-attachments-file-input') as HTMLInputElement;
+    const hugeFile = setMockFileSize(new File(['notes'], 'huge.pdf', { type: 'application/pdf' }), 50 * 1024 * 1024 + 1);
+
+    await user.upload(fileInput, hugeFile);
+
+    expect(screen.queryByText('huge.pdf')).not.toBeInTheDocument();
+    expect(toastWarningMock).toHaveBeenCalledWith('chat.attachments.fileTooLarge');
   });
 
   it('uploads draft attachments before sending the websocket turn payload', async () => {
