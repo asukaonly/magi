@@ -397,7 +397,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       case 'timeline':
         return (
           <TimelineSourcesSection
-            value={draftConfig.timeline}
             userMode={draftConfig.preferences.user_mode}
             statuses={timelineStatuses}
             loadingStatus={timelineStatusesLoading}
@@ -405,9 +404,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             pluginDrafts={draftPluginDrafts}
             onSelectSource={setTimelineSelection}
             onRefreshSources={fetchTimelineStatuses}
-            onChange={(updater) => patchDraftConfig((draft) => {
-              updater(draft.timeline);
-            })}
             onPluginFieldChange={handlePluginDraftChange}
             onPluginFieldsChange={handlePluginDraftChanges}
           />

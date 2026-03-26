@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { TimelineSourcesSection } from '@/components/settings/TimelineSourcesSection';
-import type { TimelineConfig, UserMode } from '@/api/modules/config';
+import type { UserMode } from '@/api/modules/config';
 import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
 
 vi.mock('react-i18next', () => ({
@@ -61,56 +61,12 @@ const timelineSourceFixture: TimelineSourceStatusItem = {
   runtime_base_dir: '/tmp/magi-runtime',
 };
 
-const timelineConfigFixture: TimelineConfig = {
-  enabled: true,
-  expert_mode_edge_override: false,
-  sources: {
-    chat: {
-      enabled: true,
-      sync_mode: 'manual',
-      sync_interval_minutes: 1,
-      default_retention_mode: 'analyze_only',
-      storage_mode: 'managed',
-      fetch_page_content: false,
-      edge_whitelist: [],
-    },
-    manual_journal: {
-      enabled: true,
-      sync_mode: 'manual',
-      sync_interval_minutes: 1,
-      default_retention_mode: 'retain_raw',
-      storage_mode: 'managed',
-      fetch_page_content: false,
-      edge_whitelist: [],
-    },
-    browser_history: {
-      enabled: true,
-      sync_mode: 'interval',
-      sync_interval_minutes: 30,
-      default_retention_mode: 'analyze_only',
-      storage_mode: 'managed',
-      fetch_page_content: false,
-      edge_whitelist: ['VIEWED', 'VISITED'],
-    },
-    photo_library: {
-      enabled: false,
-      sync_mode: 'manual',
-      sync_interval_minutes: 60,
-      default_retention_mode: 'analyze_only',
-      storage_mode: 'managed',
-      fetch_page_content: false,
-      edge_whitelist: [],
-    },
-  },
-};
-
 const userModeFixture: UserMode = 'quick';
 
 describe('TimelineSourcesSection', () => {
-  it('does not repeat an overview title block above the source directory', () => {
+  it('shows the source directory without the removed top-level timeline toggles', () => {
     render(
       <TimelineSourcesSection
-        value={timelineConfigFixture}
         userMode={userModeFixture}
         statuses={[timelineSourceFixture]}
         loadingStatus={false}
@@ -118,7 +74,6 @@ describe('TimelineSourcesSection', () => {
         pluginDrafts={{}}
         onSelectSource={vi.fn()}
         onRefreshSources={vi.fn().mockResolvedValue(undefined)}
-        onChange={vi.fn()}
         onPluginFieldChange={vi.fn()}
         onPluginFieldsChange={vi.fn()}
       />
@@ -126,6 +81,8 @@ describe('TimelineSourcesSection', () => {
 
     expect(screen.queryByText('settings.timeline.workspace.directoryTitle')).not.toBeInTheDocument();
     expect(screen.queryByText('settings.timeline.workspace.directoryDesc')).not.toBeInTheDocument();
+    expect(screen.queryByText('settings.timeline.fields.timelineEnabled')).not.toBeInTheDocument();
+    expect(screen.queryByText('settings.timeline.fields.edgeOverride')).not.toBeInTheDocument();
     expect(screen.getByText('settings.timeline.workspace.metricsSummary')).toBeInTheDocument();
     expect(screen.getByTestId('timeline-source-launch-browser_history')).toBeInTheDocument();
   });

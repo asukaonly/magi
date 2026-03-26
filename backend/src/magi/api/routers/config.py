@@ -235,8 +235,6 @@ class TimelineSourcesConfigModel(BaseModel):
 
 
 class TimelineConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-    expert_mode_edge_override: bool = Field(default=True)
     sources: TimelineSourcesConfigModel = Field(default_factory=TimelineSourcesConfigModel)
 
 

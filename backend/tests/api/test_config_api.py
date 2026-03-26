@@ -195,7 +195,7 @@ def test_build_update_paths_contains_new_sections():
     config.memory.l2.conflict_arbitration_min_confidence = 0.9
     config.memory.l3.temporal_llm_timeout_seconds = 1.5
     config.memory.l3.temporal_llm_min_event_count = 3
-    config.timeline.enabled = not current.timeline.enabled
+    config.timeline.sources.browser_history.enabled = not current.timeline.sources.browser_history.enabled
     updates = _build_update_paths(config)
 
     assert updates["agent.memory.db_path"] == "/Users/asuka/.magi/data/custom-memories"
@@ -209,7 +209,9 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.l3.temporal_llm_timeout_seconds"] == 1.5
     assert updates["agent.memory.l3.temporal_llm_min_event_count"] == 3
     assert "timeline" in updates
-    assert updates["timeline"]["enabled"] == config.timeline.enabled
+    assert "enabled" not in updates["timeline"]
+    assert "expert_mode_edge_override" not in updates["timeline"]
+    assert updates["timeline"]["sources"]["browser_history"]["enabled"] == config.timeline.sources.browser_history.enabled
     assert updates["preferences"]["default_chat_workspace_path"] == "/Users/asuka/code/magi"
     assert "agent.memory.async_embeddings" not in updates
     assert "agent.memory.embedding.backend" not in updates
@@ -269,6 +271,8 @@ def test_build_update_paths_prunes_empty_null_fields_from_model_metadata_overrid
 def test_timeline_defaults_include_source_retention_and_edge_whitelists():
     config = SystemConfigModel()
 
+    assert "enabled" not in config.timeline.model_dump(mode="json")
+    assert "expert_mode_edge_override" not in config.timeline.model_dump(mode="json")
     assert config.timeline.sources.chat.default_retention_mode == "analyze_only"
     assert config.timeline.sources.photo_library.default_retention_mode == "retain_raw"
     assert "LIKES" in config.timeline.sources.browser_history.edge_whitelist

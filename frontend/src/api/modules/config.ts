@@ -334,8 +334,6 @@ export interface TimelineSourceConfig {
 }
 
 export interface TimelineConfig {
-  enabled: boolean;
-  expert_mode_edge_override: boolean;
   sources: {
     chat: TimelineSourceConfig;
     manual_journal: TimelineSourceConfig;
@@ -498,8 +496,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     skills: [],
   },
   timeline: {
-    enabled: true,
-    expert_mode_edge_override: true,
     sources: {
       chat: {
         enabled: true,

@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
 import type { ActivationFlowSpec } from '@/api/modules/plugins';
-import type { TimelineConfig, UserMode } from '@/api/modules/config';
+import type { UserMode } from '@/api/modules/config';
 import { timelineApi, type TimelineSourceStatusItem } from '@/api/modules/timeline';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +21,6 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 interface TimelineSourcesSectionProps {
-  value: TimelineConfig;
   userMode: UserMode;
   statuses: TimelineSourceStatusItem[];
   loadingStatus: boolean;
@@ -29,7 +28,6 @@ interface TimelineSourcesSectionProps {
   pluginDrafts: Record<string, Record<string, any>>;
   onSelectSource: (sourceName: string | null) => void;
   onRefreshSources: () => Promise<void>;
-  onChange: (updater: (draft: TimelineConfig) => void) => void;
   onPluginFieldChange: (pluginId: string, key: string, value: any) => void;
   onPluginFieldsChange: (pluginId: string, updates: Record<string, any>) => void;
 }
@@ -129,7 +127,6 @@ const SectionBlock: React.FC<{
 );
 
 export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
-  value,
   userMode,
   statuses,
   loadingStatus,
@@ -137,7 +134,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   pluginDrafts,
   onSelectSource,
   onRefreshSources,
-  onChange,
   onPluginFieldChange,
   onPluginFieldsChange,
 }) => {
@@ -271,44 +267,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     return (
       <div className="mx-auto max-w-5xl space-y-8" data-testid="timeline-overview">
         <header className="space-y-5">
-          <div className="grid gap-6 border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6 md:grid-cols-2">
-            <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-              <div>
-                <p className="text-sm font-medium text-foreground">{t('settings.timeline.fields.timelineEnabled')}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{t('settings.timeline.fields.timelineEnabledHint')}</p>
-              </div>
-              <div className="flex justify-start sm:justify-end">
-                <Switch
-                  checked={value.enabled}
-                  onCheckedChange={(checked) =>
-                    onChange((draft) => {
-                      draft.enabled = checked;
-                    })
-                  }
-                  aria-label={t('settings.timeline.fields.timelineEnabled')}
-                />
-              </div>
-            </label>
-
-            <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-              <div>
-                <p className="text-sm font-medium text-foreground">{t('settings.timeline.fields.edgeOverride')}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{t('settings.timeline.fields.edgeOverrideHint')}</p>
-              </div>
-              <div className="flex justify-start sm:justify-end">
-                <Switch
-                  checked={value.expert_mode_edge_override}
-                  onCheckedChange={(checked) =>
-                    onChange((draft) => {
-                      draft.expert_mode_edge_override = checked;
-                    })
-                  }
-                  disabled={!expertMode}
-                  aria-label={t('settings.timeline.fields.edgeOverride')}
-                />
-              </div>
-            </label>
-          </div>
+          <div className="border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6" />
         </header>
 
         <section className="space-y-4 pt-4">

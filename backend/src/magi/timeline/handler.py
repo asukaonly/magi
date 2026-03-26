@@ -33,8 +33,6 @@ def build_timeline_handler(
 
     async def _handle_timeline_payload(payload: dict[str, Any]) -> dict[str, Any]:
         source_type = str(payload.get("source_type") or "").strip()
-        if not config.timeline.enabled:
-            return {"handled": False, "reason": "timeline_disabled"}
         resolved = sensor_registry.resolve_domain_sensor("timeline", source_type)
         if resolved is None:
             return {"handled": False, "reason": "unsupported_source", "source_type": source_type}

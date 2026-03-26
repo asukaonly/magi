@@ -821,10 +821,6 @@
         "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime."
       },
       "fields": {
-        "timelineEnabled": "Timeline enabled",
-        "timelineEnabledHint": "Pause new timeline updates without deleting existing memories.",
-        "edgeOverride": "Expert edge override",
-        "edgeOverrideHint": "Allow expert-mode users to edit source edge whitelists directly.",
         "enabled": "Source enabled",
         "enabledHint": "Whether this source should keep contributing new memories to the timeline.",
         "status": "Source status",

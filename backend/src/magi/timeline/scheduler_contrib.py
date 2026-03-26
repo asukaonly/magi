@@ -113,7 +113,6 @@ class TimelineSchedulerContrib:
 
     async def sync_schedules(self) -> None:
         """Synchronize timeline sensor schedules based on plugin config."""
-        config = self._get_config()
         for contribution in self._sensor_registry.list_contributions():
             if contribution.metadata.get("domain") != "timeline":
                 continue
@@ -131,7 +130,7 @@ class TimelineSchedulerContrib:
             sync_mode = str(source_settings.get("sync_mode", default_settings.get("sync_mode", spec.sync_mode)))
             interval_minutes = float(source_settings.get("sync_interval_minutes", default_settings.get("sync_interval_minutes", 1)))
             supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
-            if (not config.timeline.enabled) or (not enabled) or (not supports_pull_sync) or sync_mode == "manual":
+            if (not enabled) or (not supports_pull_sync) or sync_mode == "manual":
                 await self._scheduler_service.unschedule(
                     schedule_id,
                     target_type=ScheduledTargetType.TIMELINE_SENSOR_SYNC,

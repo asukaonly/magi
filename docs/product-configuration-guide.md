@@ -300,12 +300,11 @@ Expected product behavior:
 
 - the Timeline settings surface should render sources from backend-registered timeline sensors
 - the frontend should not assume a fixed source list when the backend can provide dynamic sensor contributions
-- top-level timeline domain controls may remain in root config
+- timeline ingestion stays on by default, while per-source controls live on the source itself
 - per-source behavior such as sync mode, retention, and source-specific fields should be persisted through plugin settings
 
 This split is intentional:
 
-- global timeline state belongs to the product domain
 - source-specific runtime settings belong to the owning sensor contribution
 
 Timeline sync behavior is now backed by the unified scheduler runtime.

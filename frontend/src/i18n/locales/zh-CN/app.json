@@ -821,10 +821,6 @@
         "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。"
       },
       "fields": {
-        "timelineEnabled": "启用时间线",
-        "timelineEnabledHint": "暂停新的时间线更新，但不删除已有记忆。",
-        "edgeOverride": "专家边关系覆写",
-        "edgeOverrideHint": "允许专家模式直接编辑来源的边白名单。",
         "enabled": "来源启用",
         "enabledHint": "控制该来源是否继续为时间线提供新的记忆内容。",
         "status": "来源状态",

@@ -405,8 +405,6 @@ class TimelineSourcesSettings(BaseModel):
 class TimelineSettings(BaseModel):
     """Timeline domain settings."""
 
-    enabled: bool = Field(default=True)
-    expert_mode_edge_override: bool = Field(default=True)
     sources: TimelineSourcesSettings = Field(default_factory=TimelineSourcesSettings)
 
 

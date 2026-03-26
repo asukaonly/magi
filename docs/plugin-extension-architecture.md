@@ -196,7 +196,6 @@ Examples:
 
 - LLM settings
 - memory layer toggles
-- top-level timeline flags such as `timeline.enabled`
 
 ### Plugin-backed settings now use `pluginsApi`
 
