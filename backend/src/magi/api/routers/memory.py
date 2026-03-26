@@ -792,6 +792,20 @@ async def trigger_l2_snapshot_refresh(body: L2EntityActionBody):
     return {"queued": True, "entity_ids": body.entity_ids}
 
 
+@memory_router.post("/l2/microbatch-flush")
+async def trigger_l2_microbatch_flush():
+    """Immediately flush all currently staged L2 microbatches."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+
+    batch_count = await unified_memory.flush_l2_microbatches()
+    return {"queued": batch_count > 0, "batch_count": batch_count}
+
+
 # =============================================================================
 # L3 Reflection Endpoints
 # =============================================================================

@@ -3060,6 +3060,26 @@ async def test_flush_session_returns_accumulated_entities():
 
 
 @pytest.mark.asyncio
+async def test_flush_all_pending_batches_drains_all_staging_buckets():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=9999)
+
+        await pipeline.enqueue_event(_make_memory_event(event_id="evt-1", session_id="s-alpha", content="alpha"))
+        await pipeline.enqueue_event(_make_memory_event(event_id="evt-2", session_id="s-beta", content="beta"))
+
+        assert "session:s-alpha" in pipeline._staging_buckets
+        assert "session:s-beta" in pipeline._staging_buckets
+
+        flushed = await pipeline.flush_all_pending_batches()
+
+        assert flushed == 2
+        assert pipeline._staging_buckets == {}
+        assert pipeline._stats.extract_enqueued >= 2
+        stats = pipeline.get_statistics()
+        assert stats["batch_flush_by_reason"].get("manual_flush", 0) == 2
+
+
+@pytest.mark.asyncio
 async def test_flush_session_noop_for_unknown_session():
     """flush_session for a session with no bucket and no entities is a no-op."""
     with tempfile.TemporaryDirectory() as temp_dir:

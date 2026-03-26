@@ -232,6 +232,9 @@ class _FakeUnifiedMemory:
     async def refresh_l2_snapshots(self, entity_ids: list[str]):
         return bool(entity_ids)
 
+    async def flush_l2_microbatches(self):
+        return 2
+
     def get_l2_pipeline_stats(self):
         return {
             "is_running": True,
@@ -1808,6 +1811,7 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     replay_response = client.post("/api/memory/l2/extract/evt-manual-1")
     reconcile_response = client.post("/api/memory/l2/reconcile", json={"entity_ids": ["user:u1"]})
     materialize_response = client.post("/api/memory/l2/snapshot-refresh", json={"entity_ids": ["user:u1"]})
+    flush_response = client.post("/api/memory/l2/microbatch-flush")
     update_rule_response = client.put(
         "/api/memory/l2/conflict-rules/ENDORSES",
         json={
@@ -1831,6 +1835,8 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     assert replay_response.status_code == 200
     assert reconcile_response.status_code == 200
     assert materialize_response.status_code == 200
+    assert flush_response.status_code == 200
+    assert flush_response.json() == {"queued": True, "batch_count": 2}
     assert update_rule_response.status_code == 200
     assert update_rule_response.json()["predicate"] == "ENDORSES"
     assert update_rule_response.json()["exclusive_group"] == "stance"

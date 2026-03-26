@@ -278,6 +278,12 @@ class UnifiedMemoryStore:
             return False
         return await self.l2_pipeline.enqueue_snapshot_refresh(entity_ids)
 
+    async def flush_l2_microbatches(self) -> int:
+        """Flush all currently staged L2 microbatches into extract jobs."""
+        if self.l2_pipeline is None:
+            return 0
+        return await self.l2_pipeline.flush_all_pending_batches()
+
     async def generate_summary(
         self,
         period_type: str = "day",

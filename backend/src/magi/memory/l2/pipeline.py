@@ -282,6 +282,28 @@ class L2Pipeline:
             await self.enqueue_snapshot_refresh(accumulated)
         return accumulated
 
+    async def flush_all_pending_batches(self) -> int:
+        """Flush every currently staged microbatch into extract jobs."""
+        if self._cognition_store is None:
+            return 0
+
+        jobs: list[L2BatchJob] = []
+        async with self._staging_lock:
+            for bucket_key in list(self._staging_buckets.keys()):
+                job = self._build_and_remove_bucket_job_locked(
+                    bucket_key=bucket_key,
+                    flush_reason="manual_flush",
+                )
+                if job is not None:
+                    jobs.append(job)
+
+        for job in jobs:
+            await self._enqueue_extract_job(job)
+
+        if jobs:
+            logger.info("L2 manual microbatch flush enqueued", batch_count=len(jobs))
+        return len(jobs)
+
     def _accumulate_session_entities(
         self, session_id: str | None, entity_ids: list[str],
     ) -> None:
