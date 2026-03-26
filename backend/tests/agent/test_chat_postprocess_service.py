@@ -158,7 +158,8 @@ class _FakeL1Store:
 
 
 class _FakeUnifiedMemory:
-    def __init__(self, events: list[dict[str, object]] | None = None) -> None:
+    def __init__(self, events: list[dict[str, object]] | None = None, l0=None) -> None:
+        self.l0 = l0
         self.l1 = _FakeL1Store(events or [])
         self.task_packets = []
 
@@ -458,6 +459,48 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
     runtime_payload = action_emitter.runtime_events[0]["payload"]
     assert runtime_payload["turn_id"] == "turn-1"
     assert runtime_payload["iteration"] == 3
+
+
+@pytest.mark.asyncio
+async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_path) -> None:
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    l0_store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(tmp_path / "l0_memory_query_tactics.db"),
+        restore_on_restart=False,
+    )
+    await l0_store.initialize()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: _FakeActionEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        unified_memory=_FakeUnifiedMemory(l0=l0_store),
+        max_fact_memory=10,
+    )
+
+    await service.record_tool_interaction(
+        {
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "tool_call_id": "call-memory-1",
+            "iteration": 1,
+            "tool_name": "memory_query",
+            "arguments": {"query": "我喜欢什么天气"},
+            "execution_time": 0.18,
+            "success": True,
+            "data": {"events": [{"event_id": "evt-1"}]},
+            "intent": "preference_recall",
+        }
+    )
+
+    workbench = await l0_store.get_workbench("session-1")
+
+    assert [tactic["tactic_type"] for tactic in workbench["temporary_tactics"]] == ["memory_query_active"]
+    assert workbench["temporary_tactics"][0]["tactic_payload"]["turn_id"] == "turn-1"
+    assert workbench["temporary_tactics"][0]["tactic_payload"]["tool_name"] == "memory_query"
 
 
 @pytest.mark.asyncio
@@ -872,6 +915,48 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
     assert len(action_emitter.runtime_events) == 1
     assert action_emitter.runtime_events[0]["event_type"] == "CHAT_TOOL_LOOP_STEP"
     assert action_emitter.runtime_events[0]["payload"]["tool_name"] == "file_read"
+
+
+@pytest.mark.asyncio
+async def test_record_tool_loop_fact_projects_replan_tactic_into_l0(tmp_path) -> None:
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    l0_store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(tmp_path / "l0_replan_tactics.db"),
+        restore_on_restart=False,
+    )
+    await l0_store.initialize()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: _FakeActionEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        unified_memory=_FakeUnifiedMemory(l0=l0_store),
+        max_fact_memory=10,
+    )
+
+    await service.record_tool_loop_fact(
+        {
+            "stage": "iteration_all_tools_failed",
+            "iteration": 2,
+            "replan_allowed": True,
+            "consecutive_failed_iterations": 1,
+            "tool_names": ["web-search", "file_read"],
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "execution_agent_id": "chat:local_user",
+        }
+    )
+
+    workbench = await l0_store.get_workbench("session-1")
+
+    assert [tactic["tactic_type"] for tactic in workbench["temporary_tactics"]] == [
+        "replan_after_tool_failure"
+    ]
+    assert workbench["temporary_tactics"][0]["tactic_payload"]["turn_id"] == "turn-1"
+    assert workbench["temporary_tactics"][0]["tactic_payload"]["replan_allowed"] is True
 
 
 @pytest.mark.asyncio

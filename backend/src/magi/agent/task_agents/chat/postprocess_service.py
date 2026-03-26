@@ -42,6 +42,11 @@ logger = get_logger(__name__)
 
 TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"
 CHAT_TOOL_LOOP_STEP_EVENT_TYPE = "CHAT_TOOL_LOOP_STEP"
+MEMORY_QUERY_ACTIVE_TACTIC = "memory_query_active"
+REPLAN_AFTER_TOOL_FAILURE_TACTIC = "replan_after_tool_failure"
+TACTIC_TTL_SECONDS = 900
+
+
 class ChatPostProcessService:
     """Applies side effects for chat execution results."""
 
@@ -614,6 +619,19 @@ class ChatPostProcessService:
         execution_time = float(payload.get("execution_time") or 0.0)
         success = bool(payload.get("success"))
         error_text = str(payload.get("error") or "") or None
+        if success and tool_name == "memory_query":
+            await self._record_temporary_tactic(
+                session_id=session_id,
+                tactic_type=MEMORY_QUERY_ACTIVE_TACTIC,
+                tactic_payload={
+                    "tool_name": tool_name,
+                    "turn_id": turn_id,
+                    "iteration": payload.get("iteration"),
+                    "intent": payload.get("intent"),
+                    "arguments": arguments,
+                },
+                source_event_id=str(payload.get("tool_call_id") or turn_id or tool_name),
+            )
         await action_emitter.emit_action_event(
             record=ActionEmissionRecord(
                 agent_id=self._agent_id,
@@ -668,6 +686,19 @@ class ChatPostProcessService:
         session_id = self._history_service.require_session_id(user_id, payload.get("session_id"))
         stage = str(payload.get("stage") or "unknown")
         turn_id = str(payload.get("turn_id") or "").strip() or None
+        if stage == "iteration_all_tools_failed" and bool(payload.get("replan_allowed")):
+            await self._record_temporary_tactic(
+                session_id=session_id,
+                tactic_type=REPLAN_AFTER_TOOL_FAILURE_TACTIC,
+                tactic_payload={
+                    "turn_id": turn_id,
+                    "iteration": payload.get("iteration"),
+                    "replan_allowed": True,
+                    "consecutive_failed_iterations": payload.get("consecutive_failed_iterations"),
+                    "tool_names": list(payload.get("tool_names") or []),
+                },
+                source_event_id=str(turn_id or stage),
+            )
         runtime_payload = {
             "stage": stage,
             "iteration": payload.get("iteration"),
@@ -679,6 +710,8 @@ class ChatPostProcessService:
             "success": payload.get("success"),
             "error": payload.get("error"),
             "execution_time": payload.get("execution_time"),
+            "replan_allowed": payload.get("replan_allowed"),
+            "consecutive_failed_iterations": payload.get("consecutive_failed_iterations"),
             "llm_trace": payload.get("llm_trace") if isinstance(payload.get("llm_trace"), dict) else None,
             "response_preview": payload.get("response_preview"),
             "intent": payload.get("intent"),
@@ -701,6 +734,28 @@ class ChatPostProcessService:
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
+        )
+
+    async def _record_temporary_tactic(
+        self,
+        *,
+        session_id: str,
+        tactic_type: str,
+        tactic_payload: dict[str, Any],
+        source_event_id: str,
+    ) -> None:
+        l0_store = getattr(self._unified_memory, "l0", None)
+        if l0_store is None:
+            return
+        await l0_store.add_temporary_tactic(
+            session_id=session_id,
+            scope_type="session",
+            scope_id=session_id,
+            tactic_type=tactic_type,
+            tactic_payload=tactic_payload,
+            source_event_ids=[source_event_id] if source_event_id else [],
+            expires_at=time.time() + TACTIC_TTL_SECONDS,
+            tactic_id=f"session:{session_id}:{tactic_type}",
         )
 
     async def _record_memory_updates(self, *, user_id: str, user_message: str) -> bool:
