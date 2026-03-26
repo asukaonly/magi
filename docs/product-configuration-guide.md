@@ -110,6 +110,8 @@ Expected behavior:
 - save success and validation errors are visible to the user
 - language switching remains available from settings
 - desktop conversation settings can include a default chat workspace directory used when creating new conversations
+- persisted editable values should continue to load through the main configuration document instead of ad-hoc menu-specific payloads
+- read-only registries, templates, and runtime status payloads should stay on dedicated domain endpoints rather than being embedded into the main configuration document
 
 ## Preferences
 
@@ -160,6 +162,8 @@ Current product expectations:
 - model metadata editing applies to built-in models, discovered models, and manually added model IDs through a user override layer
 - provider model workbenches should expose at least display label, icon, capability toggles, hidden/preferred flags, and key numeric limits
 - advanced users can override capability flags, model limits, and provider-specific JSON options for the current model
+- provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved custom providers, manual model IDs, and metadata overrides on the backend
+- custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
 
 At a minimum, the product should support:
 
@@ -173,6 +177,7 @@ At a minimum, the product should support:
 - advanced capability override controls for the currently selected model
 
 The exact provider list may evolve, but the product architecture should keep provider configuration extensible rather than hardcoding one vendor path.
+The frontend may preview unsaved provider edits, but backend-owned catalog resolution remains the source of truth for how manual models and override metadata are interpreted.
 
 ## AI Personality
 
