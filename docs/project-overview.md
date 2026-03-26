@@ -115,7 +115,7 @@ This separates short-lived runtime state from durable user memory while keeping 
 
 Execution observability is now a separate concern from durable memory:
 
-- `L1` keeps canonical memory facts that may participate in recall, cognition, reflection, or procedural learning
+- `L1` keeps canonical memory facts that may participate in recall, cognition, and reflection; execution-scoped action outcomes stay out of `L1`
 - runtime trace spans, tool calls, LLM call metrics, and turn-level execution summaries live in the dedicated runtime trace store
 
 ## Persistence Boundaries

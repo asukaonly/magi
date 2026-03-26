@@ -368,6 +368,7 @@ Two rules matter here:
 
 - high-frequency runtime telemetry should not automatically participate in long-term cognition
 - `L1` is the durable source of truth for long-term memory, while `L0` remains execution-scoped
+- `ActionExecuted` stays execution-scoped and does not enter `L1`, even though its outcome may still update `L4` procedural memory
 
 ## Runtime Trace Flow
 

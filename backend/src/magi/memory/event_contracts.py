@@ -388,12 +388,12 @@ def _classify_event(event: Event) -> Dict[str, Any]:
 
     if event_type == EventTypes.ACTION_EXECUTED:
         return {
-            "memory_domain": MemoryDomain.INTERACTION,
-            "ingest_target": IngestTarget.L1_ONLY,
-            "cognition_eligible": True,
+            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
+            "ingest_target": IngestTarget.L0_ONLY,
+            "cognition_eligible": False,
             "tom_depth": TomDepth.NONE,
-            "retention_class": RetentionClass.COMPRESSIBLE,
-            "importance": 0.55,
+            "retention_class": RetentionClass.DISPOSABLE,
+            "importance": 0.1,
         }
 
     return {

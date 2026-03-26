@@ -212,7 +212,9 @@ class UnifiedMemoryStore:
 
         if l1_written and self.l2_pipeline is not None:
             await self.l2_pipeline.enqueue_event(memory_event)
-        if l1_written and self.l4 is not None:
+        # Keep execution-scoped action outcomes out of L1 while still allowing
+        # procedural memory to learn from them.
+        if self.l4 is not None and (l1_written or memory_event.event_type == EventTypes.ACTION_EXECUTED):
             l4_skill_id = await self.l4.record_memory_event(memory_event)
 
         return {

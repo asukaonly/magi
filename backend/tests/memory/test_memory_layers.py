@@ -208,10 +208,39 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(workbench["session"]["user_id"], "u1")
-        self.assertEqual(l1_count, 3)
+        self.assertEqual(l1_count, 1)
         self.assertEqual(assertions[0]["trait_name"], "stress_level")
         self.assertIsNotNone(summary)
         self.assertEqual(summary["summary_type"], "temporal")
+        self.assertGreaterEqual(len(procedures), 1)
+
+    async def test_action_executed_is_excluded_from_l1_but_still_updates_l4(self):
+        now = time.time()
+
+        await self.store.add_event(
+            {
+                "id": "evt-action-only-1",
+                "type": EventTypes.ACTION_EXECUTED,
+                "timestamp": now,
+                "source": "runtime_action_emitter",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "action_type": "browser.open",
+                    "params": {"url": "https://example.com"},
+                    "success": True,
+                    "execution_time": 0.5,
+                },
+            }
+        )
+
+        l1_events = await self.store.l1.query_events(limit=10)
+        procedures = await _wait_for_async_condition(
+            lambda: self.store.l4.query_strategies(query="browser", limit=5)
+        )
+
+        self.assertEqual(l1_events, [])
         self.assertGreaterEqual(len(procedures), 1)
 
     async def test_generate_summary_respects_l3_llm_toggle(self):
@@ -587,14 +616,13 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         old_timestamp = time.time() - (40 * 86400)
         linked_compressible_event_id = await self.store.add_event(
             Event(
-                type=EventTypes.ACTION_EXECUTED,
+                type=EventTypes.TASK_COMPLETED,
                 data={
                     "user_id": "u1",
                     "session_id": "s1",
-                    "action_type": "browser.open",
-                    "params": {"url": "https://example.com/docs"},
                     "success": True,
-                    "execution_time": 0.5,
+                    "task_id": "task-docs-open",
+                    "content": "Opened the reference docs successfully.",
                 },
                 source="worker",
                 level=EventLevel.INFO,
@@ -614,14 +642,13 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         )
         uncovered_compressible_event_id = await self.store.add_event(
             Event(
-                type=EventTypes.ACTION_EXECUTED,
+                type=EventTypes.TASK_COMPLETED,
                 data={
                     "user_id": "u1",
                     "session_id": "s1",
-                    "action_type": "browser.search",
-                    "params": {"query": "memory retention rules"},
                     "success": True,
-                    "execution_time": 0.3,
+                    "task_id": "task-search-rules",
+                    "content": "Searched for memory retention rules.",
                 },
                 source="worker",
                 level=EventLevel.INFO,
