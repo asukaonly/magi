@@ -10,122 +10,160 @@ from magi.timeline import TimelineContentBlock, TimelineEvent
 
 class _FakeTimelineService:
     def __init__(self):
-        self.created = []
-        self.list_item_calls = []
-        self.items = [
-            {
-                "item_id": "summary:summary-1",
-                "window_key": "open:open",
-                "filter_hash": "all",
-                "item_type": "summary",
-                "time_start": 1709990000.0,
-                "time_end": 1710002000.0,
-                "sort_time": 1710002000.0,
-                "primary_event_id": None,
-                "primary_summary_id": "summary-1",
-                "source_event_ids": ["timeline-1"],
-                "source_summary_ids": ["summary-1"],
-                "display_payload": {
-                    "title": "Day Summary",
-                    "summary": "Wrote about the day",
-                    "summary_type": "temporal",
-                    "summary_category": "day",
-                },
-                "projection_version": 1,
-                "generated_at": 1710002000.0,
-            },
-            {
-                "item_id": "event:timeline-1",
-                "window_key": "open:open",
-                "filter_hash": "all",
-                "item_type": "event",
-                "time_start": 1710000000.0,
-                "time_end": 1710000000.0,
-                "sort_time": 1710000000.0,
-                "primary_event_id": "timeline-1",
-                "primary_summary_id": None,
-                "source_event_ids": ["timeline-1"],
-                "source_summary_ids": [],
-                "display_payload": {
-                    "title": "Evening note",
-                    "summary": "Wrote about the day",
-                    "source_type": "manual_journal",
-                },
-                "projection_version": 1,
-                "generated_at": 1710002000.0,
-            },
-        ]
-        self.events = {
-            "timeline-1": {
-                "event_id": "timeline-1",
-                "source_type": "manual_journal",
-                "source_item_id": "manual-1",
-                "occurred_at": 1710000000.0,
-                "captured_at": 1710000001.0,
-                "title": "Evening note",
-                "summary": "Wrote about the day",
-                "retention_mode": "retain_raw",
-                "raw_payload_ref": "/tmp/day-note.md",
-                "content_blocks": [{"kind": "text", "value": "Today was calm."}],
-                "processing_status": {"stored": True},
-                "provenance": {"sensor_id": "manual_journal"},
-            }
-        }
+        self.viewport_calls = []
+        self.context_calls = []
 
-    async def list_items(self, start=None, end=None, source_type=None, limit=100):
-        self.list_item_calls.append(
+    async def get_viewport(self, *, scale, start, end, query=None, timezone=None, focus="self"):
+        self.viewport_calls.append(
             {
+                "scale": scale,
                 "start": start,
                 "end": end,
-                "source_type": source_type,
-                "limit": limit,
+                "query": query,
+                "timezone": timezone,
+                "focus": focus,
             }
         )
-        return self.items[:limit]
-
-    async def get_event(self, event_id):
-        return self.events.get(event_id)
-
-    async def get_event_detail(self, event_id):
-        event = self.events.get(event_id)
-        if event is None:
-            return None
-        return {
-            **event,
-            "graph_evidence": [
+        payload = {
+            "viewport": {
+                "scale": scale,
+                "start": start,
+                "end": end,
+                "focus": focus,
+                "query": query,
+                "timezone": timezone,
+            },
+            "summary": {
+                "cluster_count": 1 if scale in {"week", "day"} else 0,
+                "event_count": 3,
+                "dominant_modes": ["deep_work"],
+            },
+            "state_bands": [
                 {
-                    "subject_id": "user:self",
-                    "predicate": "LIKES",
-                    "object_id": "topic:day",
-                    "evidence_event_ids": [event_id],
-                    "confidence": 0.8,
+                    "band_id": "band-1",
+                    "time_start": start,
+                    "time_end": end,
+                    "valence": 0.35,
+                    "stress_level": 0.62,
+                    "engagement": 0.78,
+                    "confidence": 0.71,
+                    "label": "Focused with mild stress",
+                    "source_summary_ids": ["summary-1"],
+                    "source_assertion_ids": ["assertion-1"],
                 }
             ],
-        }
-
-    async def create_manual_journal(self, title, summary, text, image_refs):
-        event = TimelineEvent(
-            event_id="timeline-created",
-            source_type="manual_journal",
-            source_item_id="manual-created",
-            occurred_at=1710000100.0,
-            captured_at=1710000100.0,
-            title=title,
-            summary=summary,
-            retention_mode="retain_raw",
-            content_blocks=[
-                TimelineContentBlock(kind="text", value=text),
-                *[TimelineContentBlock(kind="image", value=image_ref) for image_ref in image_refs],
+            "state_markers": [
+                {
+                    "marker_id": "marker-1",
+                    "timestamp": start + 3600,
+                    "kind": "shift",
+                    "label": "Stress rose",
+                    "summary": "Pressure increased around midday.",
+                    "source_band_ids": ["band-1"],
+                    "source_summary_ids": ["summary-1"],
+                }
             ],
-            processing_status={"stored": True},
-            provenance={"sensor_id": "manual_journal"},
-        )
-        self.created.append(event)
-        self.events[event.event_id] = event.to_dict()
-        return event
+            "clusters": [],
+            "reflections": [],
+            "raw_events": [],
+        }
+        if scale == "month":
+            payload["reflections"] = [
+                {
+                    "reflection_id": "reflection-1",
+                    "time_start": start,
+                    "time_end": end,
+                    "title": "Month reflection",
+                    "summary": "A sustained month of focused work and recovery.",
+                    "key_topics": ["work", "recovery"],
+                    "key_entities": ["project:magi"],
+                    "sentiment_summary": {"tone": "steady"},
+                    "change_and_pattern": {"patterns": ["late-night work"]},
+                    "source_summary_ids": ["summary-1"],
+                    "source_event_ids": ["event-1", "event-2"],
+                }
+            ]
+        elif scale in {"week", "day"}:
+            payload["clusters"] = [
+                {
+                    "block_id": "cluster-1",
+                    "time_start": start,
+                    "time_end": min(end, start + 7200),
+                    "duration_seconds": min(end - start, 7200),
+                    "label": "Deep work",
+                    "summary": "A long focused stretch across coding and note-taking.",
+                    "dominant_mode": "deep_work",
+                    "source_types": ["chat", "manual_journal"],
+                    "event_count": 3,
+                    "representative_event_ids": ["event-1", "event-2"],
+                    "keywords": ["coding", "notes"],
+                    "media_refs": [],
+                    "state_snapshot": {
+                        "valence": 0.32,
+                        "stress_level": 0.61,
+                        "engagement": 0.83,
+                    },
+                }
+            ]
+        elif scale == "hour":
+            payload["raw_events"] = [
+                {
+                    "event_id": "event-1",
+                    "timestamp": start + 300,
+                    "title": "Opened design note",
+                    "summary": "Reviewing implementation notes.",
+                    "source_type": "manual_journal",
+                }
+            ]
+        return payload
 
-    async def reanalyze_event(self, event_id):
-        return self.events.get(event_id)
+    async def get_context_bundle(self, anchor_id):
+        self.context_calls.append(anchor_id)
+        return {
+            "anchor": {
+                "anchor_id": anchor_id,
+                "anchor_type": "cluster",
+                "title": "Deep work",
+                "summary": "A long focused stretch across coding and note-taking.",
+            },
+            "l1_events": [
+                {
+                    "event_id": "event-1",
+                    "title": "Opened design note",
+                    "summary": "Reviewing implementation notes.",
+                    "source_type": "manual_journal",
+                }
+            ],
+            "l2_state_evidence": [
+                {
+                    "assertion_id": "assertion-1",
+                    "trait_name": "mood",
+                    "trait_value": "focused",
+                    "confidence_score": 0.74,
+                }
+            ],
+            "l3_reflections": [
+                {
+                    "summary_id": "summary-1",
+                    "summary_category": "day",
+                    "content": "Focus remained high despite rising stress.",
+                }
+            ],
+            "l4_related_procedures": [
+                {
+                    "skill_id": "skill-1",
+                    "skill_name": "Deep work loop",
+                    "success_rate": 0.81,
+                }
+            ],
+            "chat_excerpts": [
+                {
+                    "event_id": "event-2",
+                    "content": "Let's restructure the timeline around semantic zoom.",
+                }
+            ],
+            "runtime_trace": [],
+        }
 
 
 class _FakeSchedulerRepository:
@@ -289,37 +327,67 @@ def _build_client(monkeypatch):
     return TestClient(app), service
 
 
-def test_list_timeline_items_returns_projection_items(monkeypatch):
+def test_get_timeline_viewport_returns_month_reflections(monkeypatch):
     client, service = _build_client(monkeypatch)
 
-    response = client.get("/api/timeline/items", params={"range": "7d", "limit": 10, "source_type": "manual_journal"})
+    response = client.get(
+        "/api/timeline/viewport",
+        params={"scale": "month", "start": 1710000000, "end": 1712592000, "timezone": "Asia/Shanghai"},
+    )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["count"] == 2
-    assert body["items"][0]["item_type"] == "summary"
-    assert body["items"][1]["primary_event_id"] == "timeline-1"
-    assert service.list_item_calls[0]["source_type"] == "manual_journal"
-    assert service.list_item_calls[0]["limit"] == 10
-    assert service.list_item_calls[0]["start"] is not None
+    assert body["viewport"]["scale"] == "month"
+    assert body["reflections"][0]["reflection_id"] == "reflection-1"
+    assert body["state_bands"][0]["band_id"] == "band-1"
+    assert service.viewport_calls[0]["scale"] == "month"
+    assert service.viewport_calls[0]["timezone"] == "Asia/Shanghai"
 
 
-def test_create_manual_entry_returns_created_event(monkeypatch):
+def test_get_timeline_viewport_returns_day_clusters(monkeypatch):
     client, service = _build_client(monkeypatch)
 
-    response = client.post(
-        "/api/timeline/manual",
-        json={
-            "title": "Journal",
-            "summary": "Short summary",
-            "text": "Today felt good.",
-            "image_refs": ["/tmp/photo.png"],
-        },
+    response = client.get(
+        "/api/timeline/viewport",
+        params={"scale": "day", "start": 1710000000, "end": 1710086400, "query": "focused coding"},
     )
 
-    assert response.status_code == 201
-    assert response.json()["event_id"] == "timeline-created"
-    assert len(service.created) == 1
+    assert response.status_code == 200
+    body = response.json()
+    assert body["viewport"]["scale"] == "day"
+    assert body["clusters"][0]["block_id"] == "cluster-1"
+    assert body["clusters"][0]["dominant_mode"] == "deep_work"
+    assert service.viewport_calls[0]["query"] == "focused coding"
+
+
+def test_get_timeline_viewport_returns_hour_raw_events(monkeypatch):
+    client, _ = _build_client(monkeypatch)
+
+    response = client.get(
+        "/api/timeline/viewport",
+        params={"scale": "hour", "start": 1710000000, "end": 1710003600},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["viewport"]["scale"] == "hour"
+    assert body["raw_events"][0]["event_id"] == "event-1"
+    assert body["clusters"] == []
+
+
+def test_get_timeline_context_bundle_returns_cross_layer_sections(monkeypatch):
+    client, service = _build_client(monkeypatch)
+
+    response = client.get("/api/timeline/context/cluster-1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["anchor"]["anchor_id"] == "cluster-1"
+    assert body["l1_events"][0]["event_id"] == "event-1"
+    assert body["l2_state_evidence"][0]["assertion_id"] == "assertion-1"
+    assert body["l3_reflections"][0]["summary_id"] == "summary-1"
+    assert body["l4_related_procedures"][0]["skill_id"] == "skill-1"
+    assert service.context_calls == ["cluster-1"]
 
 
 def test_get_timeline_source_status(monkeypatch):
@@ -441,24 +509,3 @@ def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert response.json()["schedule_id"] == "manual:browser_history"
-
-
-def test_reanalyze_timeline_event_returns_existing_event(monkeypatch):
-    client, _ = _build_client(monkeypatch)
-
-    response = client.post("/api/timeline/events/timeline-1/reanalyze")
-
-    assert response.status_code == 200
-    assert response.json()["queued"] is True
-    assert response.json()["event"]["event_id"] == "timeline-1"
-
-
-def test_get_timeline_event_detail_includes_graph_evidence(monkeypatch):
-    client, _ = _build_client(monkeypatch)
-
-    response = client.get("/api/timeline/events/timeline-1")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["graph_evidence"][0]["predicate"] == "LIKES"
-    assert body["retention"]["mode"] == "retain_raw"

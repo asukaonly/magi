@@ -1,11 +1,9 @@
 """Timeline API router."""
 from __future__ import annotations
 
-import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
 
 from ...config import get_config
 from ...core.runtime_bindings import (
@@ -22,18 +20,10 @@ from ...timeline.scheduler_contrib import (
     build_timeline_schedule_id,
     build_timeline_target_key,
 )
-from ...timeline.retention import RetentionService
 from ...timeline.service import TimelineService
 from ...utils.runtime import get_runtime_paths
 
 timeline_router = APIRouter()
-
-
-class TimelineManualEntryRequest(BaseModel):
-    title: str
-    summary: str
-    text: str
-    image_refs: list[str] = Field(default_factory=list)
 
 
 def get_timeline_service() -> TimelineService:
@@ -45,10 +35,6 @@ def get_timeline_service() -> TimelineService:
             detail="Timeline service unavailable",
         ) from exc
     return TimelineService(unified_memory)
-
-
-def get_retention_service() -> RetentionService:
-    return RetentionService()
 
 
 def _get_nested_value(payload: dict[str, Any], path: str, default: Any) -> Any:
@@ -78,50 +64,33 @@ def _collect_source_setting_defaults(item) -> dict[str, Any]:
     return defaults
 
 
-@timeline_router.get("/items")
-async def list_timeline_items(
-    limit: int = Query(default=80, ge=1, le=200),
-    source_type: Optional[str] = Query(default=None),
-    range: str = Query(default="all", pattern="^(all|7d|30d)$"),
+@timeline_router.get("/viewport")
+async def get_timeline_viewport(
+    scale: str = Query(pattern="^(month|week|day|hour)$"),
+    start: float = Query(...),
+    end: float = Query(...),
+    query: Optional[str] = Query(default=None),
+    timezone: Optional[str] = Query(default=None),
+    focus: str = Query(default="self", pattern="^self$"),
 ):
     service = get_timeline_service()
-    start = None if range == "all" else time.time() - (7 if range == "7d" else 30) * 24 * 60 * 60
-    items = await service.list_items(
+    return await service.get_viewport(
+        scale=scale,
         start=start,
-        end=None,
-        source_type=source_type,
-        limit=limit,
+        end=end,
+        query=query,
+        timezone=timezone,
+        focus=focus,
     )
-    return {
-        "items": items,
-        "count": len(items),
-    }
 
 
-@timeline_router.get("/events/{event_id}")
-async def get_timeline_event(event_id: str):
+@timeline_router.get("/context/{anchor_id}")
+async def get_timeline_context_bundle(anchor_id: str):
     service = get_timeline_service()
-    retention = get_retention_service()
-    detail_loader = getattr(service, "get_event_detail", None)
-    event = await detail_loader(event_id) if callable(detail_loader) else await service.get_event(event_id)
-    if event is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline event not found")
-    return {
-        **event,
-        "retention": retention.describe_event(event),
-    }
-
-
-@timeline_router.post("/manual", status_code=status.HTTP_201_CREATED)
-async def create_manual_entry(request: TimelineManualEntryRequest):
-    service = get_timeline_service()
-    event = await service.create_manual_journal(
-        title=request.title,
-        summary=request.summary,
-        text=request.text,
-        image_refs=request.image_refs,
-    )
-    return event.to_dict()
+    bundle = await service.get_context_bundle(anchor_id)
+    if bundle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline context not found")
+    return bundle
 
 
 @timeline_router.get("/sources/status")
@@ -284,12 +253,3 @@ async def trigger_timeline_source_sync(source_name: str):
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {"queued": True, "source_name": source_name, "schedule_id": schedule.schedule_id}
-
-
-@timeline_router.post("/events/{event_id}/reanalyze")
-async def reanalyze_timeline_event(event_id: str):
-    service = get_timeline_service()
-    event = await service.reanalyze_event(event_id)
-    if event is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline event not found")
-    return {"queued": True, "event_id": event_id, "event": event}

@@ -70,12 +70,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/api/skills/": {"GET"},
     },
     "timeline": {
-        "/items": {"GET"},
-        "/events/{event_id}": {"GET"},
-        "/manual": {"POST"},
+        "/viewport": {"GET"},
+        "/context/{anchor_id}": {"GET"},
         "/sources/status": {"GET"},
         "/sources/{source_name}/sync": {"POST"},
-        "/events/{event_id}/reanalyze": {"POST"},
     },
     "plugins": {
         "": {"GET"},
