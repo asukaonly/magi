@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
+from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
 from .state_band_builder import TimelineStateBandBuilder
 
 
@@ -19,6 +21,7 @@ class TimelineViewportBuilder:
         self._l4 = l4_store
         self._state_band_builder = TimelineStateBandBuilder()
         self._cluster_builder = TimelineClusterBuilder()
+        self._query_interpreter = TimelineQueryInterpreter()
         self._context_bundle_builder = TimelineContextBundleBuilder(
             l1_store=l1_store,
             l2_store=l2_store,
@@ -36,27 +39,35 @@ class TimelineViewportBuilder:
         timezone: str | None = None,
         focus: str = "self",
     ) -> dict[str, Any]:
-        events = await self._load_events(start=start, end=end, query=query)
+        interpreted_query = self._query_interpreter.interpret(query=query, start=start, end=end)
+        events = await self._load_events(start=interpreted_query.start, end=interpreted_query.end)
         summaries = await self._load_summaries()
         assertions = await self._load_assertions()
         snapshots = await self._load_snapshots()
 
+        events = self._filter_events(events, interpreted_query)
+        summaries = self._filter_summaries(summaries, interpreted_query)
+
         state_bands, state_markers = self._state_band_builder.build(
-            start=start,
-            end=end,
+            start=interpreted_query.start,
+            end=interpreted_query.end,
             summaries=summaries,
             assertions=assertions,
             snapshots=snapshots,
         )
-        reflections = self._build_reflections(summaries=summaries, start=start, end=end)
+        reflections = self._build_reflections(
+            summaries=summaries,
+            start=interpreted_query.start,
+            end=interpreted_query.end,
+        )
         clusters = self._cluster_builder.build(events, scale=scale) if scale in {"week", "day"} else []
         raw_events = [self._to_raw_event(event) for event in events] if scale == "hour" else []
 
         return {
             "viewport": {
                 "scale": scale,
-                "start": float(start),
-                "end": float(end),
+                "start": float(interpreted_query.start),
+                "end": float(interpreted_query.end),
                 "focus": focus,
                 "query": query,
                 "timezone": timezone,
@@ -76,10 +87,10 @@ class TimelineViewportBuilder:
     async def build_context_bundle(self, *, anchor: dict[str, Any]) -> dict[str, Any]:
         return await self._context_bundle_builder.build(anchor=anchor)
 
-    async def _load_events(self, *, start: float, end: float, query: str | None) -> list[dict[str, Any]]:
+    async def _load_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
         if self._l1 is None:
             return []
-        return await self._l1.query_events(start_time=start, end_time=end, query=query, limit=500)
+        return await self._l1.query_events(start_time=start, end_time=end, limit=500)
 
     async def _load_summaries(self) -> list[dict[str, Any]]:
         if self._l3 is None:
@@ -135,3 +146,68 @@ class TimelineViewportBuilder:
             "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
         }
 
+    def _filter_events(
+        self,
+        events: list[dict[str, Any]],
+        interpretation: TimelineQueryInterpretation,
+    ) -> list[dict[str, Any]]:
+        if not interpretation.has_filters:
+            return events
+        return [event for event in events if self._matches_text(self._event_search_text(event), interpretation)]
+
+    def _filter_summaries(
+        self,
+        summaries: list[dict[str, Any]],
+        interpretation: TimelineQueryInterpretation,
+    ) -> list[dict[str, Any]]:
+        if not interpretation.has_filters:
+            return summaries
+        return [summary for summary in summaries if self._matches_text(self._summary_search_text(summary), interpretation)]
+
+    def _matches_text(self, text: str, interpretation: TimelineQueryInterpretation) -> bool:
+        haystack = text.lower()
+
+        for hint in interpretation.mood_hints:
+            if not any(alias in haystack for alias in self._query_interpreter.expand_hint(hint)):
+                return False
+
+        for hint in interpretation.activity_hints:
+            if not any(alias in haystack for alias in self._query_interpreter.expand_hint(hint)):
+                return False
+
+        for term in interpretation.residual_terms:
+            if term not in haystack:
+                return False
+
+        return True
+
+    @staticmethod
+    def _event_search_text(event: dict[str, Any]) -> str:
+        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+        parts: list[str] = [
+            str(event.get("source") or ""),
+            str(event.get("content") or ""),
+            str(timeline.get("title") or ""),
+            str(timeline.get("summary") or ""),
+            " ".join(str(tag) for tag in timeline.get("tags", []) if str(tag).strip()),
+        ]
+        for entity in timeline.get("entities", []):
+            if isinstance(entity, dict):
+                parts.extend([str(entity.get("label") or ""), str(entity.get("id") or "")])
+        return " ".join(part for part in parts if part).lower()
+
+    @staticmethod
+    def _summary_search_text(summary: dict[str, Any]) -> str:
+        parts: list[str] = [
+            str(summary.get("content") or ""),
+            " ".join(str(topic) for topic in summary.get("key_topics", []) if str(topic).strip()),
+            json.dumps(summary.get("sentiment_summary") or {}, ensure_ascii=False),
+            json.dumps(summary.get("change_and_pattern") or {}, ensure_ascii=False),
+        ]
+        for entity in summary.get("key_entities", []):
+            if isinstance(entity, dict):
+                parts.extend([str(entity.get("entity_id") or ""), str(entity.get("label") or "")])
+            else:
+                parts.append(str(entity))
+        return " ".join(part for part in parts if part).lower()

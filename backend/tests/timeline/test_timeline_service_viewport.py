@@ -6,23 +6,48 @@ from magi.timeline.service import TimelineService
 
 
 class _FakeL1Store:
+    def __init__(self) -> None:
+        self.last_query: dict | None = None
+
     async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
-        return [
+        self.last_query = kwargs
+        events = [
             {
                 "event_id": "evt-1",
-                "timestamp": 100.0,
+                "timestamp": 950_000.0,
+                "source": "browser_history",
+                "content": "Spent the night reading game guides while feeling low.",
+                "metadata": {
+                    "timeline": {
+                        "title": "Game session",
+                        "summary": "Played through a difficult section while feeling low.",
+                        "tags": ["game", "recovery"],
+                        "entities": [{"label": "game"}],
+                    }
+                },
+            },
+            {
+                "event_id": "evt-2",
+                "timestamp": 1_000_000.0,
                 "source": "chat",
                 "content": "Discussed the redesign.",
                 "metadata": {
                     "timeline": {
                         "title": "Chat planning",
                         "summary": "Discussed semantic zoom.",
-                        "tags": ["timeline"],
+                        "tags": ["coding", "timeline"],
                         "entities": [{"label": "timeline"}],
                     }
                 },
             }
         ]
+        start_time = kwargs.get("start_time")
+        end_time = kwargs.get("end_time")
+        if start_time is not None:
+            events = [event for event in events if float(event["timestamp"]) >= float(start_time)]
+        if end_time is not None:
+            events = [event for event in events if float(event["timestamp"]) <= float(end_time)]
+        return events
 
     async def get_event(self, event_id: str):  # type: ignore[no-untyped-def]
         return {
@@ -51,14 +76,28 @@ class _FakeL3Store:
                 "summary_id": "summary-1",
                 "summary_type": "temporal",
                 "summary_category": "day",
-                "period_start": 90.0,
-                "period_end": 140.0,
-                "content": "A focused day.",
-                "key_topics": ["timeline"],
+                "period_start": 949_000.0,
+                "period_end": 951_000.0,
+                "content": "A low evening centered on games.",
+                "key_topics": ["game", "recovery"],
+                "key_entities": [{"entity_id": "activity:game"}],
+                "sentiment_summary": {"tone": "low"},
+                "change_and_pattern": {"patterns": ["late-night gaming"]},
+                "source_event_ids": ["evt-1"],
+                "source_event_count": 1,
+            },
+            {
+                "summary_id": "summary-2",
+                "summary_type": "temporal",
+                "summary_category": "day",
+                "period_start": 99_900.0,
+                "period_end": 100_100.0,
+                "content": "A focused planning day.",
+                "key_topics": ["timeline", "coding"],
                 "key_entities": [{"entity_id": "project:magi"}],
                 "sentiment_summary": {"tone": "steady"},
                 "change_and_pattern": {"patterns": ["planning"]},
-                "source_event_ids": ["evt-1"],
+                "source_event_ids": ["evt-2"],
                 "source_event_count": 1,
             }
         ]
@@ -70,18 +109,43 @@ class _FakeL4Store:
 
 
 async def test_timeline_service_returns_month_viewport() -> None:
+    l1_store = _FakeL1Store()
     service = TimelineService(
         SimpleNamespace(
-            l1=_FakeL1Store(),
+            l1=l1_store,
             l2=_FakeL2Store(),
             l3=_FakeL3Store(),
             l4=_FakeL4Store(),
         )
     )
 
-    viewport = await service.get_viewport(scale="month", start=80.0, end=180.0, focus="self")
+    viewport = await service.get_viewport(scale="month", start=940_000.0, end=960_000.0, focus="self")
 
     assert viewport["viewport"]["scale"] == "month"
-    assert viewport["reflections"][0]["summary"] == "A focused day."
+    assert viewport["reflections"][0]["summary"] == "A low evening centered on games."
     assert viewport["state_bands"][0]["source_summary_ids"] == ["summary-1"]
 
+
+async def test_timeline_service_interprets_natural_language_query() -> None:
+    l1_store = _FakeL1Store()
+    service = TimelineService(
+        SimpleNamespace(
+            l1=l1_store,
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+        )
+    )
+
+    viewport = await service.get_viewport(
+        scale="day",
+        start=0.0,
+        end=14 * 24 * 60 * 60.0,
+        query="上周 低落 游戏",
+        focus="self",
+    )
+
+    assert l1_store.last_query is not None
+    assert l1_store.last_query["start_time"] == (14 - 7) * 24 * 60 * 60.0
+    assert viewport["summary"]["event_count"] == 1
+    assert viewport["clusters"][0]["label"] == "Game"
