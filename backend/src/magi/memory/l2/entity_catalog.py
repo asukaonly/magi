@@ -291,9 +291,16 @@ class L2EntityCatalog:
             "confidence": float(row["confidence"]) if row["confidence"] is not None else None,
         }
 
-    async def list_entities(self, *, limit: int = 100) -> list[dict[str, Any]]:
+    async def list_entities(
+        self,
+        *,
+        limit: int = 100,
+        entity_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         await self.initialize()
-        return await self._list_entities(limit=limit)
+        if entity_ids is not None and not entity_ids:
+            return []
+        return await self._list_entities(limit=limit, entity_ids=entity_ids)
 
     async def list_mentions(self, *, limit: int = 100) -> list[dict[str, Any]]:
         await self.initialize()

@@ -122,6 +122,7 @@ class L2Pipeline:
         entity_catalog: Optional[L2EntityCatalog] = None,
         llm_service: Optional[L2LLMService] = None,
         state_change_callback: Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]] | None = None,
+        active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]] | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
         enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
         conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
@@ -135,6 +136,7 @@ class L2Pipeline:
         self._entity_catalog = entity_catalog
         self._llm_service = llm_service
         self._state_change_callback = state_change_callback
+        self._active_entity_callback = active_entity_callback
         self._batch_flush_interval_seconds = max(0, int(batch_flush_interval_seconds))
         self._enable_conflict_arbitration = bool(enable_conflict_arbitration)
         self._conflict_arbitration_min_confidence = max(0.0, min(1.0, float(conflict_arbitration_min_confidence)))
@@ -549,6 +551,32 @@ class L2Pipeline:
                 outcome_count=len(outcomes),
             )
 
+    async def _emit_active_entities(
+        self,
+        *,
+        event: MemoryEvent,
+        focal_entities: list[L2FocalEntityRef],
+    ) -> None:
+        if self._active_entity_callback is None or not focal_entities:
+            return
+        self_entity_id = self._resolve_self_entity_id(event)
+        filtered_entities = [
+            entity
+            for entity in focal_entities
+            if entity.entity_id and entity.entity_id != self_entity_id
+        ]
+        if not filtered_entities:
+            return
+        try:
+            await self._active_entity_callback(event, filtered_entities)
+        except Exception:
+            logger.exception(
+                "L2 active entity callback failed",
+                event_id=event.event_id,
+                session_id=event.session_id,
+                entity_ids=[entity.entity_id for entity in filtered_entities],
+            )
+
     async def _run_snapshot_worker(self) -> None:
         while True:
             entity_ids = await self._snapshot_queue.get()
@@ -759,8 +787,9 @@ class L2Pipeline:
         # ── Load existing graph context for Phase 2 ──
         existing_graph_edges: list[dict[str, Any]] = []
         existing_assertions: list[dict[str, Any]] = []
+        focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
+        await self._emit_active_entities(event=stored_event, focal_entities=focal_entities)
         if self._cognition_store is not None:
-            focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
             existing_graph_edges, existing_assertions = await self._load_existing_graph_context(focal_entities)
 
         # ── Phase 2: Integrate & Reason ──

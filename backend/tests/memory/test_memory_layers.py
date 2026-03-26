@@ -60,6 +60,59 @@ _STRESS_PHASE2 = json.dumps({
     "contradiction_hints": [],
 })
 
+_PLACE_PHASE1 = json.dumps({
+    "entities": [
+        {
+            "surface": "魔都",
+            "normalized_name": "上海",
+            "entity_type": "place",
+            "specificity": "concrete",
+            "resolved_id": "place:shanghai",
+            "is_new": False,
+            "alias_signals": ["魔都"],
+            "confidence": 0.96,
+        }
+    ],
+    "fact_claims": [
+        {
+            "subject_ref": "user:self",
+            "predicate": "LIKES",
+            "object_ref": "魔都",
+            "object_type": "place",
+            "fact_kind": "stable_preference",
+            "polarity": "positive",
+            "specificity": "concrete",
+            "evidence_text": "我好喜欢魔都",
+            "confidence": 0.96,
+            "supporting_event_ids": ["evt-place-1"],
+        }
+    ],
+    "resolved_refs": [],
+    "diagnostics": {"entity_status": "found"},
+})
+
+_PLACE_PHASE2 = json.dumps({
+    "graph_edges": [
+        {
+            "subject_ref": "user:u1",
+            "subject_type": "user",
+            "predicate": "LIKES",
+            "object_ref": "place:shanghai",
+            "object_type": "place",
+            "fact_kind": "stable_preference",
+            "polarity": "positive",
+            "confidence": 0.96,
+            "evidence_text": "我好喜欢魔都",
+            "supporting_event_ids": ["evt-place-1"],
+            "relationship_to_existing": "new",
+            "related_existing_triple_id": None,
+        }
+    ],
+    "refinements": [],
+    "assertion_candidates": [],
+    "contradiction_hints": [],
+})
+
 
 class _FakeAdapter:
     """Adapter that returns appropriate Phase 1 / Phase 2 responses based on system prompt."""
@@ -143,6 +196,10 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    async def _get_l0_active_entities(self, store: UnifiedMemoryStore, session_id: str):
+        workbench = await store.l0.get_workbench(session_id)
+        return workbench["active_entities"]
 
     async def test_l0_l4_pipeline(self):
         now = time.time()
@@ -242,6 +299,57 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(l1_events, [])
         self.assertGreaterEqual(len(procedures), 1)
+
+    async def test_l2_resolved_entities_are_projected_into_l0_active_entities(self):
+        local_store = UnifiedMemoryStore(
+            l1_db_path=str(self.base / "entity_l1_events.db"),
+            memory_db_path=str(self.base / "entity_memory.db"),
+            persist_dir=str(self.base / "entity_memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(_PLACE_PHASE1, _PLACE_PHASE2)),
+        )
+        await local_store.initialize()
+
+        try:
+            assert local_store.l2_entity_catalog is not None
+            await local_store.l2_entity_catalog.upsert_entity(
+                entity_id="place:shanghai",
+                canonical_name="Shanghai",
+                entity_type="place",
+            )
+            await local_store.l2_entity_catalog.add_alias(
+                entity_id="place:shanghai",
+                alias_text="魔都",
+                confidence=0.98,
+            )
+
+            await local_store.add_event(
+                {
+                    "id": "evt-place-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "我好喜欢魔都",
+                    },
+                }
+            )
+
+            active_entities = await _wait_for_async_condition(
+                lambda: self._get_l0_active_entities(local_store, "s1")
+            )
+
+            self.assertEqual(len(active_entities), 1)
+            self.assertEqual(active_entities[0]["entity_id"], "place:shanghai")
+            self.assertEqual(active_entities[0]["entity_type"], "place")
+            self.assertEqual(active_entities[0]["snapshot"]["canonical_name"], "上海")
+            self.assertEqual(active_entities[0]["snapshot"]["name"], "上海")
+            self.assertIn("魔都", active_entities[0]["snapshot"]["aliases"])
+        finally:
+            await local_store.shutdown()
 
     async def test_generate_summary_respects_l3_llm_toggle(self):
         local_store = UnifiedMemoryStore(

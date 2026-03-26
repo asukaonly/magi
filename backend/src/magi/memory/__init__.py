@@ -17,7 +17,7 @@ from .l1.event_store import L1EventStore
 from .l2.store import L2CognitionStore
 from .l2.entity_catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
-from .l2.models import ManualL2EventRequest, ReconciledTraitOutcome
+from .l2.models import L2FocalEntityRef, ManualL2EventRequest, ReconciledTraitOutcome
 from .l2.pipeline import L2Pipeline
 from .l3.contradiction_service import ContradictionInsightService
 from .l3.models import ContradictionPacket, L3Candidate, StateChangePacket, TaskOutcomePacket, TrendShiftPacket
@@ -133,6 +133,7 @@ class UnifiedMemoryStore:
                 entity_catalog=self.l2_entity_catalog,
                 llm_service=self.l2_llm_service,
                 state_change_callback=self._handle_l2_state_change_outcomes,
+                active_entity_callback=self._handle_l2_active_entities,
                 batch_flush_interval_seconds=l2_batch_flush_interval_seconds,
                 enable_conflict_arbitration=enable_l2_conflict_arbitration,
                 conflict_arbitration_min_confidence=l2_conflict_arbitration_min_confidence,
@@ -444,6 +445,42 @@ class UnifiedMemoryStore:
                 outcomes=outcomes,
             )
         )
+
+    async def _handle_l2_active_entities(
+        self,
+        event: MemoryEvent,
+        focal_entities: list[L2FocalEntityRef],
+    ) -> None:
+        if self.l0 is None or self.l2_entity_catalog is None or not event.session_id or not focal_entities:
+            return
+
+        entity_ids: list[str] = []
+        for entity in focal_entities:
+            entity_id = str(entity.entity_id).strip()
+            if not entity_id or entity_id in entity_ids:
+                continue
+            entity_ids.append(entity_id)
+        if not entity_ids:
+            return
+
+        catalog_rows = await self.l2_entity_catalog.list_entities(limit=len(entity_ids), entity_ids=entity_ids)
+        catalog_by_id = {str(row["entity_id"]): row for row in catalog_rows}
+        for entity in focal_entities:
+            catalog_entity = catalog_by_id.get(str(entity.entity_id))
+            if catalog_entity is None:
+                continue
+            canonical_name = str(catalog_entity.get("canonical_name") or "").strip()
+            await self.l0.upsert_active_entity(
+                session_id=event.session_id,
+                entity_id=str(catalog_entity["entity_id"]),
+                entity_type=str(catalog_entity["entity_type"]),
+                snapshot={
+                    "canonical_name": canonical_name,
+                    "name": canonical_name,
+                    "aliases": list(catalog_entity.get("aliases") or []),
+                },
+                relevance_score=1.0,
+            )
 
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""
