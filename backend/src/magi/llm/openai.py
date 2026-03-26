@@ -59,11 +59,11 @@ class OpenAIAdapter(LLMAdapter):
         self._embedding_model = model
 
     def _apply_glm_thinking_control(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Apply GLM-specific thinking toggle using OpenAI-compatible extra_body.
+        """Strip ``disable_thinking`` from kwargs and, for GLM, inject extra_body toggle.
 
-        GLM models support disabling deep thinking by sending:
-        {"thinking": {"type": "disabled"}} in extra_body.
+        .. deprecated::
+            Thinking depth is now managed by ``LLMProviderBridge._apply_provider_options``.
+            This method remains only for direct adapter calls that bypass the bridge.
         """
         payload = dict(kwargs)
         disable_thinking = payload.pop("disable_thinking", None)

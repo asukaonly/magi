@@ -155,6 +155,61 @@ class LLMProviderBridge:
         }
         return {"reasoning_effort": mapping.get(depth, "medium")}
 
+    @staticmethod
+    def _build_anthropic_thinking_params(depth: ThinkingDepth) -> Dict[str, Any] | None:
+        """Map ThinkingDepth to Anthropic extended thinking budget."""
+        budget_map = {
+            ThinkingDepth.NONE: None,
+            ThinkingDepth.LOW: 2048,
+            ThinkingDepth.MEDIUM: 8192,
+            ThinkingDepth.HIGH: 16384,
+            ThinkingDepth.MAX: 32768,
+        }
+        tokens = budget_map.get(depth)
+        if tokens is None:
+            return None
+        return {"thinking": {"type": "enabled", "budget_tokens": tokens}}
+
+    def _model_supports_reasoning(self) -> bool:
+        """Check if the current model advertises reasoning capability."""
+        model_meta = find_chat_model_meta(
+            _load_provider_registry(),
+            self._provider_name(),
+            str(getattr(self.llm, "model_name", "unknown")),
+        )
+        if model_meta is not None:
+            return model_meta.capabilities.reasoning
+        return False
+
+    def _apply_provider_options(
+        self,
+        kwargs: Dict[str, Any],
+        thinking_depth: ThinkingDepth,
+    ) -> Dict[str, Any]:
+        """Inject provider-specific parameters into LLM request kwargs.
+
+        Single entry point for all provider-specific customization.
+        Called once per LLM request, after base kwargs are assembled
+        and before the API call is made.
+        """
+        provider = self._provider_name()
+
+        if provider == "glm":
+            extra_body = self._build_glm_thinking_params(thinking_depth)
+            if extra_body:
+                existing = kwargs.get("extra_body", {})
+                kwargs["extra_body"] = {**existing, **extra_body}
+
+        elif self.is_anthropic():
+            budget = self._build_anthropic_thinking_params(thinking_depth)
+            if budget:
+                kwargs.update(budget)
+
+        elif self._model_supports_reasoning():
+            kwargs.update(self._build_openai_reasoning_params(thinking_depth))
+
+        return kwargs
+
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)
         return LLMConcurrencyLimiter.build_key(
@@ -369,6 +424,7 @@ class LLMProviderBridge:
             }
             if timeout_seconds is not None:
                 anthropic_kwargs["timeout"] = timeout_seconds
+            anthropic_kwargs = self._apply_provider_options(anthropic_kwargs, thinking_depth)
             response = await self.llm._client.messages.create(**anthropic_kwargs)
             if hasattr(response, "content"):
                 return self._parse_anthropic_response(response)
@@ -384,10 +440,7 @@ class LLMProviderBridge:
             chat_kwargs["response_format"] = {"type": "json_object"}
         if timeout_seconds is not None:
             chat_kwargs["timeout"] = timeout_seconds
-        if self.is_glm():
-            extra_body = self._build_glm_thinking_params(thinking_depth)
-            if extra_body:
-                chat_kwargs["extra_body"] = extra_body
+        chat_kwargs = self._apply_provider_options(chat_kwargs, thinking_depth)
 
         if getattr(self.llm, "_client", None) is not None:
             chat_kwargs["model"] = self.llm.model_name
@@ -410,15 +463,17 @@ class LLMProviderBridge:
     ) -> ProviderResponse:
         if self.is_anthropic():
             api_messages = self._convert_messages_to_anthropic(messages)
-            response = await self.llm._client.messages.create(
-                model=self.llm.model_name,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system_prompt,
-                messages=api_messages,
-                tools=tools if tools else None,
-                timeout=timeout_seconds,
-            )
+            anthropic_kwargs: Dict[str, Any] = {
+                "model": self.llm.model_name,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_prompt,
+                "messages": api_messages,
+                "tools": tools if tools else None,
+                "timeout": timeout_seconds,
+            }
+            anthropic_kwargs = self._apply_provider_options(anthropic_kwargs, thinking_depth)
+            response = await self.llm._client.messages.create(**anthropic_kwargs)
             return self._parse_anthropic_response(response)
 
         full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
@@ -432,10 +487,7 @@ class LLMProviderBridge:
         }
         if timeout_seconds is not None:
             kwargs["timeout"] = timeout_seconds
-        if self.is_glm():
-            extra_body = self._build_glm_thinking_params(thinking_depth)
-            if extra_body:
-                kwargs["extra_body"] = extra_body
+        kwargs = self._apply_provider_options(kwargs, thinking_depth)
 
         response = await self.llm._client.chat.completions.create(**kwargs)
         return self._parse_openai_response(response)
