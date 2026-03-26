@@ -1,17 +1,11 @@
-"""Timeline service facade over memory-backed timeline projections."""
+"""Timeline service facade over memory-backed viewport and context bundles."""
 from __future__ import annotations
 
-import time
-import uuid
 from typing import Optional
 
 from ..events.events import Event, EventLevel
-from .contracts import TimelineContentBlock, TimelineEvent
-from .context_bundle_builder import TimelineContextBundleBuilder
+from .contracts import TimelineEvent
 from .insight_pipeline import TimelineInsightPipeline
-from .projection_builder import TimelineProjectionBuilder
-from .projection_models import TimelineProjectionItem, TimelineProjectionQuery
-from .projection_store import TimelineProjectionStore
 from .viewport_builder import TimelineViewportBuilder
 
 
@@ -21,17 +15,12 @@ class TimelineService:
     def __init__(self, unified_memory) -> None:
         self._unified_memory = unified_memory
         self._insight_pipeline = TimelineInsightPipeline(unified_memory)
-        self._projection_builder = TimelineProjectionBuilder(
-            l1_store=getattr(unified_memory, "l1", None),
-            l3_store=getattr(unified_memory, "l3", None),
-        )
         self._viewport_builder = TimelineViewportBuilder(
             l1_store=getattr(unified_memory, "l1", None),
             l2_store=getattr(unified_memory, "l2", None),
             l3_store=getattr(unified_memory, "l3", None),
             l4_store=getattr(unified_memory, "l4", None),
         )
-        self._projection_store: TimelineProjectionStore | None = None
 
     async def upsert_event(
         self,
@@ -62,29 +51,7 @@ class TimelineService:
             )
             event.processing_status["analyzed"] = True
             event.processing_status["persisted_relations"] = len(persisted)
-        await self._invalidate_projection_cache()
         return event.event_id
-
-    async def get_event(self, event_id: str) -> Optional[dict]:
-        if self._unified_memory.l1 is None:
-            return None
-        event = await self._unified_memory.l1.get_event(event_id)
-        if event is None:
-            return None
-        return self._event_to_timeline_payload(event)
-
-    async def get_event_detail(self, event_id: str) -> Optional[dict]:
-        event = await self.get_event(event_id)
-        if event is None:
-            return None
-        graph_evidence = [
-            edge
-            for edge in await self._unified_memory.l2.find_edges_by_event_id(event_id)
-        ] if getattr(self._unified_memory, "l2", None) is not None else []
-        return {
-            **event,
-            "graph_evidence": graph_evidence,
-        }
 
     async def get_viewport(
         self,
@@ -110,11 +77,12 @@ class TimelineService:
             return None
         event = await self._unified_memory.l1.get_event(anchor_id)
         if event is not None:
+            payload = self._event_to_timeline_payload(event)
             anchor = {
                 "anchor_id": anchor_id,
                 "anchor_type": "event",
-                "title": self._event_to_timeline_payload(event)["title"],
-                "summary": self._event_to_timeline_payload(event)["summary"],
+                "title": payload["title"],
+                "summary": payload["summary"],
                 "representative_event_ids": [anchor_id],
             }
             return await self._viewport_builder.build_context_bundle(anchor=anchor)
@@ -127,93 +95,6 @@ class TimelineService:
             "representative_event_ids": [],
         }
         return await self._viewport_builder.build_context_bundle(anchor=anchor)
-
-    async def list_items(
-        self,
-        *,
-        start: float | None = None,
-        end: float | None = None,
-        source_type: Optional[str] = None,
-        limit: int = 100,
-    ) -> list[dict]:
-        query = TimelineProjectionQuery(
-            start=start,
-            end=end,
-            source_type=source_type,
-            limit=limit,
-        )
-        store = self._get_projection_store()
-        cached = await store.load_items(
-            window_key=query.window_key,
-            filter_hash=query.filter_hash,
-            projection_version=query.projection_version,
-            limit=query.limit,
-        )
-        if cached:
-            return [item.to_dict() for item in cached]
-
-        items = await self._projection_builder.build(query)
-        await store.save_items(
-            window_key=query.window_key,
-            filter_hash=query.filter_hash,
-            projection_version=query.projection_version,
-            items=items,
-        )
-        return [item.to_dict() for item in items]
-
-    async def create_manual_journal(
-        self,
-        *,
-        title: str,
-        summary: str,
-        text: str,
-        image_refs: Optional[list[str]] = None,
-    ) -> TimelineEvent:
-        now = time.time()
-        event = TimelineEvent(
-            event_id=f"timeline_{uuid.uuid4()}",
-            source_type="manual_journal",
-            source_item_id=f"manual_{uuid.uuid4()}",
-            occurred_at=now,
-            captured_at=now,
-            title=title,
-            summary=summary,
-            retention_mode="retain_raw",
-            content_blocks=[
-                TimelineContentBlock(kind="text", value=text),
-                *[
-                    TimelineContentBlock(kind="image", value=image_ref)
-                    for image_ref in (image_refs or [])
-                ],
-            ],
-            processing_status={"stored": True, "analyzed": False},
-            provenance={"source": "manual_journal"},
-        )
-        await self.upsert_event(event)
-        return event
-
-    async def reanalyze_event(self, event_id: str) -> Optional[dict]:
-        return await self.get_event_detail(event_id)
-
-    def _resolve_projection_db_path(self) -> str:
-        if getattr(self._unified_memory, "l3", None) is not None:
-            return str(self._unified_memory.l3.db_path)
-        if getattr(self._unified_memory, "l0", None) is not None:
-            return str(self._unified_memory.l0.checkpoint_db_path)
-        if getattr(self._unified_memory, "l1", None) is not None and getattr(self._unified_memory.l1, "db_path", None):
-            return str(self._unified_memory.l1.db_path)
-        raise RuntimeError("Timeline projection storage is unavailable")
-
-    async def _invalidate_projection_cache(self) -> None:
-        if self._projection_store is None:
-            return
-        await self._projection_store.initialize()
-        await self._projection_store.clear()
-
-    def _get_projection_store(self) -> TimelineProjectionStore:
-        if self._projection_store is None:
-            self._projection_store = TimelineProjectionStore(db_path=self._resolve_projection_db_path())
-        return self._projection_store
 
     @staticmethod
     def _build_timeline_runtime_event(event: TimelineEvent) -> Event:

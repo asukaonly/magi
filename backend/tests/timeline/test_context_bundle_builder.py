@@ -21,11 +21,32 @@ class _FakeL2Store:
         return [
             {
                 "assertion_id": "assertion-1",
-                "entity_id": "user:self",
+                "entity_id": "user:u1",
                 "trait_name": "mood",
                 "trait_value": "focused",
                 "confidence_score": 0.8,
                 "evidence_events": ["evt-1"],
+            },
+            {
+                "assertion_id": "assertion-2",
+                "entity_id": "user:other",
+                "trait_name": "mood",
+                "trait_value": "distracted",
+                "confidence_score": 0.2,
+                "evidence_events": ["evt-9"],
+            }
+        ]
+
+    async def find_edges_by_event_id(self, event_id: str):  # type: ignore[no-untyped-def]
+        if event_id != "evt-1":
+            return []
+        return [
+            {
+                "triple_id": "edge-1",
+                "subject_id": "user:u1",
+                "predicate": "LIKES",
+                "object_id": "person:asuka",
+                "evidence_event_ids": ["evt-1"],
             }
         ]
 
@@ -74,6 +95,6 @@ async def test_context_bundle_builder_collects_cross_layer_evidence() -> None:
     assert bundle["anchor"]["anchor_id"] == "cluster:0"
     assert bundle["l1_events"][0]["event_id"] == "evt-1"
     assert bundle["l2_state_evidence"][0]["assertion_id"] == "assertion-1"
+    assert bundle["l2_state_evidence"][1]["triple_id"] == "edge-1"
     assert bundle["l3_reflections"][0]["summary_id"] == "summary-1"
     assert bundle["l4_related_procedures"][0]["skill_id"] == "skill-1"
-

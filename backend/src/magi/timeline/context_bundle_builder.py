@@ -25,13 +25,17 @@ class TimelineContextBundleBuilder:
                     l1_events.append(self._to_event_preview(event))
 
         l2_state_evidence: list[dict[str, Any]] = []
-        if self._l2 is not None and hasattr(self._l2, "list_tom_assertions"):
-            assertions = await self._l2.list_tom_assertions(entity_id="user:self", limit=50)
-            l2_state_evidence = [
-                assertion
-                for assertion in assertions
-                if set(assertion.get("evidence_events") or []) & set(event_ids)
-            ]
+        if self._l2 is not None:
+            if hasattr(self._l2, "list_tom_assertions"):
+                assertions = await self._l2.list_tom_assertions(limit=200)
+                l2_state_evidence.extend(
+                    assertion
+                    for assertion in assertions
+                    if set(assertion.get("evidence_events") or []) & set(event_ids)
+                )
+            if hasattr(self._l2, "find_edges_by_event_id"):
+                for event_id in event_ids:
+                    l2_state_evidence.extend(await self._l2.find_edges_by_event_id(str(event_id)))
 
         l3_reflections: list[dict[str, Any]] = []
         if self._l3 is not None and hasattr(self._l3, "list_summaries"):
@@ -73,4 +77,3 @@ class TimelineContextBundleBuilder:
             "summary": str(timeline.get("summary") or event.get("content") or ""),
             "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
         }
-

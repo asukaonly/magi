@@ -218,6 +218,7 @@ Responsibilities:
 
 - timeline ingestion
 - timeline queries
+- scale-aware viewport and context-bundle read models
 - timeline normalization and insight extraction
 - scheduled source sync policy
 

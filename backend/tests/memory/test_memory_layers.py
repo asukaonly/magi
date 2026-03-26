@@ -557,13 +557,15 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
         fetched = await self.store.l1.get_timeline_event("timeline-1")
         listed = await self.store.l1.list_timeline_events(limit=10, source_type="manual_journal")
-        detail = await service.get_event_detail("timeline-1")
+        context = await service.get_context_bundle("timeline-1")
 
         self.assertEqual(stored_id, "timeline-1")
         self.assertIsNotNone(fetched)
         self.assertEqual(fetched["summary"], "Wrote about the day")
         self.assertEqual(listed[0]["title"], "Wrote about the day")
-        self.assertEqual(detail["graph_evidence"][0]["predicate"], "LIKES")
+        self.assertEqual(context["anchor"]["anchor_type"], "event")
+        self.assertTrue(context["l2_state_evidence"])
+        self.assertIn("timeline-1", context["l2_state_evidence"][0].get("evidence_events", []))
 
     async def test_persist_l3_candidate_writes_validated_task_reflection(self):
         now = time.time()

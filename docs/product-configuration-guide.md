@@ -317,6 +317,19 @@ Expected product behavior:
 - watch mode may be offered as a source capability, but a source without native watch support may fall back to interval semantics
 - timeline source status may expose scheduler-backed state such as last sync, next run, and last error
 
+## Timeline Review Surface
+
+The main timeline page is a semantic-zoom review surface for the user's own activity and state patterns.
+
+Expected product behavior:
+
+- the primary timeline experience should support `month`, `week`, `day`, and `hour` scales without compatibility views for the older feed-style layout
+- `month` should emphasize reflection windows and self-state patterns derived from L2/L3 memory
+- `week` and `day` should emphasize clustered periods instead of raw one-line logs
+- `hour` should reveal raw evidence and fine-grained events
+- selecting a timeline anchor should open a context drawer backed by a cross-layer context bundle rather than a page-specific event detail contract
+- the product may add more source types over time, but the timeline surface should stay source-agnostic at the page-structure level
+
 ## Action Management
 
 Magi now exposes outbound actions as a distinct product surface.
