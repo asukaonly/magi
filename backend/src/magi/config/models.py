@@ -303,6 +303,13 @@ class MemorySettings(BaseModel):
     l3: MemoryL3Settings = Field(default_factory=MemoryL3Settings)
     l4: MemoryL4Settings = Field(default_factory=MemoryL4Settings)
 
+    @model_validator(mode="after")
+    def enforce_fixed_vector_runtime(self) -> "MemorySettings":
+        """Keep vector processing on the fixed async sqlite runtime path."""
+        self.async_embeddings = True
+        self.embedding.backend = EmbeddingBackend.SQLITE_VEC
+        return self
+
 
 class PersonalitySettings(BaseModel):
     """Personality configuration."""

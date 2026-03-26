@@ -808,14 +808,28 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
   });
 
-  it('saves split memory settings across general and knowledge sections', async () => {
+  it('saves memory storage path from the general memory section alongside knowledge settings', async () => {
     const user = userEvent.setup();
+    pickDirectoryMock.mockResolvedValue('/Users/asuka/.magi/data/custom-memories');
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.async_embeddings.label' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' }));
+
+    await waitFor(() =>
+      expect(pickDirectoryMock).toHaveBeenCalledWith('~/.magi/data/memories')
+    );
+    expect(
+      screen.getByDisplayValue('/Users/asuka/.magi/data/custom-memories')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: 'settings.memory.fields.async_embeddings.label' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'settings.memory.fields.embedding_backend.label' })
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryKnowledge' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryKnowledge' });
@@ -833,7 +847,7 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           memory: expect.objectContaining({
-            async_embeddings: false,
+            db_path: '/Users/asuka/.magi/data/custom-memories',
             l2: expect.objectContaining({
               batch_flush_interval_seconds: 90,
               conflict_arbitration_enabled: false,

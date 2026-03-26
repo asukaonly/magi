@@ -514,9 +514,9 @@
       },
       "sections": {
         "general": {
-          "description": "管理跨层生效的记忆运行方式，包括向量化调度、嵌入后端以及当前向量模型依赖。",
-          "pipelineTitle": "通用记忆管线",
-          "pipelineDescription": "这些设置会影响所有启用了向量化或异步处理的记忆层。",
+          "description": "管理记忆数据的本地存储位置，并查看当前依赖的向量模型。",
+          "pipelineTitle": "记忆数据目录",
+          "pipelineDescription": "这里管理记忆数据库与向量索引的落盘目录。",
           "embeddingModelTitle": "当前向量模型",
           "embeddingModelDescription": "L1 与 L3 的语义检索能力都会依赖这里配置的向量模型。",
           "embeddingModelEmpty": "当前还没有选择向量模型。请先到“大模型配置 > 模型选择”里配置 embedding 场景。"
@@ -546,13 +546,11 @@
         }
       },
       "fields": {
-        "async_embeddings": {
-          "label": "启用异步向量化",
-          "description": "把向量计算放到异步管线里执行，减少主流程阻塞。"
-        },
-        "embedding_backend": {
-          "label": "嵌入存储后端",
-          "description": "控制向量索引写入到哪类后端。切换前请确认当前运行环境已安装对应能力。"
+        "db_path": {
+          "label": "记忆数据存储位置",
+          "description": "设置记忆数据库与向量索引所在的本地目录。向量写入固定走异步 sqlite 存储。",
+          "placeholder": "~/.magi/data/memories",
+          "summary_hint": "包含 L1 事件库与共享记忆数据库。"
         },
         "enable_l0": {
           "label": "启用工作上下文",

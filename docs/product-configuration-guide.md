@@ -226,6 +226,8 @@ Product expectations:
 - advanced memory configuration remains expert-oriented
 - quick onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
+- general memory settings should expose the managed local storage directory used for memory databases
+- vector writes should always stay on the async sqlite path rather than being user-configurable
 - the Knowledge Memory workspace should let operators manually trigger immediate L2 microbatch generation for all currently staged batches
 
 The current settings surface should support at least:
@@ -249,12 +251,14 @@ Important behavioral rules:
 
 Current storage implementation notes:
 
+- `agent.memory.db_path` points at the managed memory data directory shown in Settings.
 - `message_queue.db` is reserved for message bus queue persistence, not long-term L1 memory.
 - `chat.db` is the product-domain source of truth for chat sessions, turn state, and visible transcript rows.
 - L1 is stored in `memories/l1_events.db`.
 - `memories/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.
 - L0/L2/L3/L4 are consolidated into `memories/memory.db` (multi-table layout).
 - Layer vectors are stored per layer (`L1/L3/L4` vector tables) instead of a shared `embeddings.db`.
+- The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
 - `scenario_prompts.db` and `llm_usage.db` are runtime/system databases under `~/.magi/data/`, not memory-layer databases.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery.
 

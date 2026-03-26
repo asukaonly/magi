@@ -271,10 +271,6 @@ export interface ToolsConfig {
   skills: string[];
 }
 
-export interface MemoryEmbeddingConfig {
-  backend: 'sqlite_vec' | 'openai';
-}
-
 export interface MemoryL0Config {
   enabled: boolean;
   checkpoint_interval_seconds: number;
@@ -315,8 +311,6 @@ export interface MemoryL4Config {
 
 export interface MemoryConfig {
   db_path?: string;
-  async_embeddings: boolean;
-  embedding: MemoryEmbeddingConfig;
   l0: MemoryL0Config;
   l1: MemoryL1Config;
   l2: MemoryL2Config;
@@ -453,10 +447,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
   memory: {
     db_path: '~/.magi/data/memories',
-    async_embeddings: true,
-    embedding: {
-      backend: 'sqlite_vec',
-    },
     l0: {
       enabled: true,
       checkpoint_interval_seconds: 30,

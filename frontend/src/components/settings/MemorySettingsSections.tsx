@@ -1,9 +1,13 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { FolderOpen } from 'lucide-react';
 
 import type { SystemConfig } from '@/api/modules/config';
-import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
+import { NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { pickDirectory } from '@/runtime/desktop';
 import type { MemoryToggleFieldId } from '@/types/settings';
 
 interface MemorySettingsSectionProps {
@@ -106,35 +110,57 @@ export function MemoryGeneralSettingsSection({
 }: Omit<MemorySettingsSectionProps, 'updateMemoryToggle'>) {
   const { t } = useTranslation('app');
   const embeddingSelection = draftConfig.llm?.selections?.embedding;
+  const [pickingMemoryStoragePath, setPickingMemoryStoragePath] = useState(false);
+  const memoryStoragePath = draftConfig.memory.db_path ?? '';
+
+  const handlePickMemoryStoragePath = async () => {
+    setPickingMemoryStoragePath(true);
+    try {
+      const selectedPath = await pickDirectory(memoryStoragePath || null);
+      if (!selectedPath) {
+        return;
+      }
+      patchDraftConfig((draft) => {
+        draft.memory.db_path = selectedPath;
+      });
+    } finally {
+      setPickingMemoryStoragePath(false);
+    }
+  };
 
   return (
     <MemorySectionShell>
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
         <MemoryGroup>
-          <MemorySwitchRow
-            label={t('settings.memory.fields.async_embeddings.label')}
-            description={t('settings.memory.fields.async_embeddings.description')}
-            checked={draftConfig.memory.async_embeddings}
-            onCheckedChange={(checked) => patchDraftConfig((draft) => {
-              draft.memory.async_embeddings = checked;
-            })}
-          />
-
           <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-            <LabeledSelectField
-              label={t('settings.memory.fields.embedding_backend.label')}
-              value={draftConfig.memory.embedding.backend}
-              options={[
-                { label: 'sqlite-vec', value: 'sqlite_vec' },
-                { label: 'OpenAI API', value: 'openai' },
-              ]}
-              onChange={(value) => patchDraftConfig((draft) => {
-                draft.memory.embedding.backend = value as SystemConfig['memory']['embedding']['backend'];
-              })}
-            />
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              {t('settings.memory.fields.embedding_backend.description')}
-            </p>
+            <div className="space-y-2">
+              <label className="space-y-2" htmlFor="memory-storage-path">
+                <span className="text-sm font-medium text-foreground">
+                  {t('settings.memory.fields.db_path.label')}
+                </span>
+                <Input
+                  id="memory-storage-path"
+                  aria-label={t('settings.memory.fields.db_path.label')}
+                  readOnly
+                  value={memoryStoragePath}
+                  placeholder={t('settings.memory.fields.db_path.placeholder')}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    void handlePickMemoryStoragePath();
+                  }}
+                  disabled={pickingMemoryStoragePath}
+                >
+                  <FolderOpen className="mr-2 h-4 w-4" />
+                  {t('settings.actions.chooseDirectory')}
+                </Button>
+              </div>
+            </div>
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">{t('settings.memory.fields.db_path.description')}</p>
           </div>
         </MemoryGroup>
 
@@ -150,8 +176,9 @@ export function MemoryGeneralSettingsSection({
                 value={embeddingSelection.model || '-'}
               />
               <MemoryMetricRow
-                label={t('settings.memory.fields.embedding_backend.label')}
-                value={embeddingSelection.embedding_dimension ? `${embeddingSelection.embedding_dimension}d` : '-'}
+                label={t('settings.memory.fields.db_path.label')}
+                value={memoryStoragePath || '-'}
+                hint={t('settings.memory.fields.db_path.summary_hint')}
               />
             </div>
           ) : (

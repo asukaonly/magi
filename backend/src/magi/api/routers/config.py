@@ -100,10 +100,6 @@ class LLMConfigModel(BaseModel):
     model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
 
 
-class MemoryEmbeddingConfigModel(BaseModel):
-    backend: str = Field(default="sqlite_vec")
-
-
 class MemoryL0ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     checkpoint_interval_seconds: int = Field(default=30, ge=1)
@@ -143,8 +139,6 @@ class MemoryL4ConfigModel(BaseModel):
 
 class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default="~/.magi/data/memories")
-    async_embeddings: bool = Field(default=True)
-    embedding: MemoryEmbeddingConfigModel = Field(default_factory=MemoryEmbeddingConfigModel)
     l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
     l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
     l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)
@@ -417,10 +411,6 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
     memory_cfg = runtime_config.agent.memory
     return MemoryConfigModel(
         db_path=memory_cfg.db_path,
-        async_embeddings=memory_cfg.async_embeddings,
-        embedding=MemoryEmbeddingConfigModel(
-            backend=str(memory_cfg.embedding.backend),
-        ),
         l0=MemoryL0ConfigModel(
             enabled=memory_cfg.l0.enabled,
             checkpoint_interval_seconds=memory_cfg.l0.checkpoint_interval_seconds,
@@ -815,8 +805,6 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
         "agent.memory.db_path": config.memory.db_path,
-        "agent.memory.async_embeddings": config.memory.async_embeddings,
-        "agent.memory.embedding.backend": config.memory.embedding.backend,
         "agent.memory.l0.enabled": config.memory.l0.enabled,
         "agent.memory.l0.checkpoint_interval_seconds": config.memory.l0.checkpoint_interval_seconds,
         "agent.memory.l0.runtime_replay_include_l0_only": config.memory.l0.runtime_replay_include_l0_only,

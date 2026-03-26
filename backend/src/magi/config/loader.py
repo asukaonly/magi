@@ -496,6 +496,7 @@ class ConfigLoader:
             agent_yaml.setdefault("plugins", {})
             if isinstance(agent_yaml.get("plugins"), dict) and "packages" in agent_yaml["plugins"]:
                 del agent_yaml["plugins"]["packages"]
+            self._prune_deprecated_memory_settings(agent_yaml)
             plugins_index = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
             llm_defaults = self._build_llm_defaults()
             llm_overrides = self._load_yaml_file(self._llm_config_file)
@@ -569,6 +570,22 @@ class ConfigLoader:
             current = current[part]
 
         current[parts[-1]] = value
+
+    def _prune_deprecated_memory_settings(self, data: Dict[str, Any]) -> None:
+        """Remove no-longer-supported memory vector config overrides from runtime YAML."""
+        agent = data.get("agent")
+        if not isinstance(agent, dict):
+            return
+        memory = agent.get("memory")
+        if not isinstance(memory, dict):
+            return
+
+        memory.pop("async_embeddings", None)
+        embedding = memory.get("embedding")
+        if isinstance(embedding, dict):
+            embedding.pop("backend", None)
+            if not embedding:
+                memory.pop("embedding", None)
 
     def reload(self) -> AppConfig:
         """Reload configuration from file."""

@@ -48,6 +48,7 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
 def test_system_config_defaults_include_memory_lifecycle_settings():
     config = SystemConfigModel()
 
+    assert config.memory.db_path == "~/.magi/data/memories"
     assert config.memory.l0.enabled is True
     assert config.memory.l4.enabled is True
     assert config.memory.l0.checkpoint_interval_seconds == 30
@@ -60,6 +61,8 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l4.skill_extraction_enabled is True
     assert config.memory.l1.vectors_enabled is True
     assert config.memory.l3.vectors_enabled is True
+    assert "async_embeddings" not in config.memory.model_dump(mode="json")
+    assert "embedding" not in config.memory.model_dump(mode="json")
 
 
 def test_system_config_defaults_include_close_to_tray_enabled_preference():
@@ -183,6 +186,7 @@ def test_custom_provider_default_model_must_be_in_model_list():
 def test_build_update_paths_contains_new_sections():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
+    config.memory.db_path = "/Users/asuka/.magi/data/custom-memories"
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.preferences.default_chat_workspace_path = "/Users/asuka/code/magi"
     config.memory.l2.batch_flush_interval_seconds = 90
@@ -194,6 +198,7 @@ def test_build_update_paths_contains_new_sections():
     config.timeline.enabled = not current.timeline.enabled
     updates = _build_update_paths(config)
 
+    assert updates["agent.memory.db_path"] == "/Users/asuka/.magi/data/custom-memories"
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90
@@ -206,10 +211,20 @@ def test_build_update_paths_contains_new_sections():
     assert "timeline" in updates
     assert updates["timeline"]["enabled"] == config.timeline.enabled
     assert updates["preferences"]["default_chat_workspace_path"] == "/Users/asuka/code/magi"
+    assert "agent.memory.async_embeddings" not in updates
+    assert "agent.memory.embedding.backend" not in updates
     assert "agent.memory.l4.enabled" not in updates
     assert "memory_layers" not in updates
     assert "tools.skills" not in updates
     assert "agent.personality.name" not in updates
+
+
+def test_build_system_config_hides_internal_memory_vector_backend_settings():
+    config = _build_system_config()
+    payload = config.model_dump(mode="json")
+
+    assert "async_embeddings" not in payload["memory"]
+    assert "embedding" not in payload["memory"]
 
 
 def test_build_update_paths_persists_model_metadata_overrides():

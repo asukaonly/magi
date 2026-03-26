@@ -514,9 +514,9 @@
       },
       "sections": {
         "general": {
-          "description": "Manage cross-layer memory behavior, including vector scheduling, embedding backend choices, and the current embedding dependency.",
-          "pipelineTitle": "Shared memory pipeline",
-          "pipelineDescription": "These settings affect every memory layer that relies on vectorization or asynchronous processing.",
+          "description": "Manage the local memory storage location and review the embedding model the memory stack depends on.",
+          "pipelineTitle": "Memory data directory",
+          "pipelineDescription": "This area controls where memory databases and vector indexes are stored on disk.",
           "embeddingModelTitle": "Current embedding model",
           "embeddingModelDescription": "Semantic retrieval in L1 and L3 depends on the embedding model configured here.",
           "embeddingModelEmpty": "No embedding model is configured yet. Select one first under Model Configuration > Model Selection."
@@ -546,13 +546,11 @@
         }
       },
       "fields": {
-        "async_embeddings": {
-          "label": "Enable async vectorization",
-          "description": "Run embedding work on the async pipeline to reduce blocking on the main runtime path."
-        },
-        "embedding_backend": {
-          "label": "Embedding backend",
-          "description": "Choose where vector indexes are stored. Make sure the current runtime supports the selected backend before switching."
+        "db_path": {
+          "label": "Memory data storage location",
+          "description": "Set the local directory that stores memory databases and vector indexes. Vector writes always use the async sqlite path.",
+          "placeholder": "~/.magi/data/memories",
+          "summary_hint": "Includes the L1 event store and the shared memory database."
         },
         "enable_l0": {
           "label": "Enable working context",
