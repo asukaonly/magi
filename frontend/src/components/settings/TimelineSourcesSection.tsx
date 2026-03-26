@@ -345,7 +345,28 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     <div className="w-full space-y-8" data-testid={`timeline-source-detail-${selectedSource.source_name}`}>
       <header className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
+          <div
+            className="flex flex-wrap items-center gap-2"
+            data-testid="timeline-source-header-status"
+          >
+            <Badge variant={sourceEnabled ? 'default' : 'secondary'} className="rounded-md">
+              {sourceEnabled ? t('settings.timeline.statuses.enabled') : t('settings.timeline.statuses.disabled')}
+            </Badge>
+            {selectedSource.last_error ? (
+              <Badge variant="destructive" className="rounded-md">
+                {t('settings.timeline.statuses.attention')}
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="rounded-md">
+                {t('settings.timeline.statuses.healthy')}
+              </Badge>
+            )}
+            <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{selectedSource.plugin_id}</span>
+          </div>
+          <div
+            className="flex flex-wrap items-center justify-end gap-3"
+            data-testid="timeline-source-header-actions"
+          >
             {activationFlow && activationConfigured ? (
               <Button
                 type="button"
@@ -375,7 +396,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 </Button>
               </>
             ) : null}
-            <label className="inline-flex items-center gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] px-0 py-1.5 text-sm text-foreground">
+            <label className="inline-flex items-center gap-3 text-sm text-foreground">
               <span>{t('settings.timeline.fields.enabled')}</span>
               <Switch
                 checked={sourceEnabled}
@@ -387,21 +408,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         </div>
 
         <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={sourceEnabled ? 'default' : 'secondary'} className="rounded-md">
-              {sourceEnabled ? t('settings.timeline.statuses.enabled') : t('settings.timeline.statuses.disabled')}
-            </Badge>
-            {selectedSource.last_error ? (
-              <Badge variant="destructive" className="rounded-md">
-                {t('settings.timeline.statuses.attention')}
-              </Badge>
-            ) : (
-              <Badge variant="secondary" className="rounded-md">
-                {t('settings.timeline.statuses.healthy')}
-              </Badge>
-            )}
-            <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{selectedSource.plugin_id}</span>
-          </div>
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">
             {getSourceDisplayName(selectedSource)}
           </h2>

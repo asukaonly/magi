@@ -128,6 +128,50 @@ describe('TimelineSourcesSection', () => {
     expect(within(detail).queryByText('来源启用')).not.toBeInTheDocument();
   });
 
+  it('keeps status badges on the left and actions on the right in the detail header', () => {
+    render(
+      <TimelineSourcesSection
+        userMode={userModeFixture}
+        statuses={[
+          {
+            ...timelineSourceFixture,
+            activation_flow: {
+              title: 'Connect Photo Library',
+              description: 'Set up first sync.',
+              confirm_label: 'Enable source',
+              cancel_label: 'Not now',
+              authorize_on_confirm: false,
+              enabled_key: 'sensors.photo_library.enabled',
+              configured_key: 'sensors.photo_library.initial_sync_configured',
+              fields: [],
+            },
+            current_settings: {
+              'sensors.photo_library.enabled': true,
+              'sensors.photo_library.initial_sync_configured': true,
+            },
+          },
+        ]}
+        loadingStatus={false}
+        selectedSourceName="photo_library"
+        pluginDrafts={{}}
+        onSelectSource={vi.fn()}
+        onRefreshSources={vi.fn().mockResolvedValue(undefined)}
+        onPluginFieldChange={vi.fn()}
+        onPluginFieldsChange={vi.fn()}
+      />
+    );
+
+    const detail = screen.getByTestId('timeline-source-detail-photo_library');
+    const statusGroup = within(detail).getByTestId('timeline-source-header-status');
+    const actionGroup = within(detail).getByTestId('timeline-source-header-actions');
+
+    expect(within(statusGroup).getByText('settings.timeline.statuses.enabled')).toBeInTheDocument();
+    expect(within(statusGroup).getByText('settings.timeline.statuses.healthy')).toBeInTheDocument();
+    expect(within(actionGroup).getByText('settings.timeline.actions.resetActivation')).toBeInTheDocument();
+    expect(within(actionGroup).getByText('启用')).toBeInTheDocument();
+    expect(within(statusGroup).queryByText('settings.timeline.actions.resetActivation')).not.toBeInTheDocument();
+  });
+
   it('prefers the source display name over the plugin name fallback', () => {
     render(
       <TimelineSourcesSection
