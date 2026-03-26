@@ -54,6 +54,7 @@ def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None
     assert "/api/skills/refresh" not in paths
 
     assert "/api/config/reset" not in paths
+    assert "/api/config/llm-providers" not in paths
 
     assert "/api/memory/eval/query" not in paths
     assert "/api/memory/eval/replay" not in paths

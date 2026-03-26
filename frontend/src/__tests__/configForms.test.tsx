@@ -9,7 +9,7 @@ import MemoryForm from '../components/config-forms/MemoryForm';
 
 vi.mock('../api/modules/config', async () => {
   const actual = await vi.importActual<typeof import('../api/modules/config')>('../api/modules/config');
-  const providerRegistry = {
+  const providerRegistry: any = {
     providers: [
       {
         id: 'openai',
@@ -293,12 +293,186 @@ vi.mock('../api/modules/config', async () => {
     model_metadata_overrides: {},
   };
 
+  const defaultChatModalities = (capabilities: Record<string, boolean>) => ({
+    input: capabilities.vision ? ['text', 'image'] : ['text'],
+    output: capabilities.image_output ? ['text', 'image'] : ['text'],
+  });
+
+  const defaultEmbeddingModalities = (capabilities: Record<string, boolean>) => ({
+    input: capabilities.vision ? ['text', 'image'] : ['text'],
+    output: capabilities.image_output ? ['embedding', 'image'] : ['embedding'],
+  });
+
+  const resolveProviderModelsForTest = (provider: Record<string, any>) => {
+    const builtinMeta =
+      provider.provider_type === 'custom'
+        ? undefined
+        : providerRegistry.providers.find((item: any) => item.id === provider.provider_type);
+    const overrides = provider.model_metadata_overrides || {};
+    const customModels = provider.custom_models || [];
+    const chatModels = new Map<string, any>();
+    const embeddingModels = new Map<string, any>();
+
+    for (const model of builtinMeta?.chat_models || []) {
+      const override = overrides[model.id];
+      const capabilities = {
+        vision: model.capabilities.vision,
+        image_output: model.capabilities.image_output,
+        tool_calling: model.capabilities.tool_calling,
+        reasoning: model.capabilities.reasoning,
+        embedding: false,
+        ...(override?.capabilities || {}),
+      };
+      const modalities = defaultChatModalities(capabilities);
+      chatModels.set(model.id, {
+        id: model.id,
+        label: override?.label || model.label || model.id,
+        description: override?.description,
+        icon: override?.icon,
+        source: 'builtin',
+        hidden: Boolean(override?.hidden),
+        preferred: Boolean(override?.preferred),
+        capabilities,
+        limits: { ...(model.limits || {}), ...(override?.limits || {}) },
+        input_modalities: override?.input_modalities || modalities.input,
+        output_modalities: override?.output_modalities || modalities.output,
+        provider_options_example: override?.provider_options_example || model.provider_options_example || {},
+      });
+    }
+
+    for (const model of builtinMeta?.embedding_models || []) {
+      const override = overrides[model.id];
+      const capabilities = {
+        vision: false,
+        image_output: false,
+        tool_calling: false,
+        reasoning: false,
+        embedding: true,
+        ...(override?.capabilities || {}),
+      };
+      const modalities = defaultEmbeddingModalities(capabilities);
+      embeddingModels.set(model.id, {
+        id: model.id,
+        label: override?.label || model.label || model.id,
+        description: override?.description,
+        icon: override?.icon,
+        source: 'builtin',
+        hidden: Boolean(override?.hidden),
+        preferred: Boolean(override?.preferred),
+        capabilities,
+        dimensions: model.dimensions || [],
+        limits: { ...(model.limits || {}), ...(override?.limits || {}) },
+        input_modalities: override?.input_modalities || modalities.input,
+        output_modalities: override?.output_modalities || modalities.output,
+        provider_options_example: override?.provider_options_example || model.provider_options_example || {},
+      });
+    }
+
+    const customBaseCapabilities =
+      provider.provider_type === 'custom'
+        ? { ...providerRegistry.custom_provider.capabilities }
+        : {
+            vision: false,
+            image_output: false,
+            tool_calling: true,
+            reasoning: true,
+            embedding: false,
+          };
+    const customBaseLimits =
+      provider.provider_type === 'custom'
+        ? { ...providerRegistry.custom_provider.limits }
+        : { context_window: null, max_output_tokens: null };
+    const customProviderOptions =
+      provider.provider_type === 'custom'
+        ? providerRegistry.custom_provider.provider_options_example || {}
+        : {};
+
+    for (const modelId of customModels) {
+      if (chatModels.has(modelId)) continue;
+      const override = overrides[modelId];
+      const capabilities = { ...customBaseCapabilities, ...(override?.capabilities || {}) };
+      const modalities = defaultChatModalities(capabilities);
+      chatModels.set(modelId, {
+        id: modelId,
+        label: override?.label || modelId,
+        description: override?.description,
+        icon: override?.icon,
+        source: 'manual',
+        hidden: Boolean(override?.hidden),
+        preferred: Boolean(override?.preferred),
+        capabilities,
+        limits: { ...customBaseLimits, ...(override?.limits || {}) },
+        input_modalities: override?.input_modalities || modalities.input,
+        output_modalities: override?.output_modalities || modalities.output,
+        provider_options_example: override?.provider_options_example || customProviderOptions,
+      });
+    }
+
+    for (const [modelId, override] of Object.entries(overrides) as Array<[string, any]>) {
+      if (!chatModels.has(modelId) && !override?.capabilities?.embedding) {
+        const capabilities = { ...customBaseCapabilities, ...(override?.capabilities || {}) };
+        const modalities = defaultChatModalities(capabilities);
+        chatModels.set(modelId, {
+          id: modelId,
+          label: override?.label || modelId,
+          description: override?.description,
+          icon: override?.icon,
+          source: 'manual',
+          hidden: Boolean(override?.hidden),
+          preferred: Boolean(override?.preferred),
+          capabilities,
+          limits: { ...customBaseLimits, ...(override?.limits || {}) },
+          input_modalities: override?.input_modalities || modalities.input,
+          output_modalities: override?.output_modalities || modalities.output,
+          provider_options_example: override?.provider_options_example || customProviderOptions,
+        });
+      }
+
+      if (override?.capabilities?.embedding && !embeddingModels.has(modelId)) {
+        const baseChat = chatModels.get(modelId);
+        const capabilities = {
+          ...(baseChat?.capabilities || {
+            vision: false,
+            image_output: false,
+            tool_calling: false,
+            reasoning: false,
+            embedding: true,
+          }),
+          ...(override?.capabilities || {}),
+          embedding: true,
+        };
+        const modalities = defaultEmbeddingModalities(capabilities);
+        embeddingModels.set(modelId, {
+          id: modelId,
+          label: override?.label || baseChat?.label || modelId,
+          description: override?.description || baseChat?.description,
+          icon: override?.icon || baseChat?.icon,
+          source: baseChat?.source || 'manual',
+          hidden: Boolean(override?.hidden),
+          preferred: Boolean(override?.preferred),
+          capabilities,
+          dimensions: [],
+          limits: { ...(baseChat?.limits || customBaseLimits), ...(override?.limits || {}) },
+          input_modalities: override?.input_modalities || modalities.input,
+          output_modalities: override?.output_modalities || modalities.output,
+          provider_options_example:
+            override?.provider_options_example || baseChat?.provider_options_example || customProviderOptions,
+        });
+      }
+    }
+
+    return {
+      chat_models: Array.from(chatModels.values()),
+      embedding_models: Array.from(embeddingModels.values()),
+    };
+  };
+
   const toCatalogProvider = (providerId: string, provider: Record<string, any>) => {
     const builtinMeta =
       provider.provider_type === 'custom'
         ? undefined
-        : providerRegistry.providers.find((item) => item.id === provider.provider_type);
-    const resolved = actual.resolveProviderModels(providerRegistry as any, providerId, provider as any);
+        : providerRegistry.providers.find((item: any) => item.id === provider.provider_type);
+    const resolved = resolveProviderModelsForTest(provider);
     return {
       ...(builtinMeta || {}),
       id: providerId,
@@ -322,7 +496,7 @@ vi.mock('../api/modules/config', async () => {
   };
 
   const buildCatalog = (providers: Record<string, any> = {}) => {
-    const builtinProviders = providerRegistry.providers.map((providerMeta) =>
+    const builtinProviders = providerRegistry.providers.map((providerMeta: any) =>
       toCatalogProvider(providerMeta.id, {
         enabled: providers[providerMeta.id]?.enabled ?? false,
         provider_type: providerMeta.id,
@@ -347,7 +521,6 @@ vi.mock('../api/modules/config', async () => {
     ...actual,
     configApi: {
       ...actual.configApi,
-      getLLMProviders: vi.fn().mockResolvedValue({ data: providerRegistry }),
       getLLMProviderCatalog: vi.fn().mockResolvedValue({
         data: buildCatalog(),
       }),

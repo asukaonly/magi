@@ -29,7 +29,6 @@ from ...config.llm_registry import (
     find_provider_meta,
     load_llm_provider_registry,
     resolve_embedding_dimension,
-    resolve_provider_model_catalog,
     resolve_llm_profile,
 )
 from ...config.models import (
@@ -263,12 +262,6 @@ class ConfigResponse(BaseModel):
     data: Optional[SystemConfigModel] = None
 
 
-class LLMProviderRegistryResponse(BaseModel):
-    success: bool
-    message: str
-    data: Optional[LLMProviderRegistryModel] = None
-
-
 class DiscoverLLMModelsRequestModel(BaseModel):
     provider_type: str = Field(default="custom")
     base_url: str
@@ -307,7 +300,6 @@ class TestLLMProviderApiResponseModel(BaseModel):
 
 class OnboardingTemplateDataModel(BaseModel):
     config: SystemConfigModel
-    llm_providers: LLMProviderRegistryModel
 
 
 class OnboardingTemplateResponse(BaseModel):
@@ -1044,50 +1036,6 @@ async def test_config(config: SystemConfigModel):
     return ConfigResponse(success=True, message="Configuration valid", data=config)
 
 
-@config_router.get("/llm-providers", response_model=LLMProviderRegistryResponse)
-async def get_llm_provider_registry():
-    registry = _load_llm_provider_registry()
-    runtime_config = get_config()
-    resolved_providers = []
-    for provider_meta in registry.providers:
-        resolved_provider = provider_meta.model_copy(deep=True)
-        provider_settings = runtime_config.llm.providers.get(provider_meta.id)
-        resolved_catalog = resolve_provider_model_catalog(
-            registry,
-            provider_meta.id,
-            provider_settings,
-        )
-        resolved_provider.resolved_chat_models = resolved_catalog.chat_models
-        resolved_provider.resolved_embedding_models = resolved_catalog.embedding_models
-        resolved_providers.append(resolved_provider)
-
-    return LLMProviderRegistryResponse(
-        success=True,
-        message="LLM provider registry loaded",
-        data=LLMProviderRegistryModel(
-            providers=resolved_providers,
-            custom_provider=registry.custom_provider,
-        ),
-    )
-
-
-@config_router.post("/llm/providers/discover-models", response_model=DiscoverLLMModelsApiResponseModel)
-async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
-    models = await _discover_openai_compatible_models(
-        payload.base_url,
-        payload.api_key,
-        payload.api_format,
-    )
-    return DiscoverLLMModelsApiResponseModel(
-        success=True,
-        message="LLM provider models discovered",
-        data=DiscoverLLMModelsResponseModel(
-            models=models,
-            default_model=models[0] if models else None,
-        ),
-    )
-
-
 async def _test_llm_provider_connection(
     provider_id: str,
     provider: LLMProviderConfigModel,
@@ -1121,31 +1069,6 @@ async def _test_llm_provider_connection(
     }
 
 
-@config_router.post("/llm/providers/test", response_model=TestLLMProviderApiResponseModel)
-async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
-    registry_meta = find_provider_meta(_load_llm_provider_registry(), payload.provider_id)
-    provider_payload = payload.provider.model_copy(deep=True)
-    if not (provider_payload.base_url or "").strip() and registry_meta and registry_meta.default_base_url:
-        provider_payload.base_url = registry_meta.default_base_url
-    try:
-        result = await _test_llm_provider_connection(
-            payload.provider_id,
-            provider_payload,
-            payload.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to test LLM provider connection")
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    return TestLLMProviderApiResponseModel(
-        success=True,
-        message="LLM provider connection succeeded",
-        data=TestLLMProviderResponseModel(**result),
-    )
-
-
 @config_router.get("/onboarding-template", response_model=OnboardingTemplateResponse)
 async def get_onboarding_template():
     return OnboardingTemplateResponse(
@@ -1153,7 +1076,6 @@ async def get_onboarding_template():
         message="Onboarding template loaded",
         data=OnboardingTemplateDataModel(
             config=_build_onboarding_template(),
-            llm_providers=_load_llm_provider_registry(),
         ),
     )
 

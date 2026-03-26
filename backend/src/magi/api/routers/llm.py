@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...config import get_config
@@ -12,13 +12,17 @@ from ...config.llm_registry import (
     LLMCustomProviderMetaModel,
     LLMProviderCatalogEntryModel,
     build_provider_catalog,
+    find_provider_meta,
 )
 from ...config.models import LLMProviderSettings
+from ...core.logger import get_logger
 from .config import (
     DiscoverLLMModelsApiResponseModel,
+    DiscoverLLMModelsResponseModel,
     DiscoverLLMModelsRequestModel,
     LLMProviderConfigModel,
     TestLLMProviderApiResponseModel,
+    TestLLMProviderResponseModel,
     TestLLMProviderRequestModel,
     _discover_openai_compatible_models,
     _load_llm_provider_registry,
@@ -27,6 +31,7 @@ from .config import (
 
 
 llm_router = APIRouter()
+logger = get_logger(__name__)
 
 
 class LLMProviderCatalogDataModel(BaseModel):
@@ -124,22 +129,30 @@ async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
     return DiscoverLLMModelsApiResponseModel(
         success=True,
         message="LLM provider models discovered",
-        data={
-            "models": models,
-            "default_model": models[0] if models else None,
-        },
+        data=DiscoverLLMModelsResponseModel(models=models, default_model=models[0] if models else None),
     )
 
 
 @llm_router.post("/providers/test", response_model=TestLLMProviderApiResponseModel)
 async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
-    result = await _test_llm_provider_connection(
-        payload.provider_id,
-        payload.provider.model_copy(deep=True),
-        payload.model,
-    )
+    registry_meta = find_provider_meta(_load_llm_provider_registry(), payload.provider_id)
+    provider_payload = payload.provider.model_copy(deep=True)
+    if not (provider_payload.base_url or "").strip() and registry_meta and registry_meta.default_base_url:
+        provider_payload.base_url = registry_meta.default_base_url
+    try:
+        result = await _test_llm_provider_connection(
+            payload.provider_id,
+            provider_payload,
+            payload.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Failed to test LLM provider connection")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     return TestLLMProviderApiResponseModel(
         success=True,
         message="LLM provider connection succeeded",
-        data=result,
+        data=TestLLMProviderResponseModel(**result),
     )

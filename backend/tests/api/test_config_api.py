@@ -14,6 +14,7 @@ from magi.api.routers.config import (
     _default_llm_provider_registry,
     config_router,
 )
+from magi.api.routers.llm import llm_router
 from magi.config.loader import get_config
 from magi.config.models import (
     LLMCapabilityOverridesSettings,
@@ -465,6 +466,19 @@ def test_onboarding_template_includes_model_capability_defaults():
     assert template.llm.selections["core"].limits.max_output_tokens is None
 
 
+def test_onboarding_template_endpoint_returns_config_only():
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    response = client.get("/config/onboarding-template")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "config" in payload["data"]
+    assert "llm_providers" not in payload["data"]
+
+
 def test_onboarding_template_ignores_llm_environment_variables(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("LLM_PROVIDER", "glm")
     monkeypatch.setenv("LLM_MODEL", "glm-5")
@@ -498,19 +512,19 @@ def test_runtime_llm_defaults_use_scenario_llm_structure():
 
 def test_discover_llm_models_returns_models_from_provider_endpoint(monkeypatch: pytest.MonkeyPatch):
     app = FastAPI()
-    app.include_router(config_router, prefix="/config")
+    app.include_router(llm_router, prefix="/llm")
     client = TestClient(app)
 
     async def _fake_discover(_: str, __: str | None, ___: str | None):
         return ["foo-1", "foo-2"]
 
     monkeypatch.setattr(
-        "magi.api.routers.config._discover_openai_compatible_models",
+        "magi.api.routers.llm._discover_openai_compatible_models",
         _fake_discover,
     )
 
     response = client.post(
-        "/config/llm/providers/discover-models",
+        "/llm/providers/discover-models",
         json={
             "provider_type": "custom",
             "base_url": "https://proxy.example.com/v1",
@@ -527,11 +541,11 @@ def test_discover_llm_models_returns_models_from_provider_endpoint(monkeypatch: 
 
 def test_discover_llm_models_returns_clear_error_for_unsupported_format():
     app = FastAPI()
-    app.include_router(config_router, prefix="/config")
+    app.include_router(llm_router, prefix="/llm")
     client = TestClient(app)
 
     response = client.post(
-        "/config/llm/providers/discover-models",
+        "/llm/providers/discover-models",
         json={
             "provider_type": "custom",
             "base_url": "https://proxy.example.com/v1",
@@ -560,7 +574,7 @@ def test_config_test_endpoint_accepts_new_llm_structure():
 
 def test_llm_provider_test_endpoint_uses_request_provider_payload(monkeypatch: pytest.MonkeyPatch):
     app = FastAPI()
-    app.include_router(config_router, prefix="/config")
+    app.include_router(llm_router, prefix="/llm")
     client = TestClient(app)
 
     captured: dict[str, object] = {}
@@ -574,13 +588,13 @@ def test_llm_provider_test_endpoint_uses_request_provider_payload(monkeypatch: p
         return {"model": model, "latency_ms": 42, "preview": "hello"}
 
     monkeypatch.setattr(
-        "magi.api.routers.config._test_llm_provider_connection",
+        "magi.api.routers.llm._test_llm_provider_connection",
         _fake_probe,
         raising=False,
     )
 
     response = client.post(
-        "/config/llm/providers/test",
+        "/llm/providers/test",
         json={
             "provider_id": "openai",
             "model": "gpt-5.2",
@@ -608,7 +622,7 @@ def test_llm_provider_test_endpoint_uses_request_provider_payload(monkeypatch: p
 
 def test_llm_provider_test_endpoint_falls_back_to_registry_default_base_url(monkeypatch: pytest.MonkeyPatch):
     app = FastAPI()
-    app.include_router(config_router, prefix="/config")
+    app.include_router(llm_router, prefix="/llm")
     client = TestClient(app)
 
     captured: dict[str, object] = {}
@@ -621,13 +635,13 @@ def test_llm_provider_test_endpoint_falls_back_to_registry_default_base_url(monk
         return {"model": model, "latency_ms": 12, "preview": "hello"}
 
     monkeypatch.setattr(
-        "magi.api.routers.config._test_llm_provider_connection",
+        "magi.api.routers.llm._test_llm_provider_connection",
         _fake_probe,
         raising=False,
     )
 
     response = client.post(
-        "/config/llm/providers/test",
+        "/llm/providers/test",
         json={
             "provider_id": "glm",
             "model": "glm-4.7-flash",

@@ -215,7 +215,6 @@ export interface LLMCustomProviderTemplateData {
 
 export interface OnboardingTemplateData {
   config: SystemConfig;
-  llm_providers: LLMProviderRegistry;
 }
 
 export interface DiscoverLLMProviderModelsRequest {
@@ -392,64 +391,6 @@ export const DEFAULT_LLM_LIMITS: LLMLimits = {
   max_output_tokens: null,
 };
 
-const cloneResolvedCapabilities = (
-  base?: Partial<LLMCapabilities>,
-  overrides?: LLMCapabilityOverrides
-): LLMCapabilities => {
-  const next: LLMCapabilities = {
-    ...DEFAULT_LLM_CAPABILITIES,
-    ...(base || {}),
-  };
-
-  for (const [key, value] of Object.entries(overrides || {})) {
-    if (value !== null && value !== undefined) {
-      next[key as keyof LLMCapabilities] = value as never;
-    }
-  }
-
-  return next;
-};
-
-const cloneResolvedLimits = (
-  base?: Partial<LLMRuntimeLimits>,
-  overrides?: LLMLimitsOverride
-): LLMRuntimeLimits => ({
-  ...DEFAULT_LLM_LIMITS,
-  ...(base || {}),
-  ...(overrides || {}),
-});
-
-const defaultChatModalities = (capabilities: LLMCapabilities): { input: string[]; output: string[] } => {
-  const input = ['text'];
-  if (capabilities.vision) {
-    input.push('image');
-  }
-
-  const output = ['text'];
-  if (capabilities.image_output) {
-    output.push('image');
-  }
-  if (capabilities.embedding) {
-    output.push('embedding');
-  }
-
-  return { input, output };
-};
-
-const defaultEmbeddingModalities = (capabilities: LLMCapabilities): { input: string[]; output: string[] } => {
-  const input = ['text'];
-  if (capabilities.vision) {
-    input.push('image');
-  }
-
-  const output = ['embedding'];
-  if (capabilities.image_output) {
-    output.push('image');
-  }
-
-  return { input, output };
-};
-
 export interface ResolvedProviderModels {
   chat_models: LLMResolvedChatModelMeta[];
   embedding_models: LLMResolvedEmbeddingModelMeta[];
@@ -458,172 +399,12 @@ export interface ResolvedProviderModels {
 export const resolveProviderModels = (
   registry: LLMProviderRegistry,
   providerId: string,
-  provider?: LLMProviderConfig
+  _provider?: LLMProviderConfig
 ): ResolvedProviderModels => {
   const resolvedProviderMeta = registry.providers.find((item) => item.id === providerId);
-  if (resolvedProviderMeta?.resolved_chat_models || resolvedProviderMeta?.resolved_embedding_models) {
-    return {
-      chat_models: [...(resolvedProviderMeta.resolved_chat_models || [])],
-      embedding_models: [...(resolvedProviderMeta.resolved_embedding_models || [])],
-    };
-  }
-
-  const providerMeta =
-    provider?.provider_type && provider.provider_type !== 'custom'
-      ? registry.providers.find((item) => item.id === provider.provider_type)
-      : undefined;
-  const overrides = provider?.model_metadata_overrides || {};
-  const customModels = provider?.custom_models || [];
-
-  const chatModels = new Map<string, LLMResolvedChatModelMeta>();
-  const embeddingModels = new Map<string, LLMResolvedEmbeddingModelMeta>();
-
-  for (const model of providerMeta?.chat_models || []) {
-    const override = overrides[model.id];
-    const capabilities = cloneResolvedCapabilities(model.capabilities, override?.capabilities);
-    const modalities = defaultChatModalities(capabilities);
-    chatModels.set(model.id, {
-      id: model.id,
-      label: override?.label || model.label || model.id,
-      description: override?.description || undefined,
-      icon: override?.icon || undefined,
-      source: 'builtin',
-      hidden: Boolean(override?.hidden),
-      preferred: Boolean(override?.preferred),
-      capabilities,
-      limits: cloneResolvedLimits(model.limits, override?.limits),
-      input_modalities: override?.input_modalities || modalities.input,
-      output_modalities: override?.output_modalities || modalities.output,
-      provider_options_example: override?.provider_options_example || model.provider_options_example || {},
-    });
-  }
-
-  for (const model of providerMeta?.embedding_models || []) {
-    const override = overrides[model.id];
-    const capabilities = cloneResolvedCapabilities(
-      {
-        vision: false,
-        image_output: false,
-        tool_calling: false,
-        reasoning: false,
-        embedding: true,
-      },
-      override?.capabilities
-    );
-    const modalities = defaultEmbeddingModalities(capabilities);
-    embeddingModels.set(model.id, {
-      id: model.id,
-      label: override?.label || model.label || model.id,
-      description: override?.description || undefined,
-      icon: override?.icon || undefined,
-      source: 'builtin',
-      hidden: Boolean(override?.hidden),
-      preferred: Boolean(override?.preferred),
-      capabilities,
-      dimensions: model.dimensions || [],
-      limits: cloneResolvedLimits(model.limits, override?.limits),
-      input_modalities: override?.input_modalities || modalities.input,
-      output_modalities: override?.output_modalities || modalities.output,
-      provider_options_example: override?.provider_options_example || model.provider_options_example || {},
-    });
-  }
-
-  const defaultCustomCapabilities =
-    provider?.provider_type === 'custom'
-      ? {
-          ...DEFAULT_LLM_CAPABILITIES,
-          ...(registry.custom_provider.capabilities || {}),
-        }
-      : DEFAULT_LLM_CAPABILITIES;
-  const defaultCustomLimits =
-    provider?.provider_type === 'custom'
-      ? {
-          ...DEFAULT_LLM_LIMITS,
-          ...(registry.custom_provider.limits || {}),
-        }
-      : DEFAULT_LLM_LIMITS;
-  const defaultCustomProviderOptions =
-    provider?.provider_type === 'custom' ? registry.custom_provider.provider_options_example || {} : {};
-
-  for (const modelId of customModels) {
-    if (chatModels.has(modelId)) {
-      continue;
-    }
-    const override = overrides[modelId];
-    const capabilities = cloneResolvedCapabilities(defaultCustomCapabilities, override?.capabilities);
-    const modalities = defaultChatModalities(capabilities);
-    chatModels.set(modelId, {
-      id: modelId,
-      label: override?.label || modelId,
-      description: override?.description || undefined,
-      icon: override?.icon || undefined,
-      source: 'manual',
-      hidden: Boolean(override?.hidden),
-      preferred: Boolean(override?.preferred),
-      capabilities,
-      limits: cloneResolvedLimits(defaultCustomLimits, override?.limits),
-      input_modalities: override?.input_modalities || modalities.input,
-      output_modalities: override?.output_modalities || modalities.output,
-      provider_options_example: override?.provider_options_example || defaultCustomProviderOptions,
-    });
-  }
-
-  for (const [modelId, override] of Object.entries(overrides)) {
-    if (!chatModels.has(modelId) && !override?.capabilities?.embedding) {
-      const capabilities = cloneResolvedCapabilities(defaultCustomCapabilities, override?.capabilities);
-      const modalities = defaultChatModalities(capabilities);
-      chatModels.set(modelId, {
-        id: modelId,
-        label: override?.label || modelId,
-        description: override?.description || undefined,
-        icon: override?.icon || undefined,
-        source: 'manual',
-        hidden: Boolean(override?.hidden),
-        preferred: Boolean(override?.preferred),
-        capabilities,
-        limits: cloneResolvedLimits(defaultCustomLimits, override?.limits),
-        input_modalities: override?.input_modalities || modalities.input,
-        output_modalities: override?.output_modalities || modalities.output,
-        provider_options_example: override?.provider_options_example || defaultCustomProviderOptions,
-      });
-    }
-
-    if (override?.capabilities?.embedding && !embeddingModels.has(modelId)) {
-      const baseChat = chatModels.get(modelId);
-      const capabilities = cloneResolvedCapabilities(
-        baseChat?.capabilities || {
-          vision: false,
-          image_output: false,
-          tool_calling: false,
-          reasoning: false,
-          embedding: true,
-        },
-        override.capabilities
-      );
-      capabilities.embedding = true;
-      const modalities = defaultEmbeddingModalities(capabilities);
-      embeddingModels.set(modelId, {
-        id: modelId,
-        label: override?.label || baseChat?.label || modelId,
-        description: override?.description || baseChat?.description,
-        icon: override?.icon || baseChat?.icon,
-        source: baseChat?.source || 'manual',
-        hidden: Boolean(override?.hidden),
-        preferred: Boolean(override?.preferred),
-        capabilities,
-        dimensions: [],
-        limits: cloneResolvedLimits(baseChat?.limits, override?.limits),
-        input_modalities: override?.input_modalities || modalities.input,
-        output_modalities: override?.output_modalities || modalities.output,
-        provider_options_example:
-          override?.provider_options_example || baseChat?.provider_options_example || defaultCustomProviderOptions,
-      });
-    }
-  }
-
   return {
-    chat_models: Array.from(chatModels.values()),
-    embedding_models: Array.from(embeddingModels.values()),
+    chat_models: [...(resolvedProviderMeta?.resolved_chat_models || [])],
+    embedding_models: [...(resolvedProviderMeta?.resolved_embedding_models || [])],
   };
 };
 
@@ -779,11 +560,10 @@ export const configApi = {
   resolveLLMProviderCatalog: (payload: LLMProviderCatalogResolveRequest) =>
     api.post<LLMProviderCatalog>('/llm/providers/catalog', payload),
   getLLMCustomProviderTemplate: () => api.get<LLMCustomProviderTemplateData>('/llm/providers/custom-template'),
-  getLLMProviders: () => api.get<LLMProviderRegistry>('/config/llm-providers'),
   discoverLLMProviderModels: (payload: DiscoverLLMProviderModelsRequest) =>
-    api.post<DiscoverLLMProviderModelsResponse>('/config/llm/providers/discover-models', payload),
+    api.post<DiscoverLLMProviderModelsResponse>('/llm/providers/discover-models', payload),
   testLLMProviderConnection: (payload: TestLLMProviderConnectionRequest) =>
-    api.post<TestLLMProviderConnectionResponse>('/config/llm/providers/test', payload),
+    api.post<TestLLMProviderConnectionResponse>('/llm/providers/test', payload),
   getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
   completeOnboarding: (config: SystemConfig) => api.post<SystemConfig>('/config/onboarding-complete', config),
 };
