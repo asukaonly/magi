@@ -106,6 +106,7 @@ const createMemoryStub = () =>
     l2ActionLoading: false,
     submitManualL2Event: vi.fn(),
     replayL2Extraction: vi.fn(),
+    flushL2Microbatches: vi.fn(),
     runL2Reconcile: vi.fn(),
     runL2SnapshotRefresh: vi.fn(),
     upsertL2GraphConflictRule: vi.fn(),
@@ -206,5 +207,25 @@ describe('memory knowledge page tabs', () => {
 
     expect(screen.queryByText('likes → entity-west-lake')).not.toBeInTheDocument();
     expect(screen.getByText('dislikes → entity-office')).toBeInTheDocument();
+  });
+
+  it('renders a header action that flushes pending L2 microbatches immediately', async () => {
+    const user = userEvent.setup();
+    const flushL2Microbatches = vi.fn();
+
+    mockUseMemory.mockReturnValue({
+      ...createMemoryStub(),
+      flushL2Microbatches,
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <MemoryKnowledgePage />
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'memory.pages.knowledge.actions.flushMicrobatches' }));
+
+    expect(flushL2Microbatches).toHaveBeenCalledTimes(1);
   });
 });

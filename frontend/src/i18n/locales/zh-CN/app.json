@@ -1169,6 +1169,9 @@
       "knowledge": {
         "eyebrow": "L2 知识花园",
         "subtitle": "查看知识图谱、心智断言和相关实验台能力，并按实体维度筛选。",
+        "actions": {
+          "flushMicrobatches": "立即生成 L2"
+        },
         "searchPlaceholder": "按实体、关系或断言关键词筛选知识记忆",
         "focusTitle": "实体视角",
         "focusBody": "知识页会更像一座缓慢生长的花园。先选实体类型，再进入关系、断言和快照层去看结构变化。",
@@ -1390,6 +1393,8 @@
         "saveRule": "保存规则",
         "manualEventQueued": "手动事件已入队",
         "replayQueued": "抽取重放已入队",
+        "microbatchFlushQueued": "已触发 L2 微批生成",
+        "microbatchFlushIdle": "当前没有待生成的 L2 微批",
         "reconcileQueued": "实体合并已入队",
         "snapshotQueued": "快照刷新已入队",
         "ruleSaved": "冲突规则已保存",

@@ -221,6 +221,7 @@ Product expectations:
 - advanced memory configuration remains expert-oriented
 - quick onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
+- the Knowledge Memory workspace should let operators manually trigger immediate L2 microbatch generation for all currently staged batches
 
 The current settings surface should support at least:
 

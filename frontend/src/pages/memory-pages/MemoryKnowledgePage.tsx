@@ -39,6 +39,7 @@ export const MemoryKnowledgePage = () => {
     l2ActionLoading,
     submitManualL2Event,
     replayL2Extraction,
+    flushL2Microbatches,
     runL2Reconcile,
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
@@ -104,15 +105,26 @@ export const MemoryKnowledgePage = () => {
       title={t('memory.nav.knowledge')}
       description={t('memory.pages.knowledge.subtitle')}
       actions={
-        <Button
-          variant="outline"
-          className={MEMORY_ACTION_BUTTON_CLASS}
-          onClick={() => void refresh('l2')}
-          disabled={loading || l2ActionLoading}
-        >
-          {(loading || l2ActionLoading) ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
-          {t('memory.refresh')}
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            className={MEMORY_ACTION_BUTTON_CLASS}
+            onClick={() => void flushL2Microbatches()}
+            disabled={loading || l2ActionLoading}
+          >
+            {l2ActionLoading ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
+            {t('memory.pages.knowledge.actions.flushMicrobatches')}
+          </Button>
+          <Button
+            variant="outline"
+            className={MEMORY_ACTION_BUTTON_CLASS}
+            onClick={() => void refresh('l2')}
+            disabled={loading || l2ActionLoading}
+          >
+            {(loading || l2ActionLoading) ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
+            {t('memory.refresh')}
+          </Button>
+        </>
       }
     >
       {loading ? (

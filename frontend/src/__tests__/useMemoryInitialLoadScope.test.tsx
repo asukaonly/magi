@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { memoryApi } from '@/api/modules/memory';
@@ -38,6 +38,7 @@ vi.mock('@/api/modules/memory', () => ({
     clearAll: vi.fn(),
     createManualL2Event: vi.fn(),
     replayL2Extraction: vi.fn(),
+    flushL2Microbatches: vi.fn(),
     reconcileL2Entities: vi.fn(),
     refreshL2Snapshots: vi.fn(),
     upsertL2ConflictRule: vi.fn(),
@@ -107,6 +108,10 @@ describe('useMemory initial load scope', () => {
         chat_context: { cleared: true, count: 0 },
       },
     });
+    vi.mocked(memoryApi.flushL2Microbatches).mockResolvedValue({
+      queued: true,
+      batch_count: 2,
+    } as any);
   });
 
   it('only loads statistics during overview initialization', async () => {
@@ -142,5 +147,24 @@ describe('useMemory initial load scope', () => {
     expect(memoryApi.getL0Sessions).not.toHaveBeenCalled();
     expect(memoryApi.getL3Summaries).not.toHaveBeenCalled();
     expect(memoryApi.getL4Skills).not.toHaveBeenCalled();
+  });
+
+  it('flushes pending L2 microbatches and refreshes knowledge data', async () => {
+    const { result } = renderHook(() => useMemory({ initialLoadScope: 'l2' }));
+
+    await waitFor(() => {
+      expect(memoryApi.getL2Statistics).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.flushL2Microbatches();
+    });
+
+    expect(memoryApi.flushL2Microbatches).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(memoryApi.getStatistics).toHaveBeenCalledTimes(2);
+      expect(memoryApi.getL1Events).toHaveBeenCalledTimes(2);
+      expect(memoryApi.getL2Statistics).toHaveBeenCalledTimes(2);
+    });
   });
 });

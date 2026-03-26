@@ -64,6 +64,7 @@ export interface UseMemoryReturn {
   l2ActionLoading: boolean;
   submitManualL2Event: (payload: ManualL2EventPayload) => Promise<void>;
   replayL2Extraction: (eventId: string) => Promise<void>;
+  flushL2Microbatches: () => Promise<void>;
   runL2Reconcile: (entityIds: string[]) => Promise<void>;
   runL2SnapshotRefresh: (entityIds: string[]) => Promise<void>;
   upsertL2GraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
@@ -280,6 +281,24 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     },
     [refreshL2Lab, t]
   );
+
+  const flushL2Microbatches = useCallback(async () => {
+    setL2ActionLoading(true);
+    try {
+      const response = await memoryApi.flushL2Microbatches();
+      await refreshL2Lab();
+      if ((response.batch_count ?? 0) > 0 || response.queued) {
+        toast.success(t('memory.l2.lab.microbatchFlushQueued'));
+      } else {
+        toast.warning(t('memory.l2.lab.microbatchFlushIdle'));
+      }
+    } catch (error) {
+      console.error('Failed to flush L2 microbatches:', error);
+      toast.error(t('memory.l2.lab.actionFailed'));
+    } finally {
+      setL2ActionLoading(false);
+    }
+  }, [refreshL2Lab, t]);
 
   const runL2Reconcile = useCallback(
     async (entityIds: string[]) => {
@@ -553,6 +572,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     l2ActionLoading,
     submitManualL2Event,
     replayL2Extraction,
+    flushL2Microbatches,
     runL2Reconcile,
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,

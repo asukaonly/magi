@@ -154,6 +154,7 @@ export interface L2QueuedActionResponse {
   queued: boolean;
   event_id?: string;
   entity_ids?: string[];
+  batch_count?: number;
 }
 
 export interface L2Statistics {
@@ -287,6 +288,8 @@ export const memoryApi = {
     api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload) as unknown as Promise<L2QueuedActionResponse>,
   replayL2Extraction: (eventId: string) =>
     api.post<L2QueuedActionResponse>(`/memory/l2/extract/${eventId}`) as unknown as Promise<L2QueuedActionResponse>,
+  flushL2Microbatches: () =>
+    api.post<L2QueuedActionResponse>('/memory/l2/microbatch-flush') as unknown as Promise<L2QueuedActionResponse>,
   reconcileL2Entities: (entityIds: string[]) =>
     api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds }) as unknown as Promise<L2QueuedActionResponse>,
   refreshL2Snapshots: (entityIds: string[]) =>

@@ -1174,6 +1174,9 @@
       "knowledge": {
         "eyebrow": "L2 Knowledge Garden",
         "subtitle": "Inspect the knowledge graph, ToM assertions, and lab controls with entity-aware filtering.",
+        "actions": {
+          "flushMicrobatches": "Run L2 Now"
+        },
         "searchPlaceholder": "Filter knowledge memory by entity, relation, or assertion",
         "focusTitle": "Entity perspective",
         "focusBody": "The knowledge page should feel like a slow-growing garden. Start with entity type, then move deeper into relations, assertions, and snapshots.",
@@ -1395,6 +1398,8 @@
         "saveRule": "Save Rule",
         "manualEventQueued": "Manual event queued",
         "replayQueued": "Extraction replay queued",
+        "microbatchFlushQueued": "L2 microbatch generation triggered",
+        "microbatchFlushIdle": "No pending L2 microbatches to generate",
         "reconcileQueued": "Reconcile queued",
         "snapshotQueued": "Snapshot refresh queued",
         "ruleSaved": "Conflict rule saved",
