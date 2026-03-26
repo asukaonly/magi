@@ -183,7 +183,7 @@
     "inputPlaceholder": "Type your message... (Enter to send, Shift+Enter for new line)",
     "send": "Send",
     "tip": "Tip: Enter to send, Shift+Enter for newline",
-  "emptyInput": "Please enter a message",
+    "emptyInput": "Please enter a message",
     "sessionRequired": "Please choose or create a session first",
     "wsNotConnected": "WebSocket is not connected yet",
     "reply": {
@@ -367,10 +367,10 @@
     "resetFailed": "Failed to reset config: {{message}}",
     "downloadStartFailed": "Failed to start download",
     "modelReady": "Model is ready",
-  "loadingConfig": "Loading configuration...",
-  "title": "System Configuration",
-  "shellTitle": "System Settings",
-  "subtitle": "Manage all settings in one place",
+    "loadingConfig": "Loading configuration...",
+    "title": "System Configuration",
+    "shellTitle": "System Settings",
+    "subtitle": "Manage all settings in one place",
     "refresh": "Refresh",
     "reset": "Reset to Defaults",
     "saveAll": "Save All",
@@ -380,6 +380,7 @@
       "llm": "Model Configuration",
       "llmProviders": "Provider Configuration",
       "llmModels": "Model Selection",
+      "conversation": "Conversation Settings",
       "statistics": "Statistics",
       "statisticsLlm": "LLM Statistics",
       "statisticsRuntime": "System Runtime",
@@ -397,7 +398,8 @@
       "actions": "Actions",
       "system": "System"
     },
-    "preferencesDesc": "Configure interface language and user mode",
+    "preferencesDesc": "Configure interface language, theme, and desktop behavior",
+    "conversationDesc": "Configure the default workspace used for new conversations",
     "closeToTrayDesc": "Hide the main window to the tray or menu bar when closing it, while keeping the local runtime active.",
     "closeToTrayHelp": "Keeps Magi running in the background after the main window is closed.",
     "defaultChatWorkspaceDesc": "Set the default working directory mounted into new desktop chat sessions. You can still override it inside an individual conversation.",
@@ -993,7 +995,12 @@
         "name": "Calendar",
         "description": "Calendar event ingestion for the timeline",
         "options": {
-          "sync_interval_minutes": { "15": "15 minutes", "30": "30 minutes", "60": "1 hour", "360": "6 hours" },
+          "sync_interval_minutes": {
+            "15": "15 minutes",
+            "30": "30 minutes",
+            "60": "1 hour",
+            "360": "6 hours"
+          },
           "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" }
         },
         "sections": { "general": "General", "sync": "Sync" }
@@ -1006,10 +1013,19 @@
           "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
           "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
           "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
-          "initial_sync_policy": { "full": "Sync full history", "lookback_days": "Sync recent days", "from_now": "Only new records from now on" },
+          "initial_sync_policy": {
+            "full": "Sync full history",
+            "lookback_days": "Sync recent days",
+            "from_now": "Only new records from now on"
+          },
           "fetch_page_content": { "true": "Yes", "false": "No" }
         },
-        "sections": { "general": "General", "sync": "Sync", "storage": "Storage", "activation": "Activation" }
+        "sections": {
+          "general": "General",
+          "sync": "Sync",
+          "storage": "Storage",
+          "activation": "Activation"
+        }
       },
       "git-activity": {
         "name": "Git Activity",
@@ -1017,8 +1033,16 @@
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
           "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" },
-          "initial_sync_policy": { "full": "Sync full history", "lookback_days": "Sync recent days", "from_now": "Only new commits from now" },
-          "sensitive_mode": { "redact": "Redact sensitive content", "skip": "Skip commits with sensitive content", "include": "Include all content" }
+          "initial_sync_policy": {
+            "full": "Sync full history",
+            "lookback_days": "Sync recent days",
+            "from_now": "Only new commits from now"
+          },
+          "sensitive_mode": {
+            "redact": "Redact sensitive content",
+            "skip": "Skip commits with sensitive content",
+            "include": "Include all content"
+          }
         },
         "sections": { "general": "General", "retention": "Retention", "privacy": "Privacy" }
       },
@@ -1030,7 +1054,11 @@
           "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
           "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
           "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
-          "initial_sync_policy": { "full": "Sync full history", "lookback_days": "Sync recent days", "from_now": "Only new tracks from now" }
+          "initial_sync_policy": {
+            "full": "Sync full history",
+            "lookback_days": "Sync recent days",
+            "from_now": "Only new tracks from now"
+          }
         },
         "sections": { "general": "General", "storage": "Storage" }
       },
@@ -1038,7 +1066,12 @@
         "name": "Screen Time",
         "description": "Screen time data ingestion for the timeline",
         "options": {
-          "sync_interval_hours": { "1": "Every hour", "6": "Every 6 hours", "12": "Every 12 hours", "24": "Every 24 hours" },
+          "sync_interval_hours": {
+            "1": "Every hour",
+            "6": "Every 6 hours",
+            "12": "Every 12 hours",
+            "24": "Every 24 hours"
+          },
           "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" }
         },
         "sections": { "general": "General", "sync": "Sync", "retention": "Retention" }
@@ -1049,10 +1082,23 @@
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
           "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
-          "initial_sync_policy": { "full": "Sync full history", "lookback_days": "Sync recent days", "from_now": "Only new commands from now" },
-          "sensitive_mode": { "redact": "Redact sensitive content", "skip": "Skip commands with sensitive content", "include": "Include all content" }
+          "initial_sync_policy": {
+            "full": "Sync full history",
+            "lookback_days": "Sync recent days",
+            "from_now": "Only new commands from now"
+          },
+          "sensitive_mode": {
+            "redact": "Redact sensitive content",
+            "skip": "Skip commands with sensitive content",
+            "include": "Include all content"
+          }
         },
-        "sections": { "general": "General", "retention": "Retention", "privacy": "Privacy", "activation": "Activation" }
+        "sections": {
+          "general": "General",
+          "retention": "Retention",
+          "privacy": "Privacy",
+          "activation": "Activation"
+        }
       }
     },
     "saving": "Saving..."
@@ -1264,24 +1310,24 @@
       "tactics": "Temporary Tactics",
       "noTactics": "No tactics defined"
     },
-  "l1": {
-    "totalEvents": "Total Events",
-    "userAuthored": "User Authored",
-    "interaction": "Interaction",
-    "externalActivity": "External Activity",
-    "events": "Event Stream",
-    "noEvents": "No events recorded"
-  },
-  "identity": {
-    "title": "Identity Mapping",
-    "canonicalSelf": "Canonical Self",
-    "runtimeLinks": "Runtime Accounts",
-    "runtimeUserLabel": "Runtime User",
-    "memoryOwnerLabel": "Memory Owner",
-    "linkCount": "{{count}} linked runtime accounts",
-    "noLinks": "No runtime identity links configured"
-  },
-  "l2": {
+    "l1": {
+      "totalEvents": "Total Events",
+      "userAuthored": "User Authored",
+      "interaction": "Interaction",
+      "externalActivity": "External Activity",
+      "events": "Event Stream",
+      "noEvents": "No events recorded"
+    },
+    "identity": {
+      "title": "Identity Mapping",
+      "canonicalSelf": "Canonical Self",
+      "runtimeLinks": "Runtime Accounts",
+      "runtimeUserLabel": "Runtime User",
+      "memoryOwnerLabel": "Memory Owner",
+      "linkCount": "{{count}} linked runtime accounts",
+      "noLinks": "No runtime identity links configured"
+    },
+    "l2": {
       "relationCount": "Knowledge Relations",
       "assertionCount": "ToM Assertions",
       "relations": "Knowledge Graph",
@@ -1303,7 +1349,7 @@
         "snapshotCount": "Snapshots",
         "manualEventLabel": "Manual event injection",
         "manualEventPlaceholder": "Describe a fact or preference to push through the L1 -> L2 pipeline...",
-      "userIdPlaceholder": "Runtime User ID",
+        "userIdPlaceholder": "Runtime User ID",
         "sessionIdPlaceholder": "Session ID",
         "entityFocusPlaceholder": "Entity focus hint (optional)",
         "injectEvent": "Inject Event",

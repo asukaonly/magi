@@ -691,7 +691,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     user_mode: null,
     language: 'zh',
     close_to_tray_enabled: true,
-    default_chat_workspace_path: null,
+    default_chat_workspace_path: '~/.magi/chat-workspace',
   },
   personality: DEFAULT_PERSONALITY_CONFIG,
   tools: {

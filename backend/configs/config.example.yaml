@@ -185,5 +185,8 @@ plugins:
 # =============================================================================
 # Global Settings
 # =============================================================================
+preferences:
+  default_chat_workspace_path: "~/.magi/chat-workspace"
+
 debug: false
 log_level: "INFO"

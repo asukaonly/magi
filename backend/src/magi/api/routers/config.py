@@ -158,7 +158,7 @@ class UserPreferencesModel(BaseModel):
     user_mode: Optional[str] = Field(default=None)
     language: str = Field(default="zh")
     close_to_tray_enabled: bool = Field(default=True)
-    default_chat_workspace_path: Optional[str] = Field(default=None)
+    default_chat_workspace_path: Optional[str] = Field(default="~/.magi/chat-workspace")
 
 
 # Import full PersonalityConfigModel from personality config module

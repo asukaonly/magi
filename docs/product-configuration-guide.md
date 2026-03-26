@@ -94,6 +94,7 @@ It should provide a stable place where users can revisit and update:
 
 - preferences
 - LLM settings
+- conversation settings
 - personality settings
 - memory settings
 - timeline settings
@@ -108,7 +109,7 @@ Expected behavior:
 - changes are validated before save
 - save success and validation errors are visible to the user
 - language switching remains available from settings
-- desktop preferences can include a default chat workspace directory used when creating new conversations
+- desktop conversation settings can include a default chat workspace directory used when creating new conversations
 
 ## Preferences
 
@@ -118,7 +119,6 @@ Current product expectations:
 
 - users can switch interface language at any time
 - desktop users can choose whether closing the main window hides to tray or exits
-- desktop users can set a default chat workspace directory for new conversations
 - desktop chat surfaces should show the active conversation workspace and allow per-session overrides
 - when neither a global default nor a per-session override is set, desktop chat should fall back to a managed local workspace under `~/.magi/chat-workspace`
 - desktop chat attachments should be uploaded into managed local runtime storage before a turn is sent
@@ -129,6 +129,16 @@ Current product expectations:
 - desktop chat history thumbnails should open a larger local preview when clicked
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
 - image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
+
+## Conversation Settings
+
+The conversation settings area owns conversation-scoped defaults that are not model-specific.
+
+Current product expectations:
+
+- desktop users can set a default chat workspace directory for new conversations
+- the default configuration template should seed the managed local workspace path as `~/.magi/chat-workspace`
+- clearing the saved default workspace should fall back to the managed local workspace behavior instead of breaking new conversations
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
 - per-conversation workspace changes should not overwrite the saved global default
 

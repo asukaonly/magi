@@ -5,6 +5,7 @@
 import {
   Settings2,
   Brain,
+  MessageSquare,
   User,
   Database,
   Wrench,
@@ -30,6 +31,7 @@ export const LANGUAGE_STORAGE_KEY = 'magi_language';
 export const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
+  { id: 'conversation', icon: MessageSquare },
   { id: 'personality', icon: User },
   {
     id: 'memory',

@@ -10,4 +10,8 @@ describe('default system config', () => {
     expect(DEFAULT_SYSTEM_CONFIG.llm.selections.core.provider_id).toBe('');
     expect(DEFAULT_SYSTEM_CONFIG.llm.selections.core.model).toBe('');
   });
+
+  it('starts with the managed chat workspace path in preferences', () => {
+    expect(DEFAULT_SYSTEM_CONFIG.preferences.default_chat_workspace_path).toBe('~/.magi/chat-workspace');
+  });
 });

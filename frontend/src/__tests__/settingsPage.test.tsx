@@ -587,8 +587,24 @@ describe('settings page draft saving', () => {
 
     expect(content).not.toHaveClass('max-w-3xl');
     expect(screen.getAllByText('settings.fields.language')).toHaveLength(1);
+    expect(screen.getAllByText('settings.fields.theme')).toHaveLength(1);
     expect(screen.getAllByText('settings.fields.closeToTray')).toHaveLength(1);
-    expect(screen.getAllByText('settings.fields.defaultChatWorkspace')).toHaveLength(1);
+    expect(screen.queryByText('settings.fields.defaultChatWorkspace')).not.toBeInTheDocument();
+  });
+
+  it('renders the theme preference as a dropdown-style field', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const themeTrigger = await screen.findByRole('button', { name: 'settings.fields.theme' });
+
+    expect(screen.queryByRole('button', { name: 'settings.theme.light' })).not.toBeInTheDocument();
+
+    await user.click(themeTrigger);
+
+    expect(await screen.findByRole('button', { name: 'settings.theme.light' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.theme.dark' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.theme.system' })).toBeInTheDocument();
   });
 
   it('does not mark provider settings dirty when llm form normalizes mounted values', async () => {
@@ -696,17 +712,19 @@ describe('settings page draft saving', () => {
     });
   });
 
-  it('saves a picked default chat workspace path in preferences', async () => {
+  it('saves a picked default chat workspace path in conversation settings', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/Users/asuka/code/magi');
     render(<SettingsPage />);
 
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
     const workspaceInput = await screen.findByLabelText('settings.fields.defaultChatWorkspace');
-    expect(workspaceInput).toHaveValue('');
+    expect(workspaceInput).toHaveValue('~/.magi/chat-workspace');
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' }));
 
     await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledTimes(1));
+    expect(pickDirectoryMock).toHaveBeenCalledWith('~/.magi/chat-workspace');
     expect(workspaceInput).toHaveValue('/Users/asuka/code/magi');
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
 
@@ -737,6 +755,7 @@ describe('settings page draft saving', () => {
 
     render(<SettingsPage />);
 
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
     const workspaceInput = await screen.findByLabelText('settings.fields.defaultChatWorkspace');
     expect(workspaceInput).toHaveValue('/Users/asuka/code/magi');
 
@@ -1082,6 +1101,7 @@ describe('settings page draft saving', () => {
         [
           'settings.tabs.preferences',
           'settings.tabs.llm',
+          'settings.tabs.conversation',
           'settings.tabs.personality',
           'settings.tabs.memory',
           'settings.tabs.extensions',
@@ -1095,6 +1115,7 @@ describe('settings page draft saving', () => {
     expect(topLevelButtons).toEqual([
       'settings.tabs.preferences',
       'settings.tabs.llm',
+      'settings.tabs.conversation',
       'settings.tabs.personality',
       'settings.tabs.memory',
       'settings.tabs.extensions',
@@ -1103,5 +1124,17 @@ describe('settings page draft saving', () => {
       'settings.tabs.tools',
       'settings.tabs.statistics',
     ]);
+  });
+
+  it('shows the conversation settings section between llm and personality', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const conversationButton = await screen.findByRole('button', { name: 'settings.tabs.conversation' });
+
+    await user.click(conversationButton);
+
+    expect(screen.getByRole('heading', { name: 'settings.tabs.conversation' })).toBeInTheDocument();
+    expect(screen.getByLabelText('settings.fields.defaultChatWorkspace')).toBeInTheDocument();
   });
 });

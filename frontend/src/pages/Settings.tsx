@@ -3,9 +3,6 @@ import { useTranslation } from 'react-i18next';
 import {
   ChevronRight,
   ChevronDown,
-  Sun,
-  Moon,
-  Monitor,
   FolderOpen,
   X,
   RotateCcw,
@@ -219,66 +216,41 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               title={t('settings.fields.theme')}
               description={t('settings.themeDesc')}
             >
-              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)]">
-                {([
-                  { value: 'light', icon: Sun, label: t('settings.theme.light') },
-                  { value: 'dark', icon: Moon, label: t('settings.theme.dark') },
-                  { value: 'system', icon: Monitor, label: t('settings.theme.system') },
-                ] as const).map((option) => {
-                  const Icon = option.icon;
-                  const isActive = draftThemeMode === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleThemePreviewChange(option.value)}
-                      aria-pressed={isActive}
-                      aria-label={option.label}
-                      className={cn(
-                        'flex w-full items-center justify-between border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 text-left transition-colors last:border-b-0',
-                        isActive
-                          ? 'text-foreground'
-                          : 'text-[hsl(var(--settings-nav-foreground))] hover:text-foreground'
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4" />
-                        <span className="text-sm font-medium">{option.label}</span>
-                      </div>
-                      <span
-                        className={cn(
-                          'text-[11px] tracking-[0.08em] transition-opacity',
-                          isActive ? 'opacity-100 text-[hsl(var(--settings-nav-active-foreground))]' : 'opacity-0'
-                        )}
-                      >
-                        {t('settings.activeState')}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <LabeledSelectField
+                  label=""
+                  ariaLabel={t('settings.fields.theme')}
+                  value={draftThemeMode}
+                  options={[
+                    { label: t('settings.theme.light'), value: 'light' },
+                    { label: t('settings.theme.dark'), value: 'dark' },
+                    { label: t('settings.theme.system'), value: 'system' },
+                  ]}
+                  onChange={(value) => handleThemePreviewChange(value as typeof draftThemeMode)}
+                />
               </div>
             </SettingsGroup>
 
-            <SettingsGroup
-              title={t('settings.fields.closeToTray')}
-              description={t('settings.closeToTrayDesc')}
-            >
-              <label className="grid gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-                <div className="text-xs leading-6 text-muted-foreground">
-                  {t('settings.closeToTrayHelp')}
-                </div>
-                <div className="flex justify-start sm:justify-end">
-                  <Switch
-                    aria-label={t('settings.fields.closeToTray')}
-                    checked={draftConfig.preferences.close_to_tray_enabled}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.preferences.close_to_tray_enabled = checked;
-                    })}
-                  />
-                </div>
-              </label>
-            </SettingsGroup>
+            <section className="space-y-4 pt-4">
+              <div className="flex items-center justify-between gap-4 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">
+                  {t('settings.fields.closeToTray')}
+                </h3>
+                <Switch
+                  aria-label={t('settings.fields.closeToTray')}
+                  checked={draftConfig.preferences.close_to_tray_enabled}
+                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                    draft.preferences.close_to_tray_enabled = checked;
+                  })}
+                />
+              </div>
+            </section>
+          </SettingsSectionShell>
+        );
 
+      case 'conversation':
+        return (
+          <SettingsSectionShell>
             <SettingsGroup
               title={t('settings.fields.defaultChatWorkspace')}
               description={t('settings.defaultChatWorkspaceDesc')}

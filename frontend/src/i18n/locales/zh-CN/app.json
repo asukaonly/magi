@@ -183,9 +183,9 @@
     "inputPlaceholder": "输入你的消息...（按 Enter 发送，Shift + Enter 换行）",
     "send": "发送",
     "tip": "💡 提示：按 Enter 发送消息，Shift + Enter 换行",
-  "emptyInput": "请输入消息内容",
-  "sessionRequired": "请先选择或创建一个会话",
-  "wsNotConnected": "WebSocket未连接，请等待连接建立",
+    "emptyInput": "请输入消息内容",
+    "sessionRequired": "请先选择或创建一个会话",
+    "wsNotConnected": "WebSocket未连接，请等待连接建立",
     "reply": {
       "action": "回复",
       "cancel": "取消回复",
@@ -367,10 +367,10 @@
     "resetFailed": "重置配置失败: {{message}}",
     "downloadStartFailed": "启动下载失败",
     "modelReady": "模型已就绪",
-  "loadingConfig": "加载配置中...",
-  "title": "系统配置",
-  "shellTitle": "系统设置",
-  "subtitle": "所有配置都可在此集中管理",
+    "loadingConfig": "加载配置中...",
+    "title": "系统配置",
+    "shellTitle": "系统设置",
+    "subtitle": "所有配置都可在此集中管理",
     "refresh": "刷新",
     "reset": "重置为默认",
     "saveAll": "保存全部",
@@ -380,6 +380,7 @@
       "llm": "大模型配置",
       "llmProviders": "供应商配置",
       "llmModels": "模型选择",
+      "conversation": "对话设置",
       "statistics": "统计",
       "statisticsLlm": "大模型统计",
       "statisticsRuntime": "系统实时数据",
@@ -397,7 +398,8 @@
       "actions": "执行器",
       "system": "系统"
     },
-    "preferencesDesc": "配置界面语言和用户模式",
+    "preferencesDesc": "配置界面语言、主题和桌面行为",
+    "conversationDesc": "配置新对话默认使用的工作目录",
     "closeToTrayDesc": "关闭主窗口时隐藏到托盘或状态栏，并保持本地运行时继续运行。",
     "closeToTrayHelp": "关闭主窗口后，Magi 仍会在后台继续运行。",
     "defaultChatWorkspaceDesc": "设置桌面端新对话默认挂载的工作目录。进入具体会话后，仍然可以单独覆盖这个目录。",
@@ -993,7 +995,12 @@
         "name": "日历",
         "description": "日历事件接入时间线",
         "options": {
-          "sync_interval_minutes": { "15": "15 分钟", "30": "30 分钟", "60": "1 小时", "360": "6 小时" },
+          "sync_interval_minutes": {
+            "15": "15 分钟",
+            "30": "30 分钟",
+            "60": "1 小时",
+            "360": "6 小时"
+          },
           "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" }
         },
         "sections": { "general": "常规", "sync": "同步" }
@@ -1006,7 +1013,11 @@
           "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },
           "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
           "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
-          "initial_sync_policy": { "full": "同步全部历史", "lookback_days": "同步最近几天", "from_now": "仅同步新记录" },
+          "initial_sync_policy": {
+            "full": "同步全部历史",
+            "lookback_days": "同步最近几天",
+            "from_now": "仅同步新记录"
+          },
           "fetch_page_content": { "true": "是", "false": "否" }
         },
         "sections": { "general": "常规", "sync": "同步", "storage": "存储", "activation": "激活" }
@@ -1017,8 +1028,16 @@
         "options": {
           "enabled": { "true": "启用", "false": "停用" },
           "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" },
-          "initial_sync_policy": { "full": "同步全部历史", "lookback_days": "同步最近几天", "from_now": "仅同步新提交" },
-          "sensitive_mode": { "redact": "脱敏敏感内容", "skip": "跳过包含敏感内容的提交", "include": "包含所有内容" }
+          "initial_sync_policy": {
+            "full": "同步全部历史",
+            "lookback_days": "同步最近几天",
+            "from_now": "仅同步新提交"
+          },
+          "sensitive_mode": {
+            "redact": "脱敏敏感内容",
+            "skip": "跳过包含敏感内容的提交",
+            "include": "包含所有内容"
+          }
         },
         "sections": { "general": "常规", "retention": "保留策略", "privacy": "隐私" }
       },
@@ -1030,7 +1049,11 @@
           "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },
           "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
           "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
-          "initial_sync_policy": { "full": "同步全部历史", "lookback_days": "同步最近几天", "from_now": "仅同步新曲目" }
+          "initial_sync_policy": {
+            "full": "同步全部历史",
+            "lookback_days": "同步最近几天",
+            "from_now": "仅同步新曲目"
+          }
         },
         "sections": { "general": "常规", "storage": "存储" }
       },
@@ -1038,7 +1061,12 @@
         "name": "屏幕使用时间",
         "description": "屏幕使用时间数据接入时间线",
         "options": {
-          "sync_interval_hours": { "1": "每小时", "6": "每 6 小时", "12": "每 12 小时", "24": "每 24 小时" },
+          "sync_interval_hours": {
+            "1": "每小时",
+            "6": "每 6 小时",
+            "12": "每 12 小时",
+            "24": "每 24 小时"
+          },
           "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" }
         },
         "sections": { "general": "常规", "sync": "同步", "retention": "保留策略" }
@@ -1049,10 +1077,23 @@
         "options": {
           "enabled": { "true": "启用", "false": "停用" },
           "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
-          "initial_sync_policy": { "full": "同步全部历史", "lookback_days": "同步最近几天", "from_now": "仅同步新命令" },
-          "sensitive_mode": { "redact": "脱敏敏感内容", "skip": "跳过包含敏感内容的命令", "include": "包含所有内容" }
+          "initial_sync_policy": {
+            "full": "同步全部历史",
+            "lookback_days": "同步最近几天",
+            "from_now": "仅同步新命令"
+          },
+          "sensitive_mode": {
+            "redact": "脱敏敏感内容",
+            "skip": "跳过包含敏感内容的命令",
+            "include": "包含所有内容"
+          }
         },
-        "sections": { "general": "常规", "retention": "保留策略", "privacy": "隐私", "activation": "激活" }
+        "sections": {
+          "general": "常规",
+          "retention": "保留策略",
+          "privacy": "隐私",
+          "activation": "激活"
+        }
       }
     },
     "saving": "保存中..."
@@ -1264,24 +1305,24 @@
       "tactics": "临时策略",
       "noTactics": "暂无策略定义"
     },
-  "l1": {
-    "totalEvents": "事件总数",
-    "userAuthored": "用户来源事件",
-    "interaction": "交互事件",
-    "externalActivity": "外部活动",
-    "events": "事件流",
-    "noEvents": "暂无事件记录"
-  },
-  "identity": {
-    "title": "身份映射",
-    "canonicalSelf": "规范 Self",
-    "runtimeLinks": "接入层账号",
-    "runtimeUserLabel": "接入用户",
-    "memoryOwnerLabel": "记忆归属",
-    "linkCount": "已关联 {{count}} 个接入账号",
-    "noLinks": "暂无接入身份映射"
-  },
-  "l2": {
+    "l1": {
+      "totalEvents": "事件总数",
+      "userAuthored": "用户来源事件",
+      "interaction": "交互事件",
+      "externalActivity": "外部活动",
+      "events": "事件流",
+      "noEvents": "暂无事件记录"
+    },
+    "identity": {
+      "title": "身份映射",
+      "canonicalSelf": "规范 Self",
+      "runtimeLinks": "接入层账号",
+      "runtimeUserLabel": "接入用户",
+      "memoryOwnerLabel": "记忆归属",
+      "linkCount": "已关联 {{count}} 个接入账号",
+      "noLinks": "暂无接入身份映射"
+    },
+    "l2": {
       "relationCount": "知识关系",
       "assertionCount": "心智断言",
       "relations": "知识图谱",
@@ -1303,7 +1344,7 @@
         "snapshotCount": "快照数量",
         "manualEventLabel": "手动事件注入",
         "manualEventPlaceholder": "输入一段事实、偏好或关系变化，让它走完整的 L1 -> L2 链路...",
-      "userIdPlaceholder": "接入层用户 ID",
+        "userIdPlaceholder": "接入层用户 ID",
         "sessionIdPlaceholder": "会话 ID",
         "entityFocusPlaceholder": "实体焦点提示（可选）",
         "injectEvent": "注入事件",

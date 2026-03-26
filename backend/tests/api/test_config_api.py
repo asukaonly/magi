@@ -65,7 +65,7 @@ def test_system_config_defaults_include_close_to_tray_enabled_preference():
     config = SystemConfigModel()
 
     assert config.preferences.close_to_tray_enabled is True
-    assert config.preferences.default_chat_workspace_path is None
+    assert config.preferences.default_chat_workspace_path == "~/.magi/chat-workspace"
 
 
 def test_build_system_config_loads_close_to_tray_enabled_preference_from_raw_yaml(
