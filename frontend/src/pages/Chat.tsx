@@ -1862,7 +1862,7 @@ export const ChatPage: React.FC = () => {
                       });
                     }}
                     className={msg.role === 'user'
-                      ? 'rounded-xl rounded-tr-sm border border-[#ddb29f]/60 bg-[#f6e7de] px-4 py-2.5 text-[#6f3f2d] shadow-[0_12px_28px_rgba(168,93,62,0.08)]'
+                      ? 'rounded-xl rounded-tr-sm border border-transparent bg-[#f6e7de] px-4 py-2.5 text-[#6f3f2d] shadow-[0_14px_34px_rgba(168,93,62,0.09),inset_0_1px_0_rgba(255,255,255,0.42)]'
                       : 'rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}
                   >
                     {renderReplyStrip(msg.replyTo, msg.role)}
