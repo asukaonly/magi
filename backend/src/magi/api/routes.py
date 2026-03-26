@@ -62,6 +62,12 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/onboarding-template": {"GET"},
         "/onboarding-complete": {"POST"},
     },
+    "llm": {
+        "/providers/catalog": {"GET", "POST"},
+        "/providers/custom-template": {"GET"},
+        "/providers/discover-models": {"POST"},
+        "/providers/test": {"POST"},
+    },
     "skills": {
         "/api/skills/": {"GET"},
     },
@@ -121,6 +127,7 @@ def register_api_routes(app: FastAPI) -> None:
         metrics_router,
         user_messages_router,
         config_router,
+        llm_router,
         personality_config_router,
         personality_presets_router,
         skills_router,
@@ -152,6 +159,11 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]),
         prefix="/api/config",
         tags=["Config"],
+    )
+    app.include_router(
+        _build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]),
+        prefix="/api/llm",
+        tags=["LLM"],
     )
     app.include_router(
         _build_public_router(personality_config_router, _PUBLIC_ROUTE_METHODS["personality_config"]),

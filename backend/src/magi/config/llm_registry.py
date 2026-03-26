@@ -162,6 +162,24 @@ class LLMResolvedProviderCatalogModel(BaseModel):
     embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
 
 
+class LLMProviderCatalogEntryModel(BaseModel):
+    """Resolved catalog entry for a provider instance."""
+
+    id: str
+    provider_type: str
+    source: str = Field(default="builtin")
+    display_name: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    icon: Optional[str] = Field(default=None)
+    default_model: Optional[str] = Field(default=None)
+    default_classify_model: Optional[str] = Field(default=None)
+    default_base_url: Optional[str] = Field(default=None)
+    api_format: Optional[str] = Field(default=None)
+    fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
+    resolved_chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
+    resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
+
+
 class ResolvedLLMProfile(BaseModel):
     """Effective model profile after registry defaults and user overrides are applied."""
 
@@ -454,8 +472,27 @@ def resolve_provider_model_catalog(
     """Resolve provider model metadata by merging registry models with user overrides."""
 
     provider_meta = find_provider_meta(registry, provider_id)
+    provider_type = str(
+        getattr(getattr(provider_settings, "provider_type", ""), "value", getattr(provider_settings, "provider_type", ""))
+        or ""
+    ).strip().lower()
     overrides = dict(getattr(provider_settings, "model_metadata_overrides", {}) or {})
     custom_models = list(getattr(provider_settings, "custom_models", []) or [])
+    manual_base_capabilities = (
+        registry.custom_provider.capabilities.model_copy(deep=True)
+        if provider_type == "custom"
+        else LLMCapabilitiesSettings()
+    )
+    manual_base_limits = (
+        registry.custom_provider.limits.model_copy(deep=True)
+        if provider_type == "custom"
+        else LLMLimitsSettings()
+    )
+    manual_provider_options = (
+        dict(registry.custom_provider.provider_options_example)
+        if provider_type == "custom"
+        else {}
+    )
 
     chat_models: dict[str, LLMResolvedModelMetaModel] = {}
     embedding_models: dict[str, LLMResolvedEmbeddingModelMetaModel] = {}
@@ -504,9 +541,9 @@ def resolve_provider_model_catalog(
                 model_id=model_id,
                 source="manual",
                 label=model_id,
-                capabilities=LLMCapabilitiesSettings(),
-                limits=LLMLimitsSettings(),
-                provider_options_example={},
+                capabilities=manual_base_capabilities,
+                limits=manual_base_limits,
+                provider_options_example=manual_provider_options,
                 override=overrides.get(model_id),
             )
 
@@ -516,9 +553,9 @@ def resolve_provider_model_catalog(
                 model_id=model_id,
                 source="manual",
                 label=model_id,
-                capabilities=LLMCapabilitiesSettings(),
-                limits=LLMLimitsSettings(),
-                provider_options_example={},
+                capabilities=manual_base_capabilities,
+                limits=manual_base_limits,
+                provider_options_example=manual_provider_options,
                 override=override,
             )
 
@@ -544,7 +581,9 @@ def resolve_provider_model_catalog(
                 capabilities=embedding_capabilities,
                 limits=base_chat_model.limits if base_chat_model is not None else LLMLimitsSettings(),
                 provider_options_example=(
-                    base_chat_model.provider_options_example if base_chat_model is not None else {}
+                    base_chat_model.provider_options_example
+                    if base_chat_model is not None
+                    else manual_provider_options
                 ),
                 override=override,
             )
@@ -553,6 +592,81 @@ def resolve_provider_model_catalog(
         chat_models=list(chat_models.values()),
         embedding_models=list(embedding_models.values()),
     )
+
+
+def build_provider_catalog(
+    registry: LLMProviderRegistryModel,
+    provider_settings_by_id: Optional[Dict[str, LLMProviderSettings]] = None,
+) -> list[LLMProviderCatalogEntryModel]:
+    """Build a full provider catalog for builtin and saved custom providers."""
+
+    provider_settings_by_id = provider_settings_by_id or {}
+    catalog_entries: list[LLMProviderCatalogEntryModel] = []
+
+    for provider_meta in registry.providers:
+        provider_settings = provider_settings_by_id.get(provider_meta.id)
+        resolved_catalog = resolve_provider_model_catalog(
+            registry,
+            provider_meta.id,
+            provider_settings,
+        )
+        catalog_entries.append(
+            LLMProviderCatalogEntryModel(
+                id=provider_meta.id,
+                provider_type=provider_meta.id,
+                source="builtin",
+                display_name=provider_meta.display_name,
+                description=provider_meta.description,
+                icon=provider_meta.icon,
+                default_model=(
+                    getattr(provider_settings, "custom_default_model", None)
+                    or provider_meta.default_model
+                ),
+                default_classify_model=provider_meta.default_classify_model,
+                default_base_url=provider_meta.default_base_url,
+                api_format=getattr(provider_settings, "api_format", None),
+                fields=dict(provider_meta.fields),
+                resolved_chat_models=resolved_catalog.chat_models,
+                resolved_embedding_models=resolved_catalog.embedding_models,
+            )
+        )
+
+    for provider_id, provider_settings in provider_settings_by_id.items():
+        provider_type = str(
+            getattr(getattr(provider_settings, "provider_type", ""), "value", getattr(provider_settings, "provider_type", ""))
+            or ""
+        ).strip().lower()
+        if provider_type != "custom":
+            continue
+
+        resolved_catalog = resolve_provider_model_catalog(
+            registry,
+            provider_id,
+            provider_settings,
+        )
+        default_model = (
+            getattr(provider_settings, "custom_default_model", None)
+            or (provider_settings.custom_models[0] if provider_settings.custom_models else None)
+        )
+        catalog_entries.append(
+            LLMProviderCatalogEntryModel(
+                id=provider_id,
+                provider_type="custom",
+                source="custom",
+                display_name=provider_settings.display_name or registry.custom_provider.display_name or provider_id,
+                description=registry.custom_provider.description,
+                icon=registry.custom_provider.icon,
+                default_model=default_model,
+                default_classify_model=default_model,
+                default_base_url=provider_settings.base_url,
+                api_format=provider_settings.api_format,
+                fields=dict(registry.custom_provider.fields),
+                resolved_chat_models=resolved_catalog.chat_models,
+                resolved_embedding_models=resolved_catalog.embedding_models,
+            )
+        )
+
+    return catalog_entries
 
 
 def resolve_llm_profile(

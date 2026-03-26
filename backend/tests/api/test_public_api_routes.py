@@ -21,6 +21,8 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/messages/session/{session_id}/message/{message_id}/label" in paths
     assert "/api/messages/session/{session_id}/message/{message_id}" in paths
     assert "/api/config/" in paths
+    assert "/api/llm/providers/catalog" in paths
+    assert "/api/llm/providers/custom-template" in paths
     assert "/api/plugins" in paths
     assert "/api/timeline/items" in paths
     assert "/api/tools/config" in paths
