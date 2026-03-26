@@ -1292,6 +1292,13 @@
     "searchError": "Search failed: {{message}}",
     "search": "Search",
     "clear": "Clear",
+    "sources": {
+      "chat_projector": "Chat projector",
+      "runtime_action_emitter": "Runtime action emitter",
+      "timeline_importer": "Timeline importer",
+      "manual_journal": "Manual journal",
+      "l2_lab": "L2 lab"
+    },
     "architectureLabel": "Memory Architecture",
     "memoryArchitectureValue": "L0-L4 Lifecycle",
     "tabs": {

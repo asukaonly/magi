@@ -13,9 +13,10 @@ interface L1TabProps {
   stats: MemoryStatistics['l1'];
   events: L1Event[];
   showStats?: boolean;
+  formatSourceLabel?: (source: string) => string;
 }
 
-export const L1Tab: React.FC<L1TabProps> = ({ stats, events, showStats = true }) => {
+export const L1Tab: React.FC<L1TabProps> = ({ stats, events, showStats = true, formatSourceLabel }) => {
   const { t } = useTranslation('app');
 
   const userAuthoredCount = events.filter((event) => event.author_type === 'user').length;
@@ -67,7 +68,12 @@ export const L1Tab: React.FC<L1TabProps> = ({ stats, events, showStats = true })
                     <div className="mt-2 font-mono text-xs text-muted-foreground">{event.user_id}</div>
                   ) : null}
                   <div className="mt-2 text-xs text-muted-foreground">
-                    {[event.source, event.memory_domain, event.author_type, event.content_type].filter(Boolean).join(' · ')}
+                    {[
+                      event.source ? (formatSourceLabel ? formatSourceLabel(event.source) : event.source) : null,
+                      event.memory_domain,
+                      event.author_type,
+                      event.content_type,
+                    ].filter(Boolean).join(' · ')}
                   </div>
                 </article>
               ))}

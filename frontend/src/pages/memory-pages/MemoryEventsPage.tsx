@@ -13,6 +13,13 @@ import MemoryPageFrame, {
 } from './MemoryPageFrame';
 
 const SUMMARY_PREVIEW_LIMIT = 6;
+const SOURCE_LABEL_KEYS: Record<string, string> = {
+  chat_projector: 'memory.sources.chat_projector',
+  runtime_action_emitter: 'memory.sources.runtime_action_emitter',
+  timeline_importer: 'memory.sources.timeline_importer',
+  manual_journal: 'memory.sources.manual_journal',
+  l2_lab: 'memory.sources.l2_lab',
+};
 
 const buildSummaryText = (items: Array<[string, number]>, emptyLabel: string) => {
   if (items.length === 0) {
@@ -37,9 +44,18 @@ export const MemoryEventsPage = () => {
   >(undefined);
 
   const sources = useMemo(
-    () => Array.from(new Set(l1Events.map((event) => event.source).filter(Boolean))).sort(),
+    () => Array.from(new Set(l1Events.map((event) => event.source).filter((source): source is string => Boolean(source)))).sort(),
     [l1Events]
   );
+
+  const formatSourceLabel = (source: string) => {
+    const key = SOURCE_LABEL_KEYS[source];
+    if (!key) {
+      return source;
+    }
+    const translated = t(key);
+    return translated === key ? source : translated;
+  };
 
   const domainCounts = Array.from(
     l1Events.reduce((map, event) => {
@@ -55,7 +71,8 @@ export const MemoryEventsPage = () => {
       return map;
     }, new Map<string, number>())
   ).sort((left, right) => right[1] - left[1]);
-  const sourceSummary = buildSummaryText(sourceCounts, t('memory.filters.all'));
+  const localizedSourceCounts = sourceCounts.map(([source, count]) => [formatSourceLabel(source), count] as [string, number]);
+  const sourceSummary = buildSummaryText(localizedSourceCounts, t('memory.filters.all'));
   const domainSummary = buildSummaryText(domainCounts, t('memory.filters.all'));
 
   const buildSearchFilters = () => {
@@ -108,7 +125,7 @@ export const MemoryEventsPage = () => {
       }
       filters={(
         <form
-          className="grid gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.95fr)_260px_auto] lg:items-end"
+          className="grid gap-x-4 gap-y-3 lg:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.98fr)_minmax(240px,0.82fr)_auto] lg:items-end"
           onSubmit={(event) => {
             event.preventDefault();
             void handleSearch();
@@ -130,12 +147,12 @@ export const MemoryEventsPage = () => {
             <label className="text-sm font-medium" htmlFor="memory-events-start-date">
               {t('memory.pages.events.dateRangeLabel')}
             </label>
-            <div className="grid grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-center gap-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)] items-center gap-2">
               <Input
                 id="memory-events-start-date"
                 type="date"
                 aria-label={t('memory.pages.events.startDateLabel')}
-                className={MEMORY_FILTER_INPUT_CLASS}
+                className={`${MEMORY_FILTER_INPUT_CLASS} min-w-0`}
                 value={startDate}
                 onChange={(event) => setStartDate(event.target.value)}
               />
@@ -144,7 +161,7 @@ export const MemoryEventsPage = () => {
                 id="memory-events-end-date"
                 type="date"
                 aria-label={t('memory.pages.events.endDateLabel')}
-                className={MEMORY_FILTER_INPUT_CLASS}
+                className={`${MEMORY_FILTER_INPUT_CLASS} min-w-0`}
                 value={endDate}
                 onChange={(event) => setEndDate(event.target.value)}
               />
@@ -164,7 +181,7 @@ export const MemoryEventsPage = () => {
               <option value="all">{t('memory.filters.all')}</option>
               {sources.map((source) => (
                 <option key={source} value={source}>
-                  {source}
+                  {formatSourceLabel(source)}
                 </option>
               ))}
             </select>
@@ -173,7 +190,7 @@ export const MemoryEventsPage = () => {
             <Button type="submit" variant="outline" className={MEMORY_ACTION_BUTTON_CLASS} disabled={loading}>
               {t('memory.search')}
             </Button>
-            <Button type="button" variant="ghost" className="rounded-lg px-4" onClick={() => void handleReset()} disabled={loading}>
+            <Button type="button" variant="ghost" className="rounded-md px-4" onClick={() => void handleReset()} disabled={loading}>
               {t('memory.pages.events.resetButton')}
             </Button>
           </div>
@@ -207,7 +224,12 @@ export const MemoryEventsPage = () => {
             </MemoryWorkspacePanel>
           </div>
 
-          <L1Tab stats={{ event_count: l1Events.length }} events={l1Events} showStats={false} />
+          <L1Tab
+            stats={{ event_count: l1Events.length }}
+            events={l1Events}
+            showStats={false}
+            formatSourceLabel={formatSourceLabel}
+          />
         </div>
       )}
     </MemoryPageFrame>

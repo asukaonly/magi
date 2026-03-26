@@ -1287,6 +1287,13 @@
     "searchError": "搜索失败: {{message}}",
     "search": "搜索",
     "clear": "清除",
+    "sources": {
+      "chat_projector": "聊天投影",
+      "runtime_action_emitter": "运行时动作发射器",
+      "timeline_importer": "时间线导入",
+      "manual_journal": "手动日志",
+      "l2_lab": "L2 实验台"
+    },
     "architectureLabel": "记忆架构",
     "memoryArchitectureValue": "L0-L4 生命周期",
     "tabs": {
