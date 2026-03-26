@@ -594,7 +594,7 @@ class L2Handler:
             if ":" in normalized:
                 entity_type, _, _ = normalized.partition(":")
                 if normalized not in seen:
-                    resolved.append({"entity_id": normalized, "entity_type": entity_type or "entity"})
+                    resolved.append({"entity_id": normalized, "entity_type": entity_type or "entity", "match_source": "explicit"})
                     seen.add(normalized)
                 continue
             if self._entity_catalog is None:
@@ -608,7 +608,11 @@ class L2Handler:
                 entity_id = str(match["entity_id"])
                 if entity_id in seen:
                     continue
-                resolved.append({"entity_id": entity_id, "entity_type": str(match["entity_type"])})
+                resolved.append({
+                    "entity_id": entity_id,
+                    "entity_type": str(match["entity_type"]),
+                    "match_source": str(match.get("match_source") or "unknown"),
+                })
                 seen.add(entity_id)
 
         if resolved or self._entity_catalog is None or not conditions.content_query:
@@ -623,7 +627,11 @@ class L2Handler:
             entity_id = str(match["entity_id"])
             if entity_id in seen:
                 continue
-            resolved.append({"entity_id": entity_id, "entity_type": str(match["entity_type"])})
+            resolved.append({
+                "entity_id": entity_id,
+                "entity_type": str(match["entity_type"]),
+                "match_source": str(match.get("match_source") or "unknown"),
+            })
             seen.add(entity_id)
         return resolved or self._infer_self_entities(conditions.content_query, user_id=user_id)
 
@@ -718,6 +726,10 @@ class L2Handler:
     ) -> dict[str, Any]:
         explicit_entities = [dict(entity) for entity in resolved_entities]
         self_entities = self._infer_self_entities(conditions.content_query, user_id=user_id)
+        # When subject_hint is explicitly "self", honour the hint even if
+        # the content_query was rewritten without a first-person pronoun.
+        if conditions.subject_hint == "self" and not self_entities and user_id:
+            self_entities = [{"entity_id": f"user:{user_id}", "entity_type": "user"}]
         subject_entities: list[dict[str, str]] = []
         target_entities: list[dict[str, str]] = []
         subject_binding_source = "none"
@@ -813,6 +825,9 @@ class L2Handler:
         if predicate_family != "preference":
             return str(target_entities[0]["entity_id"])
         for index, entity in enumerate(target_entities):
+            # Vector-only resolution is unreliable for exact target filtering.
+            if str(entity.get("match_source") or "") == "vector":
+                continue
             surface = ""
             if conditions.entities and index < len(conditions.entities):
                 surface = str(conditions.entities[index] or "")
@@ -828,6 +843,10 @@ class L2Handler:
         target_entities: list[dict[str, str]],
     ) -> list[str] | None:
         if predicate_family != "preference" or not target_entities:
+            return None
+        # When all target entities came from vector-only resolution, skip
+        # type filtering to avoid excluding valid results.
+        if all(str(e.get("match_source") or "") == "vector" for e in target_entities):
             return None
         types: list[str] = []
         for entity in target_entities:

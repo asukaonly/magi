@@ -410,6 +410,74 @@ class TestServiceLayerRouting:
         assert result.trace["l2_assertion_count"] == 1
 
 
+    @pytest.mark.asyncio
+    async def test_graph_mode_self_hint_binds_user_even_without_pronoun(self):
+        """When subject_hint=self is inferred, the subject should be the
+        user entity even when the rewritten content_query omits first-person
+        pronouns."""
+        l2 = AsyncMock()
+        l2.get_tom_snapshot.return_value = None
+        l2.get_relationships.return_value = [{"triple_id": "t1"}]
+        l2.list_tom_assertions.return_value = []
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "place:abc123",
+                "entity_type": "place",
+                "canonical_name": "Hangzhou",
+                "match_source": "vector",
+            }
+        ]
+        mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        await svc.query(
+            _make_request(
+                query_mode="graph",
+                query="我讨厌什么天气",
+                user_id="local_user",
+            )
+        )
+
+        _, kwargs = l2.get_relationships.call_args
+        assert kwargs["subject_id"] == "user:local_user"
+
+    @pytest.mark.asyncio
+    async def test_graph_mode_vector_only_entity_skips_target_filter(self):
+        """When the only resolved entity came from vector-similarity (low
+        confidence), it should NOT be used as an exact target filter for
+        preference queries."""
+        l2 = AsyncMock()
+        l2.get_tom_snapshot.return_value = None
+        l2.get_relationships.return_value = [{"triple_id": "t1"}]
+        l2.list_tom_assertions.return_value = [{"assertion_id": "a1"}]
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "place:abc123",
+                "entity_type": "place",
+                "canonical_name": "Hangzhou",
+                "match_source": "vector",
+            }
+        ]
+        mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        await svc.query(
+            _make_request(
+                query_mode="graph",
+                query="我讨厌什么天气",
+                user_id="local_user",
+            )
+        )
+
+        _, rel_kwargs = l2.get_relationships.call_args
+        # Should NOT filter by the vector-only entity
+        assert rel_kwargs.get("object_id") is None
+        _, assert_kwargs = l2.list_tom_assertions.call_args
+        assert assert_kwargs["target_entity_id"] is None
+
+
 class TestServiceFallback:
     @pytest.mark.asyncio
     async def test_fallback_triggered_when_primary_empty(self):
