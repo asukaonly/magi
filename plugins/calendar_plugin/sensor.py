@@ -63,6 +63,18 @@ class CalendarTimelineSensor(SensorBase):
         ]
         return hashlib.sha1("|".join(version_parts).encode("utf-8")).hexdigest()
 
+    def request_activation_authorization(self, field_values: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Request EventKit authorization for calendar access."""
+        del field_values
+        authorized = self.reader.request_authorization()
+        return {
+            "authorized": bool(authorized),
+            "requested_types": ["calendar"],
+            "granted_types": ["calendar"] if authorized else [],
+            "denied_types": [] if authorized else ["calendar"],
+            "message": None if authorized else "Calendar access was not granted.",
+        }
+
     async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
         """Collect calendar events from EventKit."""
         sensor_settings = (

@@ -4,18 +4,33 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
+from magi.plugins import ActivationFlowSpec, ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 
 from .reader import EventKitReader
 from .sensor import CalendarTimelineSensor
 
 DEFAULT_SETTINGS = {
     "enabled": False,
+    "authorization_configured": False,
     "sync_interval_minutes": 30,
     "lookback_days": 30,
     "recurring_expansion_days": 30,
     "default_retention_mode": "analyze_only",
 }
+
+
+def _activation_flow(prefix: str) -> ActivationFlowSpec:
+    """Define first-enable authorization flow for Calendar."""
+    return ActivationFlowSpec(
+        title="Connect Calendar",
+        description="Allow Magi to read your calendar events for timeline sync.",
+        confirm_label="Allow calendar access",
+        cancel_label="Not now",
+        authorize_on_confirm=True,
+        enabled_key=f"{prefix}.enabled",
+        configured_key=f"{prefix}.authorization_configured",
+        fields=[],
+    )
 
 
 def _fields(prefix: str) -> list[ExtensionFieldSpec]:
@@ -145,6 +160,7 @@ class CalendarPlugin(Plugin):
                         "source_type": "calendar",
                         "default_settings": dict(DEFAULT_SETTINGS),
                         "sync_interval_minutes": sync_interval_minutes,
+                        "activation_flow": _activation_flow("sensors.calendar").model_dump(),
                     },
                 ),
             )

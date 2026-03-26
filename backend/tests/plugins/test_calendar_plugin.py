@@ -172,6 +172,83 @@ def test_reader_request_authorization_unavailable():
     assert result is False
 
 
+def test_reader_read_events_transforms_rows(monkeypatch):
+    """Test read_events converts native rows into CalendarEvent objects."""
+    from datetime import datetime
+
+    reader = EventKitReader()
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(reader, "is_available", lambda: True)
+    monkeypatch.setattr(
+        reader,
+        "_execute_events_query",
+        lambda *_args, **_kwargs: [
+            {
+                "event_id": "evt-123",
+                "title": "Weekly Review",
+                "start_time": datetime(2026, 3, 12, 9, 0),
+                "end_time": datetime(2026, 3, 12, 10, 0),
+                "is_all_day": False,
+                "location": "Room 7",
+                "notes": "Bring notes",
+                "calendar_name": "Work",
+                "calendar_color": "#3366FF",
+                "participants": [{"name": "Alice", "email": "alice@test.com", "status": "accepted"}],
+                "is_recurring": True,
+                "recurrence_rule": "FREQ=WEEKLY",
+                "url": "https://example.com/meeting",
+            }
+        ],
+        raising=False,
+    )
+
+    events = reader.read_events(
+        start_date=datetime(2026, 3, 1),
+        end_date=datetime(2026, 3, 31),
+    )
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.event_id == "evt-123"
+    assert event.title == "Weekly Review"
+    assert event.calendar_name == "Work"
+    assert len(event.participants) == 1
+    assert event.participants[0].name == "Alice"
+
+
+def test_reader_get_authorization_status_maps_authorized(monkeypatch):
+    """Test authorization status mapping for EventKit."""
+    reader = EventKitReader()
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(reader, "is_available", lambda: True)
+    mock_store = MagicMock()
+    mock_store.authorizationStatusForEntityType_.return_value = 3
+    reader._event_store = mock_store
+    reader._ek_module = {
+        "EKEntityTypeEvent": 0,
+        "EKAuthorizationStatusNotDetermined": 0,
+        "EKAuthorizationStatusDenied": 1,
+        "EKAuthorizationStatusRestricted": 2,
+        "EKAuthorizationStatusAuthorized": 3,
+        "EKAuthorizationStatusFullAccess": 4,
+        "EKAuthorizationStatusWriteOnly": 5,
+    }
+
+    status = reader.get_authorization_status()
+
+    assert status == "authorized"
+
+
+def test_reader_request_authorization_uses_full_access_result(monkeypatch):
+    """Test request_authorization delegates to native EventKit request flow."""
+    reader = EventKitReader()
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(reader, "is_available", lambda: True)
+    monkeypatch.setattr(reader, "_request_calendar_access", lambda: (True, None), raising=False)
+
+    assert reader.request_authorization() is True
+
+
 def test_reader_read_events_stub():
     """Test that read_events returns empty list as stub."""
     from datetime import datetime
@@ -303,6 +380,39 @@ def test_plugin_get_sensors_with_disabled_setting():
         sensor_id, _, sensor_spec = sensors[0]
         assert sensor_id == "timeline.calendar"
         assert sensor_spec.metadata["default_settings"]["enabled"] is False
+
+
+def test_plugin_exposes_activation_flow_metadata():
+    """Test calendar plugin exposes activation flow metadata."""
+    from calendar_plugin.plugin import CalendarPlugin
+
+    plugin = CalendarPlugin()
+    plugin.configure(manifest=None, settings={"sensors": {"calendar": {"enabled": False}}})
+
+    with patch('sys.platform', 'darwin'):
+        sensors = plugin.get_sensors()
+        assert len(sensors) == 1
+        _, _, sensor_spec = sensors[0]
+        activation_flow = sensor_spec.metadata["activation_flow"]
+        assert activation_flow["enabled_key"] == "sensors.calendar.enabled"
+        assert activation_flow["configured_key"] == "sensors.calendar.authorization_configured"
+        assert activation_flow["authorize_on_confirm"] is True
+
+
+def test_sensor_requests_calendar_authorization():
+    """Test calendar sensor requests EventKit authorization."""
+    from calendar_plugin.sensor import CalendarTimelineSensor
+
+    reader = MagicMock()
+    reader.request_authorization.return_value = True
+    sensor = CalendarTimelineSensor(reader=reader)
+
+    result = sensor.request_activation_authorization({})
+
+    reader.request_authorization.assert_called_once_with()
+    assert result["authorized"] is True
+    assert result["requested_types"] == ["calendar"]
+    assert result["granted_types"] == ["calendar"]
 
 
 import asyncio

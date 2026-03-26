@@ -1008,6 +1008,13 @@
       "calendar": {
         "name": "Calendar",
         "description": "Calendar event ingestion for the timeline",
+        "fields": {
+          "enabled": { "label": "Enable", "description": "Turn on calendar sync for the timeline." },
+          "sync_interval_minutes": { "label": "Sync Interval", "description": "How often to sync calendar events." },
+          "lookback_days": { "label": "Lookback Days", "description": "How many past days to include on first sync." },
+          "recurring_expansion_days": { "label": "Recurring Event Expansion", "description": "How many future days to expand recurring events." },
+          "default_retention_mode": { "label": "Retention Mode", "description": "How calendar data should be retained." }
+        },
         "options": {
           "sync_interval_minutes": {
             "15": "15 minutes",
@@ -1015,9 +1022,15 @@
             "60": "1 hour",
             "360": "6 hours"
           },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" }
+          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" }
         },
-        "sections": { "general": "General", "sync": "Sync" }
+        "sections": { "general": "General", "sync": "Sync", "retention": "Retention" },
+        "activation": {
+          "title": "Connect Calendar",
+          "description": "Allow Magi to read your calendar events for timeline sync.",
+          "confirm_label": "Allow calendar access",
+          "cancel_label": "Not now"
+        }
       },
       "chrome-history": {
         "name": "Chrome History",
