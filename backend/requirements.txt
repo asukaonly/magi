@@ -52,4 +52,4 @@ psutil>=5.9.8
 
 # macOS 传感器
 pyobjc-framework-EventKit>=10.0; platform_system == "Darwin"
-pyobjc-framework-Foundation>=10.0; platform_system == "Darwin"
+pyobjc-framework-Cocoa>=10.0; platform_system == "Darwin"
