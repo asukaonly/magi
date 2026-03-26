@@ -4,56 +4,6 @@ from __future__ import annotations
 from magi.plugins import ActionExecutionContext, ActionSpec, BaseAction, ExtensionFieldSpec, Plugin
 
 
-class NotifyUserAction(BaseAction):
-    def build_spec(self) -> ActionSpec:
-        return ActionSpec(
-            action_id="notify-user",
-            display_name="Notify User",
-            description="Send an in-app notification to the user.",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "Notification title"},
-                    "message": {"type": "string", "description": "Notification body"},
-                },
-                "required": ["message"],
-            },
-            fields=[
-                ExtensionFieldSpec(
-                    key="notifications.default_level",
-                    type="select",
-                    label="Default Notification Level",
-                    description="Default severity used for user notifications.",
-                    default="info",
-                    options=[
-                        {"label": "Info", "value": "info"},
-                        {"label": "Warning", "value": "warning"},
-                        {"label": "Critical", "value": "critical"},
-                    ],
-                    section="notifications",
-                    surface="actions",
-                    order=10,
-                )
-            ],
-            tool_adapter_name="notify-user",
-            tool_adapter_description="Send an in-app notification to the current user.",
-        )
-
-    async def execute(
-        self,
-        parameters: dict[str, object],
-        context: ActionExecutionContext,
-    ) -> dict[str, object]:
-        return {
-            "status": "sent",
-            "channel": "in_app",
-            "delivery": "simulated",
-            "title": str(parameters.get("title") or "Notification"),
-            "message": str(parameters.get("message") or ""),
-            "user_id": context.user_id,
-        }
-
-
 class SendEmailAction(BaseAction):
     def build_spec(self) -> ActionSpec:
         return ActionSpec(
@@ -115,4 +65,4 @@ class SendEmailAction(BaseAction):
 
 class CoreActionsPlugin(Plugin):
     def get_actions(self):
-        return [NotifyUserAction(), SendEmailAction()]
+        return [SendEmailAction()]

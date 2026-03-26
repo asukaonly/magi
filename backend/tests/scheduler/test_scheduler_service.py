@@ -73,9 +73,9 @@ async def test_scheduler_service_supports_once_and_cron_and_replaces_existing_sc
     await service.schedule_once(
         schedule_id="action-once",
         target_type=ScheduledTargetType.ACTION_DISPATCH,
-        target_key="notify-user",
+        target_key="send-email-once",
         run_at=time.time() + 60.0,
-        target_payload={"action_id": "notify-user"},
+        target_payload={"action_id": "send-email"},
     )
     await service.schedule_cron(
         schedule_id="action-cron",

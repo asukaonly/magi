@@ -205,21 +205,23 @@ from magi.plugins import ActionExecutionContext, ActionSpec, BaseAction, Plugin
 class NotifyAction(BaseAction):
     def build_spec(self) -> ActionSpec:
         return ActionSpec(
-            action_id="notify-user",
-            display_name="Notify User",
-            description="Send an in-app notification.",
+            action_id="send-email",
+            display_name="Send Email",
+            description="Send an outbound email.",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "message": {"type": "string", "description": "Notification body"},
+                    "to": {"type": "string", "description": "Recipient address"},
+                    "subject": {"type": "string", "description": "Email subject"},
+                    "body": {"type": "string", "description": "Email body"},
                 },
-                "required": ["message"],
+                "required": ["to", "subject", "body"],
             },
-            tool_adapter_name="notify-user",
+            tool_adapter_name="send-email",
         )
 
     async def execute(self, parameters: dict, context: ActionExecutionContext) -> dict:
-        return {"status": "sent", "message": parameters["message"]}
+        return {"status": "queued", "to": parameters["to"]}
 
 
 class ExamplePlugin(Plugin):

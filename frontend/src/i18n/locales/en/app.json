@@ -953,10 +953,9 @@
         "name": "Core Actions",
         "description": "Built-in actions for agent outbound capabilities",
         "options": {
-          "default_level": { "info": "Info", "warning": "Warning", "critical": "Critical" },
           "delivery_mode": { "console": "Console (Debug)", "smtp": "SMTP", "sendgrid": "SendGrid" }
         },
-        "sections": { "notifications": "Notifications", "email": "Email" }
+        "sections": { "email": "Email" }
       },
       "apple-health": {
         "name": "Apple Health",

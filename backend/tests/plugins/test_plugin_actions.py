@@ -35,13 +35,11 @@ async def test_core_actions_plugin_registers_actions_and_tool_adapters(
     manager.scan(persist_discovery=False)
     manager.load_plugin("core-actions")
 
-    assert tool_registry.get_tool("notify-user") is not None
+    assert tool_registry.get_tool("notify-user") is None
     assert tool_registry.get_tool("send-email") is not None
 
     action = action_registry.get_action("notify-user")
-    assert action is not None
-    action_result = await action.execute({"message": "hello"}, ActionExecutionContext(user_id="u1"))
-    assert action_result["status"] == "sent"
+    assert action is None
 
     tool = tool_registry.get_tool("send-email")
     assert tool is not None

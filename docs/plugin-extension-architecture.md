@@ -261,7 +261,7 @@ Magi currently ships three official built-in plugin packages:
   registers the local photo library timeline source
 
 - `core-actions`
-  registers built-in outbound actions such as notify-user and send-email
+  registers built-in outbound actions such as send-email
 
 These packages are enabled by default through config defaults.
 

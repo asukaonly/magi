@@ -276,7 +276,6 @@ class ConfigLoader:
                 }
             },
             "core-actions": {
-                "notifications": {"default_level": "info"},
                 "email": {"default_sender": "", "provider_mode": "simulated"},
             },
             "chrome-history": {

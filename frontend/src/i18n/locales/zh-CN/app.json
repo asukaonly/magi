@@ -953,10 +953,9 @@
         "name": "核心执行器",
         "description": "内置执行器，用于代理对外操作能力",
         "options": {
-          "default_level": { "info": "信息", "warning": "警告", "critical": "严重" },
           "delivery_mode": { "console": "控制台（调试）", "smtp": "SMTP", "sendgrid": "SendGrid" }
         },
-        "sections": { "notifications": "通知", "email": "邮件" }
+        "sections": { "email": "邮件" }
       },
       "apple-health": {
         "name": "Apple 健康",
