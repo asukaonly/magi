@@ -514,7 +514,7 @@ class PluginsSettings(BaseModel):
                 trusted=True,
                 source="builtin",
             ),
-            "core-timeline": PluginSettings(
+            "photo-library": PluginSettings(
                 enabled=True,
                 trusted=True,
                 source="builtin",

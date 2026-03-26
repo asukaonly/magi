@@ -240,7 +240,7 @@ class ConfigLoader:
         return {
             "packages": {
                 "core-tools": {"enabled": True, "trusted": True, "source": "builtin"},
-                "core-timeline": {"enabled": True, "trusted": True, "source": "builtin"},
+                "photo-library": {"enabled": True, "trusted": True, "source": "builtin"},
                 "core-actions": {"enabled": True, "trusted": True, "source": "builtin"},
                 "chrome-history": {"enabled": True, "trusted": True, "source": "builtin"},
             }
@@ -262,7 +262,7 @@ class ConfigLoader:
         """Return default per-plugin settings."""
         return {
             "core-tools": {},
-            "core-timeline": {
+            "photo-library": {
                 "sensors": {
                     "photo_library": {
                         "enabled": True,

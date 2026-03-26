@@ -63,12 +63,12 @@ class _FakeSensorRegistry:
         if domain != "timeline" or source_type != "photo_library":
             return None
         spec = type("Spec", (), {"metadata": {"default_settings": {"enabled": True, "edge_whitelist": ["LIKES"]}}})()
-        return ("core-timeline", "timeline.photo_library", _FakePhotoLibrarySensor(), spec)
+        return ("photo-library", "timeline.photo_library", _FakePhotoLibrarySensor(), spec)
 
 
 class _FakePluginManager:
     def get_package(self, plugin_id: str):
-        if plugin_id != "core-timeline":
+        if plugin_id != "photo-library":
             return None
         return type("Package", (), {"current_settings": {"sensors": {"photo_library": {"enabled": True}}}})()
 

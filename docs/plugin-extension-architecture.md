@@ -67,7 +67,7 @@ A plugin package is a directory containing:
 Official built-in examples live in:
 
 - [core-tools](/Users/asuka/code/magi/plugins/core-tools/plugin.py)
-- [core-timeline](/Users/asuka/code/magi/plugins/core-timeline/plugin.py)
+- [photo-library](/Users/asuka/code/magi/plugins/photo-library/plugin.py)
 - [core-actions](/Users/asuka/code/magi/plugins/core-actions/plugin.py)
 
 ## Manifest Contract
@@ -257,8 +257,8 @@ Magi currently ships three official built-in plugin packages:
 - `core-tools`
   registers built-in tools
 
-- `core-timeline`
-  registers built-in external timeline sensors such as browser history and photo library
+- `photo-library`
+  registers the local photo library timeline source
 
 - `core-actions`
   registers built-in outbound actions such as notify-user and send-email

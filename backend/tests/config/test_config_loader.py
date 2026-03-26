@@ -38,7 +38,7 @@ def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, m
                 "plugins": {
                     "scan_paths": ["plugins", "~/.magi/plugins"],
                     "packages": {
-                        "core-timeline": {
+                        "photo-library": {
                             "enabled": True,
                             "trusted": True,
                             "source": "builtin",
@@ -65,14 +65,14 @@ def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, m
 
     migrated_agent = yaml.safe_load(agent_file.read_text(encoding="utf-8")) or {}
     index_file = tmp_path / "config" / "plugins" / "index.yaml"
-    settings_file = tmp_path / "config" / "plugins" / "core-timeline.yaml"
+    settings_file = tmp_path / "config" / "plugins" / "photo-library.yaml"
     index_data = yaml.safe_load(index_file.read_text(encoding="utf-8")) or {}
     settings_data = yaml.safe_load(settings_file.read_text(encoding="utf-8")) or {}
 
     assert "packages" not in migrated_agent.get("plugins", {})
-    assert index_data["packages"]["core-timeline"]["enabled"] is True
+    assert index_data["packages"]["photo-library"]["enabled"] is True
     assert settings_data["sensors"]["photo_library"]["sync_interval_minutes"] == 90
-    assert config.plugins.packages["core-timeline"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 90
+    assert config.plugins.packages["photo-library"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 90
 
 
 def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkeypatch) -> None:
@@ -80,36 +80,37 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
 
     loader = ConfigLoader()
     config = loader.load()
-    assert config.plugins.packages["core-timeline"].enabled is True
+    assert config.plugins.packages["photo-library"].enabled is True
 
     saved = loader.save(
         {
-            "plugins.packages.core-timeline.enabled": False,
-            "plugins.packages.core-timeline.settings.sensors.photo_library.sync_interval_minutes": 120,
+            "plugins.packages.photo-library.enabled": False,
+            "plugins.packages.photo-library.settings.sensors.photo_library.sync_interval_minutes": 120,
             "tools.weather.default_provider": "qweather",
         }
     )
 
     agent_data = yaml.safe_load((tmp_path / "config" / "agent.yaml").read_text(encoding="utf-8")) or {}
     index_data = yaml.safe_load((tmp_path / "config" / "plugins" / "index.yaml").read_text(encoding="utf-8")) or {}
-    settings_data = yaml.safe_load((tmp_path / "config" / "plugins" / "core-timeline.yaml").read_text(encoding="utf-8")) or {}
+    settings_data = yaml.safe_load((tmp_path / "config" / "plugins" / "photo-library.yaml").read_text(encoding="utf-8")) or {}
 
     assert saved is True
     assert "packages" not in agent_data.get("plugins", {})
     assert agent_data["tools"]["weather"]["default_provider"] == "qweather"
-    assert index_data["packages"]["core-timeline"]["enabled"] is False
+    assert index_data["packages"]["photo-library"]["enabled"] is False
     assert settings_data["sensors"]["photo_library"]["sync_interval_minutes"] == 120
-    assert loader.load().plugins.packages["core-timeline"].enabled is False
-    assert loader.load().plugins.packages["core-timeline"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 120
+    assert loader.load().plugins.packages["photo-library"].enabled is False
+    assert loader.load().plugins.packages["photo-library"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 120
 
 
-def test_loader_default_core_timeline_settings_only_include_external_sensor_sources(tmp_path: Path, monkeypatch) -> None:
+def test_loader_default_photo_library_settings_live_in_the_dedicated_plugin(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
 
     loader = ConfigLoader()
     config = loader.load()
 
-    sensors = config.plugins.packages["core-timeline"].settings["sensors"]
+    assert "core-timeline" not in config.plugins.packages
+    sensors = config.plugins.packages["photo-library"].settings["sensors"]
 
     assert "browser_history" not in sensors
     assert "chat" not in sensors

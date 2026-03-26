@@ -163,7 +163,7 @@ vi.mock('@/api/modules/tools', async () => {
 
 const timelineSourceFixture = {
   source_name: 'photo_library',
-  plugin_id: 'core-timeline',
+  plugin_id: 'photo-library',
   contribution_id: 'timeline.photo_library',
   display_name: 'Photo Library',
   description: 'Photo assets referenced from a local library path.',
@@ -336,16 +336,16 @@ const pluginsListFixture = {
   plugins: [
     {
       manifest: {
-        plugin_id: 'core-timeline',
-        name: 'Core Timeline',
+        plugin_id: 'photo-library',
+        name: 'Photo Library',
         version: '1.0.0',
-        description: 'Built-in timeline sensors',
+        description: 'Photo library plugin',
         author: 'Magi Team',
         official: true,
         contribution_types: ['sensor'],
         source: 'builtin',
-        plugin_dir: '/tmp/plugins/core-timeline',
-        manifest_path: '/tmp/plugins/core-timeline/plugin.toml',
+        plugin_dir: '/tmp/plugins/photo-library',
+        manifest_path: '/tmp/plugins/photo-library/plugin.toml',
       },
       enabled: true,
       trusted: true,
@@ -363,7 +363,7 @@ const pluginsListFixture = {
       },
       contributions: [
         {
-          plugin_id: 'core-timeline',
+          plugin_id: 'photo-library',
           contribution_id: 'timeline.photo_library',
           contribution_type: 'sensor',
           display_name: 'Photo Library',
@@ -951,7 +951,7 @@ describe('settings page draft saving', () => {
 
     await waitFor(() =>
       expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-        'core-timeline',
+        'photo-library',
         expect.objectContaining({
           'sensors.photo_library.sync_interval_minutes': 75,
           'sensors.photo_library.enabled': false,

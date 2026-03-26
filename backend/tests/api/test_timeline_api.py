@@ -184,7 +184,7 @@ class _FakeSchedulerService:
             last_success_at=1710000200.0,
             last_error=None,
             next_run_at=1710000500.0,
-            scheduler_job_id="timeline-sync:core-timeline:photo_library",
+            scheduler_job_id="timeline-sync:photo-library:photo_library",
             stats={"count": 4, "raw_count": 7},
         )
 
@@ -209,7 +209,7 @@ def _build_client(monkeypatch):
         "PluginState",
         (),
         {
-            "manifest": type("Manifest", (), {"plugin_id": "core-timeline"})(),
+            "manifest": type("Manifest", (), {"plugin_id": "photo-library"})(),
             "current_settings": {
                 "sensors": {
                     "photo_library": {
@@ -243,7 +243,7 @@ def _build_client(monkeypatch):
                         "Contribution",
                         (),
                         {
-                            "plugin_id": "core-timeline",
+                            "plugin_id": "photo-library",
                             "contribution_id": "timeline.photo_library",
                             "display_name": "Photo Library",
                             "description": "Photo assets referenced from a local library path.",
@@ -281,7 +281,7 @@ def _build_client(monkeypatch):
                 ],
                 "resolve_domain_sensor": lambda self, domain, source_name: (
                     (
-                        "core-timeline",
+                        "photo-library",
                         "timeline.photo_library",
                         type("Sensor", (), {"supports_pull_sync": True})(),
                         object(),
@@ -377,9 +377,9 @@ def test_get_timeline_source_status(monkeypatch):
     body = response.json()
     assert body["sources"][0]["source_name"] == "photo_library"
     assert body["sources"][0]["fetch_page_content"] is False
-    assert body["sources"][0]["plugin_id"] == "core-timeline"
+    assert body["sources"][0]["plugin_id"] == "photo-library"
     assert body["sources"][0]["supports_pull_sync"] is True
-    assert body["sources"][0]["scheduler_job_id"] == "timeline-sync:core-timeline:photo_library"
+    assert body["sources"][0]["scheduler_job_id"] == "timeline-sync:photo-library:photo_library"
     assert body["sources"][0]["activation_flow"] is None
     assert body["sources"][0]["activation_required"] is False
     assert body["sources"][0]["enabled"] is False
@@ -403,7 +403,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
         "PluginState",
         (),
         {
-            "manifest": type("Manifest", (), {"plugin_id": "core-timeline"})(),
+            "manifest": type("Manifest", (), {"plugin_id": "photo-library"})(),
             "current_settings": {"sensors": {"photo_library": {"enabled": True, "sync_mode": "manual"}}},
         },
     )()
@@ -424,7 +424,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
                         "Contribution",
                         (),
                         {
-                            "plugin_id": "core-timeline",
+                            "plugin_id": "photo-library",
                             "contribution_id": "timeline.photo_library",
                             "display_name": "Photo Library",
                             "description": "Photo assets referenced from a local library path.",
@@ -443,7 +443,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
                 ],
                 "resolve_domain_sensor": lambda self, domain, source_name: (
                     (
-                        "core-timeline",
+                        "photo-library",
                         "timeline.photo_library",
                         type("Sensor", (), {"supports_pull_sync": False})(),
                         object(),

@@ -364,7 +364,7 @@ Useful existing references:
 Use these as the primary templates:
 
 - [core-tools plugin](/Users/asuka/code/magi/plugins/core-tools/plugin.py)
-- [core-timeline plugin](/Users/asuka/code/magi/plugins/core-timeline/plugin.py)
+- [photo-library plugin](/Users/asuka/code/magi/plugins/photo-library/plugin.py)
 - [core-actions plugin](/Users/asuka/code/magi/plugins/core-actions/plugin.py)
 
 ## Common Mistakes

@@ -933,9 +933,9 @@
       }
     },
     "plugins": {
-      "core-timeline": {
-        "name": "Core Timeline",
-        "description": "Official timeline sensors for activity tracking",
+      "photo-library": {
+        "name": "Photo Library",
+        "description": "Local photo library ingestion for the timeline",
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
           "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },

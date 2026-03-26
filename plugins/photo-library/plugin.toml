@@ -1,0 +1,10 @@
+[plugin]
+id = "photo-library"
+name = "Photo Library"
+version = "1.0.0"
+description = "Local photo library ingestion for the timeline."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "PhotoLibraryPlugin"
+official = true
+contribution_types = ["sensor"]

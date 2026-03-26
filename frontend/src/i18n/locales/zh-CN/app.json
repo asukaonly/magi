@@ -933,9 +933,9 @@
       }
     },
     "plugins": {
-      "core-timeline": {
-        "name": "核心时间线",
-        "description": "官方时间线传感器，用于活动追踪",
+      "photo-library": {
+        "name": "照片库",
+        "description": "本地照片库接入时间线",
         "options": {
           "enabled": { "true": "启用", "false": "停用" },
           "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },

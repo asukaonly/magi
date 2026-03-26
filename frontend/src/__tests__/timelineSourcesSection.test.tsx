@@ -13,7 +13,7 @@ const translationMap: Record<string, string> = {
   'settings.plugins.netease-music.name': '网易云音乐',
   'settings.plugins.netease-music.description': '本地网易云音乐播放历史接入时间线',
   'settings.timeline.fields.enabled': '启用',
-  'settings.plugins.core-timeline.name': '核心时间线',
+  'settings.plugins.photo-library.name': '照片库',
 };
 
 vi.mock('react-i18next', () => ({
@@ -31,7 +31,7 @@ vi.mock('sonner', () => ({
 
 const timelineSourceFixture: TimelineSourceStatusItem = {
   source_name: 'photo_library',
-  plugin_id: 'core-timeline',
+  plugin_id: 'photo-library',
   contribution_id: 'timeline.photo_library',
   display_name: 'Photo Library',
   description: 'Photo assets referenced from a local library path.',
