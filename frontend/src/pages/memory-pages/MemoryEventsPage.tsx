@@ -32,6 +32,9 @@ const buildSummaryText = (items: Array<[string, number]>, emptyLabel: string) =>
   };
 };
 
+const COMPACT_DATE_INPUT_CLASS =
+  'h-9 min-w-0 rounded-none border-0 bg-transparent px-0 text-sm text-[hsl(var(--memory-title))] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0';
+
 export const MemoryEventsPage = () => {
   const { t } = useTranslation('app');
   const { loading, l1Events, queryL1Events } = useMemory({ initialLoadScope: 'l1' });
@@ -151,21 +154,23 @@ export const MemoryEventsPage = () => {
             <label className="text-[13px] font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-events-start-date">
               {t('memory.pages.events.dateRangeLabel')}
             </label>
-            <div className="grid grid-cols-[minmax(0,1fr)_10px_minmax(0,1fr)] items-center gap-1.5">
+            <div className="grid grid-cols-[minmax(0,1fr)_30px_minmax(0,1fr)] items-center rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3">
               <Input
                 id="memory-events-start-date"
                 type="date"
                 aria-label={t('memory.pages.events.startDateLabel')}
-                className={`${MEMORY_FILTER_INPUT_CLASS} min-w-0`}
+                className={COMPACT_DATE_INPUT_CLASS}
                 value={startDate}
                 onChange={(event) => setStartDate(event.target.value)}
               />
-              <span className="text-center text-[13px] text-[hsl(var(--memory-muted))]">~</span>
+              <span className="flex h-5 items-center justify-center border-x border-[hsl(var(--memory-divider)/0.62)] text-[12px] text-[hsl(var(--memory-muted))]">
+                ~
+              </span>
               <Input
                 id="memory-events-end-date"
                 type="date"
                 aria-label={t('memory.pages.events.endDateLabel')}
-                className={`${MEMORY_FILTER_INPUT_CLASS} min-w-0`}
+                className={COMPACT_DATE_INPUT_CLASS}
                 value={endDate}
                 onChange={(event) => setEndDate(event.target.value)}
               />
