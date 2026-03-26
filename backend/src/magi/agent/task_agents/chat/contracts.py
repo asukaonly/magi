@@ -8,6 +8,7 @@ from typing import Any
 from ....agent.runtime.contracts import FactRecord
 from ..common import BaseIntentDecision, BaseRuntimeContext, GenericFactPayload, IncomingFactKind, TaskFactPayload
 from .run_contracts import ActiveRun, PendingTurn
+from ....config.models import ThinkingDepth
 
 
 class AssistantSurfaceMode(str, Enum):
@@ -97,9 +98,14 @@ class IntentDecision(BaseIntentDecision):
     ux_plan: TurnUXPlan = field(default_factory=TurnUXPlan)
     tools: list[str] = field(default_factory=list)
     llm_trace: dict[str, Any] = field(default_factory=dict)
-    deep_thinking: bool = False
+    thinking_depth: ThinkingDepth = ThinkingDepth.NONE
     memory_route: str = "none"
     routing_memory_hint: dict[str, Any] | None = None
+
+    @property
+    def deep_thinking(self) -> bool:
+        """Legacy accessor: True when thinking_depth >= MEDIUM."""
+        return self.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
 
 
 @dataclass(slots=True)

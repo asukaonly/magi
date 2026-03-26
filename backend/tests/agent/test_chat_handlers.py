@@ -26,11 +26,12 @@ class _FakePromptService:
         system_prompt,
         messages,
         disable_thinking=True,
+        thinking_depth=None,
         json_mode=False,
         timeout_seconds=None,
         llm_trace_callback=None,
     ):
-        _ = (system_prompt, messages, disable_thinking, json_mode, timeout_seconds)
+        _ = (system_prompt, messages, disable_thinking, thinking_depth, json_mode, timeout_seconds)
         if llm_trace_callback is not None:
             callback_result = llm_trace_callback(
                 {
@@ -87,7 +88,6 @@ async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> N
         tool_selection=ToolSelection(tools=[], reasoning="direct"),
         system_prompt="sys",
         messages=[{"role": "user", "content": "hello"}],
-        disable_thinking=True,
     )
 
     result = await handler.execute(request)
@@ -302,7 +302,6 @@ async def test_function_calling_handler_passes_turn_workspace_into_context_servi
                 orchestration_plan=OrchestrationPlan(),
                 memory_route="none",
                 routing_memory_hint=None,
-                deep_thinking=False,
             ),
             tool_selection=ToolSelection(tools=["glob"], reasoning="search repo"),
         )

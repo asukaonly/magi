@@ -18,9 +18,9 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
-from ...llm.provider_bridge import LLMProviderBridge
+from ...llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
 from ...chat.workspace import get_default_chat_workspace_path
-from ...config.models import LLMScenario
+from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
 from ..message_utils import append_latest_user_message
 from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
@@ -208,6 +208,7 @@ class FunctionCallingOrchestrator:
         orchestration_strategy: Optional[Dict[str, Any]] = None,
         llm_timeout_seconds: Optional[float] = None,
         final_response_json_mode: bool = False,
+        thinking_depth: ThinkingDepth | None = None,
     ) -> ExecutionOutcome:
         """
         Execute with continuous tool calling
@@ -229,11 +230,12 @@ class FunctionCallingOrchestrator:
             selected_tools=selected_tools,
             conversation_history=conversation_history,
         )
+        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         while state.iteration < max_iterations:
             step_outcome = await self.step_executor.execute_step(
                 state=state,
                 user_message=user_message,
-                disable_thinking=disable_thinking,
+                thinking_depth=depth,
                 user_id=user_id,
                 session_id=session_id,
                 session_run_id=session_run_id,
@@ -264,7 +266,7 @@ class FunctionCallingOrchestrator:
 
         return await self._execute_fallback_final_response(
             state=state,
-            disable_thinking=disable_thinking,
+            thinking_depth=depth,
             user_id=user_id,
             session_id=session_id,
             session_run_id=session_run_id,
@@ -282,7 +284,7 @@ class FunctionCallingOrchestrator:
         self,
         *,
         state: FunctionCallingStepState,
-        disable_thinking: bool,
+        thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
         user_id: str,
         session_id: Optional[str],
         session_run_id: str | None,
@@ -313,7 +315,7 @@ class FunctionCallingOrchestrator:
             final_response = await self._call_llm_without_tools(
                 system_prompt=final_system_prompt,
                 messages=self._build_final_response_messages(state.messages),
-                disable_thinking=disable_thinking,
+                thinking_depth=thinking_depth,
                 json_mode=final_response_json_mode,
                 timeout_seconds=llm_timeout_seconds,
                 session_id=session_id,
@@ -397,7 +399,7 @@ class FunctionCallingOrchestrator:
                 final_response = await self._call_llm_without_tools(
                     system_prompt=final_system_prompt,
                     messages=self._build_final_response_messages(state.messages, force_plain_text=True),
-                    disable_thinking=disable_thinking,
+                    thinking_depth=thinking_depth,
                     json_mode=final_response_json_mode,
                     timeout_seconds=llm_timeout_seconds,
                     session_id=session_id,
@@ -443,7 +445,7 @@ class FunctionCallingOrchestrator:
                         strict_plain_text=True,
                     ),
                     messages=self._build_final_response_messages(state.messages, force_plain_text=True),
-                    disable_thinking=True,
+                    thinking_depth=ThinkingDepth.NONE,
                     json_mode=final_response_json_mode,
                     timeout_seconds=llm_timeout_seconds,
                     session_id=session_id,
@@ -847,7 +849,7 @@ class FunctionCallingOrchestrator:
         system_prompt: str,
         messages: List[Dict],
         tools: List[Dict],
-        disable_thinking: bool = True,
+        thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
         timeout_seconds: Optional[float] = None,
         session_id: Optional[str] = None,
         turn_id: Optional[str] = None,
@@ -885,8 +887,8 @@ class FunctionCallingOrchestrator:
                 tools=tools,
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=0.7,
-                disable_thinking=disable_thinking,
-                timeout_seconds=self._resolve_llm_timeout(timeout_seconds, disable_thinking=disable_thinking),
+                thinking_depth=thinking_depth,
+                timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
                 event_context={
                     "request_id": request_id,
                     "request_kind": "function_calling:tools",
@@ -902,7 +904,7 @@ class FunctionCallingOrchestrator:
             result: Dict[str, Any] = {"content": provider_response.content}
             result["llm_trace"] = self._build_llm_trace(
                 metadata=provider_response.metadata,
-                disable_thinking=disable_thinking,
+                thinking_depth=thinking_depth,
                 duration_ms=duration_ms,
                 model_name=model_name,
                 provider_name=llm.provider_name,
@@ -945,7 +947,7 @@ class FunctionCallingOrchestrator:
         self,
         system_prompt: str,
         messages: List[Dict],
-        disable_thinking: bool = True,
+        thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
         session_id: Optional[str] = None,
@@ -976,9 +978,9 @@ class FunctionCallingOrchestrator:
                 messages=messages,
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=0.7,
-                disable_thinking=disable_thinking,
+                thinking_depth=thinking_depth,
                 json_mode=json_mode,
-                timeout_seconds=self._resolve_llm_timeout(timeout_seconds, disable_thinking=disable_thinking),
+                timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
                 event_context={
                     "request_id": request_id,
                     "request_kind": "function_calling:final_response",
@@ -1005,7 +1007,7 @@ class FunctionCallingOrchestrator:
             result: Dict[str, Any] = {"content": content}
             result["llm_trace"] = self._build_llm_trace(
                 metadata=provider_response.metadata,
-                disable_thinking=disable_thinking,
+                thinking_depth=thinking_depth,
                 duration_ms=duration_ms,
                 model_name=model_name,
                 provider_name=llm.provider_name,
@@ -1036,10 +1038,10 @@ class FunctionCallingOrchestrator:
             raise
 
     @staticmethod
-    def _resolve_llm_timeout(timeout_seconds: Optional[float], *, disable_thinking: bool) -> Optional[float]:
+    def _resolve_llm_timeout(timeout_seconds: Optional[float], *, thinking_depth: ThinkingDepth = ThinkingDepth.NONE) -> Optional[float]:
         if timeout_seconds is not None:
             return timeout_seconds
-        if not disable_thinking:
+        if thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW):
             return THINKING_LLM_TIMEOUT_SECONDS
         return None
 
@@ -1047,7 +1049,7 @@ class FunctionCallingOrchestrator:
         self,
         *,
         metadata: Dict[str, Any] | None,
-        disable_thinking: bool,
+        thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
         duration_ms: int,
         model_name: str,
         provider_name: str,
@@ -1061,7 +1063,8 @@ class FunctionCallingOrchestrator:
         trace_metrics.setdefault("reasoning_tokens", 0)
         trace_metrics.setdefault("cache_read_tokens", 0)
         trace_metrics.setdefault("cache_write_tokens", 0)
-        trace_metrics.setdefault("thinking_enabled", not disable_thinking)
+        trace_metrics.setdefault("thinking_enabled", thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW))
+        trace_metrics.setdefault("thinking_depth", thinking_depth.value)
         trace_metrics.setdefault("duration_ms", duration_ms)
         return trace_metrics
 

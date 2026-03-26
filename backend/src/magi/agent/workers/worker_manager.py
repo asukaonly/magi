@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from ...agent.orchestration import WorkerEvidence, WorkerFinding, WorkerResult, get_orchestration_store
 from ...agent.trace import build_trace_timing, now_wall_ms
+from ...config.models import ThinkingDepth
 from ...core.logger import get_logger
 from ...events.events import Event, EventLevel
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
@@ -608,7 +609,7 @@ class WorkerAgentManager(Tool):
                 turn_id=run_state.turn_id,
                 conversation_history=[],
                 max_iterations=max_iterations,
-                disable_thinking=False if run_state.subagent_type == self.TYPE_PLAN else True,
+                thinking_depth=ThinkingDepth.HIGH if run_state.subagent_type == self.TYPE_PLAN else ThinkingDepth.NONE,
                 intent=f"worker_{run_state.subagent_type.lower()}",
                 execution_agent_id=run_state.worker_id,
                 execution_workspace=execution_workspace,

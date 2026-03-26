@@ -113,7 +113,6 @@ def _make_request(context: ChatRuntimeContext) -> FunctionCallingRequest:
         prompt_context=SimpleNamespace(runtime_system=SimpleNamespace(cwd="/Users/asuka/code/magi")),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
-        disable_thinking=True,
     )
 
 

@@ -60,7 +60,6 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             tools=["weather"],
-            deep_thinking=False,
             orchestration_plan=OrchestrationPlan(),
         )
         tool_result = ToolSelection(tools=["weather"], reasoning="weather lookup")
@@ -113,7 +112,6 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             difficulty="normal",
             execution_mode=ExecutionMode.FUNCTION_CALLING,
             tools=["weather", "memory_query"],
-            deep_thinking=False,
             orchestration_plan=OrchestrationPlan(),
             memory_route="explicit_query",
             routing_memory_hint={

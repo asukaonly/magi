@@ -7,6 +7,7 @@ from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
 from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier, IncomingFactKind
 from magi.agent.task_agents.chat.handlers import ExecutionHandlerRegistry
 from magi.agent.runtime.contracts import FactRecord
+from magi.config.models import ThinkingDepth
 from magi.events.events import EventTypes
 
 
@@ -26,6 +27,7 @@ class _FakeContextDecision:
         self.intent = intent
         self.tools = tools
         self.deep_thinking = deep_thinking
+        self.thinking_depth = ThinkingDepth.HIGH if deep_thinking else ThinkingDepth.NONE
         self.reasoning = reasoning
         self.orchestration_strategy = orchestration_strategy
         self.memory_route = memory_route

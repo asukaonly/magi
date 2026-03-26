@@ -5,6 +5,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from ...config.models import ThinkingDepth
+
 
 @dataclass(slots=True)
 class FunctionCallingStepState:
@@ -40,7 +42,7 @@ class FunctionCallingStepExecutor:
         *,
         state: FunctionCallingStepState,
         user_message: str,
-        disable_thinking: bool,
+        thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
         user_id: str,
         session_id: str | None,
         session_run_id: str | None = None,
@@ -77,7 +79,7 @@ class FunctionCallingStepExecutor:
                 system_prompt=state.effective_system_prompt,
                 messages=state.messages,
                 tools=state.tools,
-                disable_thinking=disable_thinking,
+                thinking_depth=thinking_depth,
                 timeout_seconds=llm_timeout_seconds,
                 session_id=session_id,
                 turn_id=turn_id,

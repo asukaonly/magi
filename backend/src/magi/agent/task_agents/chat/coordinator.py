@@ -158,7 +158,7 @@ class ChatExecutionCoordinator:
             ),
             tools=selected_tools,
             llm_trace=dict(getattr(decision, "llm_trace", {}) or {}),
-            deep_thinking=bool(decision.deep_thinking),
+            thinking_depth=decision.thinking_depth,
             reasoning=str(decision.reasoning),
             orchestration_plan=orchestration_plan,
             memory_route=str(getattr(decision, "memory_route", "none") or "none"),

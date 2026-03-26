@@ -117,7 +117,6 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
     outcome = await orchestrator.step_executor.execute_step(
         state=step_state,
         user_message="Inspect the repository.",
-        disable_thinking=True,
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-1",
@@ -188,7 +187,6 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
     outcome = await orchestrator.step_executor.execute_step(
         state=step_state,
         user_message="我喜欢什么天气？",
-        disable_thinking=True,
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-zh",
@@ -266,7 +264,6 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
     first_outcome = await orchestrator.step_executor.execute_step(
         state=step_state,
         user_message="Inspect the repository.",
-        disable_thinking=True,
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-1",
@@ -277,7 +274,6 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
     second_outcome = await orchestrator.step_executor.execute_step(
         state=step_state,
         user_message="Inspect the repository.",
-        disable_thinking=True,
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-1",

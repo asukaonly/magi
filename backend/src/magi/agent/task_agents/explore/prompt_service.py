@@ -1,7 +1,7 @@
 """Prompt and plain LLM helpers for ExploreTaskAgent."""
 from __future__ import annotations
 
-from ....config.models import LLMScenario
+from ....config.models import LLMScenario, ThinkingDepth
 from ..common import TaskAgentLLMService
 
 
@@ -21,7 +21,8 @@ class ExplorePromptService:
         *,
         system_prompt: str,
         messages: list[dict[str, str]],
-        disable_thinking: bool,
+        disable_thinking: bool = False,
+        thinking_depth: ThinkingDepth | None = None,
         temperature: float = 0.3,
         json_mode: bool = False,
         timeout_seconds: float | None = None,
@@ -30,6 +31,7 @@ class ExplorePromptService:
             system_prompt=system_prompt,
             messages=messages,
             disable_thinking=disable_thinking,
+            thinking_depth=thinking_depth,
             temperature=temperature,
             json_mode=json_mode,
             timeout_seconds=timeout_seconds,

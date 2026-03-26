@@ -11,6 +11,7 @@ from magi.llm.provider_bridge import ProviderResponse, ProviderToolCall
 from magi.agent.execution.function_calling_postprocessor import FunctionCallingPostprocessor
 from magi.agent.execution import function_calling as function_calling_module
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
+from magi.config.models import ThinkingDepth
 from magi.tools.schema import ToolResult
 
 
@@ -329,7 +330,7 @@ async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_t
     assert len(captured_calls) == 3
     assert "Tool Information" not in captured_calls[0]["system_prompt"]
     assert "Do not emit tool calls" in captured_calls[0]["system_prompt"]
-    assert captured_calls[2]["disable_thinking"] is True
+    assert captured_calls[2]["thinking_depth"] == ThinkingDepth.NONE
     assert "This is the final retry" in captured_calls[2]["messages"][-1]["content"]
     assert registry.calls == [
         ("bash", {"command": "echo one"}),
@@ -877,7 +878,7 @@ async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest
     result = await executor._call_llm_without_tools(
         system_prompt="sys",
         messages=[{"role": "user", "content": "why"}],
-        disable_thinking=False,
+        thinking_depth=ThinkingDepth.HIGH,
     )
 
     assert result["content"] == ""
@@ -938,7 +939,7 @@ async def test_call_llm_with_tools_logs_json_response_without_ascii_escaping(
         system_prompt="sys",
         messages=[{"role": "user", "content": "我喜欢什么天气"}],
         tools=[],
-        disable_thinking=True,
+        thinking_depth=ThinkingDepth.NONE,
         timeout_seconds=30.0,
     )
 
@@ -966,7 +967,7 @@ async def test_call_llm_without_tools_forwards_json_mode_and_timeout() -> None:
     result = await executor._call_llm_without_tools(
         system_prompt="sys",
         messages=[{"role": "user", "content": "why"}],
-        disable_thinking=False,
+        thinking_depth=ThinkingDepth.HIGH,
         json_mode=True,
         timeout_seconds=180.0,
     )
@@ -1008,7 +1009,7 @@ async def test_call_llm_with_tools_uses_extended_timeout_when_thinking_enabled()
         system_prompt="sys",
         messages=[{"role": "user", "content": "plan"}],
         tools=[],
-        disable_thinking=False,
+        thinking_depth=ThinkingDepth.HIGH,
     )
 
     assert captured["timeout_seconds"] == 180.0

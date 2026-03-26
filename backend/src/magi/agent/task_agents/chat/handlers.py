@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ....config.models import ThinkingDepth
 from ....core.logger import get_logger
 from ....agent.message_utils import append_latest_user_message
 from ....agent.runtime.contracts import FactRecord
@@ -129,7 +130,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                 history_limit=10,
                 attachments=list(getattr(request.context.latest_payload, "attachments", []) or []),
             ),
-            disable_thinking=not request.intent.deep_thinking,
+            thinking_depth=request.intent.thinking_depth,
         )
 
     async def execute(self, request: DirectLLMRequest) -> ExecutionResult:
@@ -141,7 +142,7 @@ class DirectLLMHandler(BaseExecutionHandler):
         response_text = await self._deps.prompt_service.call_llm(
             system_prompt=request.system_prompt,
             messages=request.messages,
-            disable_thinking=request.disable_thinking,
+            thinking_depth=request.thinking_depth,
             llm_trace_callback=_capture_llm_trace,
         )
         return ExecutionResult(
@@ -186,7 +187,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 reply_context=getattr(request.context, "reply_context", None),
             ),
             selected_tools=selected_tools,
-            disable_thinking=not request.intent.deep_thinking,
+            thinking_depth=request.intent.thinking_depth,
         )
 
     async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
@@ -212,7 +213,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             session_run_revision=request.context.session_run_revision,
             turn_id=getattr(request.context.latest_payload, "turn_id", None),
             conversation_history=request.context.history,
-            disable_thinking=request.disable_thinking,
+            thinking_depth=request.thinking_depth,
             intent=request.intent.intent,
             execution_agent_id=request.context.runtime_key,
             execution_workspace=execution_workspace,
@@ -254,7 +255,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             step_outcome = await orchestrator.step_executor.execute_step(
                 state=step_state,
                 user_message=current_user_message,
-                disable_thinking=request.disable_thinking,
+                thinking_depth=request.thinking_depth,
                 user_id=request.context.user_id,
                 session_id=request.context.session_id,
                 session_run_id=request.context.session_run_id,
@@ -329,7 +330,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
 
         execution_outcome = await orchestrator._execute_fallback_final_response(
             state=step_state,
-            disable_thinking=request.disable_thinking,
+            thinking_depth=request.thinking_depth,
             user_id=request.context.user_id,
             session_id=request.context.session_id,
             turn_id=current_turn_id,
@@ -480,7 +481,7 @@ class ExploreRenderHandler(BaseExecutionHandler):
             response = await self._deps.prompt_service.call_llm(
                 system_prompt=system_prompt,
                 messages=messages,
-                disable_thinking=True,
+                thinking_depth=ThinkingDepth.NONE,
             )
         except Exception as exc:
             logger.warning(

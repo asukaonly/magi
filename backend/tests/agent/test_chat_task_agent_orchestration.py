@@ -425,7 +425,7 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
         }
         return "persona-system-prompt"
 
-    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True):  # type: ignore[no-untyped-def]
+    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True, thinking_depth=None):  # type: ignore[no-untyped-def]
         calls["call_llm"] = {
             "system_prompt": system_prompt,
             "messages": messages,
@@ -663,7 +663,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         }
         return "analysis-system-prompt"
 
-    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True):  # type: ignore[no-untyped-def]
+    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True, thinking_depth=None):  # type: ignore[no-untyped-def]
         calls["call_llm"] = {
             "system_prompt": system_prompt,
             "messages": messages,

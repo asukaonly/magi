@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, Optional, TypeAlias
 
 from ....agent.runtime.contracts import FactRecord
+from ....config.models import ThinkingDepth
 from ...orchestration import WorkerResult
 
 
@@ -331,7 +332,7 @@ class DirectLLMRequest(ExecutionRequest):
     prompt_context: Optional[dict[str, Any]] = None
     system_prompt: str = ""
     messages: list[dict[str, str]] = field(default_factory=list)
-    disable_thinking: bool = True
+    thinking_depth: ThinkingDepth = ThinkingDepth.NONE
 
 
 @dataclass(slots=True)
@@ -341,7 +342,7 @@ class FunctionCallingRequest(ExecutionRequest):
     prompt_context: Optional[dict[str, Any]] = None
     system_prompt: str = ""
     selected_tools: list[str] = field(default_factory=list)
-    disable_thinking: bool = True
+    thinking_depth: ThinkingDepth = ThinkingDepth.NONE
 
 
 @dataclass(slots=True)

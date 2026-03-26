@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any
 
-from ....config.models import LLMScenario
+from ....config.models import LLMScenario, ThinkingDepth
 from ...orchestration import WorkerResult
 from ..common import TaskAgentLLMService
 from .contracts import ChatReplyContext
@@ -35,6 +35,7 @@ class ChatPromptService:
         system_prompt: str,
         messages: list[dict[str, str]],
         disable_thinking: bool = True,
+        thinking_depth: ThinkingDepth | None = None,
         json_mode: bool = False,
         timeout_seconds: float | None = None,
         llm_trace_callback=None,
@@ -43,6 +44,7 @@ class ChatPromptService:
             system_prompt=system_prompt,
             messages=messages,
             disable_thinking=disable_thinking,
+            thinking_depth=thinking_depth,
             temperature=0.7,
             json_mode=json_mode,
             timeout_seconds=timeout_seconds,

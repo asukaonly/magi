@@ -6,10 +6,10 @@ import uuid
 from typing import Awaitable, Callable
 
 from ....config import get_config
-from ....config.models import LLMScenario
+from ....config.models import LLMScenario, ThinkingDepth
 from ....config.constants import DEFAULT_MAX_TOKENS
 from ....core.logger import get_logger
-from ....llm.provider_bridge import LLMProviderBridge
+from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 logger = get_logger(__name__)
@@ -42,6 +42,7 @@ class TaskAgentLLMService:
         system_prompt: str,
         messages: list[dict[str, str]],
         disable_thinking: bool = True,
+        thinking_depth: ThinkingDepth | None = None,
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: float | None = None,
@@ -58,13 +59,14 @@ class TaskAgentLLMService:
             system_prompt=system_prompt,
             messages=messages,
         )
+        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         try:
             provider_response = await self._provider_bridge.chat_response(
                 system_prompt=system_prompt,
                 messages=messages,
                 max_tokens=self._llm_max_tokens(),
                 temperature=temperature,
-                disable_thinking=disable_thinking,
+                thinking_depth=depth,
                 json_mode=json_mode,
                 timeout_seconds=timeout_seconds,
                 event_context={

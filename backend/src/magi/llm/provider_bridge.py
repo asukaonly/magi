@@ -24,6 +24,24 @@ from ..config.llm_registry import (
     load_llm_provider_registry,
 )
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
+from ..config.models import ThinkingDepth
+
+
+def _coerce_thinking_depth(
+    thinking_depth: ThinkingDepth | None,
+    disable_thinking: bool | None,
+) -> ThinkingDepth:
+    """Resolve a ThinkingDepth from the new or legacy parameter.
+
+    If the caller passed an explicit ``thinking_depth``, use it directly.
+    Otherwise fall back to the legacy ``disable_thinking`` boolean:
+    ``True`` → NONE, ``False`` / ``None`` → MEDIUM.
+    """
+    if thinking_depth is not None:
+        return thinking_depth
+    if disable_thinking is True:
+        return ThinkingDepth.NONE
+    return ThinkingDepth.MEDIUM
 
 
 @dataclass
@@ -102,11 +120,40 @@ class LLMProviderBridge:
         return self._provider_name() == "glm"
 
     @staticmethod
-    def _disabled_thinking_extra_body(disable_thinking: Optional[bool]) -> Dict[str, Any] | None:
-        """Build provider-specific payload to disable reasoning/thinking mode."""
+    def _disabled_thinking_extra_body(disable_thinking: bool | None) -> Dict[str, Any] | None:
+        """Build provider-specific payload to disable reasoning/thinking mode.
+
+        .. deprecated:: Use ``_build_glm_thinking_params`` with ThinkingDepth.
+        """
         if disable_thinking is not True:
             return None
         return {"thinking": {"type": "disabled"}}
+
+    # ------------------------------------------------------------------
+    # Provider-specific thinking-depth helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_glm_thinking_params(depth: ThinkingDepth) -> Dict[str, Any] | None:
+        """Build GLM extra_body payload for the requested thinking depth.
+
+        GLM only supports a binary toggle: thinking enabled or disabled.
+        """
+        if depth == ThinkingDepth.NONE:
+            return {"thinking": {"type": "disabled"}}
+        return None  # GLM defaults to thinking enabled
+
+    @staticmethod
+    def _build_openai_reasoning_params(depth: ThinkingDepth) -> Dict[str, Any]:
+        """Build OpenAI-compatible extra kwargs for reasoning effort."""
+        mapping = {
+            ThinkingDepth.NONE: "none",
+            ThinkingDepth.LOW: "low",
+            ThinkingDepth.MEDIUM: "medium",
+            ThinkingDepth.HIGH: "high",
+            ThinkingDepth.MAX: "high",
+        }
+        return {"reasoning_effort": mapping.get(depth, "medium")}
 
     def _build_concurrency_key(self, request_family: str) -> str:
         base_url = getattr(self.llm, "base_url", None)
@@ -158,19 +205,21 @@ class LLMProviderBridge:
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
+        thinking_depth: ThinkingDepth | None = None,
     ) -> str:
         """
         Unified non-tool chat call with system prompt.
         """
+        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         response = await self.chat_response(
             system_prompt=system_prompt,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            disable_thinking=disable_thinking,
             json_mode=json_mode,
             timeout_seconds=timeout_seconds,
             event_context=event_context,
+            thinking_depth=depth,
         )
         return response.content
 
@@ -184,10 +233,12 @@ class LLMProviderBridge:
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
+        thinking_depth: ThinkingDepth | None = None,
     ) -> ProviderResponse:
         """
         Unified plain-chat call that still returns normalized ProviderResponse.
         """
+        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         started_at = time.time()
         try:
             provider_response = await self._run_with_concurrency_limit(
@@ -198,7 +249,7 @@ class LLMProviderBridge:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    disable_thinking=disable_thinking,
+                    thinking_depth=depth,
                     json_mode=json_mode,
                     timeout_seconds=timeout_seconds,
                 ),
@@ -209,7 +260,7 @@ class LLMProviderBridge:
                 provider_response=provider_response,
                 usage=provider_response.usage,
                 latency_ms=latency_ms,
-                disable_thinking=disable_thinking,
+                thinking_depth=depth,
             )
             await self._emit_usage_event(
                 success=True,
@@ -238,10 +289,12 @@ class LLMProviderBridge:
         disable_thinking: Optional[bool] = None,
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
+        thinking_depth: ThinkingDepth | None = None,
     ) -> ProviderResponse:
         """
         Unified tool-calling chat call.
         """
+        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         started_at = time.time()
         try:
             if getattr(self.llm, "_client", None) is None and not self.is_anthropic():
@@ -250,9 +303,9 @@ class LLMProviderBridge:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    disable_thinking=disable_thinking,
                     timeout_seconds=timeout_seconds,
                     event_context=event_context,
+                    thinking_depth=depth,
                 )
                 return provider_response
 
@@ -265,7 +318,7 @@ class LLMProviderBridge:
                     tools=tools,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    disable_thinking=disable_thinking,
+                    thinking_depth=depth,
                     timeout_seconds=timeout_seconds,
                 ),
             )
@@ -275,7 +328,7 @@ class LLMProviderBridge:
                 provider_response=provider_response,
                 usage=provider_response.usage,
                 latency_ms=latency_ms,
-                disable_thinking=disable_thinking,
+                thinking_depth=depth,
             )
             await self._emit_usage_event(
                 success=True,
@@ -301,7 +354,7 @@ class LLMProviderBridge:
         messages: List[Dict[str, Any]],
         max_tokens: int,
         temperature: float,
-        disable_thinking: Optional[bool],
+        thinking_depth: ThinkingDepth,
         json_mode: bool,
         timeout_seconds: Optional[float],
     ) -> ProviderResponse:
@@ -332,7 +385,7 @@ class LLMProviderBridge:
         if timeout_seconds is not None:
             chat_kwargs["timeout"] = timeout_seconds
         if self.is_glm():
-            extra_body = self._disabled_thinking_extra_body(disable_thinking)
+            extra_body = self._build_glm_thinking_params(thinking_depth)
             if extra_body:
                 chat_kwargs["extra_body"] = extra_body
 
@@ -352,7 +405,7 @@ class LLMProviderBridge:
         tools: List[Dict[str, Any]],
         max_tokens: int,
         temperature: float,
-        disable_thinking: Optional[bool],
+        thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
     ) -> ProviderResponse:
         if self.is_anthropic():
@@ -380,7 +433,7 @@ class LLMProviderBridge:
         if timeout_seconds is not None:
             kwargs["timeout"] = timeout_seconds
         if self.is_glm():
-            extra_body = self._disabled_thinking_extra_body(disable_thinking)
+            extra_body = self._build_glm_thinking_params(thinking_depth)
             if extra_body:
                 kwargs["extra_body"] = extra_body
 
@@ -642,7 +695,8 @@ class LLMProviderBridge:
         provider_response: ProviderResponse,
         usage: ProviderUsage | None,
         latency_ms: int,
-        disable_thinking: Optional[bool],
+        thinking_depth: ThinkingDepth,
+        disable_thinking: Optional[bool] = None,
     ) -> None:
         metadata = dict(provider_response.metadata or {})
         metadata["trace_metrics"] = {
@@ -654,7 +708,8 @@ class LLMProviderBridge:
             "reasoning_tokens": int(usage.reasoning_tokens if usage else 0),
             "cache_read_tokens": int(usage.cache_read_tokens if usage else 0),
             "cache_write_tokens": int(usage.cache_write_tokens if usage else 0),
-            "thinking_enabled": disable_thinking is not True,
+            "thinking_enabled": thinking_depth != ThinkingDepth.NONE,
+            "thinking_depth": thinking_depth.value,
             "duration_ms": int(latency_ms),
         }
         provider_response.metadata = metadata

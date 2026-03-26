@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, List as TypingList
 
 from ..agent.message_utils import trim_latest_user_message
-from ..config.models import LLMScenario
+from ..config.models import LLMScenario, ThinkingDepth
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
@@ -41,16 +41,29 @@ class ContextDecision:
         memory_route: str = "none",
         routing_memory_hint: Optional[Dict[str, Any]] = None,
         llm_trace: Optional[Dict[str, Any]] = None,
+        thinking_depth: Optional[ThinkingDepth] = None,
     ):
         self.intent = intent  # User's intent (e.g., "file_read", "web_search", "chat")
         self.tools = tools  # List of up to 5 tool names
-        self.deep_thinking = deep_thinking  # Whether to use extended reasoning mode
         self.reasoning = reasoning  # Why these tools were selected
         self.orchestration_strategy = orchestration_strategy or {}
         self.memory_layer = memory_layer  # Which memory layer to use (L1-L4)
         self.memory_route = memory_route
         self.routing_memory_hint = routing_memory_hint
         self.llm_trace = dict(llm_trace or {})
+
+        # Thinking depth: use explicit value if provided, otherwise derive from legacy bool
+        if thinking_depth is not None:
+            self.thinking_depth = thinking_depth
+        elif deep_thinking:
+            self.thinking_depth = ThinkingDepth.HIGH
+        else:
+            self.thinking_depth = ThinkingDepth.NONE
+
+    @property
+    def deep_thinking(self) -> bool:
+        """Legacy accessor: True when thinking_depth is MEDIUM or above."""
+        return self.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
 
 
 @dataclass
@@ -99,7 +112,7 @@ JSON structure:
 {
   "intent": "string",
   "tools": ["string"],
-  "deep_thinking": boolean,
+  "thinking_depth": "none|low|medium|high|max",
   "reasoning": "string",
   "orchestration_strategy": {
     "mode": "direct|decompose",
@@ -142,49 +155,65 @@ Always check the "Available Skills" section below for skill descriptions and mat
 
 Questions about the user's stored user preferences, personal facts, prior stated likes/dislikes, or customized settings should prefer `memory_query` when that tool is available.
 
-### 4. Deep Thinking Threshold
-Set "deep_thinking": true for:
+### 4. Thinking Depth (reasoning effort)
+Select the thinking depth based on task complexity:
+
+"thinking_depth": "none" — No extended reasoning needed:
+- Casual chat, greetings, simple Q&A
+- Information queries (weather, time, stock prices)
+- Executing explicit instructions (user provided exact steps)
+- Simple CRUD operations
+
+"thinking_depth": "low" — Light reasoning:
+- Single file read/write
+- Straightforward tool use with clear parameters
+- Simple factual lookups requiring minor judgment
+
+"thinking_depth": "medium" — Moderate reasoning:
+- Multi-step tasks (2-3 steps) with clear structure
+- Code modifications within a single file
+- Creative writing or roleplay scenarios
+- Debugging with known symptoms
+
+"thinking_depth": "high" — Deep reasoning:
 - Architecture design or multi-file refactoring
 - Complex bug diagnosis requiring reasoning chains
 - Multi-step planning (more than 3 steps)
-- Creative writing or roleplay scenarios
 - Code review with modification suggestions
 
-Set "deep_thinking": false for:
-- Simple CRUD operations
-- Single file read/write
-- information queries (weather, time)
-- Casual chat
-- Executing explicit instructions (user provided steps)
+"thinking_depth": "max" — Maximum reasoning budget:
+- Novel algorithm design or complex mathematical proofs
+- Large-scale system re-architecture
+- Extremely ambiguous or open-ended research tasks
 
 ### 5. Few-Shot Examples
 
 User: "hey"
-JSON: {"intent": "chat", "tools": [], "deep_thinking": false, "reasoning": "Casual greeting.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "chat", "tools": [], "thinking_depth": "none", "reasoning": "Casual greeting.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "what's the weather in tokyo"
-JSON: {"intent": "realtime_query", "tools": ["weather"], "deep_thinking": false, "reasoning": "Real-time weather query. Use the dedicated weather tool.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "realtime_query", "tools": ["weather"], "thinking_depth": "none", "reasoning": "Real-time weather query. Use the dedicated weather tool.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "read /src/main.py and fix the race condition"
-JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "Complex bug diagnosis required.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "thinking_depth": "high", "reasoning": "Complex bug diagnosis required.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "analyze this large repo and design a migration plan"
-JSON: {"intent": "planning", "tools": ["agent"], "deep_thinking": true, "reasoning": "Large repo analysis should be decomposed by the parent task agent into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "Explore", "allow_parallel": true}}
+JSON: {"intent": "planning", "tools": ["agent"], "thinking_depth": "high", "reasoning": "Large repo analysis should be decomposed by the parent task agent into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "Explore", "allow_parallel": true}}
 
 User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
-JSON: {"intent": "planning", "tools": ["web-search", "web-fetch"], "deep_thinking": true, "reasoning": "This is a bounded multi-source research request with a time window, result count, and source requirements, so it should be decomposed into generic research workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}
+JSON: {"intent": "planning", "tools": ["web-search", "web-fetch"], "thinking_depth": "medium", "reasoning": "This is a bounded multi-source research request with a time window, result count, and source requirements, so it should be decomposed into generic research workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}
 
 User: "convert ~/tmp/logo.png to transparent background"
-JSON: {"intent": "file_operation", "tools": ["bash"], "deep_thinking": false, "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "file_operation", "tools": ["bash"], "thinking_depth": "low", "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "我喜欢什么天气"
-JSON: {"intent": "chat", "tools": ["memory_query"], "deep_thinking": false, "reasoning": "The user is asking about a stored personal preference, so memory recall is needed.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "chat", "tools": ["memory_query"], "thinking_depth": "none", "reasoning": "The user is asking about a stored personal preference, so memory recall is needed.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "我的默认工作目录是什么"
-JSON: {"intent": "chat", "tools": ["memory_query"], "deep_thinking": false, "reasoning": "The user is asking about a stored personalized setting or profile fact, so memory recall is needed.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "chat", "tools": ["memory_query"], "thinking_depth": "none", "reasoning": "The user is asking about a stored personalized setting or profile fact, so memory recall is needed.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 User: "按之前那套流程修一下这个 bug"
-JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "This is a workflow reuse request, not an explicit historical recall request.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "thinking_depth": "medium", "reasoning": "This is a workflow reuse request, not an explicit historical recall request.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If not matching skill exists, use basic tools."""
 
@@ -323,7 +352,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 
             logger.info(
                 f"[ContextDecider] Decision made | Intent: {decision.intent} | "
-                f"Tools: {decision.tools} | Deep Thinking: {decision.deep_thinking} | Reasoning: {decision.reasoning}"
+                f"Tools: {decision.tools} | Thinking: {decision.thinking_depth.value} | Reasoning: {decision.reasoning}"
             )
             logger.debug(f"[ContextDecider] Raw LLM response: {response[:500]}")
 
@@ -503,11 +532,23 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 
                 intent = data.get("intent", "unknown")
                 tools = data.get("tools", [])
-                deep_thinking = data.get("deep_thinking", False)
                 reasoning = data.get("reasoning", "")
                 orchestration_strategy = self._normalize_orchestration_strategy(
                     data.get("orchestration_strategy")
                 )
+
+                # Parse thinking_depth (new) or fall back to legacy deep_thinking bool
+                raw_depth = data.get("thinking_depth")
+                thinking_depth: ThinkingDepth | None = None
+                if isinstance(raw_depth, str):
+                    try:
+                        thinking_depth = ThinkingDepth(raw_depth.lower())
+                    except ValueError:
+                        pass
+                if thinking_depth is None:
+                    # Legacy fallback
+                    deep_thinking = data.get("deep_thinking", False)
+                    thinking_depth = ThinkingDepth.HIGH if deep_thinking else ThinkingDepth.NONE
 
                 # Validate tools are available
                 valid_tools = []
@@ -521,7 +562,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 return ContextDecision(
                     intent=intent,
                     tools=valid_tools,
-                    deep_thinking=deep_thinking,
+                    thinking_depth=thinking_depth,
                     reasoning=reasoning,
                     orchestration_strategy=orchestration_strategy,
                 )

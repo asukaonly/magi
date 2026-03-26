@@ -22,6 +22,7 @@ def _make_decision(user_message: str) -> SimpleNamespace:
         intent="chat",
         tools=[],
         deep_thinking=False,
+        thinking_depth="none",
         reasoning=f"route:{user_message}",
         orchestration_strategy={
             "mode": "direct",

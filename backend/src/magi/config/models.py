@@ -127,6 +127,23 @@ class TimelineStorageMode(str, Enum):
 # LLM Configuration
 # =============================================================================
 
+class ThinkingDepth(str, Enum):
+    """Reasoning effort level requested by a caller for a single LLM call.
+
+    This is orthogonal to LLMScenario: the scenario selects which model to
+    use, while ThinkingDepth controls how hard the model should reason on
+    this particular invocation.  Provider adapters map these levels to
+    vendor-specific APIs (e.g. OpenAI reasoning_effort, Anthropic thinking
+    budget, GLM thinking toggle).
+    """
+
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    MAX = "max"
+
+
 class LLMScenario(str, Enum):
     """Supported runtime LLM scenarios."""
 

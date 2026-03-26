@@ -79,6 +79,7 @@ class TraceLlmCallRecord:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     thinking_enabled: bool = False
+    thinking_depth: str = "none"
     request_preview: str | None = None
     response_preview: str | None = None
 
