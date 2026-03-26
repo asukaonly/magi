@@ -167,7 +167,17 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
             tool_call_id=tool_call.id,
             tool_name=tool_call.name,
             success=True,
-            data={"memory_context": "用户喜欢下雨天", "meta": {}},
+            data={
+                "historical_recall": {
+                    "status": "found",
+                    "summary": "用户喜欢下雨天",
+                    "findings": [],
+                    "insufficient_evidence": False,
+                    "answering_hints": {},
+                    "provenance": {"primary_count": 1, "source_layers": ["L2"]},
+                },
+                "debug": {"retrieval_trace": {"query_mode": "detail"}},
+            },
             execution_time=0.01,
         )
 
@@ -200,7 +210,9 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
     assert tool_message["role"] == "tool"
     assert "用户喜欢下雨天" in tool_message["content"]
     assert "\\u7528\\u6237" not in tool_message["content"]
-    assert json.loads(tool_message["content"])["data"]["memory_context"] == "用户喜欢下雨天"
+    payload = json.loads(tool_message["content"])
+    assert payload["data"]["historical_recall"]["summary"] == "用户喜欢下雨天"
+    assert "debug" not in payload["data"]
 
 
 @pytest.mark.asyncio

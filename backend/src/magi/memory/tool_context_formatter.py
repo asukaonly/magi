@@ -25,6 +25,12 @@ def compact_memory_tool_data(
     if not isinstance(data, dict):
         return data
 
+    historical_recall = data.get("historical_recall")
+    if isinstance(historical_recall, dict):
+        return {
+            "historical_recall": historical_recall,
+        }
+
     results = data.get("results")
     if not isinstance(results, dict):
         return data

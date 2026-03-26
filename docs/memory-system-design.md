@@ -933,12 +933,40 @@ class RetrievalQuery:
 class RetrievalPayload:
     l0_workbench: list[dict[str, Any]]
     l1_events: list[dict[str, Any]]
-    l2_entities: list[dict[str, Any]]
+    l1_evidence_bundles: list[dict[str, Any]]
+    l1_timeline_summary: list[dict[str, Any]]
+    l2_entity_cards: list[dict[str, Any]]
     l2_relationships: list[dict[str, Any]]
+    l2_assertions: list[dict[str, Any]]
     l3_reflections: list[dict[str, Any]]
     l4_procedures: list[dict[str, Any]]
     trace: dict[str, Any]
 ```
+
+说明：
+
+1. `RetrievalPayload` 是 memory 域内部检索契约，允许保留 rich result 与调试 trace。
+2. `trace` 属于检索观测数据，不直接作为主 LLM 的回答上下文。
+3. `HybridRetrievalService` 的职责停留在“查出什么”，不承担主 LLM 消费视图整形。
+
+```python
+@dataclass
+class HistoricalRecallPayload:
+    status: Literal["found", "not_found", "ambiguous", "conflicted"]
+    recall_intent: str | None
+    query_mode: str | None
+    summary: str
+    findings: list[dict[str, Any]]
+    insufficient_evidence: bool
+    answering_hints: dict[str, Any]
+    provenance: dict[str, Any]
+```
+
+说明：
+
+1. `HistoricalRecallPayload` 是 answer-facing 契约，供 `memory_query`、prompt 组装和上层回答链路消费。
+2. `summary` + `findings` 是主 LLM 的 source-of-truth。
+3. `provenance` 只保留最小必要来源摘要；详细检索 trace 继续走 debug/trace 通路。
 
 ### 10.3 检索路由
 
@@ -963,6 +991,12 @@ class RetrievalPayload:
 优先 L4，必要时补充 L0 当前上下文。
 
 ### 10.4 Prompt 组装契约
+
+显式历史回忆与隐式 prompt 注入需要分两层处理：
+
+1. `HybridRetrievalService` 返回内部 `RetrievalPayload`
+2. `RecallProjector` 将其投影为 answer-facing `HistoricalRecallPayload`
+3. `memory_query` tool 仅做 tool 协议适配，不再承载 memory 域抽象逻辑
 
 `backend/src/magi/context/assembler.py` 与 `backend/src/magi/context/service.py` 需要能够消费以下 payload：
 

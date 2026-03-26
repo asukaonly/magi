@@ -42,6 +42,20 @@ class RetrievalPayload:
     trace: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class HistoricalRecallPayload:
+    """Answer-facing historical recall payload for upper layers."""
+
+    status: Literal["found", "not_found", "ambiguous", "conflicted"]
+    recall_intent: Optional[str]
+    query_mode: Optional[str]
+    summary: str
+    findings: List[Dict[str, Any]] = field(default_factory=list)
+    insufficient_evidence: bool = False
+    answering_hints: Dict[str, Any] = field(default_factory=dict)
+    provenance: Dict[str, Any] = field(default_factory=dict)
+
+
 # ---------------------------------------------------------------------------
 # IntentDecider contracts
 # ---------------------------------------------------------------------------

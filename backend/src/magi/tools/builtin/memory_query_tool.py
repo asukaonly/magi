@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from ...core.runtime_bindings import require_hybrid_retrieval_service
 from ...memory.hybrid_retrieval import build_query
+from ...memory.retrieval_projection import project_historical_recall
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
 
@@ -101,6 +102,8 @@ class MemoryQueryTool(Tool):
             payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {
                 "l0_workbench": getattr(payload, "l0_workbench", []),
                 "l1_events": getattr(payload, "l1_events", []),
+                "l1_evidence_bundles": getattr(payload, "l1_evidence_bundles", []),
+                "l1_timeline_summary": getattr(payload, "l1_timeline_summary", []),
                 "l2_entity_cards": getattr(payload, "l2_entity_cards", []),
                 "l2_relationships": getattr(payload, "l2_relationships", []),
                 "l2_assertions": getattr(payload, "l2_assertions", []),
@@ -108,12 +111,15 @@ class MemoryQueryTool(Tool):
                 "l4_procedures": getattr(payload, "l4_procedures", []),
                 "trace": getattr(payload, "trace", {}),
             }
+            historical_recall = asdict(project_historical_recall(payload=payload_dict, request=request))
             return ToolResult(
                 success=True,
                 data={
-                    "results": payload_dict,
-                    "meta": payload_dict["trace"],
-                    "agent_id": context.agent_id,
+                    "historical_recall": historical_recall,
+                    "debug": {
+                        "retrieval_trace": payload_dict.get("trace", {}),
+                        "agent_id": context.agent_id,
+                    },
                 },
             )
         except Exception as exc:

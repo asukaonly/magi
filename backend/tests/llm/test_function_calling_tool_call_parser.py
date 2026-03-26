@@ -499,10 +499,15 @@ def test_postprocessor_marks_memory_query_results_as_source_of_truth() -> None:
         {
             "success": True,
             "data": {
-                "results": {
-                    "l0_workbench": [],
-                    "l1_events": [{"title": "Yesterday browsing"}],
-                }
+                "historical_recall": {
+                    "status": "found",
+                    "summary": "Yesterday browsing happened.",
+                    "findings": [],
+                    "insufficient_evidence": False,
+                    "answering_hints": {},
+                    "provenance": {"primary_count": 1, "source_layers": ["L1"]},
+                },
+                "debug": {"retrieval_trace": {"query_mode": "detail"}},
             },
             "error": None,
         },
@@ -515,91 +520,47 @@ def test_postprocessor_marks_memory_query_results_as_source_of_truth() -> None:
     assert "implicit memory" in payload["usage_guidance"]
 
 
-def test_build_tool_message_payload_compacts_memory_query_results() -> None:
+def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_memory_query() -> None:
     postprocessor = FunctionCallingPostprocessor(max_items=2, max_text_chars=80)
-    long_content = (
-        "I met Rachel, an old colleague from my previous company, at the TechConnect "
-        "conference on February 10th and 11th, and we talked about reconnecting soon."
-    )
     result = type(
         "Result",
         (),
         {
             "success": True,
             "data": {
-                "results": {
-                    "l0_workbench": [],
-                    "l2_entity_cards": [
+                "historical_recall": {
+                    "status": "found",
+                    "recall_intent": "preference_recall",
+                    "query_mode": "detail",
+                    "summary": "You like rainy weather.",
+                    "findings": [
                         {
-                            "entity_id": "user:u1",
-                            "entity_type": "user",
-                            "name": "Asuka",
-                            "summary": "Likes rainy weather.",
-                        }
-                    ],
-                    "l2_relationships": [
-                        {
-                            "subject_id": "user:u1",
-                            "subject_type": "user",
-                            "predicate": "LIKES",
-                            "object_id": "weather_state:rainy",
-                            "object_type": "weather_state",
+                            "kind": "relationship",
+                            "statement": "user:u1 LIKES weather_state:rainy",
+                            "source_layer": "L2",
                             "confidence": 0.94,
+                            "status": "active",
+                            "occurred_at": None,
+                            "updated_at": 1773999236.11,
+                            "evidence_ref_ids": ["triple-1"],
                         }
                     ],
-                    "l2_assertions": [
-                        {
-                            "entity_id": "user:u1",
-                            "entity_type": "user",
-                            "trait_family": "preference",
-                            "trait_name": "preference.weather",
-                            "trait_value": "rainy weather",
-                            "target_entity_id": "weather_state:rainy",
-                            "confidence_score": 0.91,
-                        }
-                    ],
-                    "l1_events": [
-                        {
-                            "event_id": "evt-1",
-                            "correlation_id": "turn-1",
-                            "timestamp": 3.0,
-                            "created_at": 1773999236.11,
-                            "event_type": "UserMessage",
-                            "memory_domain": "user_authored",
-                            "tom_depth": "defensive_psychology",
-                            "retention_class": "permanent",
-                            "session_id": "sess-1",
-                            "turn_id": "sess-1:turn-3",
-                            "author_type": "user",
-                            "content": long_content,
-                            "score": 0.9,
-                        }
-                    ],
-                    "l1_timeline_summary": [
-                        {
-                            "timestamp": 3.0,
-                            "session_id": "sess-1",
-                            "turn_id": "sess-1:turn-3",
-                            "author_type": "user",
-                            "summary": long_content,
-                            "supporting_event_ids": ["evt-1"],
-                        }
-                    ],
-                    "trace": {
-                        "intent_source": "llm",
+                    "insufficient_evidence": False,
+                    "answering_hints": {
+                        "must_not_guess_when_empty": True,
+                        "prefer_direct_findings": True,
+                    },
+                    "provenance": {
                         "primary_count": 1,
-                        "l1_hit_count": 1,
-                        "l2_entity_card_count": 1,
-                        "l2_relationship_count": 1,
-                        "l2_assertion_count": 1,
-                        "l2_query_trace": {
-                            "resolved_entities": [{"entity_id": "user:u1"}],
-                            "predicates": ["LIKES"],
-                        },
+                        "source_layers": ["L2"],
                     },
                 },
-                "meta": {"intent_source": "llm", "l1_hit_count": 1},
-                "agent_id": "chat_agent",
+                "debug": {
+                    "retrieval_trace": {
+                        "intent_source": "llm",
+                        "l2_query_trace": {"resolved_entities": [{"entity_id": "user:u1"}]},
+                    }
+                },
             },
             "error": None,
         },
@@ -607,33 +568,34 @@ def test_build_tool_message_payload_compacts_memory_query_results() -> None:
 
     payload = postprocessor.build_tool_message_payload("memory_query", result)
 
-    assert "results" not in payload["data"]
-    memory_context = payload["data"]["memory_context"]
-    assert "Timeline Summary:" in memory_context
-    assert "Key Events:" in memory_context
-    assert "Entity Cards:" in memory_context
-    assert "Relationships:" in memory_context
-    assert "Assertions:" in memory_context
-    assert "I met Rachel" in memory_context
-    assert "LIKES" in memory_context
-    assert "rainy weather" in memory_context
-    assert "user:u1" in memory_context
-    assert "weather_state:rainy" in memory_context
-    assert "sess-1:turn-3" in memory_context
-    assert "event_id" not in memory_context
-    assert "created_at" not in memory_context
-    assert "tom_depth" not in memory_context
-    assert payload["data"]["meta"] == {
-        "intent_source": "llm",
-        "primary_count": 1,
-        "l1_hit_count": 1,
-        "l2_entity_card_count": 1,
-        "l2_relationship_count": 1,
-        "l2_assertion_count": 1,
-        "l2_query_trace": {
-            "resolved_entities": [{"entity_id": "user:u1"}],
-            "predicates": ["LIKES"],
-        },
+    assert payload["data"] == {
+        "historical_recall": {
+            "status": "found",
+            "recall_intent": "preference_recall",
+            "query_mode": "detail",
+            "summary": "You like rainy weather.",
+            "findings": [
+                {
+                    "kind": "relationship",
+                    "statement": "user:u1 LIKES weather_state:rainy",
+                    "source_layer": "L2",
+                    "confidence": 0.94,
+                    "status": "active",
+                    "occurred_at": None,
+                    "updated_at": 1773999236.11,
+                    "evidence_ref_ids": ["triple-1"],
+                }
+            ],
+            "insufficient_evidence": False,
+            "answering_hints": {
+                "must_not_guess_when_empty": True,
+                "prefer_direct_findings": True,
+            },
+            "provenance": {
+                "primary_count": 1,
+                "source_layers": ["L2"],
+            },
+        }
     }
 
 

@@ -84,7 +84,7 @@ class TestMemoryQueryTool:
 
     @pytest.mark.asyncio
     async def test_tool_execution(self, monkeypatch):
-        """Should execute query and return a retrieval payload."""
+        """Should execute query and return projected recall plus debug payloads."""
         import magi.tools.builtin.memory_query_tool as memory_query_module
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
         from magi.tools.schema import ToolExecutionContext
@@ -97,10 +97,20 @@ class TestMemoryQueryTool:
                 l0_workbench=[{"summary": "Current goal"}],
                 l1_events=[],
                 l2_entity_cards=[],
-                l2_relationships=[],
+                l2_relationships=[
+                    {
+                        "triple_id": "triple-1",
+                        "subject_id": "user:local_user",
+                        "predicate": "DISLIKES",
+                        "object_id": "weather_state:humid",
+                        "confidence": 0.97,
+                        "status": "active",
+                    }
+                ],
+                l2_assertions=[],
                 l3_reflections=[],
                 l4_procedures=[],
-                trace={"query_mode": "detail"},
+                trace={"query_mode": "detail", "primary_count": 1},
             )
         )
         context = ToolExecutionContext(agent_id="test", task_id="test-task")
@@ -108,8 +118,9 @@ class TestMemoryQueryTool:
         result = await tool.execute({"query": "test query", "recall_intent": "preference_recall"}, context)
 
         assert result.success is True
-        assert result.data["results"]["l0_workbench"][0]["summary"] == "Current goal"
-        assert result.data["meta"]["query_mode"] == "detail"
+        assert result.data["historical_recall"]["summary"] == "你讨厌潮湿天气。"
+        assert result.data["historical_recall"]["findings"][0]["statement"] == "user:local_user DISLIKES weather_state:humid"
+        assert result.data["debug"]["retrieval_trace"]["query_mode"] == "detail"
         request = fake_service.query.await_args.args[0]
         assert request.recall_intent == "preference_recall"
 
@@ -129,6 +140,7 @@ class TestMemoryQueryTool:
                 l1_events=[],
                 l2_entity_cards=[],
                 l2_relationships=[],
+                l2_assertions=[],
                 l3_reflections=[],
                 l4_procedures=[],
                 trace={"query_mode": "detail"},
