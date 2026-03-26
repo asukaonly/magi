@@ -916,6 +916,21 @@ describe('config forms', () => {
     expect(coreCard.className).not.toContain('bg-muted/18');
   });
 
+  it('does not render an extra top divider above advanced settings on the settings surface', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    const coreCard = await screen.findByTestId('llm-scenario-core');
+    const advancedToggle = within(coreCard).getByRole('button', { name: 'llm.showAdvanced' });
+    const advancedContainer = advancedToggle.parentElement;
+
+    expect(advancedContainer).toBeTruthy();
+    expect(advancedContainer?.className).not.toContain('border-t');
+  });
+
   it('sorts model options alphabetically in the scenario model menu', async () => {
     const user = userEvent.setup();
 

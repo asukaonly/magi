@@ -138,7 +138,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     );
 
     return (
-      <div className="mt-3 space-y-3 border-t border-border/60 pt-3">
+      <div
+        className={cn(
+          'mt-3 space-y-3',
+          isSettingsSurface ? 'pt-1' : 'border-t border-border/60 pt-3'
+        )}
+      >
         <button
           type="button"
           className="text-sm font-medium text-primary underline-offset-4 hover:underline"
