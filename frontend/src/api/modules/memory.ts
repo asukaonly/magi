@@ -11,6 +11,9 @@ export interface ModelDownloadStatus {
 // L0 Working Memory Types
 export interface L0Session {
   session_id: string;
+  short_session_id?: string;
+  display_title?: string;
+  display_subtitle?: string | null;
   user_id?: string;
   status: string;
   started_at: number;
@@ -34,6 +37,24 @@ export interface L0Workbench {
   active_entities: Array<Record<string, unknown>>;
   temporary_tactics: Array<Record<string, unknown>>;
 }
+
+export const getL0SessionPrimaryLabel = (session: Pick<L0Session, 'display_title' | 'short_session_id' | 'session_id'>): string =>
+  String(session.display_title || session.short_session_id || session.session_id || '').trim();
+
+export const getL0SessionSecondaryLabel = (
+  session: Pick<L0Session, 'display_subtitle' | 'session_id' | 'short_session_id'>
+): string | null => {
+  const subtitle = String(session.display_subtitle || '').trim();
+  if (subtitle) {
+    return subtitle;
+  }
+  const shortId = String(session.short_session_id || '').trim();
+  const sessionId = String(session.session_id || '').trim();
+  if (sessionId && shortId && sessionId !== shortId) {
+    return sessionId;
+  }
+  return null;
+};
 
 // L1 Event Types
 export interface L1Event {

@@ -35,10 +35,72 @@ from ...memory.answering import (
     should_request_short_issue_answer,
 )
 from ...memory.l2.models import ManualL2EventRequest
+from ...runtime_defaults import DEFAULT_USER_ID
 
 logger = get_logger(__name__)
 
 memory_router = APIRouter()
+
+
+def _short_session_id(session_id: str) -> str:
+    normalized = str(session_id or "").strip()
+    if not normalized:
+        return ""
+    if "-" in normalized:
+        return normalized.split("-", 1)[0]
+    return normalized[:8]
+
+
+def _truncate_session_preview(value: str, *, limit: int = 72) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 1].rstrip()}..."
+
+
+def _is_generic_chat_title(value: str) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"", "new chat", "新对话"}
+
+
+def _derive_l0_session_display(
+    *,
+    session_id: str,
+    goals: list[dict[str, Any]],
+    chat_summary: Any = None,
+) -> dict[str, str | None]:
+    short_session_id = _short_session_id(session_id)
+    goal_title = ""
+    if goals:
+        first_goal = goals[0]
+        goal_title = _truncate_session_preview(str(first_goal.get("description") or first_goal.get("goal_id") or ""))
+
+    chat_title = _truncate_session_preview(str(getattr(chat_summary, "title", "") or ""))
+    user_preview = _truncate_session_preview(str(getattr(chat_summary, "last_user_message_preview", "") or ""))
+    last_preview = _truncate_session_preview(str(getattr(chat_summary, "last_message_preview", "") or ""))
+    workspace_path = str(getattr(chat_summary, "workspace_path", "") or "").strip()
+    workspace_name = workspace_path.rstrip("/").split("/")[-1] if workspace_path else ""
+
+    display_title = (
+        (chat_title if not _is_generic_chat_title(chat_title) else "")
+        or goal_title
+        or user_preview
+        or last_preview
+        or short_session_id
+        or session_id
+    )
+
+    display_subtitle = None
+    for candidate in (user_preview, last_preview, workspace_name):
+        if candidate and candidate != display_title:
+            display_subtitle = candidate
+            break
+
+    return {
+        "short_session_id": short_session_id or session_id,
+        "display_title": display_title,
+        "display_subtitle": display_subtitle,
+    }
 
 
 class RetrievalRequest(BaseModel):
@@ -344,6 +406,8 @@ async def list_l0_sessions():
     if not unified_memory or not unified_memory.l0:
         return {"sessions": [], "stats": {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}}
 
+    chat_read_service = get_chat_read_service()
+
     sessions = []
     total_goals = 0
     total_entities = 0
@@ -353,6 +417,15 @@ async def list_l0_sessions():
         goals = unified_memory.l0._goal_stack.get(session_id, [])
         entities = unified_memory.l0._active_entities.get(session_id, {})
         tactics = unified_memory.l0._temporary_tactics.get(session_id, {})
+        chat_summary = await chat_read_service.aget_session_summary(
+            str(session.get("user_id") or DEFAULT_USER_ID),
+            session_id,
+        )
+        display = _derive_l0_session_display(
+            session_id=session_id,
+            goals=goals,
+            chat_summary=chat_summary,
+        )
         total_goals += len(goals)
         total_entities += len(entities)
         total_tactics += len(tactics)
@@ -366,6 +439,7 @@ async def list_l0_sessions():
             "goal_count": len(goals),
             "entity_count": len(entities),
             "tactic_count": len(tactics),
+            **display,
         })
 
     return {

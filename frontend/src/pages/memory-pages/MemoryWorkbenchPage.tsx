@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField } from '@/components/config-forms/fields';
 import { L0Tab } from '@/components/memory';
+import { getL0SessionPrimaryLabel, getL0SessionSecondaryLabel } from '@/api/modules/memory';
 import { formatTimestamp, useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
@@ -29,6 +30,8 @@ export const MemoryWorkbenchPage = () => {
         const matchesQuery =
           query.trim().length === 0 ||
           session.session_id.toLowerCase().includes(query.toLowerCase()) ||
+          getL0SessionPrimaryLabel(session).toLowerCase().includes(query.toLowerCase()) ||
+          (getL0SessionSecondaryLabel(session) || '').toLowerCase().includes(query.toLowerCase()) ||
           session.status.toLowerCase().includes(query.toLowerCase());
         const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
         return matchesQuery && matchesStatus;
@@ -110,7 +113,14 @@ export const MemoryWorkbenchPage = () => {
               {selectedSession ? (
                 <div className="space-y-3">
                   <div className={MEMORY_INFO_PANEL_CLASS}>
-                    <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{selectedSession.session_id}</div>
+                    <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
+                      {getL0SessionPrimaryLabel(selectedSession)}
+                    </div>
+                    {getL0SessionSecondaryLabel(selectedSession) ? (
+                      <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
+                        {getL0SessionSecondaryLabel(selectedSession)}
+                      </div>
+                    ) : null}
                     <div className="mt-2 text-sm text-[hsl(var(--memory-body))]">
                       {t('memory.pages.workbench.lastActiveLabel', {
                         time: formatTimestamp(selectedSession.last_active_at),
@@ -136,7 +146,14 @@ export const MemoryWorkbenchPage = () => {
               <div className="space-y-2 text-sm text-[hsl(var(--memory-body))]">
                 {filteredSessions.slice(0, 6).map((session) => (
                   <div key={session.session_id} className="flex items-center justify-between gap-3">
-                    <span className="truncate">{session.session_id}</span>
+                    <div className="min-w-0">
+                      <div className="truncate">{getL0SessionPrimaryLabel(session)}</div>
+                      {getL0SessionSecondaryLabel(session) ? (
+                        <div className="truncate text-xs text-[hsl(var(--memory-muted))]">
+                          {getL0SessionSecondaryLabel(session)}
+                        </div>
+                      ) : null}
+                    </div>
                     <span className="text-[11px] uppercase tracking-[0.12em] text-[hsl(var(--memory-muted))]">
                       {session.status}
                     </span>

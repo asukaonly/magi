@@ -301,6 +301,48 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch):
     assert "l4" in body
 
 
+def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = _FakeUnifiedMemory()
+    fake_memory.l0._sessions = {
+        "379f666d-aee9-48fb-ab88-50690496297b": {
+            "session_id": "379f666d-aee9-48fb-ab88-50690496297b",
+            "user_id": "local_user",
+            "status": "active",
+            "started_at": 1710000000.0,
+            "last_active_at": 1710000300.0,
+            "metadata": {},
+        }
+    }
+    fake_memory.l0._goal_stack = {"379f666d-aee9-48fb-ab88-50690496297b": []}
+    fake_memory.l0._active_entities = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
+    fake_memory.l0._temporary_tactics = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
+
+    class _FakeChatReadService:
+        async def aget_session_summary(self, user_id: str, session_id: str):
+            assert user_id == "local_user"
+            assert session_id == "379f666d-aee9-48fb-ab88-50690496297b"
+            return SimpleNamespace(
+                title="记忆设置整理",
+                last_user_message_preview="把通用记忆设置里的 UUID 展示优化掉",
+                workspace_path="/Users/asuka/code/magi",
+            )
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l0/sessions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sessions"][0]["display_title"] == "记忆设置整理"
+    assert body["sessions"][0]["display_subtitle"] == "把通用记忆设置里的 UUID 展示优化掉"
+    assert body["sessions"][0]["short_session_id"] == "379f666d"
+
+
 def test_memory_procedures_api_lists_skills(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

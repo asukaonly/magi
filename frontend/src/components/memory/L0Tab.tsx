@@ -1,7 +1,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import type { L0Session, L0Workbench, MemoryStatistics } from '@/api/modules/memory';
+import {
+  getL0SessionPrimaryLabel,
+  getL0SessionSecondaryLabel,
+  type L0Session,
+  type L0Workbench,
+  type MemoryStatistics,
+} from '@/api/modules/memory';
 
 interface L0TabProps {
   stats: MemoryStatistics['l0'];
@@ -107,11 +113,16 @@ export const L0Tab: React.FC<L0TabProps> = ({
                     onClick={() => onSelectSession(session.session_id)}
                   >
                     <div className="flex w-full items-center justify-between gap-3">
-                      <span className="truncate text-sm font-medium">{session.session_id}</span>
+                      <span className="truncate text-sm font-medium">{getL0SessionPrimaryLabel(session)}</span>
                       <span className="text-[11px] uppercase tracking-[0.12em] text-[hsl(var(--memory-muted))]">
                         {session.status}
                       </span>
                     </div>
+                    {getL0SessionSecondaryLabel(session) ? (
+                      <div className="truncate text-xs text-[hsl(var(--memory-muted))]">
+                        {getL0SessionSecondaryLabel(session)}
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[hsl(var(--memory-muted))]">
                       <span>{t('memory.l0.totalGoals')}: {session.goal_count}</span>
                       <span>{t('memory.l0.totalEntities')}: {session.entity_count}</span>
@@ -135,7 +146,14 @@ export const L0Tab: React.FC<L0TabProps> = ({
             <div className="mt-3 space-y-4">
               {selectedSession ? (
                 <div className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-subtle)/0.74)] px-3 py-3">
-                  <div className="text-sm font-medium text-[hsl(var(--memory-title))]">{selectedSession.session_id}</div>
+                  <div className="text-sm font-medium text-[hsl(var(--memory-title))]">
+                    {getL0SessionPrimaryLabel(selectedSession)}
+                  </div>
+                  {getL0SessionSecondaryLabel(selectedSession) ? (
+                    <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
+                      {getL0SessionSecondaryLabel(selectedSession)}
+                    </div>
+                  ) : null}
                   <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
                     {selectedSession.status} · {t('memory.l0.totalGoals')}: {selectedSession.goal_count} · {t('memory.l0.totalEntities')}: {selectedSession.entity_count} · {t('memory.l0.totalTactics')}: {selectedSession.tactic_count}
                   </div>
