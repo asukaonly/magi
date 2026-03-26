@@ -104,7 +104,8 @@ describe('MemoryEventsPage search interactions', () => {
     await user.type(screen.getByLabelText('memory.pages.events.contentLabel'), 'lake');
     await user.type(screen.getByLabelText('memory.pages.events.startDateLabel'), '2026-03-01');
     await user.type(screen.getByLabelText('memory.pages.events.endDateLabel'), '2026-03-02');
-    await user.selectOptions(screen.getByLabelText('memory.pages.events.sourceFilterLabel'), 'chat_projector');
+    await user.click(screen.getByRole('button', { name: 'memory.filters.all' }));
+    await user.click(screen.getByRole('button', { name: 'chat_projector' }));
 
     expect(queryL1Events).not.toHaveBeenCalled();
 
@@ -122,7 +123,7 @@ describe('MemoryEventsPage search interactions', () => {
     expect(screen.getByLabelText('memory.pages.events.contentLabel')).toHaveValue('');
     expect(screen.getByLabelText('memory.pages.events.startDateLabel')).toHaveValue('');
     expect(screen.getByLabelText('memory.pages.events.endDateLabel')).toHaveValue('');
-    expect(screen.getByLabelText('memory.pages.events.sourceFilterLabel')).toHaveValue('all');
+    expect(screen.getByRole('button', { name: 'memory.filters.all' })).toBeInTheDocument();
     expect(queryL1Events).toHaveBeenLastCalledWith(undefined);
   });
 });

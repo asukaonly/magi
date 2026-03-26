@@ -3,12 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { SelectField } from '@/components/config-forms/fields';
 import { L1Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
-  MEMORY_FILTER_SELECT_CLASS,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
 
@@ -74,6 +74,10 @@ export const MemoryEventsPage = () => {
   const localizedSourceCounts = sourceCounts.map(([source, count]) => [formatSourceLabel(source), count] as [string, number]);
   const sourceSummary = buildSummaryText(localizedSourceCounts, t('memory.filters.all'));
   const domainSummary = buildSummaryText(domainCounts, t('memory.filters.all'));
+  const sourceOptions = sources.map((source) => ({
+    value: source,
+    label: formatSourceLabel(source),
+  }));
 
   const buildSearchFilters = () => {
     const normalizedStartDate = startDate.trim();
@@ -168,23 +172,19 @@ export const MemoryEventsPage = () => {
             </div>
           </div>
           <div className="space-y-1">
-            <label className="text-[13px] font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-events-source">
+            <label className="text-[13px] font-medium text-[hsl(var(--memory-title))]">
               {t('memory.pages.events.sourceFilterLabel')}
             </label>
-            <select
-              id="memory-events-source"
+            <SelectField
               aria-label={t('memory.pages.events.sourceFilterLabel')}
-              className={MEMORY_FILTER_SELECT_CLASS}
               value={sourceFilter}
-              onChange={(event) => setSourceFilter(event.target.value)}
-            >
-              <option value="all">{t('memory.filters.all')}</option>
-              {sources.map((source) => (
-                <option key={source} value={source}>
-                  {formatSourceLabel(source)}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setSourceFilter(value || 'all')}
+              options={sourceOptions}
+              placeholder={t('memory.filters.all')}
+              allowEmpty={true}
+              triggerClassName="h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] shadow-none focus-visible:ring-[hsl(var(--memory-accent-soft)/0.24)]"
+              menuClassName="rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] shadow-[0_10px_20px_rgba(15,23,42,0.06)]"
+            />
           </div>
           <div className="flex items-end gap-1.5">
             <Button type="submit" variant="outline" className={MEMORY_ACTION_BUTTON_CLASS} disabled={loading}>
