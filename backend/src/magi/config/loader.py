@@ -264,14 +264,6 @@ class ConfigLoader:
             "core-tools": {},
             "core-timeline": {
                 "sensors": {
-                    "manual_journal": {
-                        "enabled": True,
-                        "sync_mode": "manual",
-                        "sync_interval_minutes": 1,
-                        "default_retention_mode": "retain_raw",
-                        "storage_mode": "managed",
-                        "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"],
-                    },
                     "browser_history": {
                         "enabled": True,
                         "sync_mode": "interval",

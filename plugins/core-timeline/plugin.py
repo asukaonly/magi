@@ -6,7 +6,6 @@ from copy import deepcopy
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 from magi.timeline.sensors import (
     BrowserHistoryTimelineSensor,
-    ManualJournalTimelineSensor,
     PhotoLibraryTimelineSensor,
 )
 
@@ -117,14 +116,6 @@ def _base_fields(prefix: str, *, include_path: bool = False, include_fetch_toggl
 
 
 DEFAULT_SOURCE_SETTINGS = {
-    "manual_journal": {
-        "enabled": True,
-        "sync_mode": "manual",
-        "sync_interval_minutes": 1,
-        "default_retention_mode": "retain_raw",
-        "storage_mode": "managed",
-        "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"],
-    },
     "browser_history": {
         "enabled": True,
         "sync_mode": "interval",
@@ -164,12 +155,6 @@ class CoreTimelinePlugin(Plugin):
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
         specs = []
         source_map = {
-            "manual_journal": (
-                ManualJournalTimelineSensor,
-                _base_fields("sensors.manual_journal"),
-                "Manual Journal",
-                "User-authored journal entries and attachments.",
-            ),
             "browser_history": (
                 BrowserHistoryTimelineSensor,
                 _base_fields("sensors.browser_history", include_path=True, include_fetch_toggle=True),

@@ -258,7 +258,7 @@ Magi currently ships three official built-in plugin packages:
   registers built-in tools
 
 - `core-timeline`
-  registers built-in timeline sensors such as manual journal, browser history, and photo library
+  registers built-in external timeline sensors such as browser history and photo library
 
 - `core-actions`
   registers built-in outbound actions such as notify-user and send-email

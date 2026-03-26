@@ -335,8 +335,6 @@ export interface TimelineSourceConfig {
 
 export interface TimelineConfig {
   sources: {
-    chat: TimelineSourceConfig;
-    manual_journal: TimelineSourceConfig;
     browser_history: TimelineSourceConfig;
     photo_library: TimelineSourceConfig;
   };
@@ -497,24 +495,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
   timeline: {
     sources: {
-      chat: {
-        enabled: true,
-        sync_mode: 'watch',
-        sync_interval_minutes: 1,
-        default_retention_mode: 'analyze_only',
-        storage_mode: 'managed',
-        fetch_page_content: false,
-        edge_whitelist: ['MENTIONED', 'CARES_ABOUT', 'LIKES', 'DISLIKES', 'INTERACTED_WITH'],
-      },
-      manual_journal: {
-        enabled: true,
-        sync_mode: 'manual',
-        sync_interval_minutes: 1,
-        default_retention_mode: 'retain_raw',
-        storage_mode: 'managed',
-        fetch_page_content: false,
-        edge_whitelist: ['MENTIONED', 'CARES_ABOUT', 'LIKES', 'DISLIKES', 'CREATED', 'RELATED_TO'],
-      },
       browser_history: {
         enabled: true,
         sync_mode: 'interval',

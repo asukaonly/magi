@@ -274,6 +274,7 @@ def test_timeline_defaults_include_source_retention_and_edge_whitelists():
     assert "enabled" not in config.timeline.model_dump(mode="json")
     assert "expert_mode_edge_override" not in config.timeline.model_dump(mode="json")
     assert "chat" not in config.timeline.sources.model_dump(mode="json")
+    assert "manual_journal" not in config.timeline.sources.model_dump(mode="json")
     assert config.timeline.sources.photo_library.default_retention_mode == "retain_raw"
     assert "LIKES" in config.timeline.sources.browser_history.edge_whitelist
     assert "DISLIKES" not in config.timeline.sources.browser_history.edge_whitelist
@@ -283,7 +284,7 @@ def test_onboarding_template_includes_timeline_defaults():
     template = _build_onboarding_template()
 
     assert template.timeline.sources.browser_history.fetch_page_content is False
-    assert template.timeline.sources.manual_journal.default_retention_mode == "retain_raw"
+    assert "manual_journal" not in template.timeline.sources.model_dump(mode="json")
     assert "core" in template.llm.selections
 
 

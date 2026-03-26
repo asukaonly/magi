@@ -15,13 +15,15 @@ export const getTimelineSourceDisplayName = (
   source: Pick<TimelineSourceStatusItem, 'source_name' | 'plugin_id' | 'display_name'>
 ): string =>
   resolveTranslation(t, `settings.tabs.${source.source_name}`)
+  || source.display_name
   || resolveTranslation(t, `settings.plugins.${source.plugin_id}.name`)
-  || source.display_name;
+  || source.source_name;
 
 export const getTimelineSourceDescription = (
   t: TimelineTranslateFn,
   source: Pick<TimelineSourceStatusItem, 'source_name' | 'plugin_id' | 'description'>
 ): string =>
   resolveTranslation(t, `settings.timeline.sourceDesc.${source.source_name}`)
+  || source.description
   || resolveTranslation(t, `settings.plugins.${source.plugin_id}.description`)
-  || source.description;
+  || "";

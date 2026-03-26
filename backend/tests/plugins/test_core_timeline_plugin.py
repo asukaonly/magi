@@ -14,11 +14,12 @@ def _load_plugin_class():
     return module.CoreTimelinePlugin
 
 
-def test_core_timeline_plugin_does_not_register_chat_source() -> None:
+def test_core_timeline_plugin_only_registers_external_sensor_sources() -> None:
     plugin = _load_plugin_class()()
 
     sensors = plugin.get_sensors()
     source_types = [spec.metadata["source_type"] for _, _, spec in sensors]
 
-    assert source_types == ["manual_journal", "browser_history", "photo_library"]
+    assert source_types == ["browser_history", "photo_library"]
     assert "chat" not in source_types
+    assert "manual_journal" not in source_types

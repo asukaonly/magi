@@ -426,7 +426,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
         (),
         {
             "manifest": type("Manifest", (), {"plugin_id": "core-timeline"})(),
-            "current_settings": {"sensors": {"manual_journal": {"enabled": True, "sync_mode": "manual"}}},
+            "current_settings": {"sensors": {"browser_history": {"enabled": True, "sync_mode": "manual"}}},
         },
     )()
     monkeypatch.setattr(
@@ -447,13 +447,13 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
                         (),
                         {
                             "plugin_id": "core-timeline",
-                            "contribution_id": "timeline.manual_journal",
-                            "display_name": "Manual Journal",
-                            "description": "User-authored journal entries and attachments.",
+                            "contribution_id": "timeline.browser_history",
+                            "display_name": "Browser History",
+                            "description": "Visited URLs and optional page content snapshots.",
                             "fields": [],
                             "metadata": {
                                 "domain": "timeline",
-                                "source_type": "manual_journal",
+                                "source_type": "browser_history",
                                 "default_settings": {
                                     "enabled": True,
                                     "sync_mode": "manual",
@@ -466,11 +466,11 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
                 "resolve_domain_sensor": lambda self, domain, source_name: (
                     (
                         "core-timeline",
-                        "timeline.manual_journal",
+                        "timeline.browser_history",
                         type("Sensor", (), {"supports_pull_sync": False})(),
                         object(),
                     )
-                    if domain == "timeline" and source_name == "manual_journal"
+                    if domain == "timeline" and source_name == "browser_history"
                     else None
                 ),
             },
@@ -486,7 +486,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
                 running=False,
                 last_run_at=1710000190.0,
                 last_success_at=None,
-                last_error="timeline.manual_journal does not implement pull sync",
+                last_error="timeline.browser_history does not implement pull sync",
                 next_run_at=None,
                 scheduler_job_id=None,
                 stats={},
@@ -501,7 +501,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
 
     assert response.status_code == 200
     body = response.json()
-    assert body["sources"][0]["source_name"] == "manual_journal"
+    assert body["sources"][0]["source_name"] == "browser_history"
     assert body["sources"][0]["supports_pull_sync"] is False
     assert body["sources"][0]["last_error"] is None
 

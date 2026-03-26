@@ -9,6 +9,7 @@ const translationMap: Record<string, string> = {
   'settings.tabs.browser_history': '浏览记录',
   'settings.timeline.sourceDesc.browser_history': '分析浏览行为，并控制是否继续抓取页面正文。',
   'settings.timeline.fields.enabled': '启用',
+  'settings.plugins.core-timeline.name': '核心时间线',
 };
 
 vi.mock('react-i18next', () => ({
@@ -121,5 +122,41 @@ describe('TimelineSourcesSection', () => {
     expect(screen.queryByText('settings.timeline.workspace.backToOverview')).not.toBeInTheDocument();
     expect(screen.getByText('启用')).toBeInTheDocument();
     expect(within(detail).queryByText('来源启用')).not.toBeInTheDocument();
+  });
+
+  it('prefers the source display name over the plugin name fallback', () => {
+    render(
+      <TimelineSourcesSection
+        userMode={userModeFixture}
+        statuses={[
+          {
+            ...timelineSourceFixture,
+            source_name: 'mystery_source',
+            contribution_id: 'timeline.mystery_source',
+            display_name: 'Mystery Source',
+            description: 'A built-in timeline capability.',
+            fields: [
+              {
+                ...timelineSourceFixture.fields[0],
+                key: 'sensors.mystery_source.enabled',
+              },
+            ],
+            current_settings: {
+              'sensors.mystery_source.enabled': true,
+            },
+          },
+        ]}
+        loadingStatus={false}
+        selectedSourceName={null}
+        pluginDrafts={{}}
+        onSelectSource={vi.fn()}
+        onRefreshSources={vi.fn().mockResolvedValue(undefined)}
+        onPluginFieldChange={vi.fn()}
+        onPluginFieldsChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Mystery Source')).toBeInTheDocument();
+    expect(screen.queryByText('核心时间线')).not.toBeInTheDocument();
   });
 });

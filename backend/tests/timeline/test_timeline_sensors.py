@@ -5,7 +5,6 @@ import pytest
 
 from magi.timeline.sensors import (
     BrowserHistoryTimelineSensor,
-    ManualJournalTimelineSensor,
     PhotoLibraryTimelineSensor,
 )
 from magi.timeline.insight_pipeline import TimelineInsightPipeline
@@ -17,24 +16,6 @@ class _FakeUnifiedMemory:
 
     def upsert_user_graph_edge(self, **kwargs):
         self.edges.append(kwargs)
-
-@pytest.mark.asyncio
-async def test_manual_journal_sensor_builds_text_and_image_blocks():
-    sensor = ManualJournalTimelineSensor()
-    item = {
-        "entry_id": "journal-1",
-        "title": "A calm evening",
-        "text": "Cooked dinner and relaxed.",
-        "image_refs": ["/tmp/evening.png"],
-        "occurred_at": time.time(),
-    }
-
-    event = await sensor.build_timeline_event(item)
-
-    assert event.source_type == "manual_journal"
-    assert event.retention_mode == "retain_raw"
-    assert [block.kind for block in event.content_blocks] == ["text", "image"]
-
 
 @pytest.mark.asyncio
 async def test_browser_history_sensor_uses_metadata_only_until_secondary_fetch_enabled():
