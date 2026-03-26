@@ -62,13 +62,15 @@ const SettingsCenterDialog: React.FC<SettingsCenterDialogProps> = ({ open, onOpe
               event.preventDefault();
             }
           }}
-          className="settings-theme-surface h-[88vh] max-w-6xl overflow-hidden p-0"
+          className="settings-theme-surface h-[88vh] max-w-6xl p-0"
         >
           <DialogHeader className="sr-only">
             <DialogTitle>{t('settings.title')}</DialogTitle>
             <DialogDescription>{t('settings.subtitle')}</DialogDescription>
           </DialogHeader>
-          <SettingsPage ref={pageRef} onRequestClose={() => void requestClose()} />
+          <div data-testid="settings-center-shell" className="h-full overflow-hidden rounded-[inherit]">
+            <SettingsPage ref={pageRef} onRequestClose={() => void requestClose()} />
+          </div>
         </DialogContent>
       </Dialog>
 

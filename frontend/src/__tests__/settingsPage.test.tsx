@@ -1031,6 +1031,17 @@ describe('settings page draft saving', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled());
   });
 
+  it('keeps the dialog border on the outer frame and clips content in an inner shell', async () => {
+    render(<SettingsCenterDialog open onOpenChange={vi.fn()} />);
+
+    const dialog = await screen.findByRole('dialog');
+    const innerShell = screen.getByTestId('settings-center-shell');
+
+    expect(dialog.className).not.toContain('overflow-hidden');
+    expect(innerShell.className).toContain('overflow-hidden');
+    expect(innerShell.className).toContain('rounded-[inherit]');
+  });
+
   it('renders the personality editor inside settings', async () => {
     const user = userEvent.setup();
 
