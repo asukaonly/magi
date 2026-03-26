@@ -614,6 +614,62 @@ class TestHealthKitReaderPlatform:
         assert reader.read_sessions("sleep", start, end) == []
         assert reader.read_workouts(start, end) == []
 
+    def test_read_daily_aggregate_transforms_statistics_rows(self, monkeypatch):
+        """Test read_daily_aggregate converts statistics rows into timeline payloads."""
+        reader = HealthKitReader()
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setattr(reader, "is_available", lambda: True)
+        monkeypatch.setattr(
+            reader,
+            "_execute_statistics_collection_query",
+            lambda *_args, **_kwargs: [
+                {"date": datetime(2024, 1, 1), "value": 8234},
+                {"date": datetime(2024, 1, 2), "value": 6400},
+            ],
+            raising=False,
+        )
+
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 1, 3)
+
+        result = reader.read_daily_aggregate("steps", start, end)
+
+        assert result == [
+            {"data_type": "steps", "date": "2024-01-01", "value": 8234},
+            {"data_type": "steps", "date": "2024-01-02", "value": 6400},
+        ]
+
+    def test_read_sessions_transforms_sleep_samples(self, monkeypatch):
+        """Test read_sessions converts HealthKit sleep samples into timeline payloads."""
+        reader = HealthKitReader()
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setattr(reader, "is_available", lambda: True)
+        monkeypatch.setattr(
+            reader,
+            "_execute_sample_query",
+            lambda *_args, **_kwargs: [
+                {
+                    "start_date": datetime(2024, 1, 1, 23, 0, 0),
+                    "end_date": datetime(2024, 1, 2, 7, 30, 0),
+                }
+            ],
+            raising=False,
+        )
+
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 1, 3)
+
+        result = reader.read_sessions("sleep", start, end)
+
+        assert result == [
+            {
+                "data_type": "sleep",
+                "start_time": datetime(2024, 1, 1, 23, 0, 0).timestamp(),
+                "end_time": datetime(2024, 1, 2, 7, 30, 0).timestamp(),
+                "session_id": "sleep_20240101230000_20240102073000",
+            }
+        ]
+
     def test_get_authorization_status_unknown_type(self, monkeypatch):
         """Test get_authorization_status handles unknown types."""
         reader = HealthKitReader()
@@ -635,6 +691,21 @@ class TestHealthKitReaderPlatform:
         result = reader.request_authorization(["unknown_type"])
 
         assert result == {"unknown_type": False}
+
+    def test_get_hk_type_uses_framework_constant_values(self):
+        """Test _get_hk_type resolves identifiers from the imported framework map."""
+        reader = HealthKitReader()
+        quantity_type = MagicMock()
+        quantity_type.quantityTypeForIdentifier_.return_value = "steps_type"
+        reader._hk_module = {
+            "HKQuantityType": quantity_type,
+            "HKQuantityTypeIdentifierStepCount": "STEP_COUNT_IDENTIFIER",
+        }
+
+        result = reader._get_hk_type(HEALTH_DATA_TYPES["steps"])
+
+        quantity_type.quantityTypeForIdentifier_.assert_called_once_with("STEP_COUNT_IDENTIFIER")
+        assert result == "steps_type"
 
     def test_reader_multiple_calls_caches_availability(self, monkeypatch):
         """Test that multiple calls to is_available use cached value."""

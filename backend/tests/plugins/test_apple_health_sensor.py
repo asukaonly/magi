@@ -190,6 +190,62 @@ class TestAppleHealthTimelineSensor:
             assert reader_instance.get_authorization_status.called
             assert reader_instance.read_daily_aggregate.call_count == 2
 
+    @patch('apple_health.reader.HealthKitReader')
+    async def test_collect_items_uses_session_start_for_cursor(self, mock_reader_class):
+        """Test collect_items derives cursor and watermark from sleep session start time."""
+        reader_instance = Mock(spec=HealthKitReader)
+        mock_reader_class.return_value = reader_instance
+        session_start = datetime(2024, 1, 1, 23, 0, 0).timestamp()
+        session_end = datetime(2024, 1, 2, 7, 0, 0).timestamp()
+
+        reader_instance.get_authorization_status.return_value = {
+            "sleep": "sharing_authorized",
+        }
+        reader_instance.read_sessions.return_value = [
+            {
+                "data_type": "sleep",
+                "start_time": session_start,
+                "end_time": session_end,
+                "session_id": "sleep_20240101230000_20240102070000",
+            }
+        ]
+
+        with patch('sys.platform', 'darwin'):
+            sensor = AppleHealthTimelineSensor(
+                enabled_types=[
+                    HealthDataType(
+                        key="sleep",
+                        hk_type="CategoryType",
+                        display_name="Sleep",
+                        description="Sleep analysis data",
+                        unit=None,
+                        aggregation="session",
+                        hk_class="HKCategoryTypeIdentifierSleepAnalysis",
+                        edge_types=["sleep"],
+                    )
+                ]
+            )
+            sensor._reader = reader_instance
+
+            from magi.awareness.sensor_sync import SensorSyncContext
+            from magi.utils.runtime import RuntimePaths
+
+            context = SensorSyncContext(
+                source_type="apple_health",
+                manual=False,
+                last_cursor=None,
+                last_success_at=0,
+                limit=100,
+                runtime_paths=RuntimePaths(None),
+                plugin_settings={},
+            )
+
+            result = await sensor.collect_items(context)
+
+            assert len(result.items) == 1
+            assert result.next_cursor == str(session_start)
+            assert result.watermark_ts == session_start
+
     @patch('apple_health.sensor.NORMALIZERS')
     async def test_build_output_with_normalizer(self, mock_normalizers):
         """Test build_output with normalizer."""

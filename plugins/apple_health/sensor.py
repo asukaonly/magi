@@ -150,7 +150,13 @@ class AppleHealthTimelineSensor(SensorBase):
                     return datetime.fromisoformat(date_str).timestamp()
                 except (ValueError, TypeError):
                     return 0
-            return float(item.get("timestamp", time.time()))
+            for key in ("timestamp", "start_time", "occurred_at"):
+                if item.get(key) is not None:
+                    try:
+                        return float(item[key])
+                    except (TypeError, ValueError):
+                        continue
+            return time.time()
 
         items.sort(key=get_timestamp, reverse=True)
 
@@ -167,6 +173,12 @@ class AppleHealthTimelineSensor(SensorBase):
                         return datetime.fromisoformat(date_str).timestamp()
                     except (ValueError, TypeError):
                         return 0
+                for key in ("timestamp", "start_time", "occurred_at"):
+                    if item.get(key) is not None:
+                        try:
+                            return float(item[key])
+                        except (TypeError, ValueError):
+                            continue
                 return 0
 
             min_timestamp = min(get_timestamp(item) for item in items)
