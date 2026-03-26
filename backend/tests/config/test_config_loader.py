@@ -103,6 +103,18 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
     assert loader.load().plugins.packages["core-timeline"].settings["sensors"]["browser_history"]["sync_interval_minutes"] == 90
 
 
+def test_loader_default_core_timeline_settings_exclude_chat_source(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    config = loader.load()
+
+    sensors = config.plugins.packages["core-timeline"].settings["sensors"]
+
+    assert "chat" not in sensors
+    assert set(sensors.keys()) == {"manual_journal", "browser_history", "photo_library"}
+
+
 def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
     config_dir = tmp_path / "config" / "plugins"

@@ -5,7 +5,6 @@ import pytest
 
 from magi.timeline.sensors import (
     BrowserHistoryTimelineSensor,
-    ChatTimelineSensor,
     ManualJournalTimelineSensor,
     PhotoLibraryTimelineSensor,
 )
@@ -18,35 +17,6 @@ class _FakeUnifiedMemory:
 
     def upsert_user_graph_edge(self, **kwargs):
         self.edges.append(kwargs)
-
-
-@pytest.mark.asyncio
-async def test_chat_sensor_discover_fetch_and_build_round_trip():
-    sensor = ChatTimelineSensor()
-    item = {
-        "turn_id": "turn-1",
-        "message": "I still like Asuka best.",
-        "assistant_message": "You really care about Asuka.",
-        "user_id": "local_user",
-        "session_id": "session-1",
-        "timestamp": 1710000000.0,
-    }
-
-    changes = await sensor.discover_changes([item], known_fingerprints=set())
-    fetched = await sensor.fetch_item(changes[0])
-    event = await sensor.build_timeline_event(fetched)
-
-    assert len(changes) == 1
-    assert fetched["message"] == item["message"]
-    assert event.source_type == "chat"
-    assert event.source_item_id == "turn-1"
-    assert event.retention_mode == "analyze_only"
-    assert [block.value for block in event.content_blocks] == [
-        "User: I still like Asuka best.",
-        "Assistant: You really care about Asuka.",
-    ]
-    assert event.provenance["session_id"] == "session-1"
-
 
 @pytest.mark.asyncio
 async def test_manual_journal_sensor_builds_text_and_image_blocks():

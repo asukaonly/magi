@@ -22,7 +22,7 @@ async def test_timeline_task_agent_processes_timeline_facts():
             agent_type=TaskAgentType.TIMELINE.value,
             agent_instance_id="timeline-main",
             event_type="TimelineSourceDetected",
-            payload={"source_type": "chat", "source_item_id": "evt-1"},
+            payload={"source_type": "manual_journal", "source_item_id": "evt-1"},
         )
     )
 

@@ -6,7 +6,6 @@ from copy import deepcopy
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 from magi.timeline.sensors import (
     BrowserHistoryTimelineSensor,
-    ChatTimelineSensor,
     ManualJournalTimelineSensor,
     PhotoLibraryTimelineSensor,
 )
@@ -118,14 +117,6 @@ def _base_fields(prefix: str, *, include_path: bool = False, include_fetch_toggl
 
 
 DEFAULT_SOURCE_SETTINGS = {
-    "chat": {
-        "enabled": True,
-        "sync_mode": "watch",
-        "sync_interval_minutes": 1,
-        "default_retention_mode": "analyze_only",
-        "storage_mode": "managed",
-        "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"],
-    },
     "manual_journal": {
         "enabled": True,
         "sync_mode": "manual",
@@ -173,12 +164,6 @@ class CoreTimelinePlugin(Plugin):
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
         specs = []
         source_map = {
-            "chat": (
-                ChatTimelineSensor,
-                _base_fields("sensors.chat"),
-                "Chat",
-                "Chat turns promoted into the user timeline.",
-            ),
             "manual_journal": (
                 ManualJournalTimelineSensor,
                 _base_fields("sensors.manual_journal"),

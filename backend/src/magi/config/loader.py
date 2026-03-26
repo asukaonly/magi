@@ -264,14 +264,6 @@ class ConfigLoader:
             "core-tools": {},
             "core-timeline": {
                 "sensors": {
-                    "chat": {
-                        "enabled": True,
-                        "sync_mode": "watch",
-                        "sync_interval_minutes": 1,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "managed",
-                        "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"],
-                    },
                     "manual_journal": {
                         "enabled": True,
                         "sync_mode": "manual",

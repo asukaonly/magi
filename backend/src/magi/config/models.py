@@ -367,14 +367,6 @@ class TimelineSourceSettings(BaseModel):
 class TimelineSourcesSettings(BaseModel):
     """Timeline source collection settings."""
 
-    chat: TimelineSourceSettings = Field(
-        default_factory=lambda: TimelineSourceSettings(
-            sync_mode=TimelineSyncMode.WATCH,
-            sync_interval_minutes=1,
-            default_retention_mode=TimelineRetentionMode.ANALYZE_ONLY,
-            edge_whitelist=["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"],
-        )
-    )
     manual_journal: TimelineSourceSettings = Field(
         default_factory=lambda: TimelineSourceSettings(
             sync_mode=TimelineSyncMode.MANUAL,
