@@ -782,14 +782,11 @@ class L2Handler:
             return None
         if predicate_family != "preference":
             return str(target_entities[0]["entity_id"])
-        for index, entity in enumerate(target_entities):
+        for entity in target_entities:
             # Vector-only resolution is unreliable for exact target filtering.
             if str(entity.get("match_source") or "") == "vector":
                 continue
-            surface = ""
-            if conditions.entities and index < len(conditions.entities):
-                surface = str(conditions.entities[index] or "")
-            if not self._is_generic_surface_entity(surface) and not self._is_generic_entity_ref(entity):
+            if not self._is_generic_entity_ref(entity):
                 return str(entity["entity_id"])
         return None
 
@@ -814,38 +811,23 @@ class L2Handler:
         return types or None
 
     @staticmethod
-    def _is_generic_surface_entity(surface: str) -> bool:
-        normalized = str(surface or "").strip().casefold()
-        return normalized in {
-            "天气",
-            "气候",
-            "weather",
-            "climate",
-            "食物",
-            "food",
-            "音乐",
-            "music",
-            "地方",
-            "place",
-        }
-
-    @staticmethod
     def _is_generic_entity_ref(entity: dict[str, str]) -> bool:
+        """Detect generic/category entities structurally.
+
+        An entity is generic when its ID suffix is (a substring of) its type
+        name or vice-versa, e.g. ``weather_state:weather``, ``food:food``.
+        Specific instances like ``weather_state:rainy-hangzhou`` won't match.
+        """
         entity_id = str(entity.get("entity_id") or "")
         entity_type = str(entity.get("entity_type") or "")
+        if not entity_id or not entity_type:
+            return False
         _, _, suffix = entity_id.partition(":")
+        if not suffix:
+            return False
         normalized_suffix = suffix.replace("_", "-").casefold()
         normalized_type = entity_type.replace("_", "-").casefold()
-        return normalized_suffix in {
-            normalized_type,
-            f"{normalized_type}-state",
-            "weather-state",
-            "weather",
-            "food",
-            "music",
-            "place",
-            "person",
-        }
+        return normalized_suffix in normalized_type or normalized_type in normalized_suffix
 
     @staticmethod
     def _allows_object_id_filter(*, entity_type: str, direction: str) -> bool:

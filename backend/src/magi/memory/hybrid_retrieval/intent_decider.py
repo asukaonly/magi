@@ -504,13 +504,25 @@ class RuleBasedIntentDecider:
             return "relationship"
 
         query = inp.query.lower()
-        if any(token in query for token in ("喜欢", "讨厌", "不喜欢", "偏好", "like", "likes", "dislike", "dislikes")):
+        if any(token in query for token in (
+            "喜欢", "讨厌", "不喜欢", "偏好", "爱吃", "常喝", "反感", "最烦", "最爱",
+            "like", "likes", "dislike", "dislikes", "enjoy", "hate", "love", "favorite", "prefer",
+        )):
             return "preference"
-        if any(token in query for token in ("关系", "认识", "谁", "relationship", "know", "knows", "friend")):
+        if any(token in query for token in (
+            "关系", "认识", "谁", "他是谁", "怎么认识",
+            "relationship", "know", "knows", "friend",
+        )):
             return "relationship"
-        if any(token in query for token in ("设置", "默认", "资料", "事实", "setting", "settings", "profile")):
+        if any(token in query for token in (
+            "设置", "默认", "资料", "事实",
+            "setting", "settings", "profile",
+        )):
             return "profile_fact"
-        if any(token in query for token in ("访问", "浏览", "去过", "看过", "visit", "visited", "browse", "browsed")):
+        if any(token in query for token in (
+            "访问", "浏览", "去过", "看过",
+            "visit", "visited", "browse", "browsed",
+        )):
             return "activity"
         return "unknown"
 
