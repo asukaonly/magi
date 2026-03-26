@@ -30,51 +30,51 @@ class _FakeUnifiedMemory:
         self.edges.append(kwargs)
 
 
-class _FakeBrowserHistorySensor:
+class _FakePhotoLibrarySensor:
     async def build_timeline_event(self, payload):  # type: ignore[no-untyped-def]
         source_item_id = str(payload["source_item_id"])
         return TimelineEvent(
-            event_id=f"browser_history:{source_item_id}",
-            source_type="browser_history",
+            event_id=f"photo_library:{source_item_id}",
+            source_type="photo_library",
             source_item_id=source_item_id,
             occurred_at=float(payload["timestamp"]),
             captured_at=float(payload["timestamp"]),
             title=str(payload["title"]),
             summary=str(payload["summary"]),
-            retention_mode="analyze_only",
+            retention_mode="retain_raw",
             content_blocks=[
                 TimelineContentBlock(kind="text", value=str(payload["summary"])),
             ],
             processing_status={"stored": True},
-            provenance={"url": str(payload.get("url") or "")},
-            tags=["browser_history"],
+            provenance={"path": str(payload.get("path") or "")},
+            tags=["photo_library"],
         )
 
     async def extract_candidates(self, payload):  # type: ignore[no-untyped-def]
         return {
             "entities": [],
-            "tags": ["browser_history"],
+            "tags": ["photo_library"],
             "relation_candidates": list(payload.get("relation_candidates", [])),
         }
 
 
 class _FakeSensorRegistry:
     def resolve_domain_sensor(self, domain: str, source_type: str):
-        if domain != "timeline" or source_type != "browser_history":
+        if domain != "timeline" or source_type != "photo_library":
             return None
         spec = type("Spec", (), {"metadata": {"default_settings": {"enabled": True, "edge_whitelist": ["LIKES"]}}})()
-        return ("core-timeline", "timeline.browser_history", _FakeBrowserHistorySensor(), spec)
+        return ("core-timeline", "timeline.photo_library", _FakePhotoLibrarySensor(), spec)
 
 
 class _FakePluginManager:
     def get_package(self, plugin_id: str):
         if plugin_id != "core-timeline":
             return None
-        return type("Package", (), {"current_settings": {"sensors": {"browser_history": {"enabled": True}}}})()
+        return type("Package", (), {"current_settings": {"sensors": {"photo_library": {"enabled": True}}}})()
 
 
 @pytest.mark.asyncio
-async def test_runtime_timeline_handler_persists_browser_history_entry_and_user_graph_edges() -> None:
+async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_graph_edges() -> None:
     memory = _FakeUnifiedMemory()
     handler = build_timeline_handler(
         AppConfig(),
@@ -86,10 +86,10 @@ async def test_runtime_timeline_handler_persists_browser_history_entry_and_user_
     result = await handler(
         {
             "target_task_agent_id": "timeline-main",
-            "source_type": "browser_history",
-            "source_item_id": "visit-1",
-            "url": "https://example.com/asuka",
-            "title": "Asuka profile",
+            "source_type": "photo_library",
+            "source_item_id": "photo-1",
+            "path": "/tmp/photos/asuka.jpg",
+            "title": "Asuka photo",
             "summary": "I still like Asuka best.",
             "timestamp": 1710000000.0,
             "relation_candidates": [
@@ -105,11 +105,11 @@ async def test_runtime_timeline_handler_persists_browser_history_entry_and_user_
         }
     )
 
-    assert result == {"handled": True, "event_id": "browser_history:visit-1", "source_type": "browser_history"}
+    assert result == {"handled": True, "event_id": "photo_library:photo-1", "source_type": "photo_library"}
     assert len(memory.l1.timeline_events) == 1
     stored_event = memory.l1.timeline_events[0]
-    assert stored_event["correlation_id"] == "browser_history:visit-1"
-    assert stored_event["data"]["provenance"]["url"] == "https://example.com/asuka"
+    assert stored_event["correlation_id"] == "photo_library:photo-1"
+    assert stored_event["data"]["provenance"]["path"] == "/tmp/photos/asuka.jpg"
     assert [block["value"] for block in stored_event["data"]["content_blocks"]] == ["I still like Asuka best."]
     assert len(memory.edges) == 1
     assert memory.edges[0]["predicate"] == "LIKES"

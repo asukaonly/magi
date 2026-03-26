@@ -44,10 +44,10 @@ def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, m
                             "source": "builtin",
                             "settings": {
                                 "sensors": {
-                                    "browser_history": {
+                                    "photo_library": {
                                         "enabled": True,
                                         "sync_mode": "interval",
-                                        "sync_interval_minutes": 45,
+                                        "sync_interval_minutes": 90,
                                     }
                                 }
                             },
@@ -71,8 +71,8 @@ def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, m
 
     assert "packages" not in migrated_agent.get("plugins", {})
     assert index_data["packages"]["core-timeline"]["enabled"] is True
-    assert settings_data["sensors"]["browser_history"]["sync_interval_minutes"] == 45
-    assert config.plugins.packages["core-timeline"].settings["sensors"]["browser_history"]["sync_interval_minutes"] == 45
+    assert settings_data["sensors"]["photo_library"]["sync_interval_minutes"] == 90
+    assert config.plugins.packages["core-timeline"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 90
 
 
 def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkeypatch) -> None:
@@ -85,7 +85,7 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
     saved = loader.save(
         {
             "plugins.packages.core-timeline.enabled": False,
-            "plugins.packages.core-timeline.settings.sensors.browser_history.sync_interval_minutes": 90,
+            "plugins.packages.core-timeline.settings.sensors.photo_library.sync_interval_minutes": 120,
             "tools.weather.default_provider": "qweather",
         }
     )
@@ -98,9 +98,9 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
     assert "packages" not in agent_data.get("plugins", {})
     assert agent_data["tools"]["weather"]["default_provider"] == "qweather"
     assert index_data["packages"]["core-timeline"]["enabled"] is False
-    assert settings_data["sensors"]["browser_history"]["sync_interval_minutes"] == 90
+    assert settings_data["sensors"]["photo_library"]["sync_interval_minutes"] == 120
     assert loader.load().plugins.packages["core-timeline"].enabled is False
-    assert loader.load().plugins.packages["core-timeline"].settings["sensors"]["browser_history"]["sync_interval_minutes"] == 90
+    assert loader.load().plugins.packages["core-timeline"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 120
 
 
 def test_loader_default_core_timeline_settings_only_include_external_sensor_sources(tmp_path: Path, monkeypatch) -> None:
@@ -111,9 +111,10 @@ def test_loader_default_core_timeline_settings_only_include_external_sensor_sour
 
     sensors = config.plugins.packages["core-timeline"].settings["sensors"]
 
+    assert "browser_history" not in sensors
     assert "chat" not in sensors
     assert "manual_journal" not in sensors
-    assert set(sensors.keys()) == {"browser_history", "photo_library"}
+    assert set(sensors.keys()) == {"photo_library"}
 
 
 def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, monkeypatch) -> None:

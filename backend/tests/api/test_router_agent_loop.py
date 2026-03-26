@@ -100,7 +100,7 @@ async def test_router_agent_loop_routes_targeted_timeline_events():
             payload={
                 "target_task_agent_type": TaskAgentType.TIMELINE.value,
                 "target_task_agent_id": "timeline-main",
-                "source_type": "browser_history",
+                "source_type": "photo_library",
             },
         )
     )

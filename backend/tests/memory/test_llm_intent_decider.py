@@ -41,7 +41,7 @@ class TestLLMParsing:
                     "layer": "L1",
                     "is_fallback": False,
                     "content_query": "browsing history",
-                    "source_filters": ["browser_history"],
+                    "source_filters": ["chrome_history"],
                 }
             ],
             "reasoning": "user asked about browsing",

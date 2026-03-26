@@ -335,7 +335,6 @@ export interface TimelineSourceConfig {
 
 export interface TimelineConfig {
   sources: {
-    browser_history: TimelineSourceConfig;
     photo_library: TimelineSourceConfig;
   };
 }
@@ -495,15 +494,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
   timeline: {
     sources: {
-      browser_history: {
-        enabled: true,
-        sync_mode: 'interval',
-        sync_interval_minutes: 30,
-        default_retention_mode: 'analyze_only',
-        storage_mode: 'managed',
-        fetch_page_content: false,
-        edge_whitelist: ['VIEWED', 'VISITED', 'CARES_ABOUT', 'LIKES'],
-      },
       photo_library: {
         enabled: true,
         sync_mode: 'interval',

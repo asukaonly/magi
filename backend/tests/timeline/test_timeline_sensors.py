@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 from magi.timeline.sensors import (
-    BrowserHistoryTimelineSensor,
     PhotoLibraryTimelineSensor,
 )
 from magi.timeline.insight_pipeline import TimelineInsightPipeline
@@ -16,30 +15,6 @@ class _FakeUnifiedMemory:
 
     def upsert_user_graph_edge(self, **kwargs):
         self.edges.append(kwargs)
-
-@pytest.mark.asyncio
-async def test_browser_history_sensor_uses_metadata_only_until_secondary_fetch_enabled():
-    item = {
-        "url": "https://example.com/articles/asuka",
-        "title": "Asuka article",
-        "visit_time": 1710000000.0,
-        "visit_count": 4,
-        "page_content": "Detailed page content that should stay gated.",
-    }
-    sensor = BrowserHistoryTimelineSensor(fetch_page_content=False)
-
-    identity = sensor.source_item_identity(item)
-    fingerprint = sensor.source_item_version_fingerprint(item)
-    fetched = await sensor.fetch_item(item)
-
-    assert "example.com/articles/asuka" in identity
-    assert "Asuka article" in fingerprint
-    assert "page_content" not in fetched
-
-    rich_sensor = BrowserHistoryTimelineSensor(fetch_page_content=True)
-    rich_fetched = await rich_sensor.fetch_item(item)
-    assert rich_fetched["page_content"] == item["page_content"]
-
 
 @pytest.mark.asyncio
 async def test_photo_library_sensor_rejects_paths_outside_allowed_scope(tmp_path: Path):
@@ -77,12 +52,13 @@ async def test_photo_library_sensor_rejects_paths_outside_allowed_scope(tmp_path
 
 @pytest.mark.asyncio
 async def test_insight_pipeline_enforces_source_edge_whitelist():
-    sensor = BrowserHistoryTimelineSensor(fetch_page_content=False)
+    sensor = PhotoLibraryTimelineSensor(source_path="/tmp/photos")
     item = {
-        "url": "https://example.com/articles/asuka",
-        "title": "Asuka article",
-        "visit_time": 1710000000.0,
-        "visit_count": 4,
+        "asset_local_id": "photo-1",
+        "path": "/tmp/photos/asuka.jpg",
+        "modified_at": 1710000000.0,
+        "analysis_scope": "full",
+        "file_hash": "abc123",
         "relation_candidates": [
             {
                 "subject_id": "user:self",

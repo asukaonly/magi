@@ -20,6 +20,7 @@ def test_core_timeline_plugin_only_registers_external_sensor_sources() -> None:
     sensors = plugin.get_sensors()
     source_types = [spec.metadata["source_type"] for _, _, spec in sensors]
 
-    assert source_types == ["browser_history", "photo_library"]
+    assert source_types == ["photo_library"]
+    assert "browser_history" not in source_types
     assert "chat" not in source_types
     assert "manual_journal" not in source_types

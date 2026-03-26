@@ -357,7 +357,7 @@ class TestSourceDomainInference:
         result = decider.evaluate(inp)
         l1_plan = result.plans[0]
         assert isinstance(l1_plan.conditions, L1Conditions)
-        assert "browser_history" in (l1_plan.conditions.source_filters or [])
+        assert "chrome_history" in (l1_plan.conditions.source_filters or [])
 
     def test_chat_signal_en(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="chat history from today")

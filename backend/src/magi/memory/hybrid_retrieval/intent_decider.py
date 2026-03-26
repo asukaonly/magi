@@ -115,7 +115,7 @@ _L1_SIGNALS = [
 # Source / domain signal keywords
 _SOURCE_DOMAIN_SIGNALS: list[tuple[list[str], list[str], list[str]]] = [
     # (keywords, source_filters, domain_filters)
-    (["浏览", "browsing", "网页", "webpage", "browser"], ["browser_history"], ["external_activity"]),
+    (["浏览", "browsing", "网页", "webpage", "browser"], ["chrome_history"], ["external_activity"]),
     (["聊天", "对话", "chat", "conversation"], ["chat"], ["user_authored"]),
     (["终端", "terminal", "git", "命令行", "command"], ["terminal", "git"], ["external_activity"]),
     (["日记", "笔记", "journal", "note", "diary"], ["journal", "note"], ["user_authored"]),
@@ -623,7 +623,7 @@ Return JSON only:
       "entities": ["string"],
       "subject_hint": "self" | "explicit" | "none",
       "predicate_family": "preference" | "relationship" | "profile_fact" | "activity" | "unknown",
-      "source_filters": ["chat", "browser_history", "profile", "terminal", "git"],
+      "source_filters": ["chat", "chrome_history", "profile", "terminal", "git"],
       "domain_filters": ["user_authored", "external_activity", "system_generated"]
     }
   ],

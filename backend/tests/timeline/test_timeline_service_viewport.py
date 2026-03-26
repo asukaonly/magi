@@ -15,7 +15,7 @@ class _FakeL1Store:
             {
                 "event_id": "evt-1",
                 "timestamp": 950_000.0,
-                "source": "browser_history",
+                "source": "chrome_history",
                 "content": "Spent the night reading game guides while feeling low.",
                 "metadata": {
                     "timeline": {

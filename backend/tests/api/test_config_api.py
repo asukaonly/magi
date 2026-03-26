@@ -195,7 +195,7 @@ def test_build_update_paths_contains_new_sections():
     config.memory.l2.conflict_arbitration_min_confidence = 0.9
     config.memory.l3.temporal_llm_timeout_seconds = 1.5
     config.memory.l3.temporal_llm_min_event_count = 3
-    config.timeline.sources.browser_history.enabled = not current.timeline.sources.browser_history.enabled
+    config.timeline.sources.photo_library.enabled = not current.timeline.sources.photo_library.enabled
     updates = _build_update_paths(config)
 
     assert updates["agent.memory.db_path"] == "/Users/asuka/.magi/data/custom-memories"
@@ -211,7 +211,7 @@ def test_build_update_paths_contains_new_sections():
     assert "timeline" in updates
     assert "enabled" not in updates["timeline"]
     assert "expert_mode_edge_override" not in updates["timeline"]
-    assert updates["timeline"]["sources"]["browser_history"]["enabled"] == config.timeline.sources.browser_history.enabled
+    assert updates["timeline"]["sources"]["photo_library"]["enabled"] == config.timeline.sources.photo_library.enabled
     assert updates["preferences"]["default_chat_workspace_path"] == "/Users/asuka/code/magi"
     assert "agent.memory.async_embeddings" not in updates
     assert "agent.memory.embedding.backend" not in updates
@@ -273,17 +273,19 @@ def test_timeline_defaults_include_source_retention_and_edge_whitelists():
 
     assert "enabled" not in config.timeline.model_dump(mode="json")
     assert "expert_mode_edge_override" not in config.timeline.model_dump(mode="json")
+    assert "browser_history" not in config.timeline.sources.model_dump(mode="json")
     assert "chat" not in config.timeline.sources.model_dump(mode="json")
     assert "manual_journal" not in config.timeline.sources.model_dump(mode="json")
     assert config.timeline.sources.photo_library.default_retention_mode == "retain_raw"
-    assert "LIKES" in config.timeline.sources.browser_history.edge_whitelist
-    assert "DISLIKES" not in config.timeline.sources.browser_history.edge_whitelist
+    assert "CAPTURED" in config.timeline.sources.photo_library.edge_whitelist
+    assert "DISLIKES" not in config.timeline.sources.photo_library.edge_whitelist
 
 
 def test_onboarding_template_includes_timeline_defaults():
     template = _build_onboarding_template()
 
-    assert template.timeline.sources.browser_history.fetch_page_content is False
+    assert "browser_history" not in template.timeline.sources.model_dump(mode="json")
+    assert template.timeline.sources.photo_library.fetch_page_content is False
     assert "manual_journal" not in template.timeline.sources.model_dump(mode="json")
     assert "core" in template.llm.selections
 

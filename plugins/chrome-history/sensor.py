@@ -133,7 +133,7 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
             summary=summary,
             occurred_at=float(item.get("visit_time") or 0.0),
             content_blocks=content_blocks,
-            tags=[tag for tag in ("chrome_history", "browser_history", domain) if tag],
+            tags=[tag for tag in ("chrome_history", domain) if tag],
             provenance={
                 "sensor_id": self.sensor_id,
                 "browser": "chrome",
@@ -153,6 +153,6 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
         domain = str(item.get("domain") or normalize_domain(str(item.get("url") or "")))
         return {
             "entities": [],
-            "tags": [tag for tag in ("chrome_history", "browser_history", domain) if tag],
+            "tags": [tag for tag in ("chrome_history", domain) if tag],
             "relation_candidates": build_relation_candidates(item),
         }

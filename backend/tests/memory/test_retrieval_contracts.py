@@ -115,7 +115,7 @@ class TestIntentDeciderInput:
             user_id="u1",
             session_id="s1",
             raw_time_range={"relative": "1d"},
-            source_filters=["browser_history"],
+            source_filters=["chrome_history"],
             domain_filters=["external_activity"],
             recall_intent_hint="event_recall",
             query_mode_hint="detail",

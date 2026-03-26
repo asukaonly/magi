@@ -367,14 +367,6 @@ class TimelineSourceSettings(BaseModel):
 class TimelineSourcesSettings(BaseModel):
     """Timeline source collection settings."""
 
-    browser_history: TimelineSourceSettings = Field(
-        default_factory=lambda: TimelineSourceSettings(
-            sync_mode=TimelineSyncMode.INTERVAL,
-            sync_interval_minutes=30,
-            default_retention_mode=TimelineRetentionMode.ANALYZE_ONLY,
-            edge_whitelist=["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
-        )
-    )
     photo_library: TimelineSourceSettings = Field(
         default_factory=lambda: TimelineSourceSettings(
             sync_mode=TimelineSyncMode.INTERVAL,

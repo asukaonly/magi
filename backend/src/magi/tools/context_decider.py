@@ -984,7 +984,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         """
         types = []
         if any(kw in message_lower for kw in ["browse", "visit", "website", "浏览", "网页"]):
-            types.append("browser_history")
+            types.append("chrome_history")
         if any(kw in message_lower for kw in ["chat", "conversation", "对话", "聊天"]):
             types.append("chat")
         if any(kw in message_lower for kw in ["note", "笔记", "记录"]):

@@ -184,7 +184,7 @@ class _FakeSchedulerService:
             last_success_at=1710000200.0,
             last_error=None,
             next_run_at=1710000500.0,
-            scheduler_job_id="timeline-sync:core-timeline:browser_history",
+            scheduler_job_id="timeline-sync:core-timeline:photo_library",
             stats={"count": 4, "raw_count": 7},
         )
 
@@ -212,15 +212,15 @@ def _build_client(monkeypatch):
             "manifest": type("Manifest", (), {"plugin_id": "core-timeline"})(),
             "current_settings": {
                 "sensors": {
-                    "browser_history": {
+                    "photo_library": {
                         "enabled": False,
                         "sync_mode": "interval",
-                        "sync_interval_minutes": 30,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "managed",
+                        "sync_interval_minutes": 60,
+                        "default_retention_mode": "retain_raw",
+                        "storage_mode": "external_reference",
                         "source_path": "",
                         "fetch_page_content": False,
-                        "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
+                        "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
                     }
                 }
             },
@@ -244,58 +244,36 @@ def _build_client(monkeypatch):
                         (),
                         {
                             "plugin_id": "core-timeline",
-                            "contribution_id": "timeline.browser_history",
-                            "display_name": "Browser History",
-                            "description": "Visited URLs",
+                            "contribution_id": "timeline.photo_library",
+                            "display_name": "Photo Library",
+                            "description": "Photo assets referenced from a local library path.",
                             "fields": [
                                 ExtensionFieldSpec(
-                                    key="sensors.browser_history.enabled",
+                                    key="sensors.photo_library.enabled",
                                     type="switch",
                                     label="Enabled",
                                     default=True,
                                     surface="timeline",
                                 ),
                                 ExtensionFieldSpec(
-                                    key="sensors.browser_history.fetch_page_content",
-                                    type="switch",
-                                    label="Fetch Page Content",
-                                    default=False,
+                                    key="sensors.photo_library.source_path",
+                                    type="path",
+                                    label="Source Path",
+                                    default="",
                                     surface="timeline",
                                 ),
                             ],
                             "metadata": {
                                 "domain": "timeline",
-                                "source_type": "browser_history",
-                                "activation_flow": {
-                                    "title": "Enable Browser History",
-                                    "description": "Choose the initial sync scope.",
-                                    "confirm_label": "Enable source",
-                                    "cancel_label": "Cancel",
-                                    "enabled_key": "sensors.browser_history.enabled",
-                                    "configured_key": "sensors.browser_history.initial_sync_configured",
-                                    "fields": [
-                                        {
-                                            "key": "sensors.browser_history.initial_sync_policy",
-                                            "type": "select",
-                                            "label": "First Sync Scope",
-                                            "description": "",
-                                            "default": "lookback_days",
-                                            "required": False,
-                                            "options": [],
-                                            "section": "activation",
-                                            "surface": "timeline",
-                                            "order": 10,
-                                        }
-                                    ],
-                                },
+                                "source_type": "photo_library",
                                 "default_settings": {
                                     "sync_mode": "interval",
-                                    "sync_interval_minutes": 30,
-                                    "default_retention_mode": "analyze_only",
-                                    "storage_mode": "managed",
+                                    "sync_interval_minutes": 60,
+                                    "default_retention_mode": "retain_raw",
+                                    "storage_mode": "external_reference",
                                     "source_path": "",
                                     "fetch_page_content": False,
-                                    "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
+                                    "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
                                 },
                             },
                         },
@@ -304,11 +282,11 @@ def _build_client(monkeypatch):
                 "resolve_domain_sensor": lambda self, domain, source_name: (
                     (
                         "core-timeline",
-                        "timeline.browser_history",
+                        "timeline.photo_library",
                         type("Sensor", (), {"supports_pull_sync": True})(),
                         object(),
                     )
-                    if domain == "timeline" and source_name == "browser_history"
+                    if domain == "timeline" and source_name == "photo_library"
                     else None
                 ),
             },
@@ -397,13 +375,13 @@ def test_get_timeline_source_status(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["sources"][0]["source_name"] == "browser_history"
+    assert body["sources"][0]["source_name"] == "photo_library"
     assert body["sources"][0]["fetch_page_content"] is False
     assert body["sources"][0]["plugin_id"] == "core-timeline"
     assert body["sources"][0]["supports_pull_sync"] is True
-    assert body["sources"][0]["scheduler_job_id"] == "timeline-sync:core-timeline:browser_history"
-    assert body["sources"][0]["activation_flow"]["enabled_key"] == "sensors.browser_history.enabled"
-    assert body["sources"][0]["activation_required"] is True
+    assert body["sources"][0]["scheduler_job_id"] == "timeline-sync:core-timeline:photo_library"
+    assert body["sources"][0]["activation_flow"] is None
+    assert body["sources"][0]["activation_required"] is False
     assert body["sources"][0]["enabled"] is False
     assert body["sources"][0]["running"] is True
     assert body["sources"][0]["last_run_at"] == 1710000190.0
@@ -426,7 +404,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
         (),
         {
             "manifest": type("Manifest", (), {"plugin_id": "core-timeline"})(),
-            "current_settings": {"sensors": {"browser_history": {"enabled": True, "sync_mode": "manual"}}},
+            "current_settings": {"sensors": {"photo_library": {"enabled": True, "sync_mode": "manual"}}},
         },
     )()
     monkeypatch.setattr(
@@ -447,13 +425,13 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
                         (),
                         {
                             "plugin_id": "core-timeline",
-                            "contribution_id": "timeline.browser_history",
-                            "display_name": "Browser History",
-                            "description": "Visited URLs and optional page content snapshots.",
+                            "contribution_id": "timeline.photo_library",
+                            "display_name": "Photo Library",
+                            "description": "Photo assets referenced from a local library path.",
                             "fields": [],
                             "metadata": {
                                 "domain": "timeline",
-                                "source_type": "browser_history",
+                                "source_type": "photo_library",
                                 "default_settings": {
                                     "enabled": True,
                                     "sync_mode": "manual",
@@ -466,11 +444,11 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
                 "resolve_domain_sensor": lambda self, domain, source_name: (
                     (
                         "core-timeline",
-                        "timeline.browser_history",
+                        "timeline.photo_library",
                         type("Sensor", (), {"supports_pull_sync": False})(),
                         object(),
                     )
-                    if domain == "timeline" and source_name == "browser_history"
+                    if domain == "timeline" and source_name == "photo_library"
                     else None
                 ),
             },
@@ -486,7 +464,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
                 running=False,
                 last_run_at=1710000190.0,
                 last_success_at=None,
-                last_error="timeline.browser_history does not implement pull sync",
+                last_error="timeline.photo_library does not implement pull sync",
                 next_run_at=None,
                 scheduler_job_id=None,
                 stats={},
@@ -501,7 +479,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
 
     assert response.status_code == 200
     body = response.json()
-    assert body["sources"][0]["source_name"] == "browser_history"
+    assert body["sources"][0]["source_name"] == "photo_library"
     assert body["sources"][0]["supports_pull_sync"] is False
     assert body["sources"][0]["last_error"] is None
 
@@ -509,8 +487,8 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
 def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):
     client, _ = _build_client(monkeypatch)
 
-    response = client.post("/api/timeline/sources/browser_history/sync")
+    response = client.post("/api/timeline/sources/photo_library/sync")
 
     assert response.status_code == 200
     assert response.json()["queued"] is True
-    assert response.json()["schedule_id"] == "manual:browser_history"
+    assert response.json()["schedule_id"] == "manual:photo_library"

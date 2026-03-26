@@ -264,16 +264,6 @@ class ConfigLoader:
             "core-tools": {},
             "core-timeline": {
                 "sensors": {
-                    "browser_history": {
-                        "enabled": True,
-                        "sync_mode": "interval",
-                        "sync_interval_minutes": 30,
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "managed",
-                        "source_path": "",
-                        "fetch_page_content": False,
-                        "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
-                    },
                     "photo_library": {
                         "enabled": True,
                         "sync_mode": "interval",

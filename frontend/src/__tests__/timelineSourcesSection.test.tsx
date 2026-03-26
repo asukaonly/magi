@@ -6,8 +6,8 @@ import type { UserMode } from '@/api/modules/config';
 import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
 
 const translationMap: Record<string, string> = {
-  'settings.timeline.sources.browser_history': '浏览记录',
-  'settings.timeline.sourceDesc.browser_history': '分析浏览行为，并控制是否继续抓取页面正文。',
+  'settings.timeline.sources.photo_library': '照片库',
+  'settings.timeline.sourceDesc.photo_library': '引用照片库或导出目录，并决定保留多少原始媒体信息。',
   'settings.plugins.chrome-history.name': 'Chrome 历史',
   'settings.plugins.chrome-history.description': '本地 Google Chrome 浏览历史接入时间线',
   'settings.plugins.netease-music.name': '网易云音乐',
@@ -30,14 +30,14 @@ vi.mock('sonner', () => ({
 }));
 
 const timelineSourceFixture: TimelineSourceStatusItem = {
-  source_name: 'browser_history',
+  source_name: 'photo_library',
   plugin_id: 'core-timeline',
-  contribution_id: 'timeline.browser_history',
-  display_name: 'Browser History',
-  description: 'Visited URLs and optional page content snapshots.',
+  contribution_id: 'timeline.photo_library',
+  display_name: 'Photo Library',
+  description: 'Photo assets referenced from a local library path.',
   fields: [
     {
-      key: 'sensors.browser_history.enabled',
+      key: 'sensors.photo_library.enabled',
       type: 'switch',
       label: 'Enabled',
       description: 'Whether this source is active.',
@@ -50,16 +50,16 @@ const timelineSourceFixture: TimelineSourceStatusItem = {
     },
   ],
   current_settings: {
-    'sensors.browser_history.enabled': true,
+    'sensors.photo_library.enabled': true,
   },
   enabled: true,
   sync_mode: 'interval',
-  sync_interval_minutes: 30,
-  default_retention_mode: 'analyze_only',
-  storage_mode: 'managed',
+  sync_interval_minutes: 60,
+  default_retention_mode: 'retain_raw',
+  storage_mode: 'external_reference',
   fetch_page_content: false,
-  edge_whitelist: ['VIEWED', 'VISITED'],
-  supports_pull_sync: true,
+  edge_whitelist: ['CAPTURED', 'RELATED_TO'],
+  supports_pull_sync: false,
   running: false,
   last_run_at: '2026-03-11T08:58:00Z',
   last_result_count: 4,
@@ -98,12 +98,12 @@ describe('TimelineSourcesSection', () => {
     expect(screen.queryByText('settings.timeline.fields.edgeOverride')).not.toBeInTheDocument();
     expect(screen.queryByText('settings.timeline.workspace.metricsSummary')).not.toBeInTheDocument();
     expect(overview).not.toHaveClass('max-w-5xl');
-    expect(screen.getByTestId('timeline-source-launch-browser_history')).toBeInTheDocument();
+    expect(screen.getByTestId('timeline-source-launch-photo_library')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.timeline.actions.refresh' })).not.toBeInTheDocument();
-    expect(screen.getByText('浏览记录')).toBeInTheDocument();
-    expect(screen.getByText('分析浏览行为，并控制是否继续抓取页面正文。')).toBeInTheDocument();
-    expect(screen.queryByText('Browser History')).not.toBeInTheDocument();
-    expect(screen.queryByText('Visited URLs and optional page content snapshots.')).not.toBeInTheDocument();
+    expect(screen.getByText('照片库')).toBeInTheDocument();
+    expect(screen.getByText('引用照片库或导出目录，并决定保留多少原始媒体信息。')).toBeInTheDocument();
+    expect(screen.queryByText('Photo Library')).not.toBeInTheDocument();
+    expect(screen.queryByText('Photo assets referenced from a local library path.')).not.toBeInTheDocument();
   });
 
   it('removes the detail back link and shortens the enable label', () => {
@@ -112,7 +112,7 @@ describe('TimelineSourcesSection', () => {
         userMode={userModeFixture}
         statuses={[timelineSourceFixture]}
         loadingStatus={false}
-        selectedSourceName="browser_history"
+        selectedSourceName="photo_library"
         pluginDrafts={{}}
         onSelectSource={vi.fn()}
         onRefreshSources={vi.fn().mockResolvedValue(undefined)}
@@ -121,7 +121,7 @@ describe('TimelineSourcesSection', () => {
       />
     );
 
-    const detail = screen.getByTestId('timeline-source-detail-browser_history');
+    const detail = screen.getByTestId('timeline-source-detail-photo_library');
 
     expect(screen.queryByText('settings.timeline.workspace.backToOverview')).not.toBeInTheDocument();
     expect(screen.getByText('启用')).toBeInTheDocument();

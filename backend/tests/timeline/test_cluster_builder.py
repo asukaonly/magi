@@ -38,7 +38,7 @@ async def test_cluster_builder_groups_adjacent_events_into_activity_blocks() -> 
         {
             "event_id": "evt-3",
             "timestamp": 900.0,
-            "source": "browser_history",
+            "source": "chrome_history",
             "content": "Read unrelated article.",
             "metadata": {
                 "timeline": {
@@ -59,4 +59,3 @@ async def test_cluster_builder_groups_adjacent_events_into_activity_blocks() -> 
     assert clusters[0]["representative_event_ids"] == ["evt-1", "evt-2"]
     assert clusters[0]["source_types"] == ["chat", "manual_journal"]
     assert clusters[0]["dominant_mode"] == "timeline"
-

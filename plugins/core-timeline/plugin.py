@@ -5,7 +5,6 @@ from copy import deepcopy
 
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 from magi.timeline.sensors import (
-    BrowserHistoryTimelineSensor,
     PhotoLibraryTimelineSensor,
 )
 
@@ -116,16 +115,6 @@ def _base_fields(prefix: str, *, include_path: bool = False, include_fetch_toggl
 
 
 DEFAULT_SOURCE_SETTINGS = {
-    "browser_history": {
-        "enabled": True,
-        "sync_mode": "interval",
-        "sync_interval_minutes": 30,
-        "default_retention_mode": "analyze_only",
-        "storage_mode": "managed",
-        "source_path": "",
-        "fetch_page_content": False,
-        "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
-    },
     "photo_library": {
         "enabled": True,
         "sync_mode": "interval",
@@ -155,12 +144,6 @@ class CoreTimelinePlugin(Plugin):
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
         specs = []
         source_map = {
-            "browser_history": (
-                BrowserHistoryTimelineSensor,
-                _base_fields("sensors.browser_history", include_path=True, include_fetch_toggle=True),
-                "Browser History",
-                "Visited URLs and optional page content snapshots.",
-            ),
             "photo_library": (
                 PhotoLibraryTimelineSensor,
                 _base_fields("sensors.photo_library", include_path=True),
@@ -174,7 +157,6 @@ class CoreTimelinePlugin(Plugin):
             sensor = sensor_class(
                 retention_mode=settings.get("default_retention_mode"),
                 source_path=settings.get("source_path") or None,
-                fetch_page_content=bool(settings.get("fetch_page_content", False)),
             )
             specs.append(
                 (

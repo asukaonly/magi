@@ -249,7 +249,7 @@ Supported field types:
 
 Important conventions:
 
-- use stable dot-notated keys such as `sensors.browser_history.fetch_page_content`
+- use stable dot-notated keys such as `sensors.photo_library.source_path`
 - group fields with `section`
 - choose the correct `surface`
 - order fields explicitly with `order`

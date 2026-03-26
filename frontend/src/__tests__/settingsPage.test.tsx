@@ -20,9 +20,9 @@ const { syncCloseToTrayPreferenceMock, pickDirectoryMock, llmFormAutoChangeRef }
 
 const llmFormMock = vi.fn();
 const translationMap: Record<string, string> = {
-  'settings.tabs.browser_history': '浏览记录',
+  'settings.tabs.photo_library': '照片库',
   'settings.tabs.chrome_history': 'Chrome 历史',
-  'settings.timeline.sourceDesc.browser_history': '分析浏览行为，并控制是否继续抓取页面正文。',
+  'settings.timeline.sourceDesc.photo_library': '引用照片库或导出目录，并决定保留多少原始媒体信息。',
   'settings.plugins.chrome-history.description': '本地 Google Chrome 浏览历史接入时间线',
 };
 
@@ -162,14 +162,14 @@ vi.mock('@/api/modules/tools', async () => {
 });
 
 const timelineSourceFixture = {
-  source_name: 'browser_history',
+  source_name: 'photo_library',
   plugin_id: 'core-timeline',
-  contribution_id: 'timeline.browser_history',
-  display_name: 'Browser History',
-  description: 'Visited URLs and optional page content snapshots.',
+  contribution_id: 'timeline.photo_library',
+  display_name: 'Photo Library',
+  description: 'Photo assets referenced from a local library path.',
   fields: [
     {
-      key: 'sensors.browser_history.enabled',
+      key: 'sensors.photo_library.enabled',
       type: 'switch',
       label: 'Enabled',
       description: 'Whether this source is active.',
@@ -181,11 +181,11 @@ const timelineSourceFixture = {
       order: 10,
     },
     {
-      key: 'sensors.browser_history.sync_interval_minutes',
+      key: 'sensors.photo_library.sync_interval_minutes',
       type: 'number',
       label: 'Sync Interval (minutes)',
       description: 'Polling interval for interval-based sources.',
-      default: 30,
+      default: 60,
       required: false,
       options: [],
       section: 'general',
@@ -193,32 +193,32 @@ const timelineSourceFixture = {
       order: 30,
     },
     {
-      key: 'sensors.browser_history.fetch_page_content',
-      type: 'switch',
-      label: 'Fetch Page Content',
-      description: 'Whether to include captured page content.',
-      default: false,
+      key: 'sensors.photo_library.source_path',
+      type: 'path',
+      label: 'Source Path',
+      description: 'Optional local path or root directory for this source.',
+      default: '',
       required: false,
       options: [],
-      section: 'analysis',
+      section: 'storage',
       surface: 'timeline',
-      order: 55,
+      order: 45,
     },
   ],
   current_settings: {
-    'sensors.browser_history.enabled': true,
-    'sensors.browser_history.sync_interval_minutes': 30,
-    'sensors.browser_history.fetch_page_content': false,
+    'sensors.photo_library.enabled': true,
+    'sensors.photo_library.sync_interval_minutes': 60,
+    'sensors.photo_library.source_path': '/tmp/photo-library',
   },
   enabled: true,
   sync_mode: 'interval',
-  sync_interval_minutes: 30,
-  default_retention_mode: 'analyze_only',
-  storage_mode: 'managed',
-  source_path: '/tmp/browser-history',
+  sync_interval_minutes: 60,
+  default_retention_mode: 'retain_raw',
+  storage_mode: 'external_reference',
+  source_path: '/tmp/photo-library',
   fetch_page_content: false,
-  edge_whitelist: ['VIEWED', 'VISITED'],
-  supports_pull_sync: true,
+  edge_whitelist: ['CAPTURED', 'RELATED_TO'],
+  supports_pull_sync: false,
   running: false,
   last_run_at: '2026-03-11T08:58:00Z',
   last_result_count: 4,
@@ -227,7 +227,7 @@ const timelineSourceFixture = {
   last_success: null,
   last_sync_at: '2026-03-11T09:00:00Z',
   next_run_at: '2026-03-11T09:30:00Z',
-  scheduler_job_id: 'timeline-browser-history',
+  scheduler_job_id: 'timeline-photo-library',
   runtime_base_dir: '/tmp/magi-runtime',
 };
 
@@ -354,20 +354,20 @@ const pluginsListFixture = {
       last_error: null,
       current_settings: {
         sensors: {
-          browser_history: {
+          photo_library: {
             enabled: true,
-            sync_interval_minutes: 30,
-            fetch_page_content: false,
+            sync_interval_minutes: 60,
+            source_path: '/tmp/photo-library',
           },
         },
       },
       contributions: [
         {
           plugin_id: 'core-timeline',
-          contribution_id: 'timeline.browser_history',
+          contribution_id: 'timeline.photo_library',
           contribution_type: 'sensor',
-          display_name: 'Browser History',
-          description: 'Visited URLs and optional page content snapshots.',
+          display_name: 'Photo Library',
+          description: 'Photo assets referenced from a local library path.',
           surface: 'timeline',
           fields: [],
           metadata: { domain: 'timeline' },
@@ -517,7 +517,7 @@ describe('settings page draft saving', () => {
     } as any);
     vi.mocked(timelineApi.requestSync).mockResolvedValue({
       queued: true,
-      source_name: 'browser_history',
+      source_name: 'photo_library',
     } as any);
     vi.mocked(pluginsApi.list).mockResolvedValue(pluginsListFixture as any);
     vi.mocked(pluginsApi.rescan).mockResolvedValue(pluginsListFixture as any);
@@ -936,14 +936,14 @@ describe('settings page draft saving', () => {
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await screen.findByTestId('timeline-overview');
-    await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
 
-    const browserPanel = await screen.findByTestId('timeline-source-detail-browser_history');
+    const photoPanel = await screen.findByTestId('timeline-source-detail-photo_library');
 
-    fireEvent.change(within(browserPanel).getByLabelText('Sync Interval (minutes)'), {
-      target: { value: '45' },
+    fireEvent.change(within(photoPanel).getByLabelText('Sync Interval (minutes)'), {
+      target: { value: '75' },
     });
-    await user.click(within(browserPanel).getByRole('switch', { name: 'Fetch Page Content' }));
+    await user.click(within(photoPanel).getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
 
     expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
 
@@ -953,8 +953,8 @@ describe('settings page draft saving', () => {
       expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
         'core-timeline',
         expect.objectContaining({
-          'sensors.browser_history.sync_interval_minutes': 45,
-          'sensors.browser_history.fetch_page_content': true,
+          'sensors.photo_library.sync_interval_minutes': 75,
+          'sensors.photo_library.enabled': false,
         })
       )
     );
@@ -967,9 +967,9 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await screen.findByTestId('timeline-overview');
 
-    const browserNavItem = await screen.findByTestId('timeline-nav-source-browser_history');
-    expect(within(browserNavItem).getByText('浏览记录')).toBeInTheDocument();
-    expect(screen.getByText('分析浏览行为，并控制是否继续抓取页面正文。')).toBeInTheDocument();
+    const photoNavItem = await screen.findByTestId('timeline-nav-source-photo_library');
+    expect(within(photoNavItem).getByText('照片库')).toBeInTheDocument();
+    expect(screen.getByText('引用照片库或导出目录，并决定保留多少原始媒体信息。')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.timeline.actions.refresh' })).not.toBeInTheDocument();
   });
 
