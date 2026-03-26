@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from magi.awareness.ingestion_gateway import SensorIngestionGateway
+from magi.awareness.sensor_base import SensorBase
+from magi.awareness.sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata
 from magi.config import AppConfig
-from magi.timeline import TimelineContentBlock, TimelineEvent
 from magi.timeline.handler import build_timeline_handler
 
 
@@ -30,32 +32,33 @@ class _FakeUnifiedMemory:
         self.edges.append(kwargs)
 
 
-class _FakePhotoLibrarySensor:
-    async def build_timeline_event(self, payload):  # type: ignore[no-untyped-def]
+class _FakePhotoLibrarySensor(SensorBase):
+    sensor_id = "timeline.photo_library"
+    source_type = "photo_library"
+    memory_policy = SensorMemoryPolicy(
+        retention_class="compressible",
+        cognition_eligible=True,
+        importance_bias=0.6,
+    )
+
+    async def build_output(self, payload):
         source_item_id = str(payload["source_item_id"])
-        return TimelineEvent(
-            event_id=f"photo_library:{source_item_id}",
-            source_type="photo_library",
+        return self._build_output(
             source_item_id=source_item_id,
-            occurred_at=float(payload["timestamp"]),
-            captured_at=float(payload["timestamp"]),
             title=str(payload["title"]),
             summary=str(payload["summary"]),
-            retention_mode="retain_raw",
-            content_blocks=[
-                TimelineContentBlock(kind="text", value=str(payload["summary"])),
-            ],
-            processing_status={"stored": True},
-            provenance={"path": str(payload.get("path") or "")},
+            occurred_at=float(payload["timestamp"]),
+            content_blocks=[ContentBlock(kind="text", value=str(payload["summary"]))],
             tags=["photo_library"],
+            domain_payload={"retention_mode": "retain_raw", "path": str(payload.get("path") or "")},
         )
 
-    async def extract_candidates(self, payload):  # type: ignore[no-untyped-def]
-        return {
-            "entities": [],
-            "tags": ["photo_library"],
-            "relation_candidates": list(payload.get("relation_candidates", [])),
-        }
+    async def extract_metadata(self, payload):
+        return SensorOutputMetadata(
+            entities=[],
+            tags=["photo_library"],
+            relation_candidates=list(payload.get("relation_candidates", [])),
+        )
 
 
 class _FakeSensorRegistry:
@@ -76,11 +79,16 @@ class _FakePluginManager:
 @pytest.mark.asyncio
 async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_graph_edges() -> None:
     memory = _FakeUnifiedMemory()
+    gateway = SensorIngestionGateway(
+        unified_memory=memory,
+        timeline_adapter=None,
+    )
     handler = build_timeline_handler(
         AppConfig(),
         memory,
         sensor_registry=_FakeSensorRegistry(),
         plugin_manager=_FakePluginManager(),
+        ingestion_gateway=gateway,
     )
 
     result = await handler(
@@ -107,9 +115,9 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
 
     assert result == {"handled": True, "event_id": "photo_library:photo-1", "source_type": "photo_library"}
     assert len(memory.l1.timeline_events) == 1
-    stored_event = memory.l1.timeline_events[0]
-    assert stored_event["correlation_id"] == "photo_library:photo-1"
-    assert stored_event["data"]["provenance"]["path"] == "/tmp/photos/asuka.jpg"
-    assert [block["value"] for block in stored_event["data"]["content_blocks"]] == ["I still like Asuka best."]
+    stored = memory.l1.timeline_events[0]
+    assert stored["event_id"] == "photo_library:photo-1"
+    assert stored["source"] == "photo_library"
+    assert stored["content"] == "I still like Asuka best."
     assert len(memory.edges) == 1
     assert memory.edges[0]["predicate"] == "LIKES"

@@ -1,12 +1,14 @@
 """Timeline domain exports."""
 
+from ..awareness.sensor_sync import PullSyncSensor, SensorSyncContext, SensorSyncResult
 from .adapter import TimelineAdapter
 from .cluster_builder import TimelineClusterBuilder
-from .contracts import TimelineContentBlock, TimelineEvent
 from .context_bundle_builder import TimelineContextBundleBuilder
 from .state_band_builder import TimelineStateBandBuilder
-from .sync import PullSyncSensor, SensorSyncContext, SensorSyncResult
 from .viewport_builder import TimelineViewportBuilder
+
+# TimelineEvent and TimelineContentBlock are L12-internal types.
+# Import them from ``magi.timeline.contracts`` directly when needed.
 
 __all__ = [
     "PullSyncSensor",
@@ -14,9 +16,7 @@ __all__ = [
     "SensorSyncResult",
     "TimelineAdapter",
     "TimelineClusterBuilder",
-    "TimelineContentBlock",
     "TimelineContextBundleBuilder",
-    "TimelineEvent",
     "TimelineStateBandBuilder",
     "TimelineViewportBuilder",
 ]

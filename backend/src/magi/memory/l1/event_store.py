@@ -14,7 +14,6 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
-from ...timeline.contracts import TimelineEvent
 from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
@@ -344,29 +343,6 @@ class L1EventStore:
             and all(token in event["content"].lower() for token in query_tokens)
         ]
         return filtered[:limit]
-
-    async def store_timeline_event(self, event: TimelineEvent) -> str:
-        """Normalize a timeline event into the L1 schema."""
-        timeline_payload = event.to_dict()
-        runtime_event = Event(
-            type="TIMELINE_EVENT",
-            data={
-                "content": str(event.summary or event.title or ""),
-                "author_type": "user" if event.source_type == "manual_journal" else "external",
-                "content_type": "observation",
-                "summary": event.summary,
-                "source_item_id": event.source_item_id,
-            },
-            timestamp=event.occurred_at,
-            source=event.source_type,
-            level=EventLevel.INFO,
-            correlation_id=event.event_id,
-            metadata={
-                "timeline": timeline_payload,
-            },
-        )
-        memory_event = normalize_runtime_event(runtime_event, event_id=event.event_id)
-        return await self.store(memory_event)
 
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single event by id."""

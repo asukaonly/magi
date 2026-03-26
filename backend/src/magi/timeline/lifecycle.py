@@ -69,7 +69,6 @@ class TimelineScheduleRegistrationModule(LifecycleModule):
             scheduler_service=scheduler_service,
             sensor_registry=sensor_registry,
             plugin_manager=plugin_manager,
-            timeline_service=timeline_service,
             runtime_paths=runtime_paths,
             get_config=get_config,
             ingestion_gateway=ingestion_gateway,

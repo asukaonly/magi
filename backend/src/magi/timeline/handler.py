@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from ..config import AppConfig
 from ..memory import UnifiedMemoryStore
 from ..plugins import PluginManager, SensorRegistry
-from .service import TimelineService
 
 if TYPE_CHECKING:
     from ..awareness.ingestion_gateway import SensorIngestionGateway
@@ -33,7 +32,6 @@ def build_timeline_handler(
     ingestion_gateway: SensorIngestionGateway | None = None,
 ) -> Callable[[dict[str, Any]], Any]:
     """Build an async handler that processes incoming timeline payloads."""
-    service = TimelineService(unified_memory)
 
     async def _handle_timeline_payload(payload: dict[str, Any]) -> dict[str, Any]:
         source_type = str(payload.get("source_type") or "").strip()
@@ -63,38 +61,21 @@ def build_timeline_handler(
             )
         ]
 
-        if ingestion_gateway is not None:
-            # New path: SensorBase.build_output → SensorIngestionGateway
-            output = await sensor.build_output(payload)
-            metadata = await sensor.extract_metadata(payload)
-            output.provenance.update(
-                {
-                    "correlation_id": str(payload.get("correlation_id") or ""),
-                    "timeline_task_agent_id": str(payload.get("target_task_agent_id") or ""),
-                }
-            )
-            result = await ingestion_gateway.ingest(
-                sensor, output, metadata,
-                allowed_edge_whitelist=allowed_edge_whitelist,
-            )
-            return {"handled": True, "event_id": result.event_id, "source_type": source_type}
+        if ingestion_gateway is None:
+            raise RuntimeError("SensorIngestionGateway is required for timeline event handling")
 
-        # Legacy fallback
-        event = await sensor.build_timeline_event(payload)
-        extracted = await sensor.extract_candidates(payload)
-        event.entities = list(extracted.get("entities", []))
-        event.tags = list(dict.fromkeys([*event.tags, *list(extracted.get("tags", []))]))
-        event.provenance.update(
+        output = await sensor.build_output(payload)
+        metadata = await sensor.extract_metadata(payload)
+        output.provenance.update(
             {
                 "correlation_id": str(payload.get("correlation_id") or ""),
                 "timeline_task_agent_id": str(payload.get("target_task_agent_id") or ""),
             }
         )
-        await service.upsert_event(
-            event,
-            relation_candidates=list(extracted.get("relation_candidates", [])),
+        result = await ingestion_gateway.ingest(
+            sensor, output, metadata,
             allowed_edge_whitelist=allowed_edge_whitelist,
         )
-        return {"handled": True, "event_id": event.event_id, "source_type": source_type}
+        return {"handled": True, "event_id": result.event_id, "source_type": source_type}
 
     return _handle_timeline_payload

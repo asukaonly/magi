@@ -4,11 +4,12 @@ import time
 
 import pytest
 
+from magi.awareness.sensor_base import SensorBase
+from magi.awareness.sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput
+from magi.awareness.sensor_sync import PullSyncSensor, SensorSyncResult
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.plugins.sensors import SensorRegistry, SensorSpec
-from magi.timeline import SensorSyncResult, TimelineContentBlock, TimelineEvent
-from magi.timeline.sensors import TimelineSensorBase
-from magi.timeline.sync import PullSyncSensor
+from magi.timeline.contracts import TimelineEvent
 from magi.utils.runtime import RuntimePaths
 
 
@@ -88,11 +89,12 @@ class _FakeSchedulerService:
         return type("Schedule", (), {"schedule_id": kwargs["schedule_id"]})()
 
 
-class _PullHistorySensor(TimelineSensorBase, PullSyncSensor):
+class _PullHistorySensor(SensorBase, PullSyncSensor):
     sensor_id = "timeline.pull_history"
     display_name = "Pull History"
     source_type = "pull_history"
     supports_pull_sync = True
+    memory_policy = SensorMemoryPolicy()
 
     async def collect_items(self, context):
         return SensorSyncResult(
@@ -109,17 +111,14 @@ class _PullHistorySensor(TimelineSensorBase, PullSyncSensor):
             stats={"count": 1},
         )
 
-    async def build_timeline_event(self, item):
-        return self._build_event(
+    async def build_output(self, item):
+        return self._build_output(
             source_item_id=str(item["item_id"]),
             title=str(item["title"]),
             summary=str(item["title"]),
             occurred_at=float(item["timestamp"]),
-            content_blocks=[TimelineContentBlock(kind="text", value=str(item["title"]))],
+            content_blocks=[ContentBlock(kind="text", value=str(item["title"]))],
         )
-
-    async def extract_candidates(self, item):
-        return {"entities": [], "tags": ["pull_history"], "relation_candidates": list(item.get("relation_candidates", []))}
 
 
 def _build_sensor_registry() -> SensorRegistry:

@@ -166,7 +166,10 @@ Primary packages:
 
 Responsibilities:
 
-- inbound sensors
+- inbound sensors (domain-neutral `SensorBase` and `SensorOutput`)
+- sensor memory policy (`SensorMemoryPolicy`) controlling L0–L4 routing
+- sensor ingestion gateway (`SensorIngestionGateway`) for memory/timeline/graph routing
+- sensor state management (cursors, fingerprint dedup)
 - outbound actions
 - action emission and action-target registration
 
@@ -177,6 +180,8 @@ Primary packages:
 Notes:
 
 - plugin-contributed sensors and actions are registered in `plugins/`, but runtime execution belongs here
+- all sensor plugins inherit from `SensorBase` and produce `SensorOutput`
+- `SensorIngestionGateway` routes outputs to memory (L6), timeline (L12), and knowledge graph
 
 ### L10. Context Layer
 
@@ -216,15 +221,20 @@ Notes:
 
 Responsibilities:
 
-- timeline ingestion
-- timeline queries
+- timeline read models (`TimelineEvent` is L12-internal, not exported)
 - scale-aware viewport and context-bundle read models
+- timeline adapter (`TimelineAdapter`) converts `SensorOutput` → `TimelineEvent`
 - timeline normalization and insight extraction
 - scheduled source sync policy
 
 Primary packages:
 
 - `timeline/`
+
+Notes:
+
+- `TimelineEvent` is an L12-internal view model; sensors produce `SensorOutput` (L9)
+- `TimelineAdapter` is the sole entry point for sensor data into the timeline read model
 
 ### L13. External Services
 
@@ -302,11 +312,13 @@ When placing new code, use this sequence:
 - the memory layer owns neutral or traceable event retention, cognition extraction, reflection, and retrieval
 - the two layers may both describe the user, but they should not collapse into one undifferentiated profile store
 
-### Timeline Versus Memory Contract
+### Sensor → Timeline → Memory Contract
 
-- timeline is the primary domain for user behavior and event-bearing history
-- memory is the lifecycle system that retains, derives, summarizes, and retrieves durable knowledge from runtime and timeline inputs
-- raw behavioral facts should enter timeline or event memory first, then flow into downstream memory processing where appropriate
+- sensors (L9) produce domain-neutral `SensorOutput` with per-sensor `SensorMemoryPolicy`
+- `SensorIngestionGateway` (L9) routes each output to memory (L6) and optionally to timeline (L12)
+- timeline is a downstream consumer that builds its own read model (`TimelineEvent`) from sensor outputs
+- memory is the lifecycle system that retains, derives, summarizes, and retrieves durable knowledge from runtime and sensor inputs
+- raw behavioral facts enter memory via `SENSOR_EVENT` classification and enter timeline via `TimelineAdapter`
 
 ### Context Assembly Contract
 

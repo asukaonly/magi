@@ -166,7 +166,7 @@ class TestAppleHealthTimelineSensor:
             sensor._reader = reader_instance
 
             # Mock context
-            from magi.timeline.sync import SensorSyncContext
+            from magi.awareness.sensor_sync import SensorSyncContext
             from magi.utils.runtime import RuntimePaths
             context = SensorSyncContext(
             source_type="apple_health",
@@ -266,7 +266,7 @@ class TestAppleHealthTimelineSensor:
         sensor._reader = reader_instance
 
         # Mock context with settings
-        from magi.timeline.sync import SensorSyncContext
+        from magi.awareness.sensor_sync import SensorSyncContext
         from magi.utils.runtime import RuntimePaths
         context = SensorSyncContext(
             source_type="apple_health",

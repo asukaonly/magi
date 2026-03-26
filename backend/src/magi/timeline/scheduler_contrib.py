@@ -10,9 +10,7 @@ from ..core.runtime_bindings import require_timeline_scheduler_contrib
 from ..plugins.sensors import SensorRegistry
 from ..utils.runtime import RuntimePaths
 from ..core.logger import get_logger
-from .contracts import TimelineEvent
-from .service import TimelineService
-from .sync import SensorSyncContext
+from ..awareness.sensor_sync import SensorSyncContext
 from ..scheduler.contracts import (
     ScheduleDefinition,
     ScheduledExecutionContext,
@@ -66,7 +64,6 @@ class TimelineSchedulerContrib:
         scheduler_service: SchedulerService,
         sensor_registry: SensorRegistry,
         plugin_manager: Any,
-        timeline_service: TimelineService,
         runtime_paths: RuntimePaths,
         get_config: Callable[[], Any],
         ingestion_gateway: SensorIngestionGateway | None = None,
@@ -74,7 +71,6 @@ class TimelineSchedulerContrib:
         self._scheduler_service = scheduler_service
         self._sensor_registry = sensor_registry
         self._plugin_manager = plugin_manager
-        self._timeline_service = timeline_service
         self._runtime_paths = runtime_paths
         self._get_config = get_config
         self._ingestion_gateway = ingestion_gateway
@@ -213,39 +209,22 @@ class TimelineSchedulerContrib:
         for item in result.items:
             fetched = await sensor.fetch_item(item)
 
-            if self._ingestion_gateway is not None:
-                # New path: SensorBase.build_output → SensorIngestionGateway
-                output = await sensor.build_output(fetched)
-                metadata = await sensor.extract_metadata(fetched)
-                output.provenance.update(
-                    {
-                        "scheduler_schedule_id": context.schedule.schedule_id,
-                        "scheduler_target_key": context.schedule.target_key,
-                        "sensor_sync_mode": "manual" if context.manual else "scheduled",
-                    }
-                )
-                await self._ingestion_gateway.ingest(
-                    sensor, output, metadata,
-                    allowed_edge_whitelist=allowed_edge_whitelist,
-                )
-            else:
-                # Legacy fallback: build_timeline_event → TimelineService.upsert_event
-                event: TimelineEvent = await sensor.build_timeline_event(fetched)
-                extracted = await sensor.extract_candidates(fetched)
-                event.entities = list(extracted.get("entities", []))
-                event.tags = list(dict.fromkeys([*event.tags, *list(extracted.get("tags", []))]))
-                event.provenance.update(
-                    {
-                        "scheduler_schedule_id": context.schedule.schedule_id,
-                        "scheduler_target_key": context.schedule.target_key,
-                        "sensor_sync_mode": "manual" if context.manual else "scheduled",
-                    }
-                )
-                await self._timeline_service.upsert_event(
-                    event,
-                    relation_candidates=list(extracted.get("relation_candidates", [])),
-                    allowed_edge_whitelist=allowed_edge_whitelist,
-                )
+            if self._ingestion_gateway is None:
+                raise RuntimeError("SensorIngestionGateway is required for timeline sensor sync")
+
+            output = await sensor.build_output(fetched)
+            metadata = await sensor.extract_metadata(fetched)
+            output.provenance.update(
+                {
+                    "scheduler_schedule_id": context.schedule.schedule_id,
+                    "scheduler_target_key": context.schedule.target_key,
+                    "sensor_sync_mode": "manual" if context.manual else "scheduled",
+                }
+            )
+            await self._ingestion_gateway.ingest(
+                sensor, output, metadata,
+                allowed_edge_whitelist=allowed_edge_whitelist,
+            )
         return ScheduledExecutionResult(
             success=True,
             message="timeline_sync_completed",

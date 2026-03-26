@@ -5,7 +5,7 @@ from magi.api.routers import timeline as timeline_module
 from magi.api.routers.timeline import timeline_router
 from magi.plugins import ExtensionFieldSpec
 from magi.scheduler import ScheduledTargetState, ScheduledTargetType
-from magi.timeline import TimelineContentBlock, TimelineEvent
+from magi.timeline.contracts import TimelineContentBlock, TimelineEvent
 
 
 class _FakeTimelineService:

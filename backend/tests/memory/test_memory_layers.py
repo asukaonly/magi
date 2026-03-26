@@ -16,7 +16,7 @@ from magi.memory import UnifiedMemoryStore
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import L3Candidate, StateChangePacket, TaskOutcomePacket
-from magi.timeline import TimelineContentBlock, TimelineEvent
+from magi.timeline.contracts import TimelineContentBlock, TimelineEvent
 from magi.timeline.service import TimelineService
 
 
