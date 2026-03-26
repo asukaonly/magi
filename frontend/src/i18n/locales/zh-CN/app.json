@@ -45,7 +45,7 @@
   },
   "timeline": {
     "title": "时间线",
-    "subtitle": "按时间浏览记忆，把具体事件、阶段摘要和手动笔记放到同一个视图里。",
+    "subtitle": "通过反思窗口、聚类时段和自身状态模式来回顾这段时间发生了什么。",
     "loading": "时间线加载中...",
     "shellPlaceholder": "时间线视图已经接入主壳层，后续会继续补齐更完整的记忆摘要和时间窗口投影。",
     "hero": {
@@ -53,17 +53,28 @@
     },
     "actions": {
       "refresh": "刷新时间线",
-      "addEntry": "新增笔记",
-      "closeEntry": "收起笔记"
+      "openContext": "打开上下文"
     },
     "filters": {
-      "source": "来源",
-      "range": "时间范围",
-      "allSources": "全部来源",
-      "allTime": "全部时间",
-      "last7Days": "最近 7 天",
-      "last30Days": "最近 30 天",
-      "clear": "清空筛选"
+      "query": "搜索时段、情绪或活动"
+    },
+    "scale": {
+      "month": "月",
+      "week": "周",
+      "day": "日",
+      "hour": "小时"
+    },
+    "nav": {
+      "previous": "上一窗口",
+      "next": "下一窗口"
+    },
+    "labels": {
+      "selfState": "自身状态"
+    },
+    "drawer": {
+      "empty": "选择一个时段，查看它的跨层上下文。",
+      "reflections": "反思摘要",
+      "procedures": "程序经验"
     },
     "sources": {
       "browser_history": "浏览记录",
@@ -94,41 +105,13 @@
       "emptyTitle": "时间线上还没有内容",
       "emptyBody": "当 Magi 开始记录活动，或你补充一条笔记后，这里会逐渐形成你的记忆时间线。"
     },
-    "composer": {
-      "titleCard": "补充一条记忆笔记",
-      "subtitle": "写下一段内容，也可以附上图片引用。它会先保存到记忆里，再出现在时间线中。",
-      "title": "标题",
-      "titlePlaceholder": "给这段记忆起个标题",
-      "summary": "摘要",
-      "summaryPlaceholder": "用于时间线卡片的简短摘要",
-      "text": "笔记",
-      "textPlaceholder": "记录发生了什么、为什么重要，以及值得记住的上下文。",
-      "imageRef": "图片引用",
-      "imagePlaceholder": "/absolute/path/to/photo.png",
-      "addImage": "添加图片",
-      "removeImage": "移除图片",
-      "submit": "保存笔记",
-      "created": "记忆笔记已保存"
-    },
-    "retention": {
-      "retainRaw": "保留原始数据",
-      "analyzeOnly": "仅分析归纳"
-    },
     "summary": {
-      "title": "时间概览",
       "totalEvents": "事件总数",
-      "derivedEdges": "衍生关系边",
-      "sourceMix": "来源分布",
-      "noSources": "暂无来源数据",
-      "feedState": "当前视图",
-      "showingAll": "当前展示完整的记忆时间线。",
-      "showingFiltered": "当前展示此视图中的 {{count}} 个条目。"
+      "clusterCount": "聚类时段数"
     },
     "errors": {
       "loadFailed": "时间线加载失败：{{message}}",
-      "detailFailed": "事件详情加载失败：{{message}}",
-      "createFailed": "手动记录创建失败：{{message}}",
-      "reanalyzeFailed": "重新分析请求失败：{{message}}"
+      "detailFailed": "时间线上下文加载失败：{{message}}"
     }
   },
   "dashboard": {

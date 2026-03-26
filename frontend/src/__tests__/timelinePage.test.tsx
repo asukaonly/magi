@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,9 +11,6 @@ vi.mock('react-i18next', () => ({
       if (params?.count !== undefined) {
         return `${key}:${params.count}`;
       }
-      if (params?.message) {
-        return `${key}:${params.message}`;
-      }
       return key;
     },
     i18n: {
@@ -24,253 +21,220 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/api/modules/timeline', () => ({
   timelineApi: {
-    listItems: vi.fn(),
-    getEvent: vi.fn(),
-    createManualEntry: vi.fn(),
-    requestSync: vi.fn(),
-    requestReanalysis: vi.fn(),
+    getViewport: vi.fn(),
+    getContext: vi.fn(),
   },
 }));
 
-const TIMELINE_ITEMS = [
-  {
-    item_id: 'summary:day-2026-03-18',
-    item_type: 'summary',
-    time_start: 1710000600,
-    time_end: 1710003600,
-    sort_time: 1710003600,
-    primary_event_id: null,
-    primary_summary_id: 'day-2026-03-18',
-    source_event_ids: ['timeline-1', 'timeline-2'],
-    source_summary_ids: ['day-2026-03-18'],
-    display_payload: {
-      title: 'Daily Reflection',
-      summary: 'A steady day of research and journaling.',
-      summary_type: 'daily',
-      summary_category: 'reflection',
-      key_topics: ['research', 'journal'],
-      key_entities: ['EVA', '明日香'],
-      source_event_count: 2,
-    },
-    projection_version: 1,
-    generated_at: 1710003601,
+const MONTH_VIEWPORT = {
+  viewport: {
+    scale: 'month',
+    start: 1710000000,
+    end: 1712592000,
+    focus: 'self',
+    query: null,
+    timezone: null,
   },
-  {
-    item_id: 'event:timeline-1',
-    item_type: 'event',
-    time_start: 1710000000,
-    time_end: 1710000000,
-    sort_time: 1710000000,
-    primary_event_id: 'timeline-1',
-    primary_summary_id: null,
-    source_event_ids: ['timeline-1'],
-    source_summary_ids: [],
-    display_payload: {
-      title: 'Visited EVA design archive',
-      summary: 'Spent time reading reference material and screenshots.',
-      source_type: 'browser_history',
-      source_item_id: 'history-1',
-      event_type: 'BROWSER_CAPTURE',
-      retention_mode: 'analyze_only',
-      raw_payload_ref: null,
-      content_blocks: [{ kind: 'text', value: 'Looked through multiple entries.' }],
-      entities: [{ id: 'topic:eva', label: 'EVA', type: 'topic' }],
-      tags: ['reference', 'design'],
-      provenance: { sensor_id: 'browser_history' },
-    },
-    projection_version: 1,
-    generated_at: 1710000002,
+  summary: {
+    cluster_count: 0,
+    event_count: 8,
+    dominant_modes: ['deep_work'],
   },
-  {
-    item_id: 'event:timeline-2',
-    item_type: 'event',
-    time_start: 1710001000,
-    time_end: 1710001000,
-    sort_time: 1710001000,
-    primary_event_id: 'timeline-2',
-    primary_summary_id: null,
-    source_event_ids: ['timeline-2'],
-    source_summary_ids: [],
-    display_payload: {
-      title: 'Evening reflection',
-      summary: 'Wrote down a calm summary after work.',
-      source_type: 'manual_journal',
-      source_item_id: 'manual-2',
-      event_type: 'MANUAL_JOURNAL',
-      retention_mode: 'retain_raw',
-      raw_payload_ref: '/tmp/evening-note.md',
-      content_blocks: [{ kind: 'text', value: 'Today felt steady and focused.' }],
-      entities: [{ id: 'person:asuka', label: '明日香', type: 'person' }],
-      tags: ['journal'],
-      provenance: { sensor_id: 'manual_journal' },
-    },
-    projection_version: 1,
-    generated_at: 1710001002,
-  },
-];
-
-const TIMELINE_DETAIL = {
-  event_id: 'timeline-2',
-  source_type: 'manual_journal',
-  source_item_id: 'manual-2',
-  occurred_at: 1710001000,
-  captured_at: 1710001001,
-  title: 'Evening reflection',
-  summary: 'Wrote down a calm summary after work.',
-  retention_mode: 'retain_raw',
-  raw_payload_ref: '/tmp/evening-note.md',
-  content_blocks: [{ kind: 'text', value: 'Today felt steady and focused.' }],
-  entities: [{ id: 'person:asuka', label: '明日香', type: 'person' }],
-  tags: ['journal'],
-  privacy_labels: [],
-  processing_status: { stored: true, analyzed: true },
-  provenance: { sensor_id: 'manual_journal' },
-  retention: {
-    mode: 'retain_raw',
-    retained: true,
-    raw_payload_ref: '/tmp/evening-note.md',
-    content_block_count: 1,
-  },
-  graph_evidence: [
+  state_bands: [
     {
-      subject_id: 'user:self',
-      predicate: 'LIKES',
-      object_id: 'person:asuka',
-      confidence: 0.86,
-      evidence_event_ids: ['timeline-2'],
+      band_id: 'band-1',
+      time_start: 1710000000,
+      time_end: 1712592000,
+      valence: 0.3,
+      stress_level: 0.6,
+      engagement: 0.8,
+      confidence: 0.7,
+      label: 'focused',
+      source_summary_ids: ['summary-1'],
+      source_assertion_ids: ['assertion-1'],
     },
   ],
+  state_markers: [],
+  clusters: [],
+  reflections: [
+    {
+      reflection_id: 'reflection-1',
+      time_start: 1710000000,
+      time_end: 1712592000,
+      title: 'March reflection',
+      summary: 'A steady month of focused work.',
+      key_topics: ['work', 'recovery'],
+      key_entities: [{ entity_id: 'project:magi' }],
+      sentiment_summary: { tone: 'steady' },
+      change_and_pattern: { patterns: ['late-night work'] },
+      source_summary_ids: ['summary-1'],
+      source_event_ids: ['evt-1'],
+    },
+  ],
+  raw_events: [],
+};
+
+const DAY_VIEWPORT = {
+  viewport: {
+    scale: 'day',
+    start: 1710000000,
+    end: 1710086400,
+    focus: 'self',
+    query: null,
+    timezone: null,
+  },
+  summary: {
+    cluster_count: 1,
+    event_count: 3,
+    dominant_modes: ['deep_work'],
+  },
+  state_bands: MONTH_VIEWPORT.state_bands,
+  state_markers: [
+    {
+      marker_id: 'marker-1',
+      timestamp: 1710003600,
+      kind: 'shift',
+      label: 'State shift',
+      summary: 'Stress rose around midday.',
+      source_band_ids: ['band-1'],
+      source_summary_ids: ['summary-1'],
+    },
+  ],
+  clusters: [
+    {
+      block_id: 'cluster-1',
+      time_start: 1710000000,
+      time_end: 1710007200,
+      duration_seconds: 7200,
+      label: 'Deep Work',
+      summary: 'A long focused stretch across coding and note-taking.',
+      dominant_mode: 'deep_work',
+      source_types: ['chat', 'manual_journal'],
+      event_count: 3,
+      representative_event_ids: ['evt-1', 'evt-2'],
+      keywords: ['coding', 'notes'],
+      media_refs: [],
+      state_snapshot: {
+        valence: 0.32,
+        stress_level: 0.61,
+        engagement: 0.83,
+      },
+    },
+  ],
+  reflections: [],
+  raw_events: [],
+};
+
+const HOUR_VIEWPORT = {
+  viewport: {
+    scale: 'hour',
+    start: 1710000000,
+    end: 1710003600,
+    focus: 'self',
+    query: null,
+    timezone: null,
+  },
+  summary: {
+    cluster_count: 0,
+    event_count: 2,
+    dominant_modes: [],
+  },
+  state_bands: MONTH_VIEWPORT.state_bands,
+  state_markers: [],
+  clusters: [],
+  reflections: [],
+  raw_events: [
+    {
+      event_id: 'evt-1',
+      timestamp: 1710000300,
+      title: 'Opened design note',
+      summary: 'Reviewing implementation notes.',
+      source_type: 'manual_journal',
+    },
+  ],
+};
+
+const CONTEXT_BUNDLE = {
+  anchor: {
+    anchor_id: 'cluster-1',
+    anchor_type: 'cluster',
+    title: 'Deep Work',
+    summary: 'A long focused stretch across coding and note-taking.',
+  },
+  l1_events: [{ event_id: 'evt-1', title: 'Opened design note', summary: 'Reviewing implementation notes.' }],
+  l2_state_evidence: [{ assertion_id: 'assertion-1', trait_name: 'mood', trait_value: 'focused' }],
+  l3_reflections: [{ summary_id: 'summary-1', content: 'Focus remained high despite rising stress.' }],
+  l4_related_procedures: [{ skill_id: 'skill-1', skill_name: 'Deep work loop' }],
+  chat_excerpts: [{ event_id: 'evt-2', content: "Let's restructure the timeline around semantic zoom." }],
+  runtime_trace: [],
 };
 
 describe('timeline page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(timelineApi.listItems).mockResolvedValue({
-      items: TIMELINE_ITEMS,
-      count: TIMELINE_ITEMS.length,
-    } as any);
-    vi.mocked(timelineApi.getEvent).mockResolvedValue(TIMELINE_DETAIL as any);
-    vi.mocked(timelineApi.createManualEntry).mockResolvedValue({
-      ...TIMELINE_DETAIL,
-      event_id: 'timeline-created',
-      title: 'Night walk',
-      summary: 'Captured the walk home.',
-      content_blocks: [
-        { kind: 'text', value: 'The street was quiet.' },
-        { kind: 'image', value: '/tmp/night-walk.png' },
-      ],
-    } as any);
-    vi.mocked(timelineApi.requestReanalysis).mockResolvedValue({
-      queued: true,
-      event_id: 'timeline-2',
-      event: TIMELINE_DETAIL,
-    } as any);
-  });
-
-  it('renders projection items, refetches by range, and filters event cards by source', async () => {
-    const user = userEvent.setup();
-    render(<TimelinePage />);
-
-    expect(await screen.findByText('Daily Reflection')).toBeInTheDocument();
-    expect(await screen.findByText('Visited EVA design archive')).toBeInTheDocument();
-    expect(screen.getByText('Evening reflection')).toBeInTheDocument();
-    expect(timelineApi.listItems).toHaveBeenCalledWith({ limit: 80, range: 'all' });
-
-    fireEvent.change(screen.getByRole('combobox', { name: 'timeline.filters.range' }), {
-      target: { value: '7d' },
+    vi.mocked(timelineApi.getViewport).mockImplementation(async ({ scale }) => {
+      if (scale === 'day') {
+        return DAY_VIEWPORT as any;
+      }
+      if (scale === 'hour') {
+        return HOUR_VIEWPORT as any;
+      }
+      return MONTH_VIEWPORT as any;
     });
-
-    await waitFor(() => expect(timelineApi.listItems).toHaveBeenLastCalledWith({ limit: 80, range: '7d' }));
-
-    fireEvent.change(screen.getByRole('combobox', { name: 'timeline.filters.source' }), {
-      target: { value: 'manual_journal' },
-    });
-
-    expect(screen.getByText('Evening reflection')).toBeInTheDocument();
-    expect(screen.queryByText('Visited EVA design archive')).not.toBeInTheDocument();
-    expect(screen.queryByText('Daily Reflection')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'timeline.filters.clear' }));
-    expect(await screen.findByText('Visited EVA design archive')).toBeInTheDocument();
-    expect(screen.getByText('Daily Reflection')).toBeInTheDocument();
+    vi.mocked(timelineApi.getContext).mockResolvedValue(CONTEXT_BUNDLE as any);
   });
 
-  it('expands a card inline to show retention and derived evidence', async () => {
-    const user = userEvent.setup();
+  it('loads the month viewport first and renders reflection windows', async () => {
     render(<TimelinePage />);
 
-    const manualCard = (await screen.findByText('Evening reflection')).closest('article');
-    expect(manualCard).not.toBeNull();
-    await user.click(within(manualCard as HTMLElement).getByRole('button', { name: 'timeline.feed.showDetails' }));
-
-    await waitFor(() => expect(timelineApi.getEvent).toHaveBeenCalledWith('timeline-2'));
-    expect(await screen.findByText('LIKES')).toBeInTheDocument();
-    expect(screen.getByText('person:asuka')).toBeInTheDocument();
-    expect(screen.getByText('/tmp/evening-note.md')).toBeInTheDocument();
-    expect(screen.getAllByText('timeline.retention.retainRaw').length).toBeGreaterThan(0);
-  });
-
-  it('creates a manual journal entry with text and image references', async () => {
-    const user = userEvent.setup();
-    vi.mocked(timelineApi.listItems)
-      .mockResolvedValueOnce({
-        items: TIMELINE_ITEMS,
-        count: TIMELINE_ITEMS.length,
-      } as any)
-      .mockResolvedValueOnce({
-        items: [
-          {
-            item_id: 'event:timeline-created',
-            item_type: 'event',
-            time_start: 1710002000,
-            time_end: 1710002000,
-            sort_time: 1710002000,
-            primary_event_id: 'timeline-created',
-            primary_summary_id: null,
-            source_event_ids: ['timeline-created'],
-            source_summary_ids: [],
-            display_payload: {
-              title: 'Night walk',
-              summary: 'Captured the walk home.',
-              source_type: 'manual_journal',
-              source_item_id: 'manual-created',
-              retention_mode: 'retain_raw',
-              raw_payload_ref: null,
-              content_blocks: [
-                { kind: 'text', value: 'The street was quiet.' },
-                { kind: 'image', value: '/tmp/night-walk.png' },
-              ],
-              entities: [],
-              tags: ['journal'],
-              provenance: { sensor_id: 'manual_journal' },
-            },
-            projection_version: 1,
-            generated_at: 1710002001,
-          },
-          ...TIMELINE_ITEMS,
-        ],
-        count: TIMELINE_ITEMS.length + 1,
-      } as any);
-    render(<TimelinePage />);
-
-    await user.click(await screen.findByRole('button', { name: 'timeline.actions.addEntry' }));
-    await user.type(screen.getByLabelText('timeline.composer.title'), 'Night walk');
-    await user.type(screen.getByLabelText('timeline.composer.summary'), 'Captured the walk home.');
-    await user.type(screen.getByLabelText('timeline.composer.text'), 'The street was quiet.');
-    await user.type(screen.getByLabelText('timeline.composer.imageRef'), '/tmp/night-walk.png');
-    await user.click(screen.getByRole('button', { name: 'timeline.composer.addImage' }));
-    await user.click(screen.getByRole('button', { name: 'timeline.composer.submit' }));
-
-    await waitFor(() =>
-      expect(timelineApi.createManualEntry).toHaveBeenCalledWith({
-        title: 'Night walk',
-        summary: 'Captured the walk home.',
-        text: 'The street was quiet.',
-        image_refs: ['/tmp/night-walk.png'],
+    expect(await screen.findByText('March reflection')).toBeInTheDocument();
+    expect(screen.getByText('A steady month of focused work.')).toBeInTheDocument();
+    expect(screen.getAllByText('focused').length).toBeGreaterThan(0);
+    expect(timelineApi.getViewport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scale: 'month',
       })
     );
+  });
 
-    await waitFor(() => expect(timelineApi.listItems).toHaveBeenLastCalledWith({ limit: 80, range: 'all' }));
-    expect(await screen.findByText('Night walk')).toBeInTheDocument();
+  it('switches semantic units when the scale changes', async () => {
+    const user = userEvent.setup();
+    render(<TimelinePage />);
+
+    await user.click(await screen.findByRole('button', { name: 'timeline.scale.day' }));
+
+    await waitFor(() =>
+      expect(timelineApi.getViewport).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          scale: 'day',
+        })
+      )
+    );
+    expect(await screen.findByText('Deep Work')).toBeInTheDocument();
+    expect(screen.queryByText('March reflection')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'timeline.scale.hour' }));
+    await waitFor(() =>
+      expect(timelineApi.getViewport).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          scale: 'hour',
+        })
+      )
+    );
+    expect(await screen.findByText('Opened design note')).toBeInTheDocument();
+    expect(screen.queryByText('Deep Work')).not.toBeInTheDocument();
+  });
+
+  it('opens the context drawer when a cluster is selected', async () => {
+    const user = userEvent.setup();
+    render(<TimelinePage />);
+
+    await user.click(await screen.findByRole('button', { name: 'timeline.scale.day' }));
+    const openButton = await screen.findByRole('button', { name: 'timeline.actions.openContext:cluster-1' });
+    await user.click(openButton);
+
+    await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('cluster-1'));
+    expect(await screen.findByText('Focus remained high despite rising stress.')).toBeInTheDocument();
+    expect(screen.getByText('Deep work loop')).toBeInTheDocument();
   });
 });

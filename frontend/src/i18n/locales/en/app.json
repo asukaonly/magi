@@ -45,7 +45,7 @@
   },
   "timeline": {
     "title": "Timeline",
-    "subtitle": "Browse memory over time, mixing detailed events, time-window summaries, and notes in one view.",
+    "subtitle": "Review what happened over time through reflective windows, clustered periods, and self-state patterns.",
     "loading": "Loading timeline...",
     "shellPlaceholder": "The timeline view is wired into the shell. It will keep getting better as memory summaries and time-window projections expand.",
     "hero": {
@@ -53,17 +53,28 @@
     },
     "actions": {
       "refresh": "Refresh timeline",
-      "addEntry": "Add note",
-      "closeEntry": "Close note"
+      "openContext": "Open context"
     },
     "filters": {
-      "source": "Source",
-      "range": "Range",
-      "allSources": "All sources",
-      "allTime": "All time",
-      "last7Days": "Last 7 days",
-      "last30Days": "Last 30 days",
-      "clear": "Clear filters"
+      "query": "Search moments, moods, or activities"
+    },
+    "scale": {
+      "month": "Month",
+      "week": "Week",
+      "day": "Day",
+      "hour": "Hour"
+    },
+    "nav": {
+      "previous": "Previous window",
+      "next": "Next window"
+    },
+    "labels": {
+      "selfState": "Self state"
+    },
+    "drawer": {
+      "empty": "Select a period to inspect its cross-layer context.",
+      "reflections": "Reflections",
+      "procedures": "Procedures"
     },
     "sources": {
       "browser_history": "Browser history",
@@ -94,41 +105,13 @@
       "emptyTitle": "Nothing on the timeline yet",
       "emptyBody": "Once Magi captures activity or you add a note, your memory timeline will start to take shape."
     },
-    "composer": {
-      "titleCard": "Add a memory note",
-      "subtitle": "Write a quick note and optionally attach image references. It will be saved into memory and appear on the timeline.",
-      "title": "Title",
-      "titlePlaceholder": "Name this memory",
-      "summary": "Summary",
-      "summaryPlaceholder": "Short summary for the timeline card",
-      "text": "Note",
-      "textPlaceholder": "Capture what happened, why it mattered, and any context worth remembering.",
-      "imageRef": "Image reference",
-      "imagePlaceholder": "/absolute/path/to/photo.png",
-      "addImage": "Attach image",
-      "removeImage": "Remove image",
-      "submit": "Save note",
-      "created": "Memory note added"
-    },
-    "retention": {
-      "retainRaw": "Raw retained",
-      "analyzeOnly": "Analyze only"
-    },
     "summary": {
-      "title": "Timeline overview",
       "totalEvents": "Total events",
-      "derivedEdges": "Derived edges",
-      "sourceMix": "Source mix",
-      "noSources": "No source data yet",
-      "feedState": "Current view",
-      "showingAll": "Showing your full memory timeline.",
-      "showingFiltered": "Showing {{count}} items in this view."
+      "clusterCount": "Cluster blocks"
     },
     "errors": {
       "loadFailed": "Failed to load timeline: {{message}}",
-      "detailFailed": "Failed to load event detail: {{message}}",
-      "createFailed": "Failed to create manual entry: {{message}}",
-      "reanalyzeFailed": "Failed to request reanalysis: {{message}}"
+      "detailFailed": "Failed to load timeline context: {{message}}"
     }
   },
   "dashboard": {

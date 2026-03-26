@@ -60,15 +60,13 @@ export type { ModelDownloadStatus } from './modules/memory';
 
 export { timelineApi } from './modules/timeline';
 export type {
-  TimelineContentBlock,
-  TimelineEntity,
-  TimelineEventDetail,
-  TimelineEventRecord,
-  TimelineGraphEvidence,
-  TimelineManualEntryRequest,
-  TimelineProjectionItem,
-  TimelineProjectionListResponse,
-  TimelineRetentionInfo,
+  TimelineClusterBlock,
+  TimelineContextBundle,
+  TimelineRawEvent,
+  TimelineReflectionWindow,
   TimelineSourceStatusItem,
   TimelineSourceStatusResponse,
+  TimelineStateBand,
+  TimelineStateMarker,
+  TimelineViewportResponse,
 } from './modules/timeline';

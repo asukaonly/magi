@@ -1,100 +1,105 @@
 import { api } from '../client';
 import type { ActivationFlowSpec, ExtensionFieldSpec } from './plugins';
 
-export interface TimelineContentBlock {
-  kind: string;
-  value: string;
-  mime_type?: string | null;
-}
-
-export interface TimelineRetentionInfo {
-  mode: string;
-  retained: boolean;
-  raw_payload_ref?: string | null;
-  content_block_count: number;
-}
-
-export interface TimelineEntity {
-  id?: string;
-  label?: string;
-  type?: string;
-}
-
-export interface TimelineGraphEvidence {
-  subject_id: string;
-  predicate: string;
-  object_id: string;
-  confidence: number;
-  evidence_event_ids: string[];
-}
-
-export interface TimelineEventRecord {
-  event_id: string;
-  source_type: string;
-  source_item_id: string;
-  occurred_at: number;
-  captured_at: number;
-  title: string;
-  summary: string;
-  retention_mode: string;
-  raw_payload_ref?: string | null;
-  content_blocks: TimelineContentBlock[];
-  entities: TimelineEntity[];
-  tags: string[];
-  privacy_labels: string[];
-  processing_status: Record<string, any>;
-  provenance: Record<string, any>;
-  retention?: TimelineRetentionInfo;
-}
-
-export interface TimelineEventDetail extends TimelineEventRecord {
-  graph_evidence: TimelineGraphEvidence[];
-}
-
-export interface TimelineProjectionDisplayPayload {
-  title?: string;
-  summary?: string;
-  source_type?: string;
-  source_item_id?: string;
-  event_type?: string;
-  content_blocks?: TimelineContentBlock[];
-  entities?: TimelineEntity[];
-  tags?: string[];
-  retention_mode?: string;
-  raw_payload_ref?: string | null;
-  provenance?: Record<string, any>;
-  summary_type?: string;
-  summary_category?: string;
-  key_topics?: string[];
-  key_entities?: string[];
-  source_event_count?: number;
-}
-
-export interface TimelineProjectionItem {
-  item_id: string;
-  item_type: string;
+export interface TimelineStateBand {
+  band_id: string;
   time_start: number;
   time_end: number;
-  sort_time: number;
-  primary_event_id?: string | null;
-  primary_summary_id?: string | null;
-  source_event_ids: string[];
+  valence: number;
+  stress_level: number;
+  engagement: number;
+  confidence: number;
+  label: string;
   source_summary_ids: string[];
-  display_payload: TimelineProjectionDisplayPayload;
-  projection_version: number;
-  generated_at: number;
+  source_assertion_ids: string[];
 }
 
-export interface TimelineProjectionListResponse {
-  items: TimelineProjectionItem[];
-  count: number;
+export interface TimelineStateMarker {
+  marker_id: string;
+  timestamp: number;
+  kind: string;
+  label: string;
+  summary: string;
+  source_band_ids: string[];
+  source_summary_ids: string[];
 }
 
-export interface TimelineManualEntryRequest {
+export interface TimelineClusterBlock {
+  block_id: string;
+  time_start: number;
+  time_end: number;
+  duration_seconds: number;
+  label: string;
+  summary: string;
+  dominant_mode: string;
+  source_types: string[];
+  event_count: number;
+  representative_event_ids: string[];
+  keywords: string[];
+  media_refs: string[];
+  state_snapshot?: {
+    valence?: number;
+    stress_level?: number;
+    engagement?: number;
+  };
+}
+
+export interface TimelineReflectionWindow {
+  reflection_id: string;
+  time_start: number;
+  time_end: number;
   title: string;
   summary: string;
-  text: string;
-  image_refs: string[];
+  key_topics: string[];
+  key_entities: Array<Record<string, unknown>>;
+  sentiment_summary?: Record<string, unknown> | null;
+  change_and_pattern?: Record<string, unknown> | null;
+  source_summary_ids: string[];
+  source_event_ids: string[];
+}
+
+export interface TimelineRawEvent {
+  event_id: string;
+  timestamp: number;
+  title: string;
+  summary: string;
+  source_type: string;
+}
+
+export interface TimelineViewportResponse {
+  viewport: {
+    scale: 'month' | 'week' | 'day' | 'hour';
+    start: number;
+    end: number;
+    focus: 'self';
+    query?: string | null;
+    timezone?: string | null;
+  };
+  summary: {
+    cluster_count: number;
+    event_count: number;
+    dominant_modes: string[];
+  };
+  state_bands: TimelineStateBand[];
+  state_markers: TimelineStateMarker[];
+  clusters: TimelineClusterBlock[];
+  reflections: TimelineReflectionWindow[];
+  raw_events: TimelineRawEvent[];
+}
+
+export interface TimelineContextBundle {
+  anchor: {
+    anchor_id: string;
+    anchor_type: string;
+    title: string;
+    summary: string;
+  };
+  l1_events: Array<Record<string, unknown>>;
+  l2_state_evidence: Array<Record<string, unknown>>;
+  l3_reflections: Array<Record<string, unknown>>;
+  l4_related_procedures: Array<Record<string, unknown>>;
+  chat_excerpts: Array<Record<string, unknown>>;
+  runtime_trace: Array<Record<string, unknown>>;
 }
 
 export interface TimelineSourceStatusItem {
@@ -133,27 +138,30 @@ export interface TimelineSourceStatusResponse {
 }
 
 export const timelineApi = {
-  listItems: async (
-    options: { limit?: number; sourceType?: string; range?: 'all' | '7d' | '30d' } = {}
-  ): Promise<TimelineProjectionListResponse> => {
-    const response = await api.get<TimelineProjectionListResponse>('/timeline/items', {
+  getViewport: async (options: {
+    scale: 'month' | 'week' | 'day' | 'hour';
+    start: number;
+    end: number;
+    query?: string;
+    timezone?: string;
+    focus?: 'self';
+  }): Promise<TimelineViewportResponse> => {
+    const response = await api.get<TimelineViewportResponse>('/timeline/viewport', {
       params: {
-        limit: options.limit ?? 80,
-        source_type: options.sourceType || undefined,
-        range: options.range ?? 'all',
+        scale: options.scale,
+        start: options.start,
+        end: options.end,
+        query: options.query || undefined,
+        timezone: options.timezone || undefined,
+        focus: options.focus ?? 'self',
       },
     });
-    return (response.data || response) as TimelineProjectionListResponse;
+    return (response.data || response) as TimelineViewportResponse;
   },
 
-  getEvent: async (eventId: string): Promise<TimelineEventDetail> => {
-    const response = await api.get<TimelineEventDetail>(`/timeline/events/${eventId}`);
-    return (response.data || response) as TimelineEventDetail;
-  },
-
-  createManualEntry: async (payload: TimelineManualEntryRequest): Promise<TimelineEventRecord> => {
-    const response = await api.post<TimelineEventRecord>('/timeline/manual', payload);
-    return (response.data || response) as TimelineEventRecord;
+  getContext: async (anchorId: string): Promise<TimelineContextBundle> => {
+    const response = await api.get<TimelineContextBundle>(`/timeline/context/${anchorId}`);
+    return (response.data || response) as TimelineContextBundle;
   },
 
   getSourceStatus: async (): Promise<TimelineSourceStatusResponse> => {
@@ -164,15 +172,5 @@ export const timelineApi = {
   requestSync: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
     const response = await api.post<{ queued: boolean; source_name: string }>(`/timeline/sources/${sourceName}/sync`, {});
     return (response.data || response) as { queued: boolean; source_name: string };
-  },
-
-  requestReanalysis: async (
-    eventId: string
-  ): Promise<{ queued: boolean; event_id: string; event: TimelineEventDetail }> => {
-    const response = await api.post<{ queued: boolean; event_id: string; event: TimelineEventDetail }>(
-      `/timeline/events/${eventId}/reanalyze`,
-      {}
-    );
-    return (response.data || response) as { queued: boolean; event_id: string; event: TimelineEventDetail };
   },
 };
