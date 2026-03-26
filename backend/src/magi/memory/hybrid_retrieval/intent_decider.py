@@ -479,50 +479,20 @@ class RuleBasedIntentDecider:
         return []
 
     def _infer_subject_hint(self, inp: IntentDeciderInput) -> str:
-        """Infer whether the query subject is the current user or an explicit entity."""
-        query = inp.query.lower()
-        has_self = self._has_self_pronoun(inp.query, query)
+        """Infer whether the query subject is the current user or an explicit entity.
 
-        if inp.recall_intent_hint in {"preference_recall", "profile_fact_recall"}:
-            if has_self:
-                return "self"
-        if inp.recall_intent_hint == "relationship_recall" and has_self:
-            return "self"
-
-        # Without recall_intent, infer from query keywords + pronoun.
-        if has_self:
-            pref_like = any(kw in query for kw in (
-                "喜欢", "讨厌", "不喜欢", "偏好", "最爱",
-                "like", "dislike", "prefer", "hate", "love", "favorite",
-            ))
-            profile_like = any(kw in query for kw in (
-                "设置", "默认", "资料", "profile", "setting",
-            ))
-            if pref_like or profile_like:
-                return "self"
-
-        return "none"
-
-    @staticmethod
-    def _has_self_pronoun(raw_query: str, query_lower: str) -> bool:
-        """Detect first-person pronoun while filtering possessive-relation patterns.
-
-        E.g. "我讨厌天气" → True;  "我的朋友小王喜欢什么" → False.
+        The rule-based path cannot reliably distinguish "我喜欢什么" (self) from
+        "我妈喜欢什么" (explicit).  Accurate subject detection is delegated to
+        the LLM intent decider.  Here we apply a safe default: preference and
+        profile queries in a personal-AI context are overwhelmingly about the
+        user, so we return "self" for those families.
         """
-        has_pronoun = (
-            "我" in raw_query
-            or " me " in f" {query_lower} "
-            or query_lower.startswith("my ")
-        )
-        if not has_pronoun:
-            return False
-        # "我的" + relational noun → subject is the other person, not user.
-        if re.search(
-            r"我的\S{0,4}(?:朋友|同事|同学|老师|老板|家人|亲戚|邻居|父母|爸爸|妈妈|哥哥|姐姐|弟弟|妹妹)",
-            raw_query,
-        ):
-            return False
-        return True
+        family = self._infer_predicate_family(inp)
+        if family in {"preference", "profile_fact"}:
+            return "self"
+        if inp.recall_intent_hint == "relationship_recall":
+            return "self"
+        return "none"
 
     def _infer_predicate_family(self, inp: IntentDeciderInput) -> str:
         """Infer the broad predicate family for L2 graph planning."""
