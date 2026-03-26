@@ -238,6 +238,37 @@ class L0WorkingMemoryStore:
         self._goal_stack[session_id].append(goal)
         return goal
 
+    def push_goal_sync(
+        self,
+        *,
+        session_id: str,
+        goal_id: str,
+        goal_type: str,
+        description: str,
+        status: str = "pending",
+        priority: int = 0,
+        parent_goal_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Synchronously push a goal into the in-memory goal stack."""
+        self._ensure_session_sync(session_id)
+        now = time.time()
+        goal = {
+            "goal_id": goal_id,
+            "parent_goal_id": parent_goal_id,
+            "goal_type": goal_type,
+            "description": description,
+            "status": status,
+            "priority": int(priority),
+            "created_at": now,
+            "started_at": now if status == "in_progress" else None,
+            "completed_at": None,
+            "result_summary": None,
+            "metadata": dict(metadata or {}),
+        }
+        self._goal_stack[session_id].append(goal)
+        return dict(goal)
+
     async def set_goal_status(
         self,
         *,
@@ -247,6 +278,29 @@ class L0WorkingMemoryStore:
         result_summary: Optional[str] = None,
     ) -> bool:
         """Update the status of an existing goal."""
+        goals = self._goal_stack.get(session_id, [])
+        for goal in goals:
+            if goal["goal_id"] != goal_id:
+                continue
+            goal["status"] = status
+            if status == "in_progress" and goal["started_at"] is None:
+                goal["started_at"] = time.time()
+            if status in {"completed", "failed", "cancelled"}:
+                goal["completed_at"] = time.time()
+            if result_summary is not None:
+                goal["result_summary"] = result_summary
+            return True
+        return False
+
+    def set_goal_status_sync(
+        self,
+        *,
+        session_id: str,
+        goal_id: str,
+        status: str,
+        result_summary: Optional[str] = None,
+    ) -> bool:
+        """Synchronously update the status of an existing goal."""
         goals = self._goal_stack.get(session_id, [])
         for goal in goals:
             if goal["goal_id"] != goal_id:

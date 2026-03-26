@@ -42,6 +42,12 @@ class SessionRunStore:
                 root_user_message=root_user_message,
                 response_anchor_turn_id=root_turn_id,
             )
+            self._push_root_goal(
+                session_id=session_id,
+                run_id=run_identifier,
+                revision=0,
+                root_user_message=root_user_message,
+            )
             active_run = self._require_run(session_id)
             logger.info(
                 "Chat session run created",
@@ -102,6 +108,12 @@ class SessionRunStore:
                 cancel_requested_by=None,
                 cancel_anchor_turn_id=None,
             )
+            self._push_root_goal(
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+                root_user_message=content,
+            )
             active_run = self._require_run(session_id)
             logger.info(
                 "Chat session run root turn updated",
@@ -128,6 +140,7 @@ class SessionRunStore:
                 return False
             if revision is not None and active_run.revision != int(revision):
                 return False
+            self._complete_root_goal(session_id=session_id, active_run=active_run)
             self._l0_store.clear_execution_state_sync(session_id)
             logger.info(
                 "Chat session run completed",
@@ -200,6 +213,11 @@ class SessionRunStore:
                 cancel_requested_by=active_run.cancel_requested_by,
                 cancel_anchor_turn_id=active_run.cancel_anchor_turn_id,
             )
+            self._cancel_root_goal(
+                session_id=session_id,
+                active_run=active_run,
+                reason="Cancelled before completion",
+            )
             active_run = self._require_run(session_id)
             logger.info(
                 "Chat session run cancelled",
@@ -232,6 +250,11 @@ class SessionRunStore:
         """Advance the active revision for a session run."""
         with self._lock:
             active_run = self._require_run(session_id)
+            self._cancel_root_goal(
+                session_id=session_id,
+                active_run=active_run,
+                reason="Superseded by a newer user turn",
+            )
             if clear_pending_turns:
                 self._l0_store.consume_execution_pending_turns_sync(session_id)
             self._l0_store.upsert_execution_run_sync(
@@ -254,6 +277,58 @@ class SessionRunStore:
                 clear_pending_turns=clear_pending_turns,
             )
             return deepcopy(active_run)
+
+    @staticmethod
+    def _goal_id(*, run_id: str, revision: int) -> str:
+        return f"chat_run:{run_id}:{int(revision)}"
+
+    def _push_root_goal(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        revision: int,
+        root_user_message: str,
+    ) -> None:
+        description = str(root_user_message or "").strip()
+        if not description:
+            return
+        self._l0_store.push_goal_sync(
+            session_id=session_id,
+            goal_id=self._goal_id(run_id=run_id, revision=revision),
+            goal_type="chat_run",
+            description=description,
+            status="in_progress",
+            priority=0,
+            metadata={"run_id": run_id, "revision": int(revision)},
+        )
+
+    def _cancel_root_goal(
+        self,
+        *,
+        session_id: str,
+        active_run: ActiveRun,
+        reason: str,
+    ) -> None:
+        self._l0_store.set_goal_status_sync(
+            session_id=session_id,
+            goal_id=self._goal_id(run_id=active_run.run_id, revision=active_run.revision),
+            status="cancelled",
+            result_summary=reason,
+        )
+
+    def _complete_root_goal(
+        self,
+        *,
+        session_id: str,
+        active_run: ActiveRun,
+    ) -> None:
+        self._l0_store.set_goal_status_sync(
+            session_id=session_id,
+            goal_id=self._goal_id(run_id=active_run.run_id, revision=active_run.revision),
+            status="completed",
+            result_summary="Chat run completed",
+        )
 
     def mark_stale_result(
         self,

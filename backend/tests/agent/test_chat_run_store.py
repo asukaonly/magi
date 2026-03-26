@@ -94,6 +94,72 @@ def test_complete_active_run_clears_session_state() -> None:
     assert store.get_active_run("session-1") is None
 
 
+@pytest.mark.asyncio
+async def test_create_active_run_populates_l0_goal_stack() -> None:
+    store = SessionRunStore()
+
+    store.create_active_run(
+        session_id="session-1",
+        run_id="run-1",
+        root_turn_id="turn-1",
+        root_user_message="Inspect the login flow",
+    )
+
+    workbench = await store._l0_store.get_workbench("session-1")
+
+    assert len(workbench["goal_stack"]) == 1
+    assert workbench["goal_stack"][0]["goal_id"] == "chat_run:run-1:0"
+    assert workbench["goal_stack"][0]["description"] == "Inspect the login flow"
+    assert workbench["goal_stack"][0]["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal() -> None:
+    store = SessionRunStore()
+
+    store.create_active_run(
+        session_id="session-1",
+        run_id="run-1",
+        root_turn_id="turn-1",
+        root_user_message="Inspect the login flow",
+    )
+    store.bump_revision("session-1")
+    store.set_root_turn(
+        "session-1",
+        turn_id="turn-2",
+        content="Switch to the checkout issue instead",
+    )
+
+    workbench = await store._l0_store.get_workbench("session-1")
+
+    assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
+        "chat_run:run-1:0",
+        "chat_run:run-1:1",
+    ]
+    assert workbench["goal_stack"][0]["status"] == "cancelled"
+    assert workbench["goal_stack"][0]["result_summary"] == "Superseded by a newer user turn"
+    assert workbench["goal_stack"][1]["status"] == "in_progress"
+    assert workbench["goal_stack"][1]["description"] == "Switch to the checkout issue instead"
+
+
+@pytest.mark.asyncio
+async def test_complete_active_run_marks_current_goal_completed() -> None:
+    store = SessionRunStore()
+
+    store.create_active_run(
+        session_id="session-1",
+        run_id="run-1",
+        root_turn_id="turn-1",
+        root_user_message="Inspect the login flow",
+    )
+    completed = store.complete_active_run("session-1", run_id="run-1", revision=0)
+
+    workbench = await store._l0_store.get_workbench("session-1")
+
+    assert completed is True
+    assert workbench["goal_stack"][0]["status"] == "completed"
+
+
 def test_consume_pending_turns_only_clears_requested_revision() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1")
