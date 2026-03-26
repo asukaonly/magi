@@ -7,10 +7,12 @@ from typing import Optional
 
 from ..events.events import Event, EventLevel
 from .contracts import TimelineContentBlock, TimelineEvent
+from .context_bundle_builder import TimelineContextBundleBuilder
 from .insight_pipeline import TimelineInsightPipeline
 from .projection_builder import TimelineProjectionBuilder
 from .projection_models import TimelineProjectionItem, TimelineProjectionQuery
 from .projection_store import TimelineProjectionStore
+from .viewport_builder import TimelineViewportBuilder
 
 
 class TimelineService:
@@ -22,6 +24,12 @@ class TimelineService:
         self._projection_builder = TimelineProjectionBuilder(
             l1_store=getattr(unified_memory, "l1", None),
             l3_store=getattr(unified_memory, "l3", None),
+        )
+        self._viewport_builder = TimelineViewportBuilder(
+            l1_store=getattr(unified_memory, "l1", None),
+            l2_store=getattr(unified_memory, "l2", None),
+            l3_store=getattr(unified_memory, "l3", None),
+            l4_store=getattr(unified_memory, "l4", None),
         )
         self._projection_store: TimelineProjectionStore | None = None
 
@@ -77,6 +85,48 @@ class TimelineService:
             **event,
             "graph_evidence": graph_evidence,
         }
+
+    async def get_viewport(
+        self,
+        *,
+        scale: str,
+        start: float,
+        end: float,
+        query: str | None = None,
+        timezone: str | None = None,
+        focus: str = "self",
+    ) -> dict:
+        return await self._viewport_builder.build_viewport(
+            scale=scale,
+            start=start,
+            end=end,
+            query=query,
+            timezone=timezone,
+            focus=focus,
+        )
+
+    async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
+        if getattr(self._unified_memory, "l1", None) is None:
+            return None
+        event = await self._unified_memory.l1.get_event(anchor_id)
+        if event is not None:
+            anchor = {
+                "anchor_id": anchor_id,
+                "anchor_type": "event",
+                "title": self._event_to_timeline_payload(event)["title"],
+                "summary": self._event_to_timeline_payload(event)["summary"],
+                "representative_event_ids": [anchor_id],
+            }
+            return await self._viewport_builder.build_context_bundle(anchor=anchor)
+
+        anchor = {
+            "anchor_id": anchor_id,
+            "anchor_type": "cluster",
+            "title": anchor_id.replace(":", " ").title(),
+            "summary": "",
+            "representative_event_ids": [],
+        }
+        return await self._viewport_builder.build_context_bundle(anchor=anchor)
 
     async def list_items(
         self,
