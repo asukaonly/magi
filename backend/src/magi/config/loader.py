@@ -31,7 +31,7 @@ import shutil
 import logging
 import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 from .models import AppConfig
 from .diff_utils import deep_merge_dict, extract_dict_overrides
@@ -115,6 +115,7 @@ class ConfigLoader:
     def __init__(self):
         self._config: Optional[AppConfig] = None
         self._yaml_data: Dict[str, Any] = {}
+        self._config_signature: Optional[Tuple[Tuple[str, int, int], ...]] = None
         self._config_file: Path = get_config_file()
         self._llm_config_file: Path = get_llm_config_file()
         self._llm_provider_registry_file: Path = get_llm_provider_registry_file()
@@ -127,20 +128,47 @@ class ConfigLoader:
         Returns:
             AppConfig: Merged configuration
         """
-        if self._config is not None:
-            return self._config
-
         # Ensure config directory exists and has default config
         self._ensure_config_exists()
+
+        if self._config is not None:
+            current_signature = self._snapshot_config_signature()
+            if self._config_signature == current_signature:
+                return self._config
 
         # Load YAML file
         self._yaml_data = self._load_yaml()
 
         # Build typed config from YAML
         self._config = self._build_config()
+        self._config_signature = self._snapshot_config_signature()
 
         logger.info(f"Configuration loaded from {self._config_file}")
         return self._config
+
+    def _snapshot_config_signature(self) -> Tuple[Tuple[str, int, int], ...]:
+        """Capture a lightweight signature of split config files for cache invalidation."""
+        tracked_paths = [
+            self._config_file,
+            self._llm_config_file,
+            self._plugins_index_file,
+            *sorted(get_plugins_config_dir().glob("*.yaml")),
+        ]
+        signature: list[tuple[str, int, int]] = []
+        seen_paths: set[str] = set()
+
+        for path in tracked_paths:
+            key = str(path)
+            if key in seen_paths:
+                continue
+            seen_paths.add(key)
+            if path.exists():
+                stat = path.stat()
+                signature.append((key, stat.st_mtime_ns, stat.st_size))
+            else:
+                signature.append((key, -1, -1))
+
+        return tuple(signature)
 
     def _ensure_config_exists(self):
         """Create config directory and copy example config if needed."""
@@ -446,49 +474,7 @@ class ConfigLoader:
 
     def _build_config(self) -> AppConfig:
         """Build final config by merging YAML + model defaults."""
-        config_dict: Dict[str, Any] = {}
-
-        # Apply YAML values
-        self._apply_yaml_values(config_dict, self._yaml_data, "")
-
-        return AppConfig(**config_dict)
-
-    def _apply_yaml_values(self, result: Dict, yaml_data: Dict, prefix: str):
-        """Flatten YAML data into result dict."""
-        if not isinstance(yaml_data, dict):
-            return
-
-        for key, value in yaml_data.items():
-            full_path = f"{prefix}.{key}" if prefix else key
-
-            if isinstance(value, dict):
-                self._apply_yaml_values(result, value, full_path)
-            else:
-                self._set_nested(result, full_path, value)
-
-    def _set_nested(self, data: Dict, path: str, value: Any):
-        """Set nested value using dot-notation path."""
-        parts = path.split(".")
-        current = data
-
-        for part in parts[:-1]:
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-
-        current[parts[-1]] = value
-
-    def _get_nested(self, data: Dict, path: str) -> Any:
-        """Get nested value using dot-notation path."""
-        parts = path.split(".")
-        current = data
-
-        for part in parts:
-            if not isinstance(current, dict) or part not in current:
-                return None
-            current = current[part]
-
-        return current
+        return AppConfig.model_validate(self._yaml_data)
 
     def save(self, updates: Dict[str, Any]) -> bool:
         """
@@ -588,6 +574,7 @@ class ConfigLoader:
         """Reload configuration from file."""
         self._config = None
         self._yaml_data = {}
+        self._config_signature = None
         return self.load()
 
     def get_config_path(self) -> Path:

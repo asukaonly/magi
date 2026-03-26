@@ -211,3 +211,37 @@ def test_loader_save_writes_llm_overrides_only(tmp_path: Path, monkeypatch) -> N
     assert llm_data["selections"]["core"]["provider_id"] == "openai"
     assert llm_data["selections"]["core"]["model"] == "gpt-5"
     assert "temperature" not in llm_data
+
+
+def test_loader_reloads_after_external_llm_file_change(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    config = loader.load()
+
+    assert config.llm.providers["openai"].model_metadata_overrides == {}
+
+    llm_file = tmp_path / "config" / "llm.yaml"
+    llm_file.write_text(
+        yaml.safe_dump(
+            {
+                "providers": {
+                    "openai": {
+                        "model_metadata_overrides": {
+                            "gpt-5.2": {
+                                "capabilities": {
+                                    "vision": True,
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    reloaded = loader.load()
+
+    assert reloaded.llm.providers["openai"].model_metadata_overrides["gpt-5.2"].capabilities.vision is True
