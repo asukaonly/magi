@@ -157,12 +157,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     [selectedSourceName, statuses]
   );
 
-  const summary = useMemo(() => {
-    const activeSources = statuses.filter((source) => source.enabled).length;
-    const pullSources = statuses.filter((source) => source.supports_pull_sync).length;
-    return `${statuses.length} · ${activeSources} · ${pullSources}`;
-  }, [statuses]);
-
   const resolveSourceValue = (source: TimelineSourceStatusItem, key: string, fallback?: any) =>
     pluginDrafts[source.plugin_id]?.[key] ?? source.current_settings[key] ?? fallback;
 
@@ -265,14 +259,9 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
 
   if (!selectedSource) {
     return (
-      <div className="mx-auto max-w-5xl space-y-8" data-testid="timeline-overview">
-        <header className="space-y-5">
-          <div className="border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6" />
-        </header>
-
-        <section className="space-y-4 pt-4">
+      <div className="w-full space-y-6" data-testid="timeline-overview">
+        <section className="space-y-4">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{t('settings.timeline.workspace.metricsSummary', { summary })}</span>
             <Button type="button" variant="ghost" size="sm" onClick={() => void onRefreshSources()}>
               <RefreshCw className="mr-2 h-4 w-4" />
               {t('settings.timeline.actions.refresh')}
@@ -316,7 +305,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8" data-testid={`timeline-source-detail-${selectedSource.source_name}`}>
+    <div className="w-full space-y-8" data-testid={`timeline-source-detail-${selectedSource.source_name}`}>
       <header className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button

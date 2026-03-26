@@ -169,6 +169,7 @@ export function useSettings(): UseSettingsReturn {
     () =>
       activeSection === 'llmProviders'
       || activeSection === 'llmModels'
+      || activeSection === 'timeline'
       || activeSection === 'personality'
       || activeSection === 'statisticsLlm'
       || activeSection === 'statisticsRuntime',

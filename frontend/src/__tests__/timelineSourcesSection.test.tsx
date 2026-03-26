@@ -64,7 +64,7 @@ const timelineSourceFixture: TimelineSourceStatusItem = {
 const userModeFixture: UserMode = 'quick';
 
 describe('TimelineSourcesSection', () => {
-  it('shows the source directory without the removed top-level timeline toggles', () => {
+  it('removes the overview summary strip and uses the full available width', () => {
     render(
       <TimelineSourcesSection
         userMode={userModeFixture}
@@ -79,11 +79,15 @@ describe('TimelineSourcesSection', () => {
       />
     );
 
+    const overview = screen.getByTestId('timeline-overview');
+
     expect(screen.queryByText('settings.timeline.workspace.directoryTitle')).not.toBeInTheDocument();
     expect(screen.queryByText('settings.timeline.workspace.directoryDesc')).not.toBeInTheDocument();
     expect(screen.queryByText('settings.timeline.fields.timelineEnabled')).not.toBeInTheDocument();
     expect(screen.queryByText('settings.timeline.fields.edgeOverride')).not.toBeInTheDocument();
-    expect(screen.getByText('settings.timeline.workspace.metricsSummary')).toBeInTheDocument();
+    expect(screen.queryByText('settings.timeline.workspace.metricsSummary')).not.toBeInTheDocument();
+    expect(overview).not.toHaveClass('max-w-5xl');
     expect(screen.getByTestId('timeline-source-launch-browser_history')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.timeline.actions.refresh' })).toBeInTheDocument();
   });
 });
