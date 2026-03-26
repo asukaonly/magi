@@ -2,6 +2,8 @@ import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
 
 type TimelineTranslateFn = (key: string) => string;
 
+const normalizeIdentity = (value: string): string => value.replace(/[_-]/g, '').toLowerCase();
+
 const resolveTranslation = (
   t: TimelineTranslateFn,
   key: string
@@ -10,13 +12,24 @@ const resolveTranslation = (
   return translated !== key ? translated : null;
 };
 
+const resolveSourceTranslation = (
+  t: TimelineTranslateFn,
+  sourceName: string
+): string | null =>
+  resolveTranslation(t, `settings.timeline.sources.${sourceName}`)
+  || resolveTranslation(t, `settings.tabs.${sourceName}`);
+
+const shouldUsePluginCopy = (
+  source: Pick<TimelineSourceStatusItem, 'source_name' | 'plugin_id'>
+): boolean => normalizeIdentity(source.source_name) === normalizeIdentity(source.plugin_id);
+
 export const getTimelineSourceDisplayName = (
   t: TimelineTranslateFn,
   source: Pick<TimelineSourceStatusItem, 'source_name' | 'plugin_id' | 'display_name'>
 ): string =>
-  resolveTranslation(t, `settings.tabs.${source.source_name}`)
+  resolveSourceTranslation(t, source.source_name)
+  || (shouldUsePluginCopy(source) ? resolveTranslation(t, `settings.plugins.${source.plugin_id}.name`) : null)
   || source.display_name
-  || resolveTranslation(t, `settings.plugins.${source.plugin_id}.name`)
   || source.source_name;
 
 export const getTimelineSourceDescription = (
@@ -24,6 +37,6 @@ export const getTimelineSourceDescription = (
   source: Pick<TimelineSourceStatusItem, 'source_name' | 'plugin_id' | 'description'>
 ): string =>
   resolveTranslation(t, `settings.timeline.sourceDesc.${source.source_name}`)
+  || (shouldUsePluginCopy(source) ? resolveTranslation(t, `settings.plugins.${source.plugin_id}.description`) : null)
   || source.description
-  || resolveTranslation(t, `settings.plugins.${source.plugin_id}.description`)
   || "";

@@ -6,8 +6,12 @@ import type { UserMode } from '@/api/modules/config';
 import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
 
 const translationMap: Record<string, string> = {
-  'settings.tabs.browser_history': '浏览记录',
+  'settings.timeline.sources.browser_history': '浏览记录',
   'settings.timeline.sourceDesc.browser_history': '分析浏览行为，并控制是否继续抓取页面正文。',
+  'settings.plugins.chrome-history.name': 'Chrome 历史',
+  'settings.plugins.chrome-history.description': '本地 Google Chrome 浏览历史接入时间线',
+  'settings.plugins.netease-music.name': '网易云音乐',
+  'settings.plugins.netease-music.description': '本地网易云音乐播放历史接入时间线',
   'settings.timeline.fields.enabled': '启用',
   'settings.plugins.core-timeline.name': '核心时间线',
 };
@@ -158,5 +162,67 @@ describe('TimelineSourcesSection', () => {
 
     expect(screen.getByText('Mystery Source')).toBeInTheDocument();
     expect(screen.queryByText('核心时间线')).not.toBeInTheDocument();
+  });
+
+  it('uses plugin i18n before falling back to backend english labels', () => {
+    render(
+      <TimelineSourcesSection
+        userMode={userModeFixture}
+        statuses={[
+          {
+            ...timelineSourceFixture,
+            source_name: 'chrome_history',
+            plugin_id: 'chrome-history',
+            contribution_id: 'timeline.chrome_history',
+            display_name: 'Chrome History',
+            description: 'Local Google Chrome browsing history ingested into the user timeline.',
+            fields: [
+              {
+                ...timelineSourceFixture.fields[0],
+                key: 'sensors.chrome_history.enabled',
+              },
+            ],
+            current_settings: {
+              'sensors.chrome_history.enabled': false,
+            },
+            enabled: false,
+            supports_pull_sync: false,
+          },
+          {
+            ...timelineSourceFixture,
+            source_name: 'netease_music',
+            plugin_id: 'netease-music',
+            contribution_id: 'timeline.netease_music',
+            display_name: 'NetEase Cloud Music',
+            description: 'Local NetEase Cloud Music play history ingestion for the timeline.',
+            fields: [
+              {
+                ...timelineSourceFixture.fields[0],
+                key: 'sensors.netease_music.enabled',
+              },
+            ],
+            current_settings: {
+              'sensors.netease_music.enabled': false,
+            },
+            enabled: false,
+            supports_pull_sync: false,
+          },
+        ]}
+        loadingStatus={false}
+        selectedSourceName={null}
+        pluginDrafts={{}}
+        onSelectSource={vi.fn()}
+        onRefreshSources={vi.fn().mockResolvedValue(undefined)}
+        onPluginFieldChange={vi.fn()}
+        onPluginFieldsChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Chrome 历史')).toBeInTheDocument();
+    expect(screen.getByText('本地 Google Chrome 浏览历史接入时间线')).toBeInTheDocument();
+    expect(screen.getByText('网易云音乐')).toBeInTheDocument();
+    expect(screen.getByText('本地网易云音乐播放历史接入时间线')).toBeInTheDocument();
+    expect(screen.queryByText('Chrome History')).not.toBeInTheDocument();
+    expect(screen.queryByText('NetEase Cloud Music')).not.toBeInTheDocument();
   });
 });
