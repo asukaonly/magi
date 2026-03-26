@@ -215,6 +215,9 @@ describe('memory page design', () => {
     expect(screen.getByRole('tab', { name: 'Temporal' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Thematic' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Insight' })).toBeInTheDocument();
-    expect(screen.getAllByText('Task Reflection').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Task Reflection/)).toBeInTheDocument();
+    expect(screen.queryByText('memory.l3.summaryCount')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.pages.reflection.cadenceBody')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.pages.reflection.insightBody')).not.toBeInTheDocument();
   });
 });

@@ -8,9 +8,10 @@ import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
-  MemoryTag,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
+
+const SUMMARY_TYPES = ['temporal', 'thematic', 'insight'] as const;
 
 export const MemoryReflectionPage = () => {
   const { t } = useTranslation('app');
@@ -57,6 +58,20 @@ export const MemoryReflectionPage = () => {
     }, new Set<string>())
   ).sort();
 
+  const typeSummaryText = SUMMARY_TYPES.map((summaryType) => (
+    `${t(`memory.pages.reflection.types.${summaryType}`)} · ${
+      filteredSummaries.filter((summary) => summary.summary_type === summaryType).length
+    }`
+  )).join(' / ');
+
+  const insightLabels = insightCategories
+    .slice(0, 4)
+    .map((category) => t(`memory.pages.reflection.categories.${category}`, { defaultValue: category }));
+  const topicSummaryText = [...insightLabels, ...keyTopics]
+    .filter((value, index, values) => Boolean(value) && values.indexOf(value) === index)
+    .slice(0, 6)
+    .join(' / ');
+
   return (
     <MemoryPageFrame
       title={t('memory.nav.reflection')}
@@ -86,19 +101,6 @@ export const MemoryReflectionPage = () => {
               placeholder={t('memory.pages.reflection.searchPlaceholder')}
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {['temporal', 'thematic', 'insight'].map((summaryType) => (
-              <MemoryTag key={summaryType}>
-                {t(`memory.pages.reflection.types.${summaryType}`)} ·{' '}
-                {filteredSummaries.filter((summary) => summary.summary_type === summaryType).length}
-              </MemoryTag>
-            ))}
-            {insightCategories.slice(0, 4).map((category) => (
-              <MemoryTag key={category}>
-                {t(`memory.pages.reflection.categories.${category}`, { defaultValue: category })}
-              </MemoryTag>
-            ))}
-          </div>
         </div>
       )}
     >
@@ -107,38 +109,18 @@ export const MemoryReflectionPage = () => {
           <div className="grid gap-4 xl:grid-cols-[0.96fr_1.04fr]">
             <MemoryWorkspacePanel
               title={t('memory.pages.reflection.cadenceTitle')}
-              description={t('memory.pages.reflection.cadenceBody')}
             >
-              <div className="flex flex-wrap gap-2">
-                {['temporal', 'thematic', 'insight'].map((summaryType) => (
-                  <MemoryTag key={summaryType}>
-                    {t(`memory.pages.reflection.types.${summaryType}`)} ·{' '}
-                    {filteredSummaries.filter((summary) => summary.summary_type === summaryType).length}
-                  </MemoryTag>
-                ))}
-                {filteredSummaries.length === 0 ? <MemoryTag>{t('memory.l3.noSummaries')}</MemoryTag> : null}
-              </div>
+              <p className="min-h-[3.5rem] text-sm leading-7 text-[hsl(var(--memory-body))]">
+                {filteredSummaries.length === 0 ? t('memory.l3.noSummaries') : typeSummaryText}
+              </p>
             </MemoryWorkspacePanel>
 
             <MemoryWorkspacePanel
-              title={t('memory.pages.reflection.insightTitle')}
-              description={t('memory.pages.reflection.insightBody')}
+              title={t('memory.pages.reflection.topicsTitle')}
             >
-              <div className="flex flex-wrap gap-2">
-                {insightCategories.slice(0, 8).map((category) => (
-                  <MemoryTag key={category}>
-                    {t(`memory.pages.reflection.categories.${category}`, { defaultValue: category })}
-                  </MemoryTag>
-                ))}
-                {insightCategories.length === 0 ? (
-                  keyTopics.slice(0, 8).map((topic) => (
-                    <MemoryTag key={topic}>{topic}</MemoryTag>
-                  ))
-                ) : null}
-                {keyTopics.length === 0 && insightCategories.length === 0 ? (
-                  <MemoryTag>{t('memory.pages.reflection.noTopics')}</MemoryTag>
-                ) : null}
-              </div>
+              <p className="min-h-[3.5rem] text-sm leading-7 text-[hsl(var(--memory-body))]">
+                {topicSummaryText || t('memory.pages.reflection.noTopics')}
+              </p>
             </MemoryWorkspacePanel>
           </div>
 
