@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -13,6 +13,10 @@ const TRANSLATION_MAP: Record<string, string> = {
   'memory.pages.reflection.types.thematic': 'Thematic',
   'memory.pages.reflection.types.insight': 'Insight',
   'memory.pages.reflection.categories.task_reflection': 'Task Reflection',
+  'memory.search': 'Search',
+  'memory.pages.events.resetButton': 'Reset',
+  'memory.pages.reflection.cadenceTitle': 'Summary cadence',
+  'memory.pages.reflection.topicsTitle': 'Topic fragments',
 };
 
 vi.mock('react-i18next', () => ({
@@ -212,10 +216,22 @@ describe('memory page design', () => {
       </MemoryRouter>
     );
 
+    expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Temporal' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Thematic' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Insight' })).toBeInTheDocument();
-    expect(screen.getByText(/Task Reflection/)).toBeInTheDocument();
+    expect(screen.queryByText('Summary cadence')).not.toBeInTheDocument();
+    expect(screen.queryByText('Topic fragments')).not.toBeInTheDocument();
+    expect(screen.queryByText('Career transition remained a recurring topic.')).not.toBeInTheDocument();
+
+    const temporalTab = screen.getByRole('tab', { name: 'Temporal' });
+    const thematicTab = screen.getByRole('tab', { name: 'Thematic' });
+
+    fireEvent.click(thematicTab);
+
+    expect(temporalTab).toHaveAttribute('aria-selected', 'false');
+    expect(thematicTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByText('memory.l3.summaryCount')).not.toBeInTheDocument();
     expect(screen.queryByText('memory.pages.reflection.cadenceBody')).not.toBeInTheDocument();
     expect(screen.queryByText('memory.pages.reflection.insightBody')).not.toBeInTheDocument();

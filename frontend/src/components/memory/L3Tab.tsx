@@ -75,6 +75,7 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
   const countLabel = summaries.length === stats.summary_count
     ? String(summaries.length)
     : `${summaries.length}/${stats.summary_count}`;
+  const activeTypeCount = summariesByType[activeType].length;
 
   return (
     <section className="border-t border-[hsl(var(--memory-divider)/0.72)] pt-4">
@@ -93,21 +94,38 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
       ) : (
         <Tabs value={activeType} onValueChange={(value) => setActiveType(value as SummaryType)} className="space-y-4">
           <div className="overflow-x-auto pb-1">
-            <TabsList className="inline-flex h-auto min-w-full justify-start gap-1 rounded-sm border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.6)] p-1">
+            <TabsList className="inline-flex h-auto min-w-full justify-start gap-1 rounded-xl border border-[hsl(var(--memory-border)/0.6)] bg-[hsl(var(--memory-panel-elevated)/0.72)] p-1.5">
               {SUMMARY_TYPES.map((summaryType) => (
                 <TabsTrigger
                   key={summaryType}
                   value={summaryType}
-                  className="rounded-sm px-3 py-1.5 text-sm text-[hsl(var(--memory-body))] data-[state=active]:bg-[hsl(var(--memory-panel))] data-[state=active]:text-[hsl(var(--memory-title))] data-[state=active]:shadow-none"
+                  aria-label={t(`memory.pages.reflection.types.${summaryType}`)}
+                  onClick={() => setActiveType(summaryType)}
+                  className="rounded-lg border border-transparent px-3.5 py-2 text-sm font-medium text-[hsl(var(--memory-muted))] transition-all duration-200 hover:text-[hsl(var(--memory-title))] data-[state=active]:border-[hsl(var(--memory-accent)/0.42)] data-[state=active]:bg-[hsl(var(--memory-accent))] data-[state=active]:text-white data-[state=active]:shadow-[0_10px_24px_-18px_hsl(var(--memory-shadow)/0.45)]"
                 >
-                  {t(`memory.pages.reflection.types.${summaryType}`)}
+                  <span>{t(`memory.pages.reflection.types.${summaryType}`)}</span>
+                  <span
+                    aria-hidden="true"
+                    className="ml-2 rounded-full bg-black/8 px-1.5 py-0.5 text-[11px] leading-none text-current data-[state=active]:bg-white/18"
+                  >
+                    {summariesByType[summaryType].length}
+                  </span>
                 </TabsTrigger>
               ))}
             </TabsList>
           </div>
 
+          <div className="flex items-center justify-between gap-3 rounded-sm border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.54)] px-3 py-2 text-sm">
+            <span className="font-medium text-[hsl(var(--memory-title))]">
+              {t(`memory.pages.reflection.types.${activeType}`)}
+            </span>
+            <span className="text-[hsl(var(--memory-body))]">
+              {activeTypeCount}
+            </span>
+          </div>
+
           <TabsContent value="temporal" className="mt-0">
-            <div className={summaryStreamClass}>
+            <div key="temporal" className={summaryStreamClass}>
               {summariesByType.temporal.length === 0 ? (
                 <EmptyTypeState />
               ) : (
@@ -117,7 +135,7 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
           </TabsContent>
 
           <TabsContent value="thematic" className="mt-0">
-            <div className={summaryStreamClass}>
+            <div key="thematic" className={summaryStreamClass}>
               {summariesByType.thematic.length === 0 ? (
                 <EmptyTypeState />
               ) : (
@@ -132,6 +150,7 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
                 <TabsList className="inline-flex h-auto min-w-full justify-start gap-1 rounded-sm border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.74)] p-1">
                   <TabsTrigger
                     value="all"
+                    onClick={() => setActiveInsightCategory('all')}
                     className="rounded-sm px-3 py-1.5 text-sm text-[hsl(var(--memory-body))] data-[state=active]:bg-[hsl(var(--memory-panel))] data-[state=active]:text-[hsl(var(--memory-title))]"
                   >
                     {t('memory.filters.all')}
@@ -140,6 +159,7 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
                     <TabsTrigger
                       key={category}
                       value={category}
+                      onClick={() => setActiveInsightCategory(category)}
                       className="rounded-sm px-3 py-1.5 text-sm text-[hsl(var(--memory-body))] data-[state=active]:bg-[hsl(var(--memory-panel))] data-[state=active]:text-[hsl(var(--memory-title))]"
                     >
                       {formatCategoryLabel(category, t)}
@@ -149,7 +169,7 @@ export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {
               </div>
 
               <TabsContent value={activeInsightCategory} className="mt-0">
-                <div className={summaryStreamClass}>
+                <div key={activeInsightCategory} className={summaryStreamClass}>
                   {visibleInsightSummaries.length === 0 ? (
                     <EmptyTypeState />
                   ) : (
