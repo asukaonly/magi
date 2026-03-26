@@ -1154,6 +1154,7 @@
         "focusTitle": "Current focus",
         "focusBody": "The workbench page is best when entered through a concrete session, then used to inspect goals, active entities, and temporary tactics together.",
         "focusEmpty": "No session selected yet",
+        "shellEmpty": "This session exists, but runtime has not written any goals, active entities, or temporary tactics into L0 yet, so what you are seeing is mostly the session shell.",
         "sessionTitle": "Session snapshot",
         "sessionBody": "Start from the currently focused session, then decide whether you need the deeper goal stack and workbench contents below.",
         "queueTitle": "Session queue",

@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { SelectField } from '@/components/config-forms/fields';
 import { L0Tab } from '@/components/memory';
 import { formatTimestamp, useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
@@ -10,7 +11,6 @@ import MemoryPageFrame, {
   MEMORY_EMPTY_PANEL_CLASS,
   MEMORY_INFO_PANEL_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
-  MEMORY_FILTER_SELECT_CLASS,
   MemoryTag,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
@@ -36,6 +36,23 @@ export const MemoryWorkbenchPage = () => {
     [l0Sessions, query, statusFilter]
   );
   const selectedSession = filteredSessions.find((session) => session.session_id === selectedSessionId) ?? null;
+  const statusOptions = useMemo(
+    () => [
+      { value: 'active', label: t('memory.filters.active') },
+      { value: 'idle', label: t('memory.filters.idle') },
+    ],
+    [t]
+  );
+
+  useEffect(() => {
+    if (!selectedSessionId && filteredSessions.length > 0) {
+      selectSession(filteredSessions[0].session_id);
+      return;
+    }
+    if (selectedSessionId && filteredSessions.every((session) => session.session_id !== selectedSessionId)) {
+      selectSession(filteredSessions[0]?.session_id ?? null);
+    }
+  }, [filteredSessions, selectSession, selectedSessionId]);
 
   return (
     <MemoryPageFrame
@@ -53,9 +70,9 @@ export const MemoryWorkbenchPage = () => {
         </Button>
       }
       filters={(
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="memory-workbench-query">
+        <div className="grid gap-x-3 gap-y-2.5 text-sm md:grid-cols-[minmax(0,1fr)_180px]">
+          <div className="space-y-1">
+            <label className="text-[13px] font-medium text-[hsl(var(--memory-title))]" htmlFor="memory-workbench-query">
               {t('memory.filters.searchLabel')}
             </label>
             <Input
@@ -66,20 +83,20 @@ export const MemoryWorkbenchPage = () => {
               placeholder={t('memory.pages.workbench.searchPlaceholder')}
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="memory-workbench-status">
+          <div className="space-y-1">
+            <label className="text-[13px] font-medium text-[hsl(var(--memory-title))]">
               {t('memory.filters.statusLabel')}
             </label>
-            <select
-              id="memory-workbench-status"
-              className={MEMORY_FILTER_SELECT_CLASS}
+            <SelectField
+              ariaLabel={t('memory.filters.statusLabel')}
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-            >
-              <option value="all">{t('memory.filters.all')}</option>
-              <option value="active">{t('memory.filters.active')}</option>
-              <option value="idle">{t('memory.filters.idle')}</option>
-            </select>
+              onChange={(value) => setStatusFilter(value || 'all')}
+              options={statusOptions}
+              placeholder={t('memory.filters.all')}
+              allowEmpty={true}
+              triggerClassName="h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] shadow-none focus-visible:ring-[hsl(var(--memory-accent-soft)/0.24)]"
+              menuClassName="rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] shadow-[0_10px_20px_rgba(15,23,42,0.06)]"
+            />
           </div>
         </div>
       )}
@@ -89,7 +106,6 @@ export const MemoryWorkbenchPage = () => {
           <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
             <MemoryWorkspacePanel
               title={t('memory.pages.workbench.sessionTitle')}
-              description={t('memory.pages.workbench.sessionBody')}
             >
               {selectedSession ? (
                 <div className="space-y-3">
@@ -116,15 +132,17 @@ export const MemoryWorkbenchPage = () => {
 
             <MemoryWorkspacePanel
               title={t('memory.pages.workbench.queueTitle')}
-              description={t('memory.pages.workbench.queueBody')}
             >
-              <div className="flex flex-wrap gap-2">
+              <div className="space-y-2 text-sm text-[hsl(var(--memory-body))]">
                 {filteredSessions.slice(0, 6).map((session) => (
-                  <MemoryTag key={session.session_id}>
-                    {session.session_id.slice(0, 8)} · {session.status}
-                  </MemoryTag>
+                  <div key={session.session_id} className="flex items-center justify-between gap-3">
+                    <span className="truncate">{session.session_id}</span>
+                    <span className="text-[11px] uppercase tracking-[0.12em] text-[hsl(var(--memory-muted))]">
+                      {session.status}
+                    </span>
+                  </div>
                 ))}
-                {filteredSessions.length === 0 ? <MemoryTag>{t('memory.l0.noSessions')}</MemoryTag> : null}
+                {filteredSessions.length === 0 ? <div className="text-[hsl(var(--memory-muted))]">{t('memory.l0.noSessions')}</div> : null}
               </div>
             </MemoryWorkspacePanel>
           </div>
