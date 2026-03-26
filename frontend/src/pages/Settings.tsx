@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { toast } from 'sonner';
 import { pickDirectory } from '@/runtime/desktop';
+import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 
 function SettingsSectionShell({
   children,
@@ -642,6 +643,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
                       {timelineStatuses.map((source) => {
                         const isSelected = timelineSelection === source.source_name;
+                        const displayName = getTimelineSourceDisplayName(t, source);
                         return (
                           <button
                             key={source.source_name}
@@ -658,7 +660,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                                 : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
                             )}
                           >
-                            <span className="truncate">{source.display_name}</span>
+                            <span className="truncate">{displayName}</span>
                             {source.last_error ? (
                               <span className="ml-auto h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
                             ) : null}

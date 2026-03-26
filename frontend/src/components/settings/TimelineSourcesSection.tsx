@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { getTimelineSourceDescription, getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 
 interface TimelineSourcesSectionProps {
   userMode: UserMode;
@@ -78,8 +79,10 @@ const joinSourceMeta = (source: TimelineSourceStatusItem) =>
 
 const SourceRow: React.FC<{
   source: TimelineSourceStatusItem;
+  displayName: string;
+  description: string;
   onClick: () => void;
-}> = ({ source, onClick }) => (
+}> = ({ source, displayName, description, onClick }) => (
   <button
     type="button"
     onClick={onClick}
@@ -88,10 +91,10 @@ const SourceRow: React.FC<{
   >
     <div className="min-w-0">
       <div className="flex items-center gap-3">
-        <span className="truncate text-sm font-medium text-foreground">{source.display_name}</span>
+        <span className="truncate text-sm font-medium text-foreground">{displayName}</span>
         {source.last_error ? <span className="h-2 w-2 rounded-full bg-destructive" aria-hidden="true" /> : null}
       </div>
-      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{source.description}</p>
+      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{description}</p>
     </div>
     <div className="text-xs text-muted-foreground sm:text-right">
       <div>{joinSourceMeta(source)}</div>
@@ -159,6 +162,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
 
   const resolveSourceValue = (source: TimelineSourceStatusItem, key: string, fallback?: any) =>
     pluginDrafts[source.plugin_id]?.[key] ?? source.current_settings[key] ?? fallback;
+  const getSourceDisplayName = (source: TimelineSourceStatusItem) => getTimelineSourceDisplayName(t, source);
+  const getSourceDescription = (source: TimelineSourceStatusItem) => getTimelineSourceDescription(t, source);
 
   const handleSourceEnabledChange = (source: TimelineSourceStatusItem, checked: boolean) => {
     const enabledKey = getSourceEnabledKey(source);
@@ -189,7 +194,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       [flow.enabled_key]: true,
       [flow.configured_key]: true,
     });
-    toast.success(t('settings.timeline.activation.enabled', { source: source.display_name }));
+    toast.success(t('settings.timeline.activation.enabled', { source: getSourceDisplayName(source) }));
     setActivationDialog(null);
   };
 
@@ -202,7 +207,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     });
     try {
       await timelineApi.requestSync(source.source_name);
-      toast.success(t('settings.timeline.syncQueued', { source: source.display_name }));
+      toast.success(t('settings.timeline.syncQueued', { source: getSourceDisplayName(source) }));
       await onRefreshSources();
     } catch (error: any) {
       setQueuedSource(null);
@@ -254,20 +259,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       [flow.enabled_key]: false,
       [flow.configured_key]: false,
     });
-    toast.success(t('settings.timeline.activation.resetSuccess', { source: source.display_name }));
+    toast.success(t('settings.timeline.activation.resetSuccess', { source: getSourceDisplayName(source) }));
   };
 
   if (!selectedSource) {
     return (
       <div className="w-full space-y-6" data-testid="timeline-overview">
-        <section className="space-y-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <Button type="button" variant="ghost" size="sm" onClick={() => void onRefreshSources()}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              {t('settings.timeline.actions.refresh')}
-            </Button>
-          </div>
-
+        <section>
           <div>
             {loadingStatus ? (
               <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-8 text-sm text-muted-foreground">{t('settings.timeline.statuses.loading')}</div>
@@ -276,7 +274,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             ) : (
               <div>
                 {statuses.map((source) => (
-                  <SourceRow key={source.source_name} source={source} onClick={() => onSelectSource(source.source_name)} />
+                  <SourceRow
+                    key={source.source_name}
+                    source={source}
+                    displayName={getSourceDisplayName(source)}
+                    description={getSourceDescription(source)}
+                    onClick={() => onSelectSource(source.source_name)}
+                  />
                 ))}
               </div>
             )}
@@ -374,9 +378,11 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             )}
             <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{selectedSource.plugin_id}</span>
           </div>
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">{selectedSource.display_name}</h2>
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+            {getSourceDisplayName(selectedSource)}
+          </h2>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-            {selectedSource.description || t(`settings.timeline.sourceDesc.${selectedSource.source_name}`)}
+            {getSourceDescription(selectedSource)}
           </p>
         </div>
         <div className="text-sm text-muted-foreground">{selectedSource.last_error || joinSourceMeta(selectedSource)}</div>

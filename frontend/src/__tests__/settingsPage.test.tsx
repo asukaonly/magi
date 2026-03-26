@@ -19,6 +19,12 @@ const { syncCloseToTrayPreferenceMock, pickDirectoryMock, llmFormAutoChangeRef }
 }));
 
 const llmFormMock = vi.fn();
+const translationMap: Record<string, string> = {
+  'settings.tabs.browser_history': '浏览记录',
+  'settings.tabs.chrome_history': 'Chrome 历史',
+  'settings.timeline.sourceDesc.browser_history': '分析浏览行为，并控制是否继续抓取页面正文。',
+  'settings.plugins.chrome-history.description': '本地 Google Chrome 浏览历史接入时间线',
+};
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -26,7 +32,7 @@ vi.mock('react-i18next', () => ({
       if (params?.message) {
         return `${key}:${params.message}`;
       }
-      return key;
+      return translationMap[key] ?? key;
     },
   }),
 }));
@@ -952,6 +958,19 @@ describe('settings page draft saving', () => {
         })
       )
     );
+  });
+
+  it('uses translated timeline source labels in the nav and overview list', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await screen.findByTestId('timeline-overview');
+
+    const browserNavItem = await screen.findByTestId('timeline-nav-source-browser_history');
+    expect(within(browserNavItem).getByText('浏览记录')).toBeInTheDocument();
+    expect(screen.getByText('分析浏览行为，并控制是否继续抓取页面正文。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.timeline.actions.refresh' })).not.toBeInTheDocument();
   });
 
   it('keeps activation flow results local until save', async () => {

@@ -5,9 +5,14 @@ import { TimelineSourcesSection } from '@/components/settings/TimelineSourcesSec
 import type { UserMode } from '@/api/modules/config';
 import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
 
+const translationMap: Record<string, string> = {
+  'settings.tabs.browser_history': '浏览记录',
+  'settings.timeline.sourceDesc.browser_history': '分析浏览行为，并控制是否继续抓取页面正文。',
+};
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string) => translationMap[key] ?? key,
   }),
 }));
 
@@ -64,7 +69,7 @@ const timelineSourceFixture: TimelineSourceStatusItem = {
 const userModeFixture: UserMode = 'quick';
 
 describe('TimelineSourcesSection', () => {
-  it('removes the overview summary strip and uses the full available width', () => {
+  it('removes overview chrome and prefers translated source copy', () => {
     render(
       <TimelineSourcesSection
         userMode={userModeFixture}
@@ -88,6 +93,10 @@ describe('TimelineSourcesSection', () => {
     expect(screen.queryByText('settings.timeline.workspace.metricsSummary')).not.toBeInTheDocument();
     expect(overview).not.toHaveClass('max-w-5xl');
     expect(screen.getByTestId('timeline-source-launch-browser_history')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'settings.timeline.actions.refresh' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.timeline.actions.refresh' })).not.toBeInTheDocument();
+    expect(screen.getByText('浏览记录')).toBeInTheDocument();
+    expect(screen.getByText('分析浏览行为，并控制是否继续抓取页面正文。')).toBeInTheDocument();
+    expect(screen.queryByText('Browser History')).not.toBeInTheDocument();
+    expect(screen.queryByText('Visited URLs and optional page content snapshots.')).not.toBeInTheDocument();
   });
 });
