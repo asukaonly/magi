@@ -9,7 +9,6 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -292,19 +291,21 @@ const normalizeStepStatus = (value: string | null | undefined): string => {
   return 'pending';
 };
 
-const resolveHistoryImagePreviewUrl = (attachment: ChatAttachment): string | null => {
+const resolveHistoryImagePreviewUrl = (
+  sessionId: string | null | undefined,
+  attachment: ChatAttachment,
+  userId: string = USER_ID,
+): string | null => {
   if (attachment.kind !== 'image') {
     return null;
   }
-  const storagePath = String(attachment.storage_path || '').trim();
-  if (!storagePath) {
+  const normalizedSessionId = String(sessionId || '').trim();
+  const attachmentId = String(attachment.attachment_id || '').trim();
+  if (!normalizedSessionId || !attachmentId) {
     return null;
   }
-  try {
-    return convertFileSrc(storagePath);
-  } catch {
-    return storagePath || null;
-  }
+  const apiBaseUrl = getRuntimeConfig().apiBaseUrl.replace(/\/+$/, '');
+  return `${apiBaseUrl}/messages/session/${encodeURIComponent(normalizedSessionId)}/attachments/${encodeURIComponent(attachmentId)}/content?user_id=${encodeURIComponent(userId)}`;
 };
 
 const getWorkspaceDisplayPath = (workspacePath: string | null | undefined): string => {
@@ -1644,7 +1645,7 @@ export const ChatPage: React.FC = () => {
     return (
       <div className="mb-3 flex flex-wrap gap-2">
         {attachments.map((attachment) => {
-          const previewUrl = resolveHistoryImagePreviewUrl(attachment);
+          const previewUrl = resolveHistoryImagePreviewUrl(currentSessionId, attachment);
 
           return (
             <div

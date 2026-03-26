@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
@@ -200,6 +202,36 @@ async def upload_chat_attachment(
             "attachment": attachment_payload,
         },
     }
+
+
+@user_messages_router.get("/session/{session_id}/attachments/{attachment_id}/content")
+async def get_chat_attachment_content(
+    session_id: str,
+    attachment_id: str,
+    user_id: str = Query(default=DEFAULT_USER_ID),
+):
+    """Serve one persisted chat attachment from managed local storage."""
+
+    resolved_session_id = _require_session_id(session_id)
+    resolved_attachment_id = _require_session_id(attachment_id)
+    read_service = get_chat_read_service()
+    attachment = await read_service.aget_attachment_payload(
+        user_id,
+        resolved_session_id,
+        resolved_attachment_id,
+    )
+    if not isinstance(attachment, dict):
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    storage_path = Path(str(attachment.get("storage_path") or "").strip())
+    if not storage_path.is_file():
+        raise HTTPException(status_code=404, detail="Attachment file not found")
+
+    return FileResponse(
+        path=storage_path,
+        media_type=str(attachment.get("mime_type") or "application/octet-stream").strip() or "application/octet-stream",
+        filename=str(attachment.get("original_name") or storage_path.name).strip() or storage_path.name,
+    )
 
 
 @user_messages_router.get("/history", response_model=Dict[str, Any])

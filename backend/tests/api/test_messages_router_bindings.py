@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.responses import FileResponse
 
 from magi.api.routers import messages as messages_router
 from magi.chat.read_service import ChatDisplayMessage
@@ -148,6 +149,39 @@ async def test_get_conversation_history_uses_async_read_service(monkeypatch: pyt
     assert response["count"] == 1
     assert response["messages"][0]["content"] == "hello"
     assert response["messages"][0]["reply_to"]["message_id"] == "msg-root"
+
+
+@pytest.mark.asyncio
+async def test_get_chat_attachment_content_returns_file_response(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    attachment_path = tmp_path / "diagram.png"
+    attachment_path.write_bytes(b"png")
+
+    class _AsyncOnlyReadService:
+        def get_attachment_payload(self, user_id: str, session_id: str, attachment_id: str):  # type: ignore[no-untyped-def]
+            raise AssertionError("sync attachment reader should not be used")
+
+        async def aget_attachment_payload(self, user_id: str, session_id: str, attachment_id: str):
+            assert user_id == "u1"
+            assert session_id == "s1"
+            assert attachment_id == "att-1"
+            return {
+                "attachment_id": "att-1",
+                "original_name": "diagram.png",
+                "mime_type": "image/png",
+                "storage_path": str(attachment_path),
+            }
+
+    monkeypatch.setattr(messages_router, "get_chat_read_service", lambda: _AsyncOnlyReadService())
+
+    response = await messages_router.get_chat_attachment_content(
+        session_id="s1",
+        attachment_id="att-1",
+        user_id="u1",
+    )
+
+    assert isinstance(response, FileResponse)
+    assert str(response.path) == str(attachment_path)
+    assert response.media_type == "image/png"
 
 
 @pytest.mark.asyncio

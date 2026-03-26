@@ -269,6 +269,15 @@ class ChatReadService:
         """Load one visible display message without blocking the event loop."""
         return await self._run_threaded("get_display_message", user_id, session_id, message_id)
 
+    async def aget_attachment_payload(
+        self,
+        user_id: str,
+        session_id: str,
+        attachment_id: str,
+    ) -> dict[str, Any] | None:
+        """Load one persisted attachment payload without blocking the event loop."""
+        return await self._run_threaded("get_attachment_payload", user_id, session_id, attachment_id)
+
     async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
         """Clear a session history without blocking the event loop."""
         await self._run_threaded("clear_conversation_history", user_id, session_id)
@@ -642,6 +651,44 @@ class ChatReadService:
             return None
         self._attach_reply_previews(rows=[row], messages=[display_message])
         return display_message
+
+    def get_attachment_payload(
+        self,
+        user_id: str,
+        session_id: str,
+        attachment_id: str,
+    ) -> dict[str, Any] | None:
+        """Find one attachment payload by attachment id within a session."""
+        normalized_user_id = str(user_id).strip()
+        normalized_session_id = str(session_id).strip()
+        normalized_attachment_id = str(attachment_id).strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_attachment_id:
+            raise ValueError("User ID, session ID, and attachment ID are required")
+        if not self._chat_db_path.exists():
+            return None
+
+        rows = self._get_conn().execute(
+            f"""
+            SELECT payload_json
+            FROM {CHAT_MESSAGES_TABLE}
+            WHERE user_id = ?
+              AND session_id = ?
+              AND is_visible = 1
+              AND payload_json != '{{}}'
+            ORDER BY created_at_ms DESC
+            """,
+            (normalized_user_id, normalized_session_id),
+        ).fetchall()
+
+        for row in rows:
+            payload = self._parse_message_payload_json(row["payload_json"])
+            attachments = payload.get("attachments") if isinstance(payload.get("attachments"), list) else []
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                if str(attachment.get("attachment_id") or "").strip() == normalized_attachment_id:
+                    return dict(attachment)
+        return None
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         if not self._chat_db_path.exists():

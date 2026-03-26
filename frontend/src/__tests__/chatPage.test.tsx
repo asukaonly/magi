@@ -468,8 +468,11 @@ describe('ChatPage', () => {
     render(<ChatPage />);
 
     const preview = await screen.findByRole('img', { name: 'diagram.png' });
-    expect(preview).toHaveAttribute('src', 'asset:///tmp/history-diagram.png');
-    expect(convertFileSrcMock).toHaveBeenCalledWith('/tmp/history-diagram.png');
+    expect(preview).toHaveAttribute(
+      'src',
+      'http://127.0.0.1:8000/api/messages/session/session-1/attachments/att-image-history/content?user_id=local_user',
+    );
+    expect(convertFileSrcMock).not.toHaveBeenCalled();
   });
 
   it('opens a larger preview dialog when a persisted history image thumbnail is clicked', async () => {
@@ -505,7 +508,7 @@ describe('ChatPage', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('img', { name: 'diagram.png' })).toHaveAttribute(
       'src',
-      'asset:///tmp/history-diagram.png',
+      'http://127.0.0.1:8000/api/messages/session/session-1/attachments/att-image-preview/content?user_id=local_user',
     );
     expect(within(dialog).getAllByText('diagram.png').length).toBeGreaterThan(0);
   });
