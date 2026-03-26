@@ -27,6 +27,7 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/metrics/runtime/overview" in paths
     assert "/api/skills/" in paths
     assert "/api/memory/identity/links" in paths
+    assert "/api/memory/l2/microbatch-flush" in paths
 
 
 def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None:
