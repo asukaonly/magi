@@ -1,4 +1,5 @@
 mod desktop_presence;
+mod frontmost_app_monitor;
 
 #[cfg(unix)]
 use libc::{kill, SIGTERM};
@@ -738,7 +739,11 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(BackendState::default())
         .manage(desktop_presence::DesktopPresenceState::default())
-        .setup(|app| desktop_presence::setup(app.handle()).map_err(Into::into))
+        .setup(|app| {
+            desktop_presence::setup(app.handle())?;
+            frontmost_app_monitor::setup_monitor()?;
+            Ok(())
+        })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 let state: State<'_, desktop_presence::DesktopPresenceState> = window.state();

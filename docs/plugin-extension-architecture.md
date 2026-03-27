@@ -115,6 +115,19 @@ The plugin manager is the package lifecycle owner, but it does not act as the ex
 
 Instead it registers contributions into dedicated registries.
 
+## Plugin Ingress Events
+
+Some plugin-backed capabilities depend on local host events that are produced outside the Python plugin package itself.
+
+The current host-side ingress flow is:
+
+1. a local producer such as the Tauri desktop shell appends an event into `runtime_trace.db.plugin_ingress_events`
+2. the runtime worker claims pending ingress events through the shared `PluginIngressProcessor`
+3. the processor routes each event to a plugin-owned handler by `(plugin_target, event_type)`
+4. the handler reduces the raw ingress event into plugin-domain state or normal runtime outputs such as `L1` events
+
+Important rule: `plugin_ingress_events` is an append-only fact log for observed local events. It is not a replacement for the runtime command queue and should not be used for API-to-runtime control flow.
+
 ### Tool Registry
 
 Tools remain normal Magi tools.

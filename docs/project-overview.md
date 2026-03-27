@@ -136,7 +136,7 @@ Execution observability is now a separate concern from durable memory:
   Shared L0/L2/L3/L4 storage
 
 - `~/.magi/data/runtime_trace.db`
-  Runtime execution observability only: turn summaries, spans, LLM metrics, tool calls, intent-resolution details, and live notifications
+  Runtime execution observability only: turn summaries, spans, LLM metrics, tool calls, intent-resolution details, live notifications, and append-only plugin ingress events produced by the desktop shell
 
 - `~/.magi/data/scenario_prompts.db`
   Scenario prompt policy and prompt metadata

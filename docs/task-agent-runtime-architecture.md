@@ -114,7 +114,7 @@ The current dual-process topology is intentionally split by responsibility:
   Accepts user input, writes `chat.db`, enqueues runtime commands, and serves read-side chat and trace APIs
 
 - runtime worker
-  Consumes commands, updates `chat.db`, writes `runtime_trace.db`, and projects canonical memory facts into `l1_events.db`
+  Consumes commands and plugin ingress events, updates `chat.db`, writes `runtime_trace.db`, and projects canonical memory facts into `l1_events.db`
 
 Persistence is separated the same way:
 
@@ -122,7 +122,7 @@ Persistence is separated the same way:
   Source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
 
 - `runtime_trace.db`
-  Execution observability only, including spans, tool calls, turn summaries, intent records, and live notifications
+  Execution observability only, including spans, tool calls, turn summaries, intent records, live notifications, and append-only plugin ingress events emitted by the desktop shell or other local producers
 
 - `memories/l1_events.db`
   Canonical memory projection only; it stores `user_text` and `assistant_final` as lossy memory facts, but it is no longer the chat transcript source of truth
