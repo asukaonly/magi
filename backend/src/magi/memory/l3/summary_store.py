@@ -46,6 +46,7 @@ class L3SummaryStore:
         temporal_llm_timeout_seconds: float = 3.0,
         temporal_llm_min_event_count: int = 2,
         scenario_llm_pool: ScenarioLLMPool | None = None,
+        temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
@@ -63,6 +64,7 @@ class L3SummaryStore:
             llm_timeout_seconds=temporal_llm_timeout_seconds,
             scenario_llm_pool=scenario_llm_pool,
         )
+        self._temporal_summary_features_builder = temporal_summary_features_builder
         self._vector_index = (
             SqliteVecIndex(
                 db_path=self.db_path,
@@ -229,6 +231,19 @@ class L3SummaryStore:
             period_start=period_start,
             period_end=period_end,
         )
+        if self._temporal_summary_features_builder is not None:
+            try:
+                evidence_pack.plugin_summary_features = dict(
+                    self._temporal_summary_features_builder(
+                        events=events,
+                        summary_category=summary_category,
+                        period_start=period_start,
+                        period_end=period_end,
+                    )
+                    or {}
+                )
+            except Exception as exc:
+                logger.warning("L3 temporal summary features builder failed: %s", exc)
         if not evidence_pack.source_event_ids:
             return None
 

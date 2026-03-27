@@ -289,6 +289,21 @@ class TemporalSummaryLLMService:
             "importance_aggregate": pack.importance_aggregate,
             "event_type_distribution": dict(pack.event_type_distribution),
         }
+        feature_lines: list[str] = []
+        for feature in pack.plugin_summary_features.values():
+            if not isinstance(feature, dict):
+                continue
+            raw_lines = feature.get("summary_lines")
+            if not isinstance(raw_lines, list):
+                continue
+            for item in raw_lines:
+                line = str(item).strip()
+                if line and line not in feature_lines:
+                    feature_lines.append(line)
+        if feature_lines:
+            stitched = [str(fallback_summary).strip(), *feature_lines]
+            candidate.content = "\n".join(part for part in stitched if part).strip()
+            summary_overrides["plugin_summary_features"] = dict(pack.plugin_summary_features)
         return TemporalGenerationResult(
             candidate=candidate,
             summary_overrides=summary_overrides,
@@ -306,6 +321,7 @@ class TemporalSummaryLLMService:
             "importance_aggregate": pack.importance_aggregate,
             "event_type_distribution": pack.event_type_distribution,
             "rule_hints": pack.rule_hints,
+            "plugin_summary_features": pack.plugin_summary_features,
             "events": [
                 {
                     "event_id": item.event_id,

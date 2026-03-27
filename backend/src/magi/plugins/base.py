@@ -93,3 +93,17 @@ class Plugin(ABC):
 
     def read_settings_resource(self, resource_name: str) -> Any:
         raise KeyError(resource_name)
+
+    def build_temporal_summary_features(
+        self,
+        *,
+        source_type: str,
+        events: list[dict[str, Any]],
+        summary_category: str,
+        period_start: float,
+        period_end: float,
+    ) -> dict[str, Any] | None:
+        """Return plugin-specific temporal summary features for a source window."""
+
+        _ = source_type, events, summary_category, period_start, period_end
+        return None

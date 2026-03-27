@@ -129,6 +129,7 @@ class TemporalEvidencePack:
     importance_aggregate: float | None = None
     event_type_distribution: dict[str, int] = field(default_factory=dict)
     rule_hints: dict[str, object] = field(default_factory=dict)
+    plugin_summary_features: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

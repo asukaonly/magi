@@ -352,6 +352,49 @@ class PluginManager:
             data=plugin_instance.read_settings_resource(resource_name),
         )
 
+    def build_temporal_summary_features(
+        self,
+        *,
+        events: list[dict[str, Any]],
+        summary_category: str,
+        period_start: float,
+        period_end: float,
+    ) -> dict[str, Any]:
+        """Collect plugin-provided temporal summary features for the current event window."""
+
+        features_by_source: dict[str, Any] = {}
+        events_by_source: dict[str, list[dict[str, Any]]] = {}
+        for event in events:
+            source_type = str(event.get("source") or "").strip()
+            if not source_type:
+                continue
+            events_by_source.setdefault(source_type, []).append(event)
+
+        if not events_by_source:
+            return features_by_source
+
+        for plugin in self.iter_loaded_plugins():
+            for source_type, source_events in events_by_source.items():
+                if source_type in features_by_source:
+                    continue
+                try:
+                    features = plugin.build_temporal_summary_features(
+                        source_type=source_type,
+                        events=source_events,
+                        summary_category=summary_category,
+                        period_start=period_start,
+                        period_end=period_end,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Plugin temporal summary feature builder failed",
+                        extra={"plugin_id": plugin.plugin_id, "source_type": source_type, "error": str(exc)},
+                    )
+                    continue
+                if features:
+                    features_by_source[source_type] = features
+        return features_by_source
+
     def _persist_new_packages(self, manifests: dict[str, PluginManifest]) -> None:
         config = get_config()
         updates: dict[str, Any] = {}

@@ -24,7 +24,7 @@ class MemoryStoreModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext, *, start_memory_integration: bool = True):
         super().__init__(
             name="runtime_memory",
-            dependencies=("runtime_llm", "runtime_message_bus", "runtime_configuration", "runtime_core_dependencies"),
+            dependencies=("runtime_llm", "runtime_message_bus", "runtime_configuration", "runtime_core_dependencies", "runtime_plugin_system"),
         )
         self._context = context
         self.start_memory_integration = start_memory_integration
@@ -33,6 +33,7 @@ class MemoryStoreModule(LifecycleModule):
         config = require_initialized(self._context.core.config, "runtime config")
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
 
         await self._context.core.db_initializer.insert_default_data(persona_name=self._context.core.current_personality)
 
@@ -72,6 +73,7 @@ class MemoryStoreModule(LifecycleModule):
             enable_l3_llm_summary=memory_config.l3.llm_summary_enabled,
             temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
             temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
+            temporal_summary_features_builder=plugin_manager.build_temporal_summary_features,
             l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
             l2_batch_flush_interval_seconds=memory_config.l2.batch_flush_interval_seconds,
             enable_l2_conflict_arbitration=memory_config.l2.conflict_arbitration_enabled,

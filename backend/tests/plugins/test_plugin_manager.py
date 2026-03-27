@@ -181,3 +181,94 @@ def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
     )
 
     assert bindings.plugin_manager._tool_registry is shared_tool_registry
+
+
+def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="builtin",
+        settings={},
+    )
+    tool_registry = ToolRegistry()
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+
+    builtin_plugins_root = Path(__file__).resolve().parents[3] / "plugins"
+    manager = PluginManager(
+        tool_registry=tool_registry,
+        sensor_registry=SensorRegistry(),
+        action_registry=ActionRegistry(),
+        search_paths=[builtin_plugins_root],
+    )
+
+    manager.scan(persist_discovery=False)
+    manager.activate_enabled_plugins()
+
+    features = manager.build_temporal_summary_features(
+        events=[
+            {
+                "event_id": "evt-1",
+                "source": "chrome_history",
+                "content": "OpenAI docs",
+                "metadata_json": {
+                    "timeline": {
+                        "provenance": {
+                            "domain": "openai.com",
+                            "merged_visit_count": 2,
+                        }
+                    }
+                },
+            },
+            {
+                "event_id": "evt-2",
+                "source": "chrome_history",
+                "content": "GitHub issues",
+                "metadata_json": {
+                    "timeline": {
+                        "provenance": {
+                            "domain": "github.com",
+                            "merged_visit_count": 1,
+                        }
+                    }
+                },
+            },
+            {
+                "event_id": "evt-3",
+                "source": "chrome_history",
+                "content": "OpenAI pricing",
+                "metadata_json": {
+                    "timeline": {
+                        "provenance": {
+                            "domain": "openai.com",
+                            "merged_visit_count": 1,
+                        }
+                    }
+                },
+            },
+        ],
+        summary_category="day",
+        period_start=1710000000.0,
+        period_end=1710003600.0,
+    )
+
+    assert features == {
+        "chrome_history": {
+            "feature_type": "chrome_history",
+            "event_count": 3,
+            "visit_count": 4,
+            "top_domains": [
+                {"domain": "openai.com", "count": 2},
+                {"domain": "github.com", "count": 1},
+            ],
+            "revisit_domains": ["openai.com"],
+            "summary_lines": [
+                "Browsing focused on openai.com and github.com.",
+                "Repeated visits clustered around openai.com.",
+            ],
+        }
+    }

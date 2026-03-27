@@ -1,6 +1,8 @@
 """Chrome history timeline plugin."""
 from __future__ import annotations
 
+from collections import Counter
+
 from magi.plugins import ActivationFlowSpec, ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 
 from .chrome_reader import DEFAULT_MACOS_CHROME_ROOT
@@ -184,3 +186,65 @@ class ChromeHistoryPlugin(Plugin):
                 ),
             )
         ]
+
+    def build_temporal_summary_features(
+        self,
+        *,
+        source_type: str,
+        events: list[dict[str, object]],
+        summary_category: str,
+        period_start: float,
+        period_end: float,
+    ) -> dict[str, object] | None:
+        """Build browser-specific temporal summary features from Chrome history events."""
+
+        _ = summary_category, period_start, period_end
+        if source_type != "chrome_history":
+            return None
+
+        domain_counter: Counter[str] = Counter()
+        visit_count = 0
+        for event in events:
+            metadata = event.get("metadata_json")
+            if not isinstance(metadata, dict):
+                continue
+            timeline = metadata.get("timeline")
+            if not isinstance(timeline, dict):
+                continue
+            provenance = timeline.get("provenance")
+            if not isinstance(provenance, dict):
+                continue
+            domain = str(provenance.get("domain") or "").strip().lower()
+            if not domain:
+                continue
+            domain_counter[domain] += 1
+            visit_count += max(1, int(provenance.get("merged_visit_count") or 1))
+
+        if not domain_counter:
+            return None
+
+        top_domains = [
+            {"domain": domain, "count": count}
+            for domain, count in domain_counter.most_common(3)
+        ]
+        revisit_domains = [
+            domain
+            for domain, count in domain_counter.most_common()
+            if count >= 2
+        ]
+        summary_lines: list[str] = []
+        if top_domains:
+            joined = " and ".join(item["domain"] for item in top_domains[:2])
+            summary_lines.append(f"Browsing focused on {joined}.")
+        if revisit_domains:
+            joined = " and ".join(revisit_domains[:2])
+            summary_lines.append(f"Repeated visits clustered around {joined}.")
+
+        return {
+            "feature_type": "chrome_history",
+            "event_count": len(events),
+            "visit_count": visit_count,
+            "top_domains": top_domains,
+            "revisit_domains": revisit_domains,
+            "summary_lines": summary_lines,
+        }

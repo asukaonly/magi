@@ -245,6 +245,36 @@ The first intended use case is calendar source selection:
 - host frontend renders a calendar-list picker
 - selected ids are persisted into normal plugin settings
 
+## Plugin Temporal Summary Features
+
+Plugins may also contribute structured temporal-summary features to the host memory system.
+
+This is intended for source-specific aggregation that would be awkward to infer only from raw L1 events.
+
+Examples:
+
+- browsing domain concentration and revisit patterns for browser history
+- calendar density and recurring-event distribution for calendar sources
+- repository focus shifts for git activity
+
+The boundary is:
+
+- plugins provide structured features and summary hints
+- the host L3 pipeline remains the only component that produces final summary records
+
+The current hook shape is:
+
+- plugin hook:
+  - `build_temporal_summary_features(source_type, events, summary_category, period_start, period_end)`
+- host runtime:
+  - loaded plugins are asked for features during temporal summary generation
+  - returned feature payloads are attached to the temporal evidence pack
+  - the generic L3 summarizer consumes those features alongside the normal event evidence
+
+Plugins must not bypass the host L3 store by writing standalone summary records.
+
+This keeps summary generation source-aware without splitting L3 into per-plugin summary pipelines.
+
 ## Settings Surfaces
 
 The current settings UI is intentionally split between global config and plugin-owned config.

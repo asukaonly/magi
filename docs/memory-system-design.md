@@ -797,11 +797,21 @@ L3 只处理以下事件：
 2. `memory_domain != runtime_telemetry`
 3. `retention_class != disposable`
 
+对于 `temporal` 摘要，L3 允许在标准事件证据之外接收插件提供的结构化摘要特征。
+
+规则：
+
+1. 插件只能提供结构化统计、特征和摘要提示，不直接写入 L3 summary 记录。
+2. 最终的 temporal summary 仍由统一的 L3 管线生成，保持摘要格式、回溯链路和存储模型一致。
+3. 插件特征必须绑定到本次 summary window 内的 source events，不得引入无法追溯到 `source_event_ids` 的外部结论。
+4. 插件特征适合承载 source-specific 聚合，例如 top domains、重复访问站点、日历密度或仓库活跃焦点。
+
 ### 8.5 使用原则
 
 1. L3 用于快速回顾与召回，不替代 L1 原始证据。
 2. L3 的任何结论都必须可回溯到 `source_event_ids`。
 3. 对于永久事件，允许生成摘要，但默认不删除对应 L1 原文。
+4. 插件特征用于增强摘要质量，不应替代通用 L3 的压缩、校验与持久化职责。
 
 ---
 

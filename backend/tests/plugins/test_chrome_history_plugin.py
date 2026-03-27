@@ -431,3 +431,85 @@ async def test_chrome_history_sensor_from_now_skips_initial_backfill(
     assert result.items == []
     assert result.next_cursor == "103"
     assert result.stats["initial_sync_policy"] == "from_now"
+
+
+def test_chrome_history_plugin_builds_temporal_summary_features(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="builtin",
+        settings={},
+    )
+    manager, _sensor_registry = _build_manager(monkeypatch, config)
+    manager.scan(persist_discovery=False)
+    manager.activate_enabled_plugins()
+    plugin = next(plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "chrome-history")
+
+    features = plugin.build_temporal_summary_features(
+        source_type="chrome_history",
+        events=[
+            {
+                "event_id": "evt-1",
+                "source": "chrome_history",
+                "content": "OpenAI docs for tool calling",
+                "metadata_json": {
+                    "timeline": {
+                        "provenance": {
+                            "domain": "openai.com",
+                            "canonical_url": "https://openai.com/docs/tool-calling",
+                            "merged_visit_count": 2,
+                        }
+                    }
+                },
+            },
+            {
+                "event_id": "evt-2",
+                "source": "chrome_history",
+                "content": "OpenAI docs pricing page",
+                "metadata_json": {
+                    "timeline": {
+                        "provenance": {
+                            "domain": "openai.com",
+                            "canonical_url": "https://openai.com/pricing",
+                            "merged_visit_count": 1,
+                        }
+                    }
+                },
+            },
+            {
+                "event_id": "evt-3",
+                "source": "chrome_history",
+                "content": "GitHub repository issues",
+                "metadata_json": {
+                    "timeline": {
+                        "provenance": {
+                            "domain": "github.com",
+                            "canonical_url": "https://github.com/openai/openai-python/issues",
+                            "merged_visit_count": 1,
+                        }
+                    }
+                },
+            },
+        ],
+        summary_category="day",
+        period_start=1710000000.0,
+        period_end=1710003600.0,
+    )
+
+    assert features is not None
+    assert features["feature_type"] == "chrome_history"
+    assert features["event_count"] == 3
+    assert features["visit_count"] == 4
+    assert features["top_domains"] == [
+        {"domain": "openai.com", "count": 2},
+        {"domain": "github.com", "count": 1},
+    ]
+    assert features["revisit_domains"] == ["openai.com"]
+    assert features["summary_lines"] == [
+        "Browsing focused on openai.com and github.com.",
+        "Repeated visits clustered around openai.com.",
+    ]

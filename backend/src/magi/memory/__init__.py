@@ -71,6 +71,7 @@ class UnifiedMemoryStore:
         enable_l3_llm_summary: bool = True,
         temporal_l3_llm_timeout_seconds: float = 3.0,
         temporal_l3_llm_min_event_count: int = 2,
+        temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
 
@@ -149,6 +150,7 @@ class UnifiedMemoryStore:
                 temporal_llm_timeout_seconds=temporal_l3_llm_timeout_seconds,
                 temporal_llm_min_event_count=temporal_l3_llm_min_event_count,
                 scenario_llm_pool=scenario_llm_pool,
+                temporal_summary_features_builder=temporal_summary_features_builder,
             )
         if enable_l4:
             self.l4 = L4ProceduralMemoryStore(

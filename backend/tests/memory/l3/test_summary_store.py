@@ -394,6 +394,158 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_generate_temporal_summary_includes_plugin_summary_features(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l3_store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        vector_enabled=False,
+        temporal_summary_features_builder=lambda **_: {
+            "chrome_history": {
+                "feature_type": "chrome_history",
+                "summary_lines": [
+                    "Browsing focused on openai.com and github.com.",
+                    "Repeated visits clustered around openai.com.",
+                ],
+                "top_domains": [
+                    {"domain": "openai.com", "count": 2},
+                    {"domain": "github.com", "count": 1},
+                ],
+            }
+        },
+    )
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "content": "openai.com docs and github.com issues"},
+                source="chrome_history",
+                level=EventLevel.INFO,
+                correlation_id="evt-1",
+                timestamp=1710000000.0,
+            ),
+            event_id="evt-1",
+        )
+    )
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "content": "Another openai.com visit"},
+                source="chrome_history",
+                level=EventLevel.INFO,
+                correlation_id="evt-2",
+                timestamp=1710000300.0,
+            ),
+            event_id="evt-2",
+        )
+    )
+
+    captured_features: dict[str, object] = {}
+
+    async def _fake_model(pack):  # type: ignore[no-untyped-def]
+        captured_features.update(pack.plugin_summary_features)
+        return {
+            "content": "LLM rewritten temporal summary",
+            "key_topics": ["browsing"],
+            "importance_aggregate": 0.7,
+        }
+
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+
+    summary = await l3_store.generate_temporal_summary(
+        l1_store=l1_store,
+        summary_category="day",
+        period_start=1709990000.0,
+        period_end=1710003600.0,
+    )
+
+    assert summary is not None
+    assert summary["content"] == "LLM rewritten temporal summary"
+    assert captured_features == {
+        "chrome_history": {
+            "feature_type": "chrome_history",
+            "summary_lines": [
+                "Browsing focused on openai.com and github.com.",
+                "Repeated visits clustered around openai.com.",
+            ],
+            "top_domains": [
+                {"domain": "openai.com", "count": 2},
+                {"domain": "github.com", "count": 1},
+            ],
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l3_store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        vector_enabled=False,
+        enable_temporal_llm_summary=False,
+        temporal_summary_features_builder=lambda **_: {
+            "chrome_history": {
+                "feature_type": "chrome_history",
+                "summary_lines": [
+                    "Browsing focused on openai.com and github.com.",
+                ],
+            }
+        },
+    )
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "content": "openai.com docs and github.com issues"},
+                source="chrome_history",
+                level=EventLevel.INFO,
+                correlation_id="evt-1",
+                timestamp=1710000000.0,
+            ),
+            event_id="evt-1",
+        )
+    )
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "content": "Another openai.com visit"},
+                source="chrome_history",
+                level=EventLevel.INFO,
+                correlation_id="evt-2",
+                timestamp=1710000300.0,
+            ),
+            event_id="evt-2",
+        )
+    )
+
+    summary = await l3_store.generate_temporal_summary(
+        l1_store=l1_store,
+        summary_category="day",
+        period_start=1709990000.0,
+        period_end=1710003600.0,
+    )
+
+    assert summary is not None
+    assert "Browsing focused on openai.com and github.com." in summary["content"]
+
+
+@pytest.mark.asyncio
 async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_rejected(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
