@@ -780,6 +780,10 @@
     "timeline": {
       "title": "时间线与来源",
       "desc": "控制哪些来源可以参与时间线展示，以及 Magi 为每类来源保留多少原始上下文。",
+      "resourceBlocks": {
+        "loading": "正在读取可配置资源…",
+        "empty": "当前没有可用资源。"
+      },
       "nav": {
         "overview": "总览"
       },
@@ -881,7 +885,8 @@
         "authorizationFailed": "授权失败：{{message}}",
         "settingsSaveFailed": "来源设置保存失败：{{message}}",
         "activationFailed": "来源启用失败：{{message}}",
-        "activationResetFailed": "重置首次同步设置失败：{{message}}"
+        "activationResetFailed": "重置首次同步设置失败：{{message}}",
+        "resourceLoadFailed": "读取资源失败：{{message}}"
       }
     },
     "extensions": {
@@ -1031,6 +1036,12 @@
           "description": "允许 Magi 读取你的日历事件，用于时间线同步。",
           "confirm_label": "允许日历访问",
           "cancel_label": "暂不连接"
+        },
+        "ui_blocks": {
+          "selected_calendars": {
+            "title": "同步日历",
+            "description": "选择哪些日历分组会被写入时间线。"
+          }
         }
       },
       "chrome-history": {

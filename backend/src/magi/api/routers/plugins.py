@@ -8,7 +8,13 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ...core.runtime_bindings import require_plugin_manager
-from ...plugins.contracts import PluginContribution, PluginManifest, PluginPackageState, ExtensionFieldSpec
+from ...plugins.contracts import (
+    ExtensionFieldSpec,
+    PluginContribution,
+    PluginManifest,
+    PluginPackageState,
+    PluginSettingsResourcePayload,
+)
 from ...plugins.i18n import PluginI18n, get_current_language
 
 plugins_router = APIRouter()
@@ -61,6 +67,13 @@ class PluginPackageResponse(BaseModel):
     last_error: str | None = None
     contributions: list[PluginContributionResponse] = Field(default_factory=list)
     current_settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginSettingsResourceResponse(BaseModel):
+    plugin_id: str
+    resource_name: str
+    resource_type: str
+    data: Any = None
 
 
 class PluginsListResponse(BaseModel):
@@ -215,3 +228,18 @@ async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdateRe
     manager, _ = _require_package(plugin_id)
     state = manager.update_plugin_settings(plugin_id, request.updates)
     return _serialize_package(state)
+
+
+@plugins_router.get("/{plugin_id}/settings/resources/{resource_name}", response_model=PluginSettingsResourceResponse)
+async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
+    manager, _ = _require_package(plugin_id)
+    try:
+        payload = manager.read_plugin_settings_resource(plugin_id, resource_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin settings resource not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if isinstance(payload, PluginSettingsResourcePayload):
+        return PluginSettingsResourceResponse(**payload.model_dump())
+    return PluginSettingsResourceResponse(**payload)

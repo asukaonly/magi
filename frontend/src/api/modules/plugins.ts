@@ -36,6 +36,40 @@ export interface ActivationFlowSpec {
   fields: ExtensionFieldSpec[];
 }
 
+export interface PluginSettingsUiBlockSpec {
+  block_id: string;
+  type: 'resource_picker';
+  title: string;
+  description: string;
+  resource_name: string;
+  value_key: string;
+  presentation: 'calendar_list' | 'list';
+  depends_on_key?: string | null;
+  depends_on_values?: string[];
+}
+
+export interface PluginSettingsResourceItem {
+  item_id: string;
+  label: string;
+  description?: string;
+  accent_color?: string | null;
+}
+
+export interface PluginSettingsResourceGroup {
+  group_id: string;
+  label: string;
+  items: PluginSettingsResourceItem[];
+}
+
+export interface PluginSettingsResourcePayload {
+  plugin_id: string;
+  resource_name: string;
+  resource_type: string;
+  data: {
+    groups?: PluginSettingsResourceGroup[];
+  };
+}
+
 export interface PluginManifest {
   plugin_id: string;
   name: string;
@@ -146,6 +180,18 @@ export const pluginsApi = {
       updates,
     } satisfies PluginSettingsUpdateRequest);
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+  },
+
+  getSettingsResource: async (
+    pluginId: string,
+    resourceName: string
+  ): Promise<PluginSettingsResourcePayload> => {
+    const response = await api.get<PluginSettingsResourcePayload>(
+      `/plugins/${pluginId}/settings/resources/${resourceName}`
+    );
+    return unwrapPayload(
+      response as PluginSettingsResourcePayload | ApiResponse<PluginSettingsResourcePayload>
+    );
   },
 };
 

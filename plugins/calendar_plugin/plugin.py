@@ -4,7 +4,15 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from magi.plugins import ActivationFlowSpec, ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
+from magi.plugins import (
+    ActivationFlowSpec,
+    ExtensionFieldOption,
+    ExtensionFieldSpec,
+    Plugin,
+    PluginSettingsResourceSpec,
+    SensorSpec,
+    SettingsUIBlockSpec,
+)
 
 from .reader import EventKitReader
 from .sensor import CalendarTimelineSensor
@@ -17,6 +25,7 @@ DEFAULT_SETTINGS = {
     "lookback_days": 30,
     "recurring_expansion_days": 30,
     "default_retention_mode": "full",
+    "selected_calendar_ids": [],
 }
 
 
@@ -106,8 +115,59 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
     ]
 
 
+def _settings_ui_blocks(prefix: str) -> list[SettingsUIBlockSpec]:
+    """Define host-rendered custom blocks for the Calendar plugin."""
+    return [
+        SettingsUIBlockSpec(
+            block_id="selected_calendars",
+            type="resource_picker",
+            title="Calendars",
+            description="Choose which calendars should be synced into the timeline.",
+            resource_name="calendar_lists",
+            value_key=f"{prefix}.selected_calendar_ids",
+            presentation="calendar_list",
+            depends_on_key=f"{prefix}.authorization_configured",
+            depends_on_values=["true"],
+        )
+    ]
+
+
 class CalendarPlugin(Plugin):
     """Registers the Calendar timeline source."""
+
+    def get_settings_resources(self) -> list[PluginSettingsResourceSpec]:
+        return [
+            PluginSettingsResourceSpec(
+                resource_name="calendar_lists",
+                resource_type="collection",
+                description="Selectable calendars grouped by account/source.",
+            )
+        ]
+
+    def read_settings_resource(self, resource_name: str) -> Any:
+        if resource_name != "calendar_lists":
+            raise KeyError(resource_name)
+        reader = EventKitReader()
+        calendar_entries = reader.list_calendars()
+        grouped: dict[str, dict[str, Any]] = {}
+        for entry in calendar_entries:
+            group = grouped.setdefault(
+                entry.source_id,
+                {
+                    "group_id": entry.source_id,
+                    "label": entry.source_title,
+                    "items": [],
+                },
+            )
+            group["items"].append(
+                {
+                    "item_id": entry.calendar_id,
+                    "label": entry.title,
+                    "description": "",
+                    "accent_color": entry.accent_color,
+                }
+            )
+        return {"groups": list(grouped.values())}
 
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
         """Get sensor specifications for Calendar.
@@ -144,6 +204,7 @@ class CalendarPlugin(Plugin):
         )
 
         # Prepare sync mode
+        sync_mode = str(settings.get("sync_mode", DEFAULT_SETTINGS["sync_mode"]))
         sync_interval_minutes = settings.get("sync_interval_minutes", DEFAULT_SETTINGS["sync_interval_minutes"])
 
         return [
@@ -156,12 +217,13 @@ class CalendarPlugin(Plugin):
                     description="Calendar event ingestion for the timeline.",
                     domain="timeline",
                     surface="timeline",
-                    sync_mode="interval",
-                    polling_mode="interval",
+                    sync_mode=sync_mode,
+                    polling_mode=sync_mode,
                     fields=_fields("sensors.calendar"),
                     metadata={
                         "source_type": "calendar",
                         "default_settings": dict(DEFAULT_SETTINGS),
+                        "settings_ui_blocks": [block.model_dump() for block in _settings_ui_blocks("sensors.calendar")],
                         "sync_interval_minutes": sync_interval_minutes,
                         "activation_flow": _activation_flow("sensors.calendar").model_dump(),
                     },

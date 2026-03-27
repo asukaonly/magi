@@ -83,6 +83,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{plugin_id}/disable": {"POST"},
         "/{plugin_id}/reload": {"POST"},
         "/{plugin_id}/settings": {"GET", "PUT"},
+        "/{plugin_id}/settings/resources/{resource_name}": {"GET"},
     },
     "personality_config": {
         "/": {"GET"},

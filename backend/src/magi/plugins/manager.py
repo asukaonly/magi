@@ -19,7 +19,13 @@ from ..timeline.scheduler_contrib import request_timeline_schedule_refresh
 from ..tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from .actions import ActionRegistry, BaseAction, build_action_tool_class
 from .base import Plugin
-from .contracts import ContributionType, PluginContribution, PluginManifest, PluginPackageState
+from .contracts import (
+    ContributionType,
+    PluginContribution,
+    PluginManifest,
+    PluginPackageState,
+    PluginSettingsResourcePayload,
+)
 from .sensors import SensorRegistry, SensorSpec
 
 logger = logging.getLogger(__name__)
@@ -313,6 +319,34 @@ class PluginManager:
             state = self.reload_plugin(plugin_id)
         request_timeline_schedule_refresh()
         return state
+
+    def read_plugin_settings_resource(self, plugin_id: str, resource_name: str) -> PluginSettingsResourcePayload:
+        """Read a plugin-owned settings resource through the loaded plugin instance."""
+
+        state = self._require_package(plugin_id)
+        if not state.loaded:
+            if not state.enabled:
+                raise RuntimeError(f"Plugin {plugin_id} must be enabled before reading settings resources")
+            state = self.load_plugin(plugin_id)
+
+        plugin_instance = self._plugin_instances.get(plugin_id)
+        if plugin_instance is None:
+            raise RuntimeError(f"Plugin {plugin_id} is not loaded")
+
+        resource_specs = {
+            spec.resource_name: spec
+            for spec in plugin_instance.get_settings_resources()
+        }
+        spec = resource_specs.get(resource_name)
+        if spec is None:
+            raise KeyError(resource_name)
+
+        return PluginSettingsResourcePayload(
+            plugin_id=plugin_id,
+            resource_name=resource_name,
+            resource_type=spec.resource_type,
+            data=plugin_instance.read_settings_resource(resource_name),
+        )
 
     def _persist_new_packages(self, manifests: dict[str, PluginManifest]) -> None:
         config = get_config()

@@ -89,6 +89,7 @@ class CalendarTimelineSensor(SensorBase):
         # Get settings
         lookback_days = sensor_settings.get("lookback_days", 30)
         recurring_expansion_days = sensor_settings.get("recurring_expansion_days", 30)
+        selected_calendar_ids = sensor_settings.get("selected_calendar_ids", [])
 
         # Determine date range
         now = datetime.now()
@@ -128,7 +129,11 @@ class CalendarTimelineSensor(SensorBase):
             )
 
         # Read events
-        events = self.reader.read_events(start_date, end_date)
+        events = self.reader.read_events(
+            start_date,
+            end_date,
+            selected_calendar_ids if isinstance(selected_calendar_ids, list) and selected_calendar_ids else None,
+        )
         logger.info(
             "Calendar sensor collected events",
             source_type=self.source_type,

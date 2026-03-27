@@ -421,7 +421,7 @@ def test_sensor_collect_items_uses_one_day_overlap_from_latest_cursor(monkeypatc
         def get_authorization_status(self):
             return "authorized"
 
-        def read_events(self, start_date, end_date):
+        def read_events(self, start_date, end_date, calendar_ids=None):
             captured["start_date"] = start_date
             captured["end_date"] = end_date
             return []
@@ -468,7 +468,7 @@ def test_sensor_collect_items_clamps_overlap_to_lookback_window(monkeypatch):
         def get_authorization_status(self):
             return "authorized"
 
-        def read_events(self, start_date, end_date):
+        def read_events(self, start_date, end_date, calendar_ids=None):
             captured["start_date"] = start_date
             captured["end_date"] = end_date
             return []
@@ -513,7 +513,7 @@ def test_sensor_collect_items_advances_cursor_to_latest_event(monkeypatch):
         def get_authorization_status(self):
             return "authorized"
 
-        def read_events(self, start_date, end_date):
+        def read_events(self, start_date, end_date, calendar_ids=None):
             return [
                 CalendarEvent(
                     event_id="older",
@@ -671,6 +671,76 @@ def test_sensor_requests_calendar_authorization():
     assert result["granted_types"] == ["calendar"]
 
 
+def test_calendar_plugin_exposes_grouped_calendar_settings_resource(monkeypatch):
+    """Test calendar plugin exposes grouped calendar lists for settings UI."""
+    from magi.plugins import ContributionType, PluginManifest
+
+    from calendar_plugin.plugin import CalendarPlugin
+    from calendar_plugin.types import CalendarListEntry
+
+    plugin = CalendarPlugin()
+    plugin.configure(
+        manifest=PluginManifest.model_validate(
+            {
+                "id": "calendar",
+                "name": "Calendar",
+                "version": "1.0.0",
+                "contribution_types": [ContributionType.SENSOR.value],
+                "plugin_dir": str(_plugins_path / "calendar_plugin"),
+                "manifest_path": str(_plugins_path / "calendar_plugin" / "plugin.toml"),
+                "source": "builtin",
+            }
+        ),
+        settings={},
+    )
+
+    fake_reader = MagicMock()
+    fake_reader.list_calendars.return_value = [
+        CalendarListEntry(
+            calendar_id="calendar-personal",
+            title="Personal",
+            source_id="icloud",
+            source_title="iCloud",
+            accent_color="#2F80ED",
+        ),
+        CalendarListEntry(
+            calendar_id="calendar-work",
+            title="Work",
+            source_id="icloud",
+            source_title="iCloud",
+            accent_color="#D946EF",
+        ),
+    ]
+    monkeypatch.setattr("calendar_plugin.plugin.EventKitReader", lambda: fake_reader)
+
+    resources = plugin.get_settings_resources()
+    payload = plugin.read_settings_resource("calendar_lists")
+
+    assert [resource.resource_name for resource in resources] == ["calendar_lists"]
+    assert payload == {
+        "groups": [
+            {
+                "group_id": "icloud",
+                "label": "iCloud",
+                "items": [
+                    {
+                        "item_id": "calendar-personal",
+                        "label": "Personal",
+                        "description": "",
+                        "accent_color": "#2F80ED",
+                    },
+                    {
+                        "item_id": "calendar-work",
+                        "label": "Work",
+                        "description": "",
+                        "accent_color": "#D946EF",
+                    },
+                ],
+            }
+        ]
+    }
+
+
 import asyncio
 
 
@@ -737,3 +807,29 @@ def test_sensor_build_all_day_event():
 
     assert "all_day" in output.tags
     assert "recurring" in output.tags
+
+
+def test_sensor_collect_items_uses_selected_calendar_ids():
+    """Test selected calendar ids are forwarded to the EventKit reader."""
+    from calendar_plugin.sensor import CalendarTimelineSensor
+
+    reader = MagicMock()
+    reader.get_authorization_status.return_value = "authorized"
+    reader.read_events.return_value = []
+    sensor = CalendarTimelineSensor(reader=reader)
+    context = type(
+        "SyncContext",
+        (),
+        {
+            "plugin_settings": {"sensors": {"calendar": {"selected_calendar_ids": ["calendar-work"]}}},
+            "last_cursor": None,
+            "last_success_at": None,
+            "manual": True,
+        },
+    )()
+
+    result = asyncio.run(sensor.collect_items(context))
+
+    reader.read_events.assert_called_once()
+    assert reader.read_events.call_args.args[2] == ["calendar-work"]
+    assert result.stats["count"] == 0

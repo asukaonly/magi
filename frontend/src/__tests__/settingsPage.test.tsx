@@ -158,6 +158,7 @@ vi.mock('@/api/modules/plugins', async () => {
       enable: vi.fn(),
       disable: vi.fn(),
       reload: vi.fn(),
+      getSettingsResource: vi.fn(),
       updateSettings: vi.fn(),
     },
   };

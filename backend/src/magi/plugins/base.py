@@ -5,7 +5,7 @@ from abc import ABC
 from pathlib import Path
 from typing import Any, Optional
 
-from .contracts import PluginManifest
+from .contracts import PluginManifest, PluginSettingsResourceSpec
 from .i18n import PluginI18n, get_current_language
 
 
@@ -84,3 +84,9 @@ class Plugin(ABC):
 
     def get_actions(self) -> list[Any]:
         return []
+
+    def get_settings_resources(self) -> list[PluginSettingsResourceSpec]:
+        return []
+
+    def read_settings_resource(self, resource_name: str) -> Any:
+        raise KeyError(resource_name)

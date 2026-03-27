@@ -54,6 +54,38 @@ class ActivationFlowSpec(BaseModel):
     fields: list[ExtensionFieldSpec] = Field(default_factory=list)
 
 
+class SettingsUIBlockSpec(BaseModel):
+    """Host-rendered custom settings block declared by a plugin."""
+
+    block_id: str
+    type: Literal["resource_picker"] = "resource_picker"
+    title: str
+    description: str = ""
+    resource_name: str
+    value_key: str
+    presentation: Literal["calendar_list", "list"] = "list"
+    depends_on_key: Optional[str] = None
+    depends_on_values: list[str] = Field(default_factory=list)
+
+
+class PluginSettingsResourceSpec(BaseModel):
+    """Read-only settings resource exposed by a plugin."""
+
+    resource_name: str
+    resource_type: Literal["collection"] = "collection"
+    description: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginSettingsResourcePayload(BaseModel):
+    """Resolved payload returned by a plugin settings resource."""
+
+    plugin_id: str
+    resource_name: str
+    resource_type: str = "collection"
+    data: Any = None
+
+
 class PluginManifest(BaseModel):
     """Parsed manifest for a plugin package."""
 

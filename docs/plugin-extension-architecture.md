@@ -188,6 +188,50 @@ The frontend consumes these fields through:
 - [plugins.ts](/Users/asuka/code/magi/frontend/src/api/modules/plugins.ts)
 - [PluginSettingsFields.tsx](/Users/asuka/code/magi/frontend/src/components/settings/PluginSettingsFields.tsx)
 
+## Plugin Settings Resources
+
+Some plugin-backed settings need dynamic runtime data that cannot be expressed as a fixed field option list.
+
+Examples:
+
+- calendar account / calendar-list selection after authorization
+- repository pickers for git-backed sensors
+- mailbox or album selection for source-specific sync scopes
+
+For these cases, plugins may expose read-only settings resources through the backend plugin contract.
+
+The host API remains generic. It does not add per-plugin endpoints.
+
+The current shape is:
+
+- plugin hook:
+  - `get_settings_resources()`
+  - `read_settings_resource(resource_name)`
+- host API:
+  - `GET /api/plugins/{plugin_id}/settings/resources/{resource_name}`
+
+This keeps plugin-specific logic inside the plugin package while letting the host own routing, auth, and error handling.
+
+## Host-Rendered Custom Settings Blocks
+
+Plugins still do not ship frontend React code.
+
+When a plugin needs richer UI than plain declarative fields, it may declare host-rendered settings blocks in contribution metadata.
+
+Current direction:
+
+- plugin declares a typed block spec such as `resource_picker`
+- plugin binds that block to a settings resource name and a persisted config key
+- the host frontend maps approved block types to built-in React components
+
+This gives plugin-backed settings more expressive UI without turning the plugin system into a dynamic frontend bundle loader.
+
+The first intended use case is calendar source selection:
+
+- backend plugin resource returns grouped calendars
+- host frontend renders a calendar-list picker
+- selected ids are persisted into normal plugin settings
+
 ## Settings Surfaces
 
 The current settings UI is intentionally split between global config and plugin-owned config.
@@ -247,6 +291,7 @@ Current endpoints:
 - `POST /api/plugins/{plugin_id}/reload`
 - `GET /api/plugins/{plugin_id}/settings`
 - `PUT /api/plugins/{plugin_id}/settings`
+- `GET /api/plugins/{plugin_id}/settings/resources/{resource_name}`
 
 Timeline source status also now reflects plugin-backed sensor registration:
 

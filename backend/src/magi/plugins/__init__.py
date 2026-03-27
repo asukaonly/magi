@@ -10,6 +10,9 @@ from .contracts import (
     PluginContribution,
     PluginManifest,
     PluginPackageState,
+    PluginSettingsResourcePayload,
+    PluginSettingsResourceSpec,
+    SettingsUIBlockSpec,
 )
 from .manager import PluginManager
 from .sensors import SensorRegistry, SensorSpec
@@ -28,6 +31,9 @@ __all__ = [
     "PluginManifest",
     "PluginManager",
     "PluginPackageState",
+    "PluginSettingsResourcePayload",
+    "PluginSettingsResourceSpec",
     "SensorRegistry",
     "SensorSpec",
+    "SettingsUIBlockSpec",
 ]

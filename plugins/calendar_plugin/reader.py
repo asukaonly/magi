@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from magi.core.logger import get_logger
 
 from .exceptions import PlatformNotSupportedError
-from .types import CalendarEvent, Participant
+from .types import CalendarEvent, CalendarListEntry, Participant
 
 logger = get_logger(__name__)
 
@@ -358,11 +358,46 @@ class EventKitReader:
         )
         return serialized
 
+    def list_calendars(self) -> list[CalendarListEntry]:
+        """List calendars available to the current user."""
+        if not self.is_available():
+            return []
+
+        entity_type = (self._ek_module or {}).get("EKEntityTypeEvent")
+        if entity_type is None:
+            return []
+
+        available_calendars = self._call_selector(
+            self.event_store,
+            ["calendarsForEntityType_"],
+            entity_type,
+        ) or []
+
+        calendars: list[CalendarListEntry] = []
+        for calendar in available_calendars:
+            calendar_id = self._read_value(calendar, "calendarIdentifier")
+            title = self._read_value(calendar, "title", default="Calendar")
+            source = self._read_value(calendar, "source")
+            source_id = self._read_value(source, "sourceIdentifier", default=None) if source is not None else None
+            source_title = self._read_value(source, "title", default="Other") if source is not None else "Other"
+            if not calendar_id or not title:
+                continue
+            calendars.append(
+                CalendarListEntry(
+                    calendar_id=str(calendar_id),
+                    title=str(title),
+                    source_id=str(source_id or source_title),
+                    source_title=str(source_title),
+                    accent_color=None,
+                )
+            )
+        return calendars
+
     def _execute_events_query(
         self,
         start_date: datetime,
         end_date: datetime,
-        calendars: list[str] | None = None,
+        calendar_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Execute an EventKit query for the provided time range."""
         if not self.is_available():
@@ -375,7 +410,7 @@ class EventKitReader:
             return []
 
         selected_calendars = None
-        if calendars:
+        if calendar_ids:
             available_calendars = self._call_selector(
                 self.event_store,
                 ["calendarsForEntityType_"],
@@ -384,7 +419,10 @@ class EventKitReader:
             selected_calendars = [
                 calendar
                 for calendar in available_calendars
-                if self._read_value(calendar, "title") in set(calendars)
+                if (
+                    self._read_value(calendar, "calendarIdentifier") in set(calendar_ids)
+                    or self._read_value(calendar, "title") in set(calendar_ids)
+                )
             ]
 
         predicate = self._call_selector(
@@ -410,7 +448,7 @@ class EventKitReader:
         self,
         start_date: datetime,
         end_date: datetime,
-        calendars: Optional[list[str]] = None,
+        calendar_ids: Optional[list[str]] = None,
     ) -> list[CalendarEvent]:
         """
         Read calendar events within a date range.
@@ -418,7 +456,7 @@ class EventKitReader:
         Args:
             start_date: Start date for the query.
             end_date: End date for the query.
-            calendars: Optional list of calendar names to filter.
+            calendar_ids: Optional list of calendar identifiers to filter.
 
         Returns:
             List of CalendarEvent objects.
@@ -426,12 +464,12 @@ class EventKitReader:
         if not self.is_available():
             return []
 
-        rows = self._execute_events_query(start_date, end_date, calendars)
+        rows = self._execute_events_query(start_date, end_date, calendar_ids)
         logger.info(
             "Calendar events query completed",
             start_date=start_date.isoformat(),
             end_date=end_date.isoformat(),
-            requested_calendar_count=len(calendars or []),
+            requested_calendar_count=len(calendar_ids or []),
             row_count=len(rows),
         )
         events: list[CalendarEvent] = []

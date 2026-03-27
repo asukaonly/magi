@@ -69,6 +69,16 @@ def _collect_source_setting_defaults(item) -> dict[str, Any]:
         ):
             if isinstance(extra_key, str):
                 defaults.setdefault(extra_key, extra_default)
+    for block in item.metadata.get("settings_ui_blocks", []):
+        if not isinstance(block, dict):
+            continue
+        value_key = block.get("value_key")
+        if not isinstance(value_key, str):
+            continue
+        defaults.setdefault(
+            value_key,
+            item.metadata.get("default_settings", {}).get(value_key.split(".")[-1], []),
+        )
     return defaults
 
 
@@ -204,6 +214,7 @@ async def get_timeline_source_status():
                 ),
                 "supports_pull_sync": supports_pull_sync,
                 "activation_flow": item.metadata.get("activation_flow"),
+                "settings_ui_blocks": item.metadata.get("settings_ui_blocks", []),
                 "activation_required": bool(
                     isinstance(item.metadata.get("activation_flow"), dict)
                     and not bool(

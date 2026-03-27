@@ -1,7 +1,9 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 
 import { TimelineSourcesSection } from '@/components/settings/TimelineSourcesSection';
+import { pluginsApi } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
 import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
 
@@ -29,6 +31,17 @@ vi.mock('sonner', () => ({
     error: vi.fn(),
   },
 }));
+
+vi.mock('@/api/modules/plugins', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/plugins')>('@/api/modules/plugins');
+  return {
+    ...actual,
+    pluginsApi: {
+      ...actual.pluginsApi,
+      getSettingsResource: vi.fn(),
+    },
+  };
+});
 
 const timelineSourceFixture: TimelineSourceStatusItem = {
   source_name: 'photo_library',
@@ -280,6 +293,96 @@ describe('TimelineSourcesSection', () => {
     expect(screen.getByText('本地网易云音乐播放历史接入时间线')).toBeInTheDocument();
     expect(screen.queryByText('Chrome History')).not.toBeInTheDocument();
     expect(screen.queryByText('NetEase Cloud Music')).not.toBeInTheDocument();
+  });
+
+  it('renders a custom calendar picker block from plugin-declared ui blocks', async () => {
+    vi.mocked(pluginsApi.getSettingsResource).mockResolvedValue({
+      plugin_id: 'calendar',
+      resource_name: 'calendar_lists',
+      resource_type: 'collection',
+      data: {
+        groups: [
+          {
+            group_id: 'icloud',
+            label: 'iCloud',
+            items: [
+              {
+                item_id: 'calendar-personal',
+                label: '个人',
+                description: 'Primary',
+                accent_color: '#2F80ED',
+              },
+              {
+                item_id: 'calendar-work',
+                label: '工作',
+                description: 'Team',
+                accent_color: '#D946EF',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const onPluginFieldChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <TimelineSourcesSection
+        userMode={userModeFixture}
+        statuses={[
+          {
+            ...timelineSourceFixture,
+            source_name: 'calendar',
+            plugin_id: 'calendar',
+            contribution_id: 'timeline.calendar',
+            display_name: 'Calendar',
+            description: 'Calendar event ingestion for the timeline.',
+            fields: [
+              {
+                ...timelineSourceFixture.fields[0],
+                key: 'sensors.calendar.enabled',
+              },
+            ],
+            current_settings: {
+              'sensors.calendar.enabled': true,
+              'sensors.calendar.authorization_configured': true,
+              'sensors.calendar.selected_calendar_ids': ['calendar-personal'],
+            },
+            settings_ui_blocks: [
+              {
+                block_id: 'selected_calendars',
+                type: 'resource_picker',
+                resource_name: 'calendar_lists',
+                value_key: 'sensors.calendar.selected_calendar_ids',
+                title: 'settings.plugins.calendar.ui_blocks.selected_calendars.title',
+                description: 'settings.plugins.calendar.ui_blocks.selected_calendars.description',
+                presentation: 'calendar_list',
+                depends_on_key: 'sensors.calendar.authorization_configured',
+                depends_on_values: ['true'],
+              },
+            ],
+          } as TimelineSourceStatusItem,
+        ]}
+        loadingStatus={false}
+        selectedSourceName="calendar"
+        pluginDrafts={{}}
+        onSelectSource={vi.fn()}
+        onRefreshSources={vi.fn().mockResolvedValue(undefined)}
+        onPluginFieldChange={onPluginFieldChange}
+        onPluginFieldsChange={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(pluginsApi.getSettingsResource).toHaveBeenCalledWith('calendar', 'calendar_lists'));
+    expect(screen.getByText('iCloud')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '个人' })).toBeChecked();
+
+    await user.click(screen.getByRole('checkbox', { name: '工作' }));
+
+    expect(onPluginFieldChange).toHaveBeenCalledWith('calendar', 'sensors.calendar.selected_calendar_ids', [
+      'calendar-personal',
+      'calendar-work',
+    ]);
   });
 
   it('uses calendar fields without exposing retention mode and only shows interval controls when scheduled', () => {

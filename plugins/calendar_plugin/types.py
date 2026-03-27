@@ -31,3 +31,14 @@ class CalendarEvent:
     is_recurring: bool         # Is this a recurring event
     recurrence_rule: Optional[str]   # Recurrence rule (if recurring)
     url: Optional[str]         # Event URL (if any)
+
+
+@dataclass
+class CalendarListEntry:
+    """Selectable calendar source exposed to the settings UI."""
+
+    calendar_id: str
+    title: str
+    source_id: str
+    source_title: str
+    accent_color: Optional[str]

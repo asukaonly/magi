@@ -1,5 +1,5 @@
 import { api } from '../client';
-import type { ActivationFlowSpec, ExtensionFieldSpec } from './plugins';
+import type { ActivationFlowSpec, ExtensionFieldSpec, PluginSettingsUiBlockSpec } from './plugins';
 
 export interface TimelineStateBand {
   band_id: string;
@@ -120,6 +120,7 @@ export interface TimelineSourceStatusItem {
   edge_whitelist: string[];
   supports_pull_sync: boolean;
   activation_flow?: ActivationFlowSpec | null;
+  settings_ui_blocks?: PluginSettingsUiBlockSpec[];
   activation_required?: boolean;
   running?: boolean;
   last_run_at?: number | string | null;

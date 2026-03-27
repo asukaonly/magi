@@ -780,6 +780,10 @@
     "timeline": {
       "title": "Timeline & Sources",
       "desc": "Choose which sources can contribute to the timeline and how much raw context Magi keeps from each one.",
+      "resourceBlocks": {
+        "loading": "Loading available resources…",
+        "empty": "No resources are available right now."
+      },
       "nav": {
         "overview": "Overview"
       },
@@ -881,7 +885,8 @@
         "authorizationFailed": "Authorization failed: {{message}}",
         "settingsSaveFailed": "Failed to save source settings: {{message}}",
         "activationFailed": "Failed to enable source: {{message}}",
-        "activationResetFailed": "Failed to reset first-sync setup: {{message}}"
+        "activationResetFailed": "Failed to reset first-sync setup: {{message}}",
+        "resourceLoadFailed": "Failed to load resource: {{message}}"
       }
     },
     "extensions": {
@@ -1031,6 +1036,12 @@
           "description": "Allow Magi to read your calendar events for timeline sync.",
           "confirm_label": "Allow calendar access",
           "cancel_label": "Not now"
+        },
+        "ui_blocks": {
+          "selected_calendars": {
+            "title": "Calendars to Sync",
+            "description": "Choose which calendars should be written into the timeline."
+          }
         }
       },
       "chrome-history": {

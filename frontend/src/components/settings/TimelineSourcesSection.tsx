@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import type { ActivationFlowSpec } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
 import { timelineApi, type TimelineSourceStatusItem } from '@/api/modules/timeline';
+import PluginSettingsCustomBlocks from '@/components/settings/PluginSettingsCustomBlocks';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -339,9 +340,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
     return expertMode || !isExpertOnlyField(field.key);
   });
-  const detailValues = Object.fromEntries(
-    detailFields.map((field) => [field.key, resolveSourceValue(selectedSource, field.key, field.default)])
-  );
+  const detailValues = {
+    ...selectedSource.current_settings,
+    ...(pluginDrafts[selectedSource.plugin_id] ?? {}),
+    ...Object.fromEntries(
+      detailFields.map((field) => [field.key, resolveSourceValue(selectedSource, field.key, field.default)])
+    ),
+  };
 
   return (
     <div className="w-full space-y-8" data-testid={`timeline-source-detail-${selectedSource.source_name}`}>
@@ -452,12 +457,20 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       </SectionBlock>
 
       <SectionBlock>
-        <PluginSettingsFields
-          fields={detailFields}
-          values={detailValues}
-          onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
-          pluginId={selectedSource.plugin_id}
-        />
+        <div className="space-y-5">
+          <PluginSettingsCustomBlocks
+            pluginId={selectedSource.plugin_id}
+            blocks={selectedSource.settings_ui_blocks ?? []}
+            values={detailValues}
+            onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+          />
+          <PluginSettingsFields
+            fields={detailFields}
+            values={detailValues}
+            onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+            pluginId={selectedSource.plugin_id}
+          />
+        </div>
       </SectionBlock>
 
       <Dialog open={Boolean(activationDialog)} onOpenChange={(open) => !open && setActivationDialog(null)}>
