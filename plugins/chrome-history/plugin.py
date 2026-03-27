@@ -13,7 +13,6 @@ DEFAULT_SETTINGS = {
     "sync_interval_minutes": 30,
     "default_retention_mode": "analyze_only",
     "storage_mode": "managed",
-    "source_path": DEFAULT_MACOS_CHROME_ROOT,
     "profile": "Default",
     "lookback_hours": 24,
     "max_items_per_sync": 200,
@@ -81,16 +80,6 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             order=10,
         ),
         ExtensionFieldSpec(
-            key=f"{prefix}.source_path",
-            type="path",
-            label="Chrome Data Path",
-            description="Root directory that contains Chrome profiles.",
-            default=DEFAULT_MACOS_CHROME_ROOT,
-            section="general",
-            surface="timeline",
-            order=20,
-        ),
-        ExtensionFieldSpec(
             key=f"{prefix}.profile",
             type="input",
             label="Profile",
@@ -98,7 +87,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             default="Default",
             section="general",
             surface="timeline",
-            order=30,
+            order=20,
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.sync_mode",
@@ -113,7 +102,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             ],
             section="general",
             surface="timeline",
-            order=40,
+            order=30,
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.sync_interval_minutes",
@@ -123,7 +112,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             default=30,
             section="general",
             surface="timeline",
-            order=50,
+            order=40,
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.lookback_hours",
@@ -133,7 +122,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             default=24,
             section="general",
             surface="timeline",
-            order=60,
+            order=50,
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.max_items_per_sync",
@@ -143,7 +132,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             default=200,
             section="general",
             surface="timeline",
-            order=70,
+            order=60,
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.fetch_page_content",
@@ -153,7 +142,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             default=False,
             section="analysis",
             surface="timeline",
-            order=80,
+            order=70,
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.edge_whitelist",
@@ -163,7 +152,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             default=["VISITED", "VIEWED"],
             section="analysis",
             surface="timeline",
-            order=90,
+            order=80,
         ),
     ]
 
@@ -178,7 +167,7 @@ class ChromeHistoryPlugin(Plugin):
             settings = dict(sensors_settings.get("chrome_history", {}))
         sensor = ChromeHistoryTimelineSensor(
             retention_mode=str(settings.get("default_retention_mode") or DEFAULT_SETTINGS["default_retention_mode"]),
-            source_path=str(settings.get("source_path") or DEFAULT_SETTINGS["source_path"]),
+            source_path=str(settings.get("source_path") or DEFAULT_MACOS_CHROME_ROOT),
             fetch_page_content=bool(settings.get("fetch_page_content", DEFAULT_SETTINGS["fetch_page_content"])),
             profile=str(settings.get("profile") or DEFAULT_SETTINGS["profile"]),
             lookback_hours=int(settings.get("lookback_hours", DEFAULT_SETTINGS["lookback_hours"])),

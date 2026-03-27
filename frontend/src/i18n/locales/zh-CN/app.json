@@ -81,7 +81,6 @@
       "manual_journal": "手动记录",
       "chat": "对话",
       "photo_library": "照片库",
-      "apple_health": "Apple 健康",
       "screen_time": "应用使用情况",
       "terminal_history": "终端历史",
       "git_activity": "Git 活动"
@@ -843,7 +842,6 @@
         "chat": "把对话轮次作为偏好、关系和持续关注点的直接证据。",
         "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。",
         "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。",
-        "apple_health": "从 Apple 健康应用同步您的健康数据，包括步数、睡眠、心率等。",
         "screen_time": "按采样记录当前前台应用，并按小时汇总成本地使用事件。",
         "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
         "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
@@ -964,53 +962,6 @@
         },
         "sections": { "email": "邮件" }
       },
-      "apple-health": {
-        "name": "Apple 健康",
-        "description": "Apple 健康数据接入时间线",
-        "fields": {
-          "storage_mode": {
-            "label": "存储模式",
-            "description": "决定健康数据写入本地配置存储的方式。"
-          },
-          "lookback_days": {
-            "label": "回溯天数",
-            "description": "首次同步时默认回溯的历史天数。"
-          },
-          "sync_interval_hours": {
-            "label": "同步间隔（小时）",
-            "description": "定时同步 Apple 健康数据的时间间隔。"
-          },
-          "default_retention_mode": {
-            "label": "保留模式",
-            "description": "决定健康数据写入记忆时保留的粒度。"
-          },
-          "steps": { "label": "步数", "description": "同步每日步数汇总。" },
-          "sleep": { "label": "睡眠", "description": "同步睡眠会话与统计信息。" },
-          "heart_rate": { "label": "心率", "description": "同步心率采样数据。" },
-          "distance": { "label": "距离", "description": "同步步行和跑步距离。" },
-          "flights": { "label": "爬楼层数", "description": "同步每日爬楼层统计。" },
-          "active_energy": { "label": "活动能量", "description": "同步活动能量消耗数据。" },
-          "workout": { "label": "锻炼", "description": "同步锻炼记录。" }
-        },
-        "options": {
-          "enabled": { "true": "启用", "false": "停用" },
-          "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" },
-          "storage_mode": { "managed": "托管", "local": "本地" }
-        },
-        "sections": {
-          "data_types": "数据类型",
-          "sync": "同步",
-          "storage": "存储",
-          "retention": "保留策略",
-          "activation": "激活"
-        },
-        "activation": {
-          "title": "连接 Apple 健康",
-          "description": "请选择要授权读取的健康数据类型。",
-          "confirm_label": "请求访问权限",
-          "cancel_label": "暂不连接"
-        }
-      },
       "calendar": {
         "name": "日历",
         "description": "日历事件接入时间线",
@@ -1047,6 +998,36 @@
       "chrome-history": {
         "name": "Chrome 历史",
         "description": "本地 Google Chrome 浏览历史接入时间线",
+        "fields": {
+          "sensors.chrome_history.profile": {
+            "label": "配置档案",
+            "description": "要读取的 Chrome 配置目录，例如 Default 或 Profile 1。"
+          },
+          "sensors.chrome_history.sync_mode": {
+            "label": "同步方式",
+            "description": "控制 Chrome 历史的同步策略。"
+          },
+          "sensors.chrome_history.sync_interval_minutes": {
+            "label": "定时间隔",
+            "description": "定时同步 Chrome 历史的时间间隔。"
+          },
+          "sensors.chrome_history.lookback_hours": {
+            "label": "回溯小时数",
+            "description": "还没有游标时，首次同步向前读取多少小时的历史。"
+          },
+          "sensors.chrome_history.max_items_per_sync": {
+            "label": "单次最大条数",
+            "description": "每次同步最多写入多少条浏览记录。"
+          },
+          "sensors.chrome_history.fetch_page_content": {
+            "label": "抓取页面正文",
+            "description": "预留给后续页面正文抓取能力，目前不会启用。"
+          },
+          "sensors.chrome_history.edge_whitelist": {
+            "label": "边白名单",
+            "description": "允许该来源写入用户图谱的关系类型。"
+          }
+        },
         "options": {
           "enabled": { "true": "启用", "false": "停用" },
           "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },

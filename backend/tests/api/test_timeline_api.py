@@ -866,8 +866,8 @@ def test_authorize_timeline_source_returns_authorization_result(monkeypatch):
             (),
             {
                 "resolve_domain_sensor": lambda self, domain, source_name: (
-                    ("apple-health", "timeline.apple_health", sensor, object())
-                    if domain == "timeline" and source_name == "apple_health"
+                    ("calendar", "timeline.calendar", sensor, object())
+                    if domain == "timeline" and source_name == "calendar"
                     else None
                 ),
             },
@@ -877,8 +877,8 @@ def test_authorize_timeline_source_returns_authorization_result(monkeypatch):
     client = TestClient(app)
 
     response = client.post(
-        "/api/timeline/sources/apple_health/authorize",
-        json={"field_values": {"sensors.apple_health.types.steps": True}},
+        "/api/timeline/sources/calendar/authorize",
+        json={"field_values": {"sensors.calendar.authorization_configured": True}},
     )
 
     assert response.status_code == 200

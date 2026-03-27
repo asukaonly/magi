@@ -81,7 +81,6 @@
       "manual_journal": "Manual journal",
       "chat": "Chat",
       "photo_library": "Photo library",
-      "apple_health": "Apple Health",
       "screen_time": "App Usage",
       "terminal_history": "Terminal History",
       "git_activity": "Git Activity"
@@ -843,7 +842,6 @@
         "chat": "Use chat turns as direct evidence for preferences, relationships, and recurring concerns.",
         "manual_journal": "Let the user add notes and image references that are saved to memory and shown on the timeline.",
         "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained.",
-        "apple_health": "Sync your health data from Apple Health app, including steps, sleep, heart rate, etc.",
         "screen_time": "Sample the current frontmost app and roll it up into hourly local usage events.",
         "terminal_history": "Monitor terminal command history from zsh and bash shells.",
         "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations."
@@ -964,53 +962,6 @@
         },
         "sections": { "email": "Email" }
       },
-      "apple-health": {
-        "name": "Apple Health",
-        "description": "Apple Health data ingestion for the timeline",
-        "fields": {
-          "storage_mode": {
-            "label": "Storage Mode",
-            "description": "Control how Apple Health data is stored locally."
-          },
-          "lookback_days": {
-            "label": "Lookback Days",
-            "description": "How many days of history to include during the initial sync."
-          },
-          "sync_interval_hours": {
-            "label": "Sync Interval (hours)",
-            "description": "How often Apple Health data should be synced."
-          },
-          "default_retention_mode": {
-            "label": "Retention Mode",
-            "description": "Control how much Health data is retained in memory ingestion."
-          },
-          "steps": { "label": "Steps", "description": "Sync daily step totals." },
-          "sleep": { "label": "Sleep", "description": "Sync sleep sessions and summaries." },
-          "heart_rate": { "label": "Heart Rate", "description": "Sync heart rate samples." },
-          "distance": { "label": "Distance", "description": "Sync walking and running distance." },
-          "flights": { "label": "Flights Climbed", "description": "Sync daily flights climbed totals." },
-          "active_energy": { "label": "Active Energy", "description": "Sync active energy burn data." },
-          "workout": { "label": "Workout", "description": "Sync workout sessions." }
-        },
-        "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" },
-          "storage_mode": { "managed": "Managed", "local": "Local" }
-        },
-        "sections": {
-          "data_types": "Data Types",
-          "sync": "Sync",
-          "storage": "Storage",
-          "retention": "Retention",
-          "activation": "Activation"
-        },
-        "activation": {
-          "title": "Connect Apple Health",
-          "description": "Choose which Health categories should be authorized.",
-          "confirm_label": "Request access",
-          "cancel_label": "Not now"
-        }
-      },
       "calendar": {
         "name": "Calendar",
         "description": "Calendar event ingestion for the timeline",
@@ -1047,6 +998,36 @@
       "chrome-history": {
         "name": "Chrome History",
         "description": "Local Google Chrome browsing history ingestion for the timeline",
+        "fields": {
+          "sensors.chrome_history.profile": {
+            "label": "Profile",
+            "description": "Chrome profile directory to read, such as Default or Profile 1."
+          },
+          "sensors.chrome_history.sync_mode": {
+            "label": "Sync Mode",
+            "description": "Control how Chrome history should be synchronized."
+          },
+          "sensors.chrome_history.sync_interval_minutes": {
+            "label": "Sync Interval",
+            "description": "How often Chrome history should be synced on an interval schedule."
+          },
+          "sensors.chrome_history.lookback_hours": {
+            "label": "Lookback Hours",
+            "description": "How many hours to backfill before a cursor exists."
+          },
+          "sensors.chrome_history.max_items_per_sync": {
+            "label": "Max Items Per Sync",
+            "description": "Maximum number of history records to ingest in one run."
+          },
+          "sensors.chrome_history.fetch_page_content": {
+            "label": "Fetch Page Content",
+            "description": "Reserved for future page-content capture and currently stays disabled."
+          },
+          "sensors.chrome_history.edge_whitelist": {
+            "label": "Edge Whitelist",
+            "description": "Relationship edge types this source may write into the user graph."
+          }
+        },
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
           "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },

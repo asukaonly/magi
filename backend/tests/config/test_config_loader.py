@@ -125,7 +125,6 @@ def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tm
     config = loader.load()
 
     for plugin_id, source_name in (
-        ("apple-health", "apple_health"),
         ("calendar", "calendar"),
         ("git-activity", "git_activity"),
         ("screen-time", "screen_time"),
@@ -135,6 +134,8 @@ def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tm
         assert package.enabled is True
         assert package.trusted is True
         assert package.settings["sensors"][source_name]["enabled"] is False
+
+    assert "apple-health" not in config.plugins.packages
 
     screen_time_settings = config.plugins.packages["screen-time"].settings["sensors"]["screen_time"]
     assert screen_time_settings["sync_interval_minutes"] == 5

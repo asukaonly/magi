@@ -529,11 +529,6 @@ class PluginsSettings(BaseModel):
                 trusted=True,
                 source="builtin",
             ),
-            "apple-health": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
             "calendar": PluginSettings(
                 enabled=True,
                 trusted=True,

@@ -317,9 +317,6 @@ Magi also ships additional built-in timeline sensor packages. These packages are
 - `chrome-history`
   registers the local Chrome history timeline source
 
-- `apple-health`
-  registers Apple Health ingestion on supported Apple platforms
-
 - `calendar`
   registers calendar event ingestion on supported Apple platforms
 

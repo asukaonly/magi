@@ -203,6 +203,7 @@ def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_defa
     assert activation_flow["enabled_key"] == "sensors.chrome_history.enabled"
     assert activation_flow["configured_key"] == "sensors.chrome_history.initial_sync_configured"
     assert activation_flow["fields"][0]["key"] == "sensors.chrome_history.initial_sync_policy"
+    assert all(field.key != "sensors.chrome_history.source_path" for field in spec.fields)
 
 
 def test_chrome_history_sensor_exposes_plugin_translations(monkeypatch: pytest.MonkeyPatch) -> None:

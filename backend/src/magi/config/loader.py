@@ -243,7 +243,6 @@ class ConfigLoader:
                 "photo-library": {"enabled": True, "trusted": True, "source": "builtin"},
                 "core-actions": {"enabled": True, "trusted": True, "source": "builtin"},
                 "chrome-history": {"enabled": True, "trusted": True, "source": "builtin"},
-                "apple-health": {"enabled": True, "trusted": True, "source": "builtin"},
                 "calendar": {"enabled": True, "trusted": True, "source": "builtin"},
                 "git-activity": {"enabled": True, "trusted": True, "source": "builtin"},
                 "screen-time": {"enabled": True, "trusted": True, "source": "builtin"},
@@ -291,34 +290,11 @@ class ConfigLoader:
                         "sync_interval_minutes": 30,
                         "default_retention_mode": "analyze_only",
                         "storage_mode": "managed",
-                        "source_path": "~/Library/Application Support/Google/Chrome",
                         "profile": "Default",
                         "lookback_hours": 24,
                         "max_items_per_sync": 200,
                         "fetch_page_content": False,
                         "edge_whitelist": ["VISITED", "VIEWED"],
-                    }
-                }
-            },
-            "apple-health": {
-                "sensors": {
-                    "apple_health": {
-                        "enabled": False,
-                        "authorization_configured": False,
-                        "sync_mode": "manual",
-                        "sync_interval_hours": 1,
-                        "lookback_days": 7,
-                        "types": {
-                            "steps": True,
-                            "sleep": True,
-                            "heart_rate": False,
-                            "distance": False,
-                            "flights": False,
-                            "active_energy": False,
-                            "workout": False,
-                        },
-                        "default_retention_mode": "analyze_only",
-                        "storage_mode": "managed",
                     }
                 }
             },
