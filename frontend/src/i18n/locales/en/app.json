@@ -82,7 +82,7 @@
       "chat": "Chat",
       "photo_library": "Photo library",
       "apple_health": "Apple Health",
-      "screen_time": "Screen Time",
+      "screen_time": "App Usage",
       "terminal_history": "Terminal History",
       "git_activity": "Git Activity"
     },
@@ -839,7 +839,7 @@
         "manual_journal": "Let the user add notes and image references that are saved to memory and shown on the timeline.",
         "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained.",
         "apple_health": "Sync your health data from Apple Health app, including steps, sleep, heart rate, etc.",
-        "screen_time": "Track screen time usage with per-application breakdown and daily summaries.",
+        "screen_time": "Sample the current frontmost app and roll it up into hourly local usage events.",
         "terminal_history": "Monitor terminal command history from zsh and bash shells.",
         "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations."
       },
@@ -1090,14 +1090,14 @@
         "sections": { "general": "General", "storage": "Storage" }
       },
       "screen-time": {
-        "name": "Screen Time",
-        "description": "Screen time data ingestion for the timeline",
+        "name": "App Usage",
+        "description": "Sample the current frontmost app and aggregate it hourly for the timeline",
         "options": {
-          "sync_interval_hours": {
-            "1": "Every hour",
-            "6": "Every 6 hours",
-            "12": "Every 12 hours",
-            "24": "Every 24 hours"
+          "sync_interval_minutes": {
+            "1": "Every 1 minute",
+            "5": "Every 5 minutes",
+            "15": "Every 15 minutes",
+            "60": "Every 60 minutes"
           },
           "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" }
         },

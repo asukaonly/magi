@@ -1,68 +1,54 @@
-"""Screen Time timeline plugin."""
+"""Frontmost app usage timeline plugin."""
 from __future__ import annotations
 
 import sys
-from typing import Any
 
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 
-from .reader import ScreenTimeReader
+from .reader import FrontmostAppReader
 from .sensor import ScreenTimeTimelineSensor
 
 DEFAULT_SETTINGS = {
     "enabled": False,
-    "sync_interval_hours": 1,
-    "lookback_days": 30,
+    "sync_interval_minutes": 5,
     "default_retention_mode": "analyze_only",
 }
 
 
 def _fields(prefix: str) -> list[ExtensionFieldSpec]:
-    """Define all settings fields for the Screen Time plugin."""
+    """Define all settings fields for the frontmost app usage plugin."""
     return [
         ExtensionFieldSpec(
             key=f"{prefix}.enabled",
             type="switch",
-            label="Enable Screen Time Sync",
-            description="Sync screen time data to timeline.",
+            label="Enable App Usage Sync",
+            description="Sample the current frontmost app and write hourly summaries to memory.",
             default=False,
             section="general",
             surface="timeline",
             order=10,
         ),
         ExtensionFieldSpec(
-            key=f"{prefix}.sync_interval_hours",
+            key=f"{prefix}.sync_interval_minutes",
             type="select",
-            label="Sync Interval",
-            description="How often to sync screen time data.",
-            default=1,
+            label="Sampling Interval",
+            description="How often to sample the current frontmost app.",
+            default=5,
             options=[
-                ExtensionFieldOption(label="Every hour", value="1"),
-                ExtensionFieldOption(label="Every 6 hours", value="6"),
-                ExtensionFieldOption(label="Every 12 hours", value="12"),
-                ExtensionFieldOption(label="Every 24 hours", value="24"),
+                ExtensionFieldOption(label="Every minute", value="1"),
+                ExtensionFieldOption(label="Every 5 minutes", value="5"),
+                ExtensionFieldOption(label="Every 15 minutes", value="15"),
+                ExtensionFieldOption(label="Every 60 minutes", value="60"),
             ],
             section="sync",
             surface="timeline",
             order=20,
         ),
         ExtensionFieldSpec(
-            key=f"{prefix}.lookback_days",
-            type="number",
-            label="Lookback Days",
-            description="How many days of history to sync on initial setup.",
-            default=30,
-            min=1,
-            max=365,
-            section="sync",
-            surface="timeline",
-            order=30,
-        ),
-        ExtensionFieldSpec(
             key=f"{prefix}.default_retention_mode",
             type="select",
             label="Retention Mode",
-            description="How screen time data should be retained.",
+            description="How app usage summaries should be retained.",
             default="analyze_only",
             options=[
                 ExtensionFieldOption(label="Analyze Only", value="analyze_only"),
@@ -70,50 +56,35 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             ],
             section="retention",
             surface="timeline",
-            order=40,
+            order=30,
         ),
     ]
 
 
 class ScreenTimePlugin(Plugin):
-    """Registers the Screen Time timeline source."""
+    """Registers the frontmost app usage source under the existing package id."""
 
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
-        """Get sensor specifications for Screen Time.
-
-        Returns:
-            List of sensor tuples (sensor_id, sensor_instance, sensor_spec)
-        """
-        # Check platform - only supported on Darwin
         if sys.platform != "darwin":
             return []
 
-        # Get settings
         settings = {}
         sensors_settings = self.settings.get("sensors", {})
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("screen_time", {}))
 
         source_enabled = bool(settings.get("enabled", DEFAULT_SETTINGS["enabled"]))
-
-        # Check database availability (but still return sensor spec even if not available)
         reader = None
         if source_enabled:
-            try:
-                reader = ScreenTimeReader()
-                if not reader.is_available():
-                    reader = None
-            except Exception:
-                reader = None
+            candidate = FrontmostAppReader()
+            if candidate.is_available():
+                reader = candidate
 
-        # Create sensor (reader may be None if database not available)
         sensor = ScreenTimeTimelineSensor(
             retention_mode=str(settings.get("default_retention_mode", DEFAULT_SETTINGS["default_retention_mode"])),
             reader=reader,
         )
-
-        # Prepare sync mode
-        sync_interval_hours = settings.get("sync_interval_hours", DEFAULT_SETTINGS["sync_interval_hours"])
+        sync_interval_minutes = int(settings.get("sync_interval_minutes", DEFAULT_SETTINGS["sync_interval_minutes"]))
 
         return [
             (
@@ -121,8 +92,8 @@ class ScreenTimePlugin(Plugin):
                 sensor,
                 SensorSpec(
                     sensor_id="timeline.screen_time",
-                    display_name="Screen Time",
-                    description="Screen time data ingestion for the timeline.",
+                    display_name="App Usage",
+                    description="Sampled frontmost app usage aggregated into hourly summaries.",
                     domain="timeline",
                     surface="timeline",
                     sync_mode="interval",
@@ -131,7 +102,7 @@ class ScreenTimePlugin(Plugin):
                     metadata={
                         "source_type": "screen_time",
                         "default_settings": dict(DEFAULT_SETTINGS),
-                        "sync_interval_hours": sync_interval_hours,
+                        "sync_interval_minutes": sync_interval_minutes,
                     },
                 ),
             )

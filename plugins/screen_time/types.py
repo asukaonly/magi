@@ -1,24 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from typing import List, Optional
 
 
-@dataclass
-class AppUsage:
-    """Application usage data."""
+@dataclass(slots=True)
+class FrontmostAppSample:
+    """Single frontmost-app observation."""
 
-    bundle_id: str                    # Application bundle ID
-    app_name: str                  # Application name
-    usage_seconds: int              # Usage duration in seconds
-    category: Optional[str]        # Category (social, productivity, entertainment, etc)
+    bundle_id: str
+    app_name: str
 
 
-@dataclass
-class DailyScreenTime:
-    """Daily screen time summary."""
+@dataclass(slots=True)
+class HourlyAppUsage:
+    """Hourly aggregate for a single frontmost app."""
 
-    date: date                          # Date
-    total_duration: int             # Total usage duration in seconds
-    app_usages: List[AppUsage]   # Per-application usage details
+    bucket_start: str
+    bucket_end: str
+    bundle_id: str
+    app_name: str
+    duration_seconds: int
+    sample_count: int

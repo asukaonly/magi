@@ -351,8 +351,7 @@ class ConfigLoader:
                 "sensors": {
                     "screen_time": {
                         "enabled": False,
-                        "sync_interval_hours": 1,
-                        "lookback_days": 30,
+                        "sync_interval_minutes": 5,
                         "default_retention_mode": "analyze_only",
                     }
                 }

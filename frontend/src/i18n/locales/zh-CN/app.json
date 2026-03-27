@@ -82,7 +82,7 @@
       "chat": "对话",
       "photo_library": "照片库",
       "apple_health": "Apple 健康",
-      "screen_time": "屏幕使用时间",
+      "screen_time": "应用使用情况",
       "terminal_history": "终端历史",
       "git_activity": "Git 活动"
     },
@@ -839,7 +839,7 @@
         "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。",
         "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。",
         "apple_health": "从 Apple 健康应用同步您的健康数据，包括步数、睡眠、心率等。",
-        "screen_time": "追踪屏幕使用时间，包含应用分类使用详情和每日汇总。",
+        "screen_time": "按采样记录当前前台应用，并按小时汇总成本地使用事件。",
         "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
         "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
       },
@@ -1085,14 +1085,14 @@
         "sections": { "general": "常规", "storage": "存储" }
       },
       "screen-time": {
-        "name": "屏幕使用时间",
-        "description": "屏幕使用时间数据接入时间线",
+        "name": "应用使用情况",
+        "description": "采样当前前台应用并按小时汇总到时间线",
         "options": {
-          "sync_interval_hours": {
-            "1": "每小时",
-            "6": "每 6 小时",
-            "12": "每 12 小时",
-            "24": "每 24 小时"
+          "sync_interval_minutes": {
+            "1": "每 1 分钟",
+            "5": "每 5 分钟",
+            "15": "每 15 分钟",
+            "60": "每 60 分钟"
           },
           "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" }
         },

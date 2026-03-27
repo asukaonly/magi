@@ -1,8 +1,8 @@
 [plugin]
 id = "screen-time"
-name = "Screen Time"
+name = "App Usage"
 version = "0.1.0"
-description = "Screen time data ingestion for the timeline."
+description = "Frontmost app usage sampling for the timeline."
 author = "Magi Team"
 entry_module = "plugin"
 entry_class = "ScreenTimePlugin"

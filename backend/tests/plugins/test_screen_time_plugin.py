@@ -1,165 +1,144 @@
 from __future__ import annotations
 
 import asyncio
-import pytest
+import json
 import sys
-from datetime import date, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 # Add plugins directory to sys.path
 _plugins_path = Path(__file__).resolve().parents[3] / "plugins"
 if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 
-from screen_time.exceptions import DatabaseNotFoundError
-from screen_time.types import AppUsage, DailyScreenTime
-from screen_time.normalizers import normalize_daily_screen_time
-from screen_time.reader import ScreenTimeReader
-from screen_time.plugin import DEFAULT_SETTINGS, _fields, ScreenTimePlugin
-
-
-from screen_time.sensor import ScreenTimeTimelineSensor
 from magi.timeline import SensorSyncContext
+from magi.utils.runtime import RuntimePaths
+from screen_time.plugin import DEFAULT_SETTINGS, _fields, ScreenTimePlugin
+from screen_time.reader import FrontmostAppReader
+from screen_time.sensor import ScreenTimeTimelineSensor
+from screen_time.types import FrontmostAppSample
 
 
-# ============ Normalizer Tests ============
+class StubReader:
+    def __init__(self, sample: FrontmostAppSample | None) -> None:
+        self.sample = sample
 
-class MockSensor:
-    """Mock sensor for testing."""
-    sensor_id = "timeline.screen_time"
+    def is_available(self) -> bool:
+        return True
 
-
-def test_normalize_daily_screen_time():
-    """Test normalizing daily screen time data."""
-    daily = DailyScreenTime(
-        date=date(2026, 3, 12),
-        total_duration=7200,  # 2 hours
-        app_usages=[
-            AppUsage(bundle_id="com.apple.Safari", app_name="Safari", usage_seconds=3600, category="productivity"),
-            AppUsage(bundle_id="com.apple.Mail", app_name="邮件", usage_seconds=1800, category="communication"),
-        ]
-    )
-
-    sensor = MockSensor()
-    result = normalize_daily_screen_time(daily, sensor)
-
-    assert result["event_id"] == "screen_time_2026-03-12"
-    assert result["source_type"] == "screen_time"
-    assert "2.0 小时" in result["title"]
-    assert "Safari" in result["summary"]
-    assert len(result["content_blocks"]) >= 2
-    assert "screen_time" in result["tags"]
+    def read_frontmost_app(self) -> FrontmostAppSample | None:
+        return self.sample
 
 
-def test_normalize_screen_time_short():
-    """Test normalizing short duration."""
-    daily = DailyScreenTime(
-        date=date(2026, 3, 12),
-        total_duration=1800,  # 30 minutes
-        app_usages=[]
-    )
-
-    sensor = MockSensor()
-    result = normalize_daily_screen_time(daily, sensor)
-
-    assert "30.0 分钟" in result["title"]
-
-
-# ============ Reader Tests ============
-
-def test_reader_is_available_on_non_darwin():
-    """Test that reader handles non-darwin platforms gracefully."""
-    with patch('sys.platform', 'win32'):
-        reader = ScreenTimeReader()
+def test_reader_is_available_on_non_darwin() -> None:
+    with patch("sys.platform", "win32"):
+        reader = FrontmostAppReader()
         assert reader.is_available() is False
 
 
-def test_reader_is_available_on_darwin_no_db():
-    """Test that reader returns False when database not found."""
-    with patch('sys.platform', 'darwin'):
-        with patch.object(ScreenTimeReader, '_find_database') as mock_find_db:
-            mock_find_db.side_effect = DatabaseNotFoundError()
-            reader = ScreenTimeReader()
-            assert reader.is_available() is False
-
-
-def test_reader_read_daily_screen_time_stub():
-    """Test that read_daily_screen_time returns empty list when not available."""
-    reader = ScreenTimeReader()
-    reader._is_available = False
-
-    results = reader.read_daily_screen_time(
-        date(2026, 3, 1),
-        date(2026, 3, 12)
+def test_reader_parses_lsappinfo_output() -> None:
+    outputs = iter(
+        [
+            "ASN:0x0-0x91091:\n",
+            '"CFBundleIdentifier"="com.apple.Safari"\n"LSDisplayName"="Safari"\n',
+        ]
     )
-    assert results == []
+
+    def _fake_check_output(*args, **kwargs) -> str:
+        _ = (args, kwargs)
+        return next(outputs)
+
+    with patch("sys.platform", "darwin"):
+        with patch("shutil.which", return_value="/usr/bin/lsappinfo"):
+            with patch("subprocess.check_output", side_effect=_fake_check_output):
+                sample = FrontmostAppReader().read_frontmost_app()
+
+    assert sample is not None
+    assert sample.bundle_id == "com.apple.Safari"
+    assert sample.app_name == "Safari"
 
 
-# ============ Sensor Tests ============
+def test_sensor_collect_items_emits_completed_hourly_bucket(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(base_dir=tmp_path / ".magi")
+    sensor = ScreenTimeTimelineSensor(reader=StubReader(FrontmostAppSample(bundle_id="com.openai.codex", app_name="Codex")))
 
-def test_sensor_source_item_identity():
-    """Test source_item_identity generation."""
-    sensor = ScreenTimeTimelineSensor()
-    item = {"date": "2026-03-12"}
-
-    identity = sensor.source_item_identity(item)
-    assert identity == "screen_time_2026-03-12"
-
-
-def test_sensor_source_item_version_fingerprint():
-    """Test source_item_version_fingerprint generation."""
-    sensor = ScreenTimeTimelineSensor()
-    item1 = {"date": "2026-03-12", "total_duration": 7200, "app_usages": []}
-    item2 = {"date": "2026-03-12", "total_duration": 7200, "app_usages": []}
-    item3 = {"date": "2026-03-12", "total_duration": 3600, "app_usages": []}
-
-    fingerprint1 = sensor.source_item_version_fingerprint(item1)
-    fingerprint2 = sensor.source_item_version_fingerprint(item2)
-    fingerprint3 = sensor.source_item_version_fingerprint(item3)
-
-    assert fingerprint1 == fingerprint2
-    assert fingerprint1 != fingerprint3
-
-
-def test_sensor_collect_items_with_stub_reader():
-    """Test collect_items returns empty list with stub reader."""
-    from magi.utils.runtime import RuntimePaths
-
-    sensor = ScreenTimeTimelineSensor()
-    runtime_paths = RuntimePaths()
-    context = SensorSyncContext(
+    first_context = SensorSyncContext(
         source_type="screen_time",
         manual=False,
         last_cursor=None,
         last_success_at=None,
         limit=100,
         runtime_paths=runtime_paths,
-        plugin_settings={}
+        plugin_settings={"sensors": {"screen_time": {"sync_interval_minutes": 5}}},
     )
 
-    result = asyncio.run(sensor.collect_items(context))
+    with patch.object(sensor, "_now", return_value=datetime(2026, 3, 27, 10, 55, tzinfo=timezone.utc)):
+        first_result = asyncio.run(sensor.collect_items(first_context))
 
-    assert isinstance(result.items, list)
-    assert len(result.items) == 0
+    assert first_result.items == []
+
+    state_path = runtime_paths.memories_dir / "screen_time_state.json"
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_payload["last_sample"]["bundle_id"] == "com.openai.codex"
+
+    sensor._reader = StubReader(FrontmostAppSample(bundle_id="com.apple.Safari", app_name="Safari"))
+    second_context = SensorSyncContext(
+        source_type="screen_time",
+        manual=False,
+        last_cursor=first_result.next_cursor,
+        last_success_at=None,
+        limit=100,
+        runtime_paths=runtime_paths,
+        plugin_settings={"sensors": {"screen_time": {"sync_interval_minutes": 5}}},
+    )
+
+    with patch.object(sensor, "_now", return_value=datetime(2026, 3, 27, 11, 5, tzinfo=timezone.utc)):
+        second_result = asyncio.run(sensor.collect_items(second_context))
+
+    assert len(second_result.items) == 1
+    item = second_result.items[0]
+    assert item["bucket_start"] == "2026-03-27T10:00:00+00:00"
+    assert item["bucket_end"] == "2026-03-27T11:00:00+00:00"
+    assert item["bundle_id"] == "com.openai.codex"
+    assert item["app_name"] == "Codex"
+    assert item["duration_seconds"] == 300
+    assert item["sample_count"] == 1
 
 
-# ============ Plugin Tests ============
+def test_sensor_build_output() -> None:
+    sensor = ScreenTimeTimelineSensor()
+    item = {
+        "bucket_start": "2026-03-27T10:00:00+08:00",
+        "bucket_end": "2026-03-27T11:00:00+08:00",
+        "bundle_id": "com.apple.Safari",
+        "app_name": "Safari",
+        "duration_seconds": 2280,
+        "sample_count": 4,
+    }
 
-def test_default_settings():
-    """Test DEFAULT_SETTINGS has expected structure."""
+    output = asyncio.run(sensor.build_output(item))
+
+    assert sensor.memory_event_type == "APP_USAGE_HOURLY"
+    assert output.source_item_id == "app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari"
+    assert output.source_type == "screen_time"
+    assert "Safari" in output.title
+    assert output.domain_payload["duration_seconds"] == 2280
+    assert output.domain_payload["sample_count"] == 4
+
+
+def test_default_settings() -> None:
     assert "enabled" in DEFAULT_SETTINGS
-    assert "sync_interval_hours" in DEFAULT_SETTINGS
-    assert "lookback_days" in DEFAULT_SETTINGS
+    assert "sync_interval_minutes" in DEFAULT_SETTINGS
     assert "default_retention_mode" in DEFAULT_SETTINGS
 
     assert DEFAULT_SETTINGS["enabled"] is False
-    assert DEFAULT_SETTINGS["sync_interval_hours"] == 1
-    assert DEFAULT_SETTINGS["lookback_days"] == 30
+    assert DEFAULT_SETTINGS["sync_interval_minutes"] == 5
 
 
-def test_fields_function():
-    """Test _fields returns list of ExtensionFieldSpec."""
+def test_fields_function() -> None:
     from magi.plugins import ExtensionFieldSpec
 
     fields = _fields("sensors.screen_time")
@@ -169,51 +148,26 @@ def test_fields_function():
     assert all(isinstance(f, ExtensionFieldSpec) for f in fields)
 
     field_keys = [f.key for f in fields]
-    assert any("sync_interval" in k for k in field_keys)
-    assert any("lookback" in k for k in field_keys)
+    assert "sensors.screen_time.sync_interval_minutes" in field_keys
 
 
-def test_plugin_get_sensors_on_non_darwin():
-    """Test plugin returns empty sensors on non-darwin platform."""
+def test_plugin_get_sensors_on_non_darwin() -> None:
     plugin = ScreenTimePlugin()
     plugin.configure(manifest=None, settings={})
-    with patch('sys.platform', 'win32'):
+    with patch("sys.platform", "win32"):
         sensors = plugin.get_sensors()
         assert sensors == []
 
 
-def test_plugin_get_sensors_with_disabled_setting():
-    """Test plugin still exposes sensor settings when disabled in settings."""
+def test_plugin_get_sensors_exposes_hourly_usage_source() -> None:
     plugin = ScreenTimePlugin()
     plugin.configure(manifest=None, settings={"sensors": {"screen_time": {"enabled": False}}})
 
-    with patch('sys.platform', 'darwin'):
+    with patch("sys.platform", "darwin"):
         sensors = plugin.get_sensors()
         assert len(sensors) == 1
-        sensor_id, _, sensor_spec = sensors[0]
+        sensor_id, sensor, sensor_spec = sensors[0]
         assert sensor_id == "timeline.screen_time"
-        assert sensor_spec.metadata["default_settings"]["enabled"] is False
-
-
-# ============ Integration Tests ============
-
-def test_sensor_build_output():
-    """Test building a SensorOutput from screen time item."""
-    sensor = ScreenTimeTimelineSensor()
-
-    item = {
-        "date": date(2026, 3, 12),
-        "total_duration": 7200,
-        "app_usages": [
-            {"bundle_id": "com.apple.Safari", "app_name": "Safari", "usage_seconds": 3600, "category": "productivity"},
-            {"bundle_id": "com.apple.Mail", "app_name": "邮件", "usage_seconds": 1800, "category": "communication"},
-        ]
-    }
-
-    output = asyncio.run(sensor.build_output(item))
-
-    assert output.source_item_id == "screen_time_2026-03-12"
-    assert output.source_type == "screen_time"
-    assert "屏幕使用" in output.title
-    assert len(output.content_blocks) > 0
-    assert "screen_time" in output.tags
+        assert sensor.memory_event_type == "APP_USAGE_HOURLY"
+        assert sensor_spec.metadata["default_settings"]["sync_interval_minutes"] == 5
+        assert sensor_spec.metadata["source_type"] == "screen_time"

@@ -136,6 +136,10 @@ def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tm
         assert package.trusted is True
         assert package.settings["sensors"][source_name]["enabled"] is False
 
+    screen_time_settings = config.plugins.packages["screen-time"].settings["sensors"]["screen_time"]
+    assert screen_time_settings["sync_interval_minutes"] == 5
+    assert "sync_interval_hours" not in screen_time_settings
+
 
 def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)

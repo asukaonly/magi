@@ -282,7 +282,7 @@ Magi also ships additional built-in timeline sensor packages. These packages are
   registers local git activity ingestion
 
 - `screen-time`
-  registers Screen Time ingestion on supported Apple platforms
+  registers sampled frontmost-app usage ingestion on supported Apple platforms
 
 - `terminal-history`
   registers local terminal history ingestion
