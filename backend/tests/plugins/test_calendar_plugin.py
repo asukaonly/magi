@@ -163,6 +163,34 @@ def test_reader_get_authorization_status_unavailable():
     assert status == "unavailable"
 
 
+def test_reader_logs_when_eventkit_bridge_is_unavailable(monkeypatch):
+    """Test reader logs a concrete reason when EventKit bridge is unavailable."""
+    from calendar_plugin import reader as reader_module
+
+    reader = EventKitReader()
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    def _fake_import_frameworks():
+        reader._ek_module = {}
+        reader._foundation_module = {}
+
+    warning_calls: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_warning(message: str, **kwargs):  # type: ignore[no-untyped-def]
+        warning_calls.append((message, kwargs))
+
+    monkeypatch.setattr(reader, "_import_frameworks", _fake_import_frameworks, raising=False)
+    monkeypatch.setattr(reader_module.logger, "warning", _fake_warning)
+
+    assert reader.is_available() is False
+    assert warning_calls == [
+        (
+            "Calendar EventKit bridge unavailable",
+            {"reason": "missing_eventkit_bridge", "platform": "darwin"},
+        )
+    ]
+
+
 def test_reader_request_authorization_unavailable():
     """Test authorization request when EventKit not available."""
     reader = EventKitReader()
@@ -322,6 +350,54 @@ def test_sensor_collect_items_with_stub_reader():
 
     assert isinstance(result.items, list)
     assert len(result.items) == 0
+
+
+def test_sensor_collect_items_logs_when_authorization_is_unavailable(monkeypatch):
+    """Test collect_items logs auth status when sync is skipped."""
+    from calendar_plugin import sensor as sensor_module
+    from calendar_plugin.sensor import CalendarTimelineSensor
+    from magi.timeline import SensorSyncContext
+    from magi.utils.runtime import RuntimePaths
+    import asyncio
+
+    class _Reader:
+        def get_authorization_status(self):
+            return "unavailable"
+
+    warning_calls: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_warning(message: str, **kwargs):  # type: ignore[no-untyped-def]
+        warning_calls.append((message, kwargs))
+
+    monkeypatch.setattr(sensor_module.logger, "warning", _fake_warning)
+
+    sensor = CalendarTimelineSensor(reader=_Reader())
+    runtime_paths = RuntimePaths()
+    context = SensorSyncContext(
+        source_type="calendar",
+        manual=True,
+        last_cursor=None,
+        last_success_at=None,
+        limit=100,
+        runtime_paths=runtime_paths,
+        plugin_settings={},
+    )
+
+    result = asyncio.run(sensor.collect_items(context))
+
+    assert result.items == []
+    assert result.stats["authorization_status"] == "unavailable"
+    assert warning_calls == [
+        (
+            "Skipping calendar sync because calendar authorization is unavailable",
+            {
+                "authorization_status": "unavailable",
+                "source_type": "calendar",
+                "manual": True,
+                "initial_sync": True,
+            },
+        )
+    ]
 
 
 def test_sensor_collect_items_uses_one_day_overlap_from_latest_cursor(monkeypatch):

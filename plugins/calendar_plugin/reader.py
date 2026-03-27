@@ -6,8 +6,12 @@ from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from magi.core.logger import get_logger
+
 from .exceptions import PlatformNotSupportedError
 from .types import CalendarEvent, Participant
+
+logger = get_logger(__name__)
 
 
 class EventKitReader:
@@ -136,14 +140,31 @@ class EventKitReader:
             return self._is_available
 
         if sys.platform != "darwin":
+            logger.warning(
+                "Calendar EventKit bridge unavailable",
+                reason="platform_not_supported",
+                platform=sys.platform,
+            )
             self._is_available = False
             return False
 
         try:
             self._import_frameworks()
             self._is_available = (self._ek_module or {}).get("EKEventStore") is not None
+            if not self._is_available:
+                logger.warning(
+                    "Calendar EventKit bridge unavailable",
+                    reason="missing_eventkit_bridge",
+                    platform=sys.platform,
+                )
             return bool(self._is_available)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Calendar EventKit bridge unavailable",
+                reason="eventkit_import_failed",
+                platform=sys.platform,
+                error=str(exc),
+            )
             self._is_available = False
             return False
 
@@ -155,11 +176,19 @@ class EventKitReader:
             One of: "not_determined", "denied", "authorized", "unavailable"
         """
         if not self.is_available():
+            logger.warning(
+                "Calendar authorization status unavailable",
+                reason="eventkit_unavailable",
+            )
             return "unavailable"
 
         try:
             entity_type = (self._ek_module or {}).get("EKEntityTypeEvent")
             if entity_type is None:
+                logger.warning(
+                    "Calendar authorization status unavailable",
+                    reason="missing_event_entity_type",
+                )
                 return "unavailable"
             status = self.event_store.authorizationStatusForEntityType_(entity_type)
             if status in {
@@ -175,8 +204,18 @@ class EventKitReader:
                 (self._ek_module or {}).get("EKAuthorizationStatusWriteOnly"),
             }:
                 return "denied"
+            logger.warning(
+                "Calendar authorization status unavailable",
+                reason="unknown_authorization_status",
+                status_value=status,
+            )
             return "unavailable"
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Calendar authorization status unavailable",
+                reason="authorization_status_query_failed",
+                error=str(exc),
+            )
             return "unavailable"
 
     def _request_calendar_access(self) -> tuple[bool, Any]:
@@ -207,12 +246,26 @@ class EventKitReader:
             True if authorization was granted, False otherwise.
         """
         if not self.is_available():
+            logger.warning(
+                "Calendar authorization request skipped",
+                reason="eventkit_unavailable",
+            )
             return False
 
         try:
             granted, error = self._request_calendar_access()
+            if error is not None or not granted:
+                logger.warning(
+                    "Calendar authorization request was not granted",
+                    granted=bool(granted),
+                    error=str(error) if error is not None else None,
+                )
             return bool(granted) and error is None
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Calendar authorization request failed",
+                error=str(exc),
+            )
             return False
 
     def _extract_participants(self, event: Any) -> list[Participant]:

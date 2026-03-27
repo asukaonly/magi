@@ -8,11 +8,14 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorSyncContext, SensorSyncResult
+from magi.core.logger import get_logger
 
 from .exceptions import PlatformNotSupportedError
 from .normalizers import normalize_calendar_event
 from .reader import EventKitReader
 from .types import CalendarEvent, Participant
+
+logger = get_logger(__name__)
 
 
 class CalendarTimelineSensor(SensorBase):
@@ -106,6 +109,13 @@ class CalendarTimelineSensor(SensorBase):
         # Check authorization
         auth_status = self.reader.get_authorization_status()
         if auth_status != "authorized":
+            logger.warning(
+                "Skipping calendar sync because calendar authorization is unavailable",
+                authorization_status=auth_status,
+                source_type=self.source_type,
+                manual=context.manual,
+                initial_sync=context.last_cursor is None,
+            )
             return SensorSyncResult(
                 items=[],
                 next_cursor=None,
