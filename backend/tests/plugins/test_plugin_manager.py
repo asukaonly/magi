@@ -261,14 +261,19 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins(
             "feature_type": "chrome_history",
             "event_count": 3,
             "visit_count": 4,
+            "unique_domain_count": 2,
+            "focus_domain": "openai.com",
+            "focus_share": pytest.approx(2 / 3, rel=1e-3),
+            "session_count": 1,
             "top_domains": [
                 {"domain": "openai.com", "count": 2},
                 {"domain": "github.com", "count": 1},
             ],
             "revisit_domains": ["openai.com"],
             "summary_lines": [
-                "Browsing focused on openai.com and github.com.",
+                "Browsing concentrated heavily on openai.com.",
                 "Repeated visits clustered around openai.com.",
+                "Browsing stayed within a small set of sites.",
             ],
         }
     }

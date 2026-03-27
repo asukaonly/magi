@@ -504,12 +504,17 @@ def test_chrome_history_plugin_builds_temporal_summary_features(
     assert features["feature_type"] == "chrome_history"
     assert features["event_count"] == 3
     assert features["visit_count"] == 4
+    assert features["unique_domain_count"] == 2
+    assert features["focus_domain"] == "openai.com"
+    assert features["focus_share"] == pytest.approx(2 / 3, rel=1e-3)
+    assert features["session_count"] == 1
     assert features["top_domains"] == [
         {"domain": "openai.com", "count": 2},
         {"domain": "github.com", "count": 1},
     ]
     assert features["revisit_domains"] == ["openai.com"]
     assert features["summary_lines"] == [
-        "Browsing focused on openai.com and github.com.",
+        "Browsing concentrated heavily on openai.com.",
         "Repeated visits clustered around openai.com.",
+        "Browsing stayed within a small set of sites.",
     ]

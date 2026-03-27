@@ -409,9 +409,13 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
             "chrome_history": {
                 "feature_type": "chrome_history",
                 "summary_lines": [
-                    "Browsing focused on openai.com and github.com.",
+                    "Browsing concentrated heavily on openai.com.",
                     "Repeated visits clustered around openai.com.",
+                    "Browsing stayed within a small set of sites.",
                 ],
+                "focus_domain": "openai.com",
+                "focus_share": 0.667,
+                "session_count": 1,
                 "top_domains": [
                     {"domain": "openai.com", "count": 2},
                     {"domain": "github.com", "count": 1},
@@ -474,9 +478,13 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
         "chrome_history": {
             "feature_type": "chrome_history",
             "summary_lines": [
-                "Browsing focused on openai.com and github.com.",
+                "Browsing concentrated heavily on openai.com.",
                 "Repeated visits clustered around openai.com.",
+                "Browsing stayed within a small set of sites.",
             ],
+            "focus_domain": "openai.com",
+            "focus_share": 0.667,
+            "session_count": 1,
             "top_domains": [
                 {"domain": "openai.com", "count": 2},
                 {"domain": "github.com", "count": 1},
@@ -499,7 +507,7 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
             "chrome_history": {
                 "feature_type": "chrome_history",
                 "summary_lines": [
-                    "Browsing focused on openai.com and github.com.",
+                    "Browsing concentrated heavily on openai.com.",
                 ],
             }
         },
@@ -542,7 +550,7 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
     )
 
     assert summary is not None
-    assert "Browsing focused on openai.com and github.com." in summary["content"]
+    assert "Browsing concentrated heavily on openai.com." in summary["content"]
 
 
 @pytest.mark.asyncio

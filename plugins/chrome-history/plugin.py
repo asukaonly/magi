@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from typing import Any
 
 from magi.plugins import ActivationFlowSpec, ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 
@@ -23,6 +24,7 @@ DEFAULT_SETTINGS = {
     "initial_sync_lookback_days": 7,
     "initial_sync_configured": False,
 }
+_SESSION_GAP_SECONDS = 30 * 60
 
 
 def _activation_flow(prefix: str) -> ActivationFlowSpec:
@@ -191,7 +193,7 @@ class ChromeHistoryPlugin(Plugin):
         self,
         *,
         source_type: str,
-        events: list[dict[str, object]],
+        events: list[dict[str, Any]],
         summary_category: str,
         period_start: float,
         period_end: float,
@@ -204,6 +206,7 @@ class ChromeHistoryPlugin(Plugin):
 
         domain_counter: Counter[str] = Counter()
         visit_count = 0
+        timestamps: list[float] = []
         for event in events:
             metadata = event.get("metadata_json")
             if not isinstance(metadata, dict):
@@ -219,6 +222,8 @@ class ChromeHistoryPlugin(Plugin):
                 continue
             domain_counter[domain] += 1
             visit_count += max(1, int(provenance.get("merged_visit_count") or 1))
+            if event.get("timestamp") is not None:
+                timestamps.append(float(event["timestamp"]))
 
         if not domain_counter:
             return None
@@ -232,18 +237,41 @@ class ChromeHistoryPlugin(Plugin):
             for domain, count in domain_counter.most_common()
             if count >= 2
         ]
+        unique_domain_count = len(domain_counter)
+        top_domain = top_domains[0]["domain"] if top_domains else None
+        top_domain_count = int(top_domains[0]["count"]) if top_domains else 0
+        focus_share = (top_domain_count / len(events)) if events else 0.0
+        session_count = 1
+        if timestamps:
+            ordered_timestamps = sorted(timestamps)
+            session_count = 1
+            for previous, current in zip(ordered_timestamps, ordered_timestamps[1:]):
+                if current - previous > _SESSION_GAP_SECONDS:
+                    session_count += 1
+
         summary_lines: list[str] = []
-        if top_domains:
-            joined = " and ".join(item["domain"] for item in top_domains[:2])
-            summary_lines.append(f"Browsing focused on {joined}.")
+        if top_domains and top_domain:
+            if focus_share >= 0.6:
+                summary_lines.append(f"Browsing concentrated heavily on {top_domain}.")
+            else:
+                joined = " and ".join(item["domain"] for item in top_domains[:2])
+                summary_lines.append(f"Browsing focused on {joined}.")
         if revisit_domains:
             joined = " and ".join(revisit_domains[:2])
             summary_lines.append(f"Repeated visits clustered around {joined}.")
+        if unique_domain_count <= 3:
+            summary_lines.append("Browsing stayed within a small set of sites.")
+        if session_count >= 2:
+            summary_lines.append(f"Browsing unfolded across {session_count} distinct sessions.")
 
         return {
             "feature_type": "chrome_history",
             "event_count": len(events),
             "visit_count": visit_count,
+            "unique_domain_count": unique_domain_count,
+            "focus_domain": top_domain,
+            "focus_share": focus_share,
+            "session_count": session_count,
             "top_domains": top_domains,
             "revisit_domains": revisit_domains,
             "summary_lines": summary_lines,

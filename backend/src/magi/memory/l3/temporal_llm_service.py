@@ -340,6 +340,7 @@ class TemporalSummaryLLMService:
             "Task:\n"
             "Write a temporal summary for the provided memory window.\n"
             "Use the rule_hints as guidance, not as independent evidence.\n"
+            "When plugin_summary_features are present, use them to surface source-specific behavior patterns such as concentration, revisits, and session structure.\n"
             "Prioritize explicit changes, recurring constraints, and high-importance events.\n\n"
             "Output Requirements:\n"
             "- Return one JSON object only.\n"
