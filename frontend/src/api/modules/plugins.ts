@@ -115,7 +115,12 @@ export interface PluginSettingsUpdateRequest {
 }
 
 const unwrapPayload = <T>(payload: T | ApiResponse<T>): T => {
-  if (payload && typeof payload === 'object' && 'data' in (payload as ApiResponse<T>)) {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'success' in (payload as ApiResponse<T>) &&
+    typeof (payload as ApiResponse<T>).success === 'boolean'
+  ) {
     return ((payload as ApiResponse<T>).data ?? payload) as T;
   }
   return payload as T;
