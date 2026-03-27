@@ -23,7 +23,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             key=f"{prefix}.enabled",
             type="switch",
             label="Enable App Usage Sync",
-            description="Sample the current frontmost app and write hourly summaries to memory.",
+            description="Track frontmost app activation events and write hourly summaries to memory.",
             default=False,
             section="general",
             surface="timeline",
