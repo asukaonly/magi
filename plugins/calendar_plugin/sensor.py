@@ -89,15 +89,17 @@ class CalendarTimelineSensor(SensorBase):
 
         # Determine date range
         now = datetime.now()
+        lookback_floor = now - timedelta(days=lookback_days)
         if context.last_cursor:
             try:
                 last_timestamp = float(context.last_cursor)
-                start_date = datetime.fromtimestamp(last_timestamp)
+                latest_seen_at = datetime.fromtimestamp(last_timestamp)
+                start_date = max(latest_seen_at - timedelta(days=1), lookback_floor)
             except (ValueError, TypeError):
-                start_date = now - timedelta(days=lookback_days)
+                start_date = lookback_floor
         else:
             # Initial sync - get last 30 days by default
-            start_date = now - timedelta(days=lookback_days)
+            start_date = lookback_floor
 
         end_date = now + timedelta(days=recurring_expansion_days)
 
@@ -149,9 +151,9 @@ class CalendarTimelineSensor(SensorBase):
         watermark_ts = context.last_success_at or time.time()
 
         if items:
-            min_timestamp = min(item.get("start_time", time.time()) for item in items)
-            next_cursor = str(min_timestamp)
-            watermark_ts = max(item.get("start_time", time.time()) for item in items)
+            latest_timestamp = max(item.get("start_time", time.time()) for item in items)
+            next_cursor = str(latest_timestamp)
+            watermark_ts = latest_timestamp
 
         return SensorSyncResult(
             items=items,

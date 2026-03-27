@@ -324,6 +324,172 @@ def test_sensor_collect_items_with_stub_reader():
     assert len(result.items) == 0
 
 
+def test_sensor_collect_items_uses_one_day_overlap_from_latest_cursor(monkeypatch):
+    """Test incremental sync re-scans one day before the latest seen event."""
+    from datetime import datetime
+    from calendar_plugin import sensor as sensor_module
+    from calendar_plugin.sensor import CalendarTimelineSensor
+    from magi.timeline import SensorSyncContext
+    from magi.utils.runtime import RuntimePaths
+    import asyncio
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 3, 27, 12, 0, 0)
+
+    captured: dict[str, datetime] = {}
+
+    class _Reader:
+        def get_authorization_status(self):
+            return "authorized"
+
+        def read_events(self, start_date, end_date):
+            captured["start_date"] = start_date
+            captured["end_date"] = end_date
+            return []
+
+    monkeypatch.setattr(sensor_module, "datetime", _FixedDateTime)
+
+    sensor = CalendarTimelineSensor(reader=_Reader())
+    runtime_paths = RuntimePaths()
+    latest_seen_at = datetime(2026, 3, 26, 9, 30, 0)
+    context = SensorSyncContext(
+        source_type="calendar",
+        manual=False,
+        last_cursor=str(latest_seen_at.timestamp()),
+        last_success_at=None,
+        limit=100,
+        runtime_paths=runtime_paths,
+        plugin_settings={"sensors": {"calendar": {"lookback_days": 30, "recurring_expansion_days": 14}}},
+    )
+
+    result = asyncio.run(sensor.collect_items(context))
+
+    assert result.items == []
+    assert captured["start_date"] == datetime(2026, 3, 25, 9, 30, 0)
+    assert captured["end_date"] == datetime(2026, 4, 10, 12, 0, 0)
+
+
+def test_sensor_collect_items_clamps_overlap_to_lookback_window(monkeypatch):
+    """Test incremental overlap never expands beyond the configured lookback window."""
+    from datetime import datetime
+    from calendar_plugin import sensor as sensor_module
+    from calendar_plugin.sensor import CalendarTimelineSensor
+    from magi.timeline import SensorSyncContext
+    from magi.utils.runtime import RuntimePaths
+    import asyncio
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 3, 27, 12, 0, 0)
+
+    captured: dict[str, datetime] = {}
+
+    class _Reader:
+        def get_authorization_status(self):
+            return "authorized"
+
+        def read_events(self, start_date, end_date):
+            captured["start_date"] = start_date
+            captured["end_date"] = end_date
+            return []
+
+    monkeypatch.setattr(sensor_module, "datetime", _FixedDateTime)
+
+    sensor = CalendarTimelineSensor(reader=_Reader())
+    runtime_paths = RuntimePaths()
+    stale_cursor = datetime(2026, 3, 1, 9, 30, 0)
+    context = SensorSyncContext(
+        source_type="calendar",
+        manual=False,
+        last_cursor=str(stale_cursor.timestamp()),
+        last_success_at=None,
+        limit=100,
+        runtime_paths=runtime_paths,
+        plugin_settings={"sensors": {"calendar": {"lookback_days": 7, "recurring_expansion_days": 14}}},
+    )
+
+    asyncio.run(sensor.collect_items(context))
+
+    assert captured["start_date"] == datetime(2026, 3, 20, 12, 0, 0)
+    assert captured["end_date"] == datetime(2026, 4, 10, 12, 0, 0)
+
+
+def test_sensor_collect_items_advances_cursor_to_latest_event(monkeypatch):
+    """Test next_cursor advances to the latest event timestamp, not the earliest one."""
+    from datetime import datetime
+    from calendar_plugin import sensor as sensor_module
+    from calendar_plugin.sensor import CalendarTimelineSensor
+    from calendar_plugin.types import CalendarEvent
+    from magi.timeline import SensorSyncContext
+    from magi.utils.runtime import RuntimePaths
+    import asyncio
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 3, 27, 12, 0, 0)
+
+    class _Reader:
+        def get_authorization_status(self):
+            return "authorized"
+
+        def read_events(self, start_date, end_date):
+            return [
+                CalendarEvent(
+                    event_id="older",
+                    title="Older",
+                    start_time=datetime(2026, 3, 25, 10, 0, 0),
+                    end_time=datetime(2026, 3, 25, 11, 0, 0),
+                    is_all_day=False,
+                    location=None,
+                    notes=None,
+                    calendar_name="Work",
+                    calendar_color="",
+                    participants=[],
+                    is_recurring=False,
+                    recurrence_rule=None,
+                    url=None,
+                ),
+                CalendarEvent(
+                    event_id="latest",
+                    title="Latest",
+                    start_time=datetime(2026, 3, 26, 16, 0, 0),
+                    end_time=datetime(2026, 3, 26, 17, 0, 0),
+                    is_all_day=False,
+                    location=None,
+                    notes=None,
+                    calendar_name="Work",
+                    calendar_color="",
+                    participants=[],
+                    is_recurring=False,
+                    recurrence_rule=None,
+                    url=None,
+                ),
+            ]
+
+    monkeypatch.setattr(sensor_module, "datetime", _FixedDateTime)
+
+    sensor = CalendarTimelineSensor(reader=_Reader())
+    runtime_paths = RuntimePaths()
+    context = SensorSyncContext(
+        source_type="calendar",
+        manual=False,
+        last_cursor=None,
+        last_success_at=None,
+        limit=100,
+        runtime_paths=runtime_paths,
+        plugin_settings={"sensors": {"calendar": {"lookback_days": 30, "recurring_expansion_days": 14}}},
+    )
+
+    result = asyncio.run(sensor.collect_items(context))
+
+    assert result.next_cursor == str(datetime(2026, 3, 26, 16, 0, 0).timestamp())
+    assert result.watermark_ts == datetime(2026, 3, 26, 16, 0, 0).timestamp()
+
+
 def test_default_settings():
     """Test DEFAULT_SETTINGS has expected structure."""
     from calendar_plugin.plugin import DEFAULT_SETTINGS
