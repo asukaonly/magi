@@ -6,6 +6,7 @@ from magi.awareness.ingestion_gateway import SensorIngestionGateway
 from magi.awareness.sensor_base import SensorBase
 from magi.awareness.sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata
 from magi.config import AppConfig
+from magi.memory.event_contracts import MemoryEvent
 from magi.timeline.handler import build_timeline_handler
 
 
@@ -116,8 +117,9 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
     assert result == {"handled": True, "event_id": "photo_library:photo-1", "source_type": "photo_library"}
     assert len(memory.l1.timeline_events) == 1
     stored = memory.l1.timeline_events[0]
-    assert stored["event_id"] == "photo_library:photo-1"
-    assert stored["source"] == "photo_library"
-    assert stored["content"] == "I still like Asuka best."
+    assert isinstance(stored, MemoryEvent)
+    assert stored.event_id == "photo_library:photo-1"
+    assert stored.source == "photo_library"
+    assert stored.content == "I still like Asuka best."
     assert len(memory.edges) == 1
     assert memory.edges[0]["predicate"] == "LIKES"

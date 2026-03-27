@@ -17,6 +17,7 @@ from magi.awareness.sensor_output import (
     SensorOutputMetadata,
 )
 from magi.awareness.sensor_state import SqliteSensorStateStore
+from magi.memory.event_contracts import MemoryEvent
 from magi.memory.event_contracts import MemoryDomain, IngestTarget, RetentionClass, TomDepth
 
 
@@ -74,10 +75,11 @@ class TestSensorIngestionGateway:
         assert result.ingested is True
         memory.ingest_event.assert_awaited_once()
 
-        # Verify the MemoryEvent dict was passed
+        # Verify the canonical MemoryEvent object was passed through unchanged
         call_args = memory.ingest_event.call_args[0][0]
-        assert call_args["event_type"] == "FAKE_EVENT"
-        assert call_args["source"] == "fake_source"
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.event_type == "FAKE_EVENT"
+        assert call_args.source == "fake_source"
 
     @pytest.mark.asyncio
     async def test_ingest_applies_memory_policy(self):
@@ -91,10 +93,11 @@ class TestSensorIngestionGateway:
         await gateway.ingest(sensor, output)
 
         call_args = memory.ingest_event.call_args[0][0]
-        assert call_args["memory_domain"] == "external_activity"
-        assert call_args["ingest_target"] == "l1_only"
-        assert call_args["retention_class"] == "permanent"
-        assert call_args["importance_score"] == 0.7
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.memory_domain == MemoryDomain.EXTERNAL_ACTIVITY
+        assert call_args.ingest_target == IngestTarget.L1_ONLY
+        assert call_args.retention_class == RetentionClass.PERMANENT
+        assert call_args.importance_score == 0.7
 
     @pytest.mark.asyncio
     async def test_ingest_with_timeline_adapter(self):
@@ -204,7 +207,8 @@ class TestSensorIngestionGateway:
         await gateway.ingest(sensor, output)
 
         call_args = memory.ingest_event.call_args[0][0]
-        assert call_args["content"] == "block text"
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.content == "block text"
 
     @pytest.mark.asyncio
     async def test_ingest_copies_domain_payload_to_memory_metadata(self):
@@ -223,7 +227,8 @@ class TestSensorIngestionGateway:
         await gateway.ingest(sensor, output)
 
         call_args = memory.ingest_event.call_args[0][0]
-        assert call_args["metadata_json"] == {
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.metadata_json == {
             "bucket_start": "2026-03-27T10:00:00+08:00",
             "bundle_id": "com.apple.Safari",
             "duration_seconds": 2280,

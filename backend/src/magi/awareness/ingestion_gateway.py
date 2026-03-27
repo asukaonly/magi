@@ -66,7 +66,7 @@ class SensorIngestionGateway:
         memory_event = self._build_memory_event(sensor, event_id, output, policy)
 
         # 2. Ingest into unified memory (L0/L1/L2/L4 as policy dictates)
-        await self._unified_memory.ingest_event(memory_event.to_dict())
+        await self._unified_memory.ingest_event(memory_event)
 
         # 3. Notify timeline adapter (for viewport/query read model)
         if self._timeline_adapter is not None:
