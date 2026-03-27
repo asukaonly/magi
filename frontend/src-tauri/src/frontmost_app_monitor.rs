@@ -47,6 +47,30 @@ impl PluginIngressEvent {
     }
 }
 
+fn build_frontmost_app_activation_event(
+    occurred_at_ms: i64,
+    bundle_id: &str,
+    app_name: &str,
+) -> Result<Option<PluginIngressEvent>, String> {
+    let normalized_bundle_id = bundle_id.trim();
+    if normalized_bundle_id.is_empty() {
+        return Ok(None);
+    }
+
+    let normalized_app_name = if app_name.trim().is_empty() {
+        normalized_bundle_id
+    } else {
+        app_name.trim()
+    };
+
+    PluginIngressEvent::frontmost_app_activated(
+        occurred_at_ms,
+        normalized_bundle_id,
+        normalized_app_name,
+    )
+    .map(Some)
+}
+
 #[derive(Clone, Debug)]
 struct PluginIngressEventStore {
     db_path: PathBuf,
@@ -163,10 +187,28 @@ fn current_time_millis() -> i64 {
         .unwrap_or_default()
 }
 
+fn debug_frontmost_monitor_enabled() -> bool {
+    std::env::var("MAGI_DEBUG_FRONTMOST_APP_MONITOR")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn debug_frontmost_monitor_log(message: &str) {
+    if debug_frontmost_monitor_enabled() {
+        eprintln!("[frontmost_app_monitor] {message}");
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use super::{
-        current_time_millis, runtime_trace_db_path, PluginIngressEvent, PluginIngressEventStore,
+        build_frontmost_app_activation_event, current_time_millis, runtime_trace_db_path,
+        PluginIngressEventStore,
     };
     use block2::RcBlock;
     use objc2::rc::Retained;
@@ -186,10 +228,12 @@ mod macos {
     impl FrontmostAppMonitor {
         pub fn start() -> Result<Self, String> {
             let store = PluginIngressEventStore::new(runtime_trace_db_path()?)?;
+            super::debug_frontmost_monitor_log("starting monitor");
             let workspace = NSWorkspace::sharedWorkspace();
             let notification_center = workspace.notificationCenter();
             let store_for_callback = store.clone();
             let callback = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+                super::debug_frontmost_monitor_log("received activation notification");
                 if let Err(err) = capture_frontmost_app(&store_for_callback, current_time_millis())
                 {
                     eprintln!("failed to append frontmost-app ingress event: {err}");
@@ -206,6 +250,7 @@ mod macos {
             };
 
             capture_frontmost_app(&store, current_time_millis())?;
+            super::debug_frontmost_monitor_log("monitor started");
 
             Ok(Self {
                 notification_center,
@@ -234,14 +279,19 @@ mod macos {
             .ok_or_else(|| "Frontmost application is not available".to_string())?;
 
         let bundle_id = app_bundle_id(&application);
-        if bundle_id.is_empty() {
-            return Err("Frontmost application bundle ID is empty".to_string());
-        }
         let app_name = app_name(&application);
-
-        let event =
-            PluginIngressEvent::frontmost_app_activated(occurred_at_ms, &bundle_id, &app_name)?;
-        store.append_event(&event)
+        super::debug_frontmost_monitor_log(&format!(
+            "captured frontmost app bundle_id='{bundle_id}' app_name='{app_name}'"
+        ));
+        let Some(event) =
+            build_frontmost_app_activation_event(occurred_at_ms, &bundle_id, &app_name)?
+        else {
+            super::debug_frontmost_monitor_log("skipping activation event with empty bundle_id");
+            return Ok(());
+        };
+        store.append_event(&event)?;
+        super::debug_frontmost_monitor_log("appended activation event to plugin_ingress_events");
+        Ok(())
     }
 
     fn app_bundle_id(application: &NSRunningApplication) -> String {
@@ -288,7 +338,9 @@ pub fn setup_monitor() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PluginIngressEvent, PluginIngressEventStore};
+    use super::{
+        build_frontmost_app_activation_event, PluginIngressEvent, PluginIngressEventStore,
+    };
     use rusqlite::Connection;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -352,6 +404,26 @@ mod tests {
         assert_eq!(
             event.payload_json,
             "{\"app_name\":\"Terminal\",\"bundle_id\":\"com.apple.Terminal\"}"
+        );
+    }
+
+    #[test]
+    fn build_frontmost_app_activation_event_skips_empty_bundle_ids() {
+        let event = build_frontmost_app_activation_event(123, "   ", "Safari")
+            .expect("expected event builder to succeed");
+
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn build_frontmost_app_activation_event_falls_back_to_bundle_id_for_empty_name() {
+        let event = build_frontmost_app_activation_event(123, "com.apple.Safari", "   ")
+            .expect("expected event builder to succeed")
+            .expect("expected event to be present");
+
+        assert_eq!(
+            event.payload_json,
+            "{\"app_name\":\"com.apple.Safari\",\"bundle_id\":\"com.apple.Safari\"}"
         );
     }
 
