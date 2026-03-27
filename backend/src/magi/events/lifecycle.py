@@ -8,8 +8,13 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from .contracts import RuntimeCommandType
-from .events import Event, EventLevel, EventTypes
-from .memory_backend import MemoryMessageBackend
+from .events import (
+    Event,
+    EventLevel,
+    EventTypes,
+    REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY,
+)
+from .sqlite_backend import SQLiteMessageBackend
 from .runtime_queue import SQLiteRuntimeCommandQueue
 
 logger = get_logger(__name__)
@@ -27,9 +32,15 @@ class MessageBusModule(LifecycleModule):
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
-        self._context.message_bus.message_bus = MemoryMessageBackend(
+        runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        self._context.message_bus.message_bus = SQLiteMessageBackend(
+            db_path=str(runtime_paths.message_queue_db_path),
             max_queue_size=config.agent.message_bus.max_queue_size,
             num_workers=config.agent.message_bus.num_workers,
+            broadcast_max_concurrency=config.agent.message_bus.broadcast_max_concurrency,
+            handler_timeout_seconds=config.agent.message_bus.handler_timeout_seconds,
+            max_retries=config.agent.message_bus.max_retries,
+            retry_delay_seconds=config.agent.message_bus.retry_delay_seconds,
         )
         await self._context.message_bus.message_bus.start()
         logger.info("MessageBus started")
@@ -166,6 +177,9 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                             source=user_message.source,
                             level=EventLevel.INFO,
                             correlation_id=user_message.correlation_id,
+                            metadata={
+                                REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True,
+                            },
                         )
                     )
                 elif command.command_type is RuntimeCommandType.REFRESH_LLM_CONFIG:
