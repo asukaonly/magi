@@ -943,7 +943,7 @@
         "description": "Local photo library ingestion for the timeline",
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
+          "sync_mode": { "manual": "Manual", "interval": "Interval" },
           "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
           "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
           "fetch_page_content": { "true": "Yes", "false": "No" }

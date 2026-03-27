@@ -943,7 +943,7 @@
         "description": "本地照片库接入时间线",
         "options": {
           "enabled": { "true": "启用", "false": "停用" },
-          "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },
+          "sync_mode": { "manual": "手动", "interval": "定时" },
           "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
           "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
           "fetch_page_content": { "true": "是", "false": "否" }

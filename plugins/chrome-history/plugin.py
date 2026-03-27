@@ -98,7 +98,6 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             options=[
                 ExtensionFieldOption(label="Manual", value="manual"),
                 ExtensionFieldOption(label="Interval", value="interval"),
-                ExtensionFieldOption(label="Watch", value="watch"),
             ],
             section="general",
             surface="timeline",
@@ -113,6 +112,8 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             section="general",
             surface="timeline",
             order=40,
+            depends_on_key=f"{prefix}.sync_mode",
+            depends_on_values=["interval"],
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.lookback_hours",

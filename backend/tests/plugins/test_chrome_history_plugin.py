@@ -204,6 +204,11 @@ def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_defa
     assert activation_flow["configured_key"] == "sensors.chrome_history.initial_sync_configured"
     assert activation_flow["fields"][0]["key"] == "sensors.chrome_history.initial_sync_policy"
     assert all(field.key != "sensors.chrome_history.source_path" for field in spec.fields)
+    sync_mode_field = next(field for field in spec.fields if field.key == "sensors.chrome_history.sync_mode")
+    assert [option.value for option in sync_mode_field.options] == ["manual", "interval"]
+    sync_interval_field = next(field for field in spec.fields if field.key == "sensors.chrome_history.sync_interval_minutes")
+    assert sync_interval_field.depends_on_key == "sensors.chrome_history.sync_mode"
+    assert sync_interval_field.depends_on_values == ["interval"]
 
 
 def test_chrome_history_sensor_exposes_plugin_translations(monkeypatch: pytest.MonkeyPatch) -> None:

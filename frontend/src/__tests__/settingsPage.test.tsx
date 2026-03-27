@@ -267,10 +267,13 @@ const chromeTimelineSourceFixture = {
       section: 'general',
       surface: 'timeline',
       order: 30,
+      depends_on_key: 'sensors.chrome_history.sync_mode',
+      depends_on_values: ['interval'],
     },
   ],
   current_settings: {
     'sensors.chrome_history.enabled': false,
+    'sensors.chrome_history.sync_mode': 'manual',
     'sensors.chrome_history.sync_interval_minutes': 30,
     'sensors.chrome_history.initial_sync_configured': false,
     'sensors.chrome_history.initial_sync_policy': 'lookback_days',
@@ -1082,12 +1085,27 @@ describe('settings page draft saving', () => {
               surface: 'timeline',
               order: 40,
             },
+            {
+              key: 'sensors.chrome_history.sync_interval_minutes',
+              type: 'number',
+              label: 'Sync Interval (minutes)',
+              description: 'Polling interval for interval-based sources.',
+              default: 30,
+              required: false,
+              options: [],
+              section: 'general',
+              surface: 'timeline',
+              order: 50,
+              depends_on_key: 'sensors.chrome_history.sync_mode',
+              depends_on_values: ['interval'],
+            },
           ],
           current_settings: {
             ...chromeTimelineSourceFixture.current_settings,
             'sensors.chrome_history.source_path': '~/Library/Application Support/Google/Chrome',
             'sensors.chrome_history.profile': 'Default',
             'sensors.chrome_history.sync_mode': 'manual',
+            'sensors.chrome_history.sync_interval_minutes': 30,
           },
         },
       ],
@@ -1103,6 +1121,7 @@ describe('settings page draft saving', () => {
     expect(within(chromePanel).getByText('配置档案')).toBeInTheDocument();
     expect(within(chromePanel).getByText('同步方式')).toBeInTheDocument();
     expect(within(chromePanel).queryByText('Chrome Data Path')).not.toBeInTheDocument();
+    expect(within(chromePanel).queryByText('定时间隔')).not.toBeInTheDocument();
   });
 
   it('discard restores draft values without saving', async () => {
