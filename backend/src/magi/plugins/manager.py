@@ -163,6 +163,10 @@ class PluginManager:
     def get_package(self, plugin_id: str) -> Optional[PluginPackageState]:
         return self._package_states.get(plugin_id)
 
+    def iter_loaded_plugins(self) -> list[Plugin]:
+        """Return currently loaded plugin instances."""
+        return list(self._plugin_instances.values())
+
     def load_plugin(self, plugin_id: str) -> PluginPackageState:
         """Load a plugin and register all of its contributions."""
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,53 +16,24 @@ if str(_plugins_path) not in sys.path:
 from magi.timeline import SensorSyncContext
 from magi.utils.runtime import RuntimePaths
 from screen_time.plugin import DEFAULT_SETTINGS, _fields, ScreenTimePlugin
-from screen_time.reader import FrontmostAppReader
+from screen_time.ingress import ScreenTimePluginIngressHandler
 from screen_time.sensor import ScreenTimeTimelineSensor
-from screen_time.types import FrontmostAppSample
-
-
-class StubReader:
-    def __init__(self, sample: FrontmostAppSample | None) -> None:
-        self.sample = sample
-
-    def is_available(self) -> bool:
-        return True
-
-    def read_frontmost_app(self) -> FrontmostAppSample | None:
-        return self.sample
-
-
-def test_reader_is_available_on_non_darwin() -> None:
-    with patch("sys.platform", "win32"):
-        reader = FrontmostAppReader()
-        assert reader.is_available() is False
-
-
-def test_reader_parses_lsappinfo_output() -> None:
-    outputs = iter(
-        [
-            "ASN:0x0-0x91091:\n",
-            '"CFBundleIdentifier"="com.apple.Safari"\n"LSDisplayName"="Safari"\n',
-        ]
-    )
-
-    def _fake_check_output(*args, **kwargs) -> str:
-        _ = (args, kwargs)
-        return next(outputs)
-
-    with patch("sys.platform", "darwin"):
-        with patch("shutil.which", return_value="/usr/bin/lsappinfo"):
-            with patch("subprocess.check_output", side_effect=_fake_check_output):
-                sample = FrontmostAppReader().read_frontmost_app()
-
-    assert sample is not None
-    assert sample.bundle_id == "com.apple.Safari"
-    assert sample.app_name == "Safari"
+from screen_time.state import ScreenTimeStateStore
+from magi.runtime_trace import PluginIngressEventRecord
 
 
 def test_sensor_collect_items_emits_completed_hourly_bucket(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(base_dir=tmp_path / ".magi")
-    sensor = ScreenTimeTimelineSensor(reader=StubReader(FrontmostAppSample(bundle_id="com.openai.codex", app_name="Codex")))
+    sensor = ScreenTimeTimelineSensor()
+    state_store = ScreenTimeStateStore()
+    asyncio.run(
+        state_store.apply_activation(
+            runtime_paths=runtime_paths,
+            occurred_at=datetime(2026, 3, 27, 10, 55, tzinfo=timezone.utc),
+            bundle_id="com.openai.codex",
+            app_name="Codex",
+        )
+    )
 
     first_context = SensorSyncContext(
         source_type="screen_time",
@@ -75,28 +45,30 @@ def test_sensor_collect_items_emits_completed_hourly_bucket(tmp_path: Path) -> N
         plugin_settings={"sensors": {"screen_time": {"sync_interval_minutes": 5}}},
     )
 
-    with patch.object(sensor, "_now", return_value=datetime(2026, 3, 27, 10, 55, tzinfo=timezone.utc)):
+    with patch.object(sensor, "_now", return_value=datetime(2026, 3, 27, 10, 58, tzinfo=timezone.utc)):
         first_result = asyncio.run(sensor.collect_items(first_context))
 
     assert first_result.items == []
 
-    state_path = runtime_paths.memories_dir / "screen_time_state.json"
-    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state_payload["last_sample"]["bundle_id"] == "com.openai.codex"
-
-    sensor._reader = StubReader(FrontmostAppSample(bundle_id="com.apple.Safari", app_name="Safari"))
-    second_context = SensorSyncContext(
-        source_type="screen_time",
-        manual=False,
-        last_cursor=first_result.next_cursor,
-        last_success_at=None,
-        limit=100,
-        runtime_paths=runtime_paths,
-        plugin_settings={"sensors": {"screen_time": {"sync_interval_minutes": 5}}},
+    handler = ScreenTimePluginIngressHandler(runtime_paths=runtime_paths)
+    asyncio.run(
+        handler.handle_event(
+            PluginIngressEventRecord(
+                event_id=1,
+                source_kind="desktop",
+                producer="frontmost_app_monitor",
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                occurred_at_ms=int(datetime(2026, 3, 27, 11, 5, tzinfo=timezone.utc).timestamp() * 1000),
+                payload_json="{}",
+                created_at_ms=0,
+            ),
+            {"bundle_id": "com.apple.Safari", "app_name": "Safari"},
+        )
     )
 
     with patch.object(sensor, "_now", return_value=datetime(2026, 3, 27, 11, 5, tzinfo=timezone.utc)):
-        second_result = asyncio.run(sensor.collect_items(second_context))
+        second_result = asyncio.run(sensor.collect_items(first_context))
 
     assert len(second_result.items) == 1
     item = second_result.items[0]
@@ -105,7 +77,70 @@ def test_sensor_collect_items_emits_completed_hourly_bucket(tmp_path: Path) -> N
     assert item["bundle_id"] == "com.openai.codex"
     assert item["app_name"] == "Codex"
     assert item["duration_seconds"] == 300
-    assert item["sample_count"] == 1
+    assert item["session_count"] == 1
+
+
+def test_screen_time_ingress_handler_updates_activation_state(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(base_dir=tmp_path / ".magi")
+    state_store = ScreenTimeStateStore()
+    handler = ScreenTimePluginIngressHandler(runtime_paths=runtime_paths, state_store=state_store)
+
+    asyncio.run(
+        handler.handle_event(
+            PluginIngressEventRecord(
+                event_id=1,
+                source_kind="desktop",
+                producer="frontmost_app_monitor",
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                occurred_at_ms=int(datetime(2026, 3, 27, 10, 15, tzinfo=timezone.utc).timestamp() * 1000),
+                payload_json="{}",
+                created_at_ms=0,
+            ),
+            {"bundle_id": "com.apple.Safari", "app_name": "Safari"},
+        )
+    )
+    asyncio.run(
+        handler.handle_event(
+            PluginIngressEventRecord(
+                event_id=2,
+                source_kind="desktop",
+                producer="frontmost_app_monitor",
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                occurred_at_ms=int(datetime(2026, 3, 27, 10, 42, tzinfo=timezone.utc).timestamp() * 1000),
+                payload_json="{}",
+                created_at_ms=0,
+            ),
+            {"bundle_id": "com.apple.Terminal", "app_name": "Terminal"},
+        )
+    )
+
+    completed = asyncio.run(
+        state_store.flush_completed(
+            runtime_paths=runtime_paths,
+            now=datetime(2026, 3, 27, 11, 5, tzinfo=timezone.utc),
+        )
+    )
+
+    assert completed == [
+        {
+            "bucket_start": "2026-03-27T10:00:00+00:00",
+            "bucket_end": "2026-03-27T11:00:00+00:00",
+            "bundle_id": "com.apple.Safari",
+            "app_name": "Safari",
+            "duration_seconds": 1620,
+            "session_count": 1,
+        },
+        {
+            "bucket_start": "2026-03-27T10:00:00+00:00",
+            "bucket_end": "2026-03-27T11:00:00+00:00",
+            "bundle_id": "com.apple.Terminal",
+            "app_name": "Terminal",
+            "duration_seconds": 1080,
+            "session_count": 1,
+        },
+    ]
 
 
 def test_sensor_build_output() -> None:
@@ -116,7 +151,7 @@ def test_sensor_build_output() -> None:
         "bundle_id": "com.apple.Safari",
         "app_name": "Safari",
         "duration_seconds": 2280,
-        "sample_count": 4,
+        "session_count": 4,
     }
 
     output = asyncio.run(sensor.build_output(item))
@@ -126,7 +161,7 @@ def test_sensor_build_output() -> None:
     assert output.source_type == "screen_time"
     assert "Safari" in output.title
     assert output.domain_payload["duration_seconds"] == 2280
-    assert output.domain_payload["sample_count"] == 4
+    assert output.domain_payload["session_count"] == 4
 
 
 def test_default_settings() -> None:

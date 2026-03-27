@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import sys
 
+from magi.events.plugin_ingress import PluginIngressHandlerRegistration
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 
-from .reader import FrontmostAppReader
+from .ingress import ScreenTimePluginIngressHandler
 from .sensor import ScreenTimeTimelineSensor
 
 DEFAULT_SETTINGS = {
@@ -31,8 +32,8 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
         ExtensionFieldSpec(
             key=f"{prefix}.sync_interval_minutes",
             type="select",
-            label="Sampling Interval",
-            description="How often to sample the current frontmost app.",
+            label="Flush Interval",
+            description="How often to flush completed hourly app-usage buckets into memory.",
             default=5,
             options=[
                 ExtensionFieldOption(label="Every minute", value="1"),
@@ -64,6 +65,18 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
 class ScreenTimePlugin(Plugin):
     """Registers the frontmost app usage source under the existing package id."""
 
+    def get_plugin_ingress_registrations(self, *, runtime_paths: object) -> list[PluginIngressHandlerRegistration]:
+        if sys.platform != "darwin":
+            return []
+
+        return [
+            PluginIngressHandlerRegistration(
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                handler=ScreenTimePluginIngressHandler(runtime_paths=runtime_paths),
+            )
+        ]
+
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
         if sys.platform != "darwin":
             return []
@@ -73,16 +86,8 @@ class ScreenTimePlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("screen_time", {}))
 
-        source_enabled = bool(settings.get("enabled", DEFAULT_SETTINGS["enabled"]))
-        reader = None
-        if source_enabled:
-            candidate = FrontmostAppReader()
-            if candidate.is_available():
-                reader = candidate
-
         sensor = ScreenTimeTimelineSensor(
             retention_mode=str(settings.get("default_retention_mode", DEFAULT_SETTINGS["default_retention_mode"])),
-            reader=reader,
         )
         sync_interval_minutes = int(settings.get("sync_interval_minutes", DEFAULT_SETTINGS["sync_interval_minutes"]))
 
@@ -93,7 +98,7 @@ class ScreenTimePlugin(Plugin):
                 SensorSpec(
                     sensor_id="timeline.screen_time",
                     display_name="App Usage",
-                    description="Sampled frontmost app usage aggregated into hourly summaries.",
+                    description="Event-driven frontmost app usage aggregated into hourly summaries.",
                     domain="timeline",
                     surface="timeline",
                     sync_mode="interval",

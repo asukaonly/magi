@@ -1,16 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-
-@dataclass(slots=True)
-class FrontmostAppSample:
-    """Single frontmost-app observation."""
-
-    bundle_id: str
-    app_name: str
-
-
 @dataclass(slots=True)
 class HourlyAppUsage:
     """Hourly aggregate for a single frontmost app."""
@@ -20,4 +10,4 @@ class HourlyAppUsage:
     bundle_id: str
     app_name: str
     duration_seconds: int
-    sample_count: int
+    session_count: int

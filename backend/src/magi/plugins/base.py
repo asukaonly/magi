@@ -85,6 +85,9 @@ class Plugin(ABC):
     def get_actions(self) -> list[Any]:
         return []
 
+    def get_plugin_ingress_registrations(self, *, runtime_paths: Any) -> list[Any]:
+        return []
+
     def get_settings_resources(self) -> list[PluginSettingsResourceSpec]:
         return []
 

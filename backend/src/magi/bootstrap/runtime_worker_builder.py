@@ -13,7 +13,12 @@ from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
 from ..core.lifecycle import CoreDependenciesModule
-from ..events.lifecycle import MessageBusModule, RuntimeCommandProcessorModule, RuntimeCommandQueueModule
+from ..events.lifecycle import (
+    MessageBusModule,
+    PluginIngressProcessorModule,
+    RuntimeCommandProcessorModule,
+    RuntimeCommandQueueModule,
+)
 from ..llm.lifecycle import LLMRuntimeModule
 from ..memory.lifecycle import MemoryStoreModule
 from ..personality.lifecycle import PersonalityModule
@@ -46,6 +51,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         ContextModule(context),
         AgentRuntimeModule(context),
         RuntimeCommandProcessorModule(context),
+        PluginIngressProcessorModule(context),
         TimelineModule(context),
         SchedulerModule(context),
         AgentScheduleRegistrationModule(context),

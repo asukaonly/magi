@@ -232,7 +232,7 @@ class PluginIngressProcessorModule(LifecycleModule):
     ):
         super().__init__(
             name="runtime_plugin_ingress_processor",
-            dependencies=("runtime_trace",),
+            dependencies=("runtime_trace", "runtime_plugin_system"),
         )
         self._context = context
         self._poll_interval_seconds = poll_interval_seconds
@@ -244,6 +244,13 @@ class PluginIngressProcessorModule(LifecycleModule):
         }
 
     async def init(self) -> None:
+        plugin_manager = self._context.plugins.plugin_manager
+        if plugin_manager is not None:
+            runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+            for plugin in plugin_manager.iter_loaded_plugins():
+                registrations = plugin.get_plugin_ingress_registrations(runtime_paths=runtime_paths)
+                for registration in registrations:
+                    self._handlers[(registration.plugin_target, registration.event_type)] = registration.handler
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
 
