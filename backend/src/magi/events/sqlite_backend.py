@@ -331,13 +331,19 @@ class SQLiteMessageBackend(MessageBusBackend):
 
         while (time.time() - start_time) < timeout:
             async with sqlite_connection_async(self._expanded_db_path) as db:
-                cursor = await db.execute(
+                pending_cursor = await db.execute(
                     "SELECT COUNT(*) FROM message_queue WHERE status = ?",
                     (STATUS_PENDING,),
                 )
-                count = (await cursor.fetchone())[0]
+                pending_count = (await pending_cursor.fetchone())[0]
 
-                if count == 0:
+                processing_cursor = await db.execute(
+                    "SELECT COUNT(*) FROM message_queue WHERE status = ?",
+                    (STATUS_PROCESSING,),
+                )
+                processing_count = (await processing_cursor.fetchone())[0]
+
+                if pending_count == 0 and processing_count == 0:
                     break
 
             await asyncio.sleep(0.1)

@@ -11,7 +11,6 @@ class MessageBusBackend(ABC):
     Message Bus Backend Abstract Interface
 
     All message bus backends must implement this interface, supporting different storage implementations:
-    - MemoryMessageBackend: Memory queue based on asyncio.priorityQueue
     - SQLiteMessageBackend: persistent queue based on aiosqlite
     - RedisMessageBackend: Distributed queue based on Redis Streams
     """

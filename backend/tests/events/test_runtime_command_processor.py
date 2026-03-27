@@ -12,7 +12,6 @@ from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.events.contracts import RefreshLLMConfigCommand, TimelineSourceSyncCommand, UserMessageCommand
 from magi.events.events import EventTypes
 from magi.events.lifecycle import RuntimeCommandProcessorModule
-from magi.events.memory_backend import MemoryMessageBackend
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 from magi.events.sqlite_backend import SQLiteMessageBackend, STATUS_COMPLETED, STATUS_PENDING
 
@@ -39,12 +38,21 @@ async def _read_message_bus_metadata(db_path: Path) -> dict[str, object] | None:
     return json.loads(str(row[0]))
 
 
+async def _start_sqlite_message_bus(db_path: Path) -> SQLiteMessageBackend:
+    message_bus = SQLiteMessageBackend(
+        db_path=str(db_path),
+        num_workers=1,
+        retry_delay_seconds=0.05,
+    )
+    await message_bus.start()
+    return message_bus
+
+
 @pytest.mark.asyncio
 async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp_path: Path) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
-    message_bus = MemoryMessageBackend()
-    await message_bus.start()
+    message_bus = await _start_sqlite_message_bus(tmp_path / "message_queue.db")
 
     sensor_hub = SensorHub(message_bus=message_bus)
     await sensor_hub.start()
@@ -100,8 +108,7 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp
 async def test_runtime_command_processor_refreshes_llm_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
-    message_bus = MemoryMessageBackend()
-    await message_bus.start()
+    message_bus = await _start_sqlite_message_bus(tmp_path / "message_queue.db")
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
@@ -150,8 +157,7 @@ async def test_runtime_command_processor_refreshes_llm_config(tmp_path: Path, mo
 async def test_runtime_command_processor_stops_claiming_commands_while_draining(tmp_path: Path) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
-    message_bus = MemoryMessageBackend()
-    await message_bus.start()
+    message_bus = await _start_sqlite_message_bus(tmp_path / "message_queue.db")
 
     sensor_hub = SensorHub(message_bus=message_bus)
     await sensor_hub.start()
@@ -197,8 +203,7 @@ async def test_runtime_command_processor_stops_claiming_commands_while_draining(
 async def test_runtime_command_processor_queues_timeline_source_sync(tmp_path: Path) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
-    message_bus = MemoryMessageBackend()
-    await message_bus.start()
+    message_bus = await _start_sqlite_message_bus(tmp_path / "message_queue.db")
 
     class _FakeTimelineSchedulerContrib:
         def __init__(self) -> None:
@@ -249,12 +254,7 @@ async def test_runtime_command_processor_marks_user_messages_for_subscriber_deli
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus_db = tmp_path / "message_queue.db"
-    message_bus = SQLiteMessageBackend(
-        db_path=str(message_bus_db),
-        num_workers=1,
-        retry_delay_seconds=0.5,
-    )
-    await message_bus.start()
+    message_bus = await _start_sqlite_message_bus(message_bus_db)
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue

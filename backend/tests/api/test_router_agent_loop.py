@@ -22,7 +22,7 @@ from magi.agent.runtime import (
     TaskAgentType,
 )
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.events.memory_backend import MemoryMessageBackend
+from magi.events.sqlite_backend import SQLiteMessageBackend
 
 
 class _NoopTaskAgent(TaskAgent):
@@ -34,8 +34,8 @@ class _NoopTaskAgent(TaskAgent):
 
 
 @pytest.mark.asyncio
-async def test_router_agent_loop_dispatches_batch_to_targets():
-    message_bus = MemoryMessageBackend()
+async def test_router_agent_loop_dispatches_batch_to_targets(tmp_path):
+    message_bus = SQLiteMessageBackend(db_path=str(tmp_path / "message_queue.db"), num_workers=1)
     await message_bus.start()
 
     sensor_hub = SensorHub(message_bus=message_bus)
@@ -74,8 +74,8 @@ async def test_router_agent_loop_dispatches_batch_to_targets():
 
 
 @pytest.mark.asyncio
-async def test_router_agent_loop_routes_targeted_timeline_events():
-    message_bus = MemoryMessageBackend()
+async def test_router_agent_loop_routes_targeted_timeline_events(tmp_path):
+    message_bus = SQLiteMessageBackend(db_path=str(tmp_path / "message_queue.db"), num_workers=1)
     await message_bus.start()
 
     sensor_hub = SensorHub(message_bus=message_bus)

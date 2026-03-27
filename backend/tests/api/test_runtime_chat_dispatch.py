@@ -29,7 +29,7 @@ from magi.agent.runtime import (
 )
 from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.events.memory_backend import MemoryMessageBackend
+from magi.events.sqlite_backend import SQLiteMessageBackend
 
 
 class _FakeChatTaskAgent(
@@ -79,8 +79,8 @@ class _FakeChatTaskAgent(
 
 
 @pytest.mark.asyncio
-async def test_runtime_chat_dispatch_from_message_bus():
-    message_bus = MemoryMessageBackend()
+async def test_runtime_chat_dispatch_from_message_bus(tmp_path):
+    message_bus = SQLiteMessageBackend(db_path=str(tmp_path / "message_queue.db"), num_workers=1)
     await message_bus.start()
 
     fake_chat = _FakeChatTaskAgent()
@@ -120,8 +120,8 @@ async def test_runtime_chat_dispatch_from_message_bus():
 
 
 @pytest.mark.asyncio
-async def test_sensor_hub_preserves_runtime_namespace_from_user_messages():
-    message_bus = MemoryMessageBackend()
+async def test_sensor_hub_preserves_runtime_namespace_from_user_messages(tmp_path):
+    message_bus = SQLiteMessageBackend(db_path=str(tmp_path / "message_queue.db"), num_workers=1)
     await message_bus.start()
 
     sensor_hub = SensorHub(message_bus=message_bus)

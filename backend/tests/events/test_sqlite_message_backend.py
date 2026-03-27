@@ -139,3 +139,43 @@ async def test_noncritical_event_without_local_subscribers_still_completes(tmp_p
 
     await backend._mark_completed(event_id)
     assert await _read_message_row(db_path) == (STATUS_COMPLETED, 0)
+
+
+@pytest.mark.asyncio
+async def test_stop_waits_for_processing_handlers_to_finish(tmp_path: Path) -> None:
+    db_path = tmp_path / "message_queue.db"
+    backend = SQLiteMessageBackend(db_path=str(db_path), num_workers=1)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished: list[str] = []
+
+    async def _handler(event: Event) -> None:
+        started.set()
+        await release.wait()
+        finished.append(str(event.type))
+
+    await backend.subscribe(EventTypes.USER_MESSAGE, _handler)
+    await backend.start()
+
+    try:
+        await backend.publish(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"content": "hello"},
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=2.0)
+
+        stop_task = asyncio.create_task(backend.stop())
+        await asyncio.sleep(0.1)
+        assert stop_task.done() is False
+
+        release.set()
+        await asyncio.wait_for(stop_task, timeout=2.0)
+
+        assert finished == [EventTypes.USER_MESSAGE]
+        assert await _read_message_row(db_path) == (STATUS_COMPLETED, 0)
+    finally:
+        release.set()
+        if backend._running:
+            await backend.stop()

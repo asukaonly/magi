@@ -128,6 +128,13 @@ def test_legacy_runtime_package_files_are_removed() -> None:
     assert not (src_root / "runtime/bootstrap.py").exists()
 
 
+def test_legacy_memory_message_bus_backend_is_removed() -> None:
+    """Verify the obsolete in-memory message bus backend is deleted."""
+    src_root = Path(__file__).resolve().parents[2] / "src/magi"
+
+    assert not (src_root / "events/memory_backend.py").exists()
+
+
 def test_scheduler_module_does_not_import_domain_contributors() -> None:
     """Verify scheduler lifecycle no longer imports domain schedule contributors."""
     scheduler_lifecycle = Path(__file__).resolve().parents[2] / "src/magi/scheduler/lifecycle.py"
