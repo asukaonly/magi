@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight,
@@ -117,6 +117,17 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     handleDiscardChanges,
     getHandle,
   } = useSettings();
+
+  const sortedTimelineStatuses = useMemo(() => {
+    const collator = new Intl.Collator(undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+
+    return [...timelineStatuses].sort((left, right) =>
+      collator.compare(getTimelineSourceDisplayName(t, left), getTimelineSourceDisplayName(t, right))
+    );
+  }, [t, timelineStatuses]);
 
   const isNavGroupActive = (item: NavItem) => {
     if (!isNavGroup(item)) {
@@ -399,7 +410,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return (
           <TimelineSourcesSection
             userMode={draftConfig.preferences.user_mode}
-            statuses={timelineStatuses}
+            statuses={sortedTimelineStatuses}
             loadingStatus={timelineStatusesLoading}
             selectedSourceName={timelineSelection}
             pluginDrafts={draftPluginDrafts}
@@ -641,7 +652,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                         {t('settings.timeline.nav.overview')}
                       </button>
 
-                      {timelineStatuses.map((source) => {
+                      {sortedTimelineStatuses.map((source) => {
                         const isSelected = timelineSelection === source.source_name;
                         const displayName = getTimelineSourceDisplayName(t, source);
                         return (

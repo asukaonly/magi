@@ -1000,6 +1000,75 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.timeline.actions.refresh' })).not.toBeInTheDocument();
   });
 
+  it('keeps timeline nav items alphabetized after overview', async () => {
+    const user = userEvent.setup();
+    vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
+      sources: [
+        {
+          ...timelineSourceFixture,
+          source_name: 'gamma_source',
+          contribution_id: 'timeline.gamma_source',
+          display_name: 'Gamma',
+          description: 'Gamma source',
+          fields: [
+            {
+              ...timelineSourceFixture.fields[0],
+              key: 'sensors.gamma_source.enabled',
+            },
+          ],
+          current_settings: {
+            'sensors.gamma_source.enabled': true,
+          },
+        },
+        {
+          ...timelineSourceFixture,
+          source_name: 'alpha_source',
+          contribution_id: 'timeline.alpha_source',
+          display_name: 'Alpha',
+          description: 'Alpha source',
+          fields: [
+            {
+              ...timelineSourceFixture.fields[0],
+              key: 'sensors.alpha_source.enabled',
+            },
+          ],
+          current_settings: {
+            'sensors.alpha_source.enabled': true,
+          },
+        },
+        {
+          ...timelineSourceFixture,
+          source_name: 'beta_source',
+          contribution_id: 'timeline.beta_source',
+          display_name: 'Beta',
+          description: 'Beta source',
+          fields: [
+            {
+              ...timelineSourceFixture.fields[0],
+              key: 'sensors.beta_source.enabled',
+            },
+          ],
+          current_settings: {
+            'sensors.beta_source.enabled': true,
+          },
+        },
+      ],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+
+    const overview = await screen.findByTestId('timeline-nav-overview');
+    const alpha = await screen.findByTestId('timeline-nav-source-alpha_source');
+    const beta = await screen.findByTestId('timeline-nav-source-beta_source');
+    const gamma = await screen.findByTestId('timeline-nav-source-gamma_source');
+
+    expect(overview.compareDocumentPosition(alpha) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(alpha.compareDocumentPosition(beta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(beta.compareDocumentPosition(gamma) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('keeps activation flow results local until save', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
