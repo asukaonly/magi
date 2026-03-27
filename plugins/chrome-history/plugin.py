@@ -95,6 +95,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             label="Sync Mode",
             description="How Chrome history should be synchronized.",
             default="manual",
+            required=True,
             options=[
                 ExtensionFieldOption(label="Manual", value="manual"),
                 ExtensionFieldOption(label="Interval", value="interval"),

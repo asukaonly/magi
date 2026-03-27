@@ -62,6 +62,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             label="Sync Mode",
             description="Choose whether calendar sync runs manually or on a schedule.",
             default="interval",
+            required=True,
             options=[
                 ExtensionFieldOption(label="Manual", value="manual"),
                 ExtensionFieldOption(label="Scheduled", value="interval"),
@@ -76,6 +77,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             label="Sync Interval",
             description="How often to sync calendar events when scheduled sync is enabled.",
             default="30",
+            required=True,
             options=[
                 ExtensionFieldOption(label="15 minutes", value="15"),
                 ExtensionFieldOption(label="30 minutes", value="30"),
