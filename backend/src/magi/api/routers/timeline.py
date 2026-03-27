@@ -140,8 +140,26 @@ async def get_timeline_source_status():
             build_timeline_target_key(item.plugin_id, source_name),
         )
         schedule = await repository.get_schedule(schedule_id)
+        recurring_binding = await repository.get_recurring_target_binding(
+            ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+            build_timeline_target_key(item.plugin_id, source_name),
+        )
         supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
         visible_last_error = state.last_error if (state is not None and supports_pull_sync) else None
+        resolved_next_run_at = (
+            state.next_run_at
+            if (state is not None and state.next_run_at is not None)
+            else (recurring_binding[1] if recurring_binding is not None else None)
+        )
+        resolved_scheduler_job_id = (
+            recurring_binding[0]
+            if recurring_binding is not None
+            else (
+                schedule.job_id
+                if schedule is not None
+                else (state.scheduler_job_id if state is not None else None)
+            )
+        )
         sources.append(
             {
                 "source_name": source_name,
@@ -239,12 +257,8 @@ async def get_timeline_source_status():
                 "last_error": visible_last_error,
                 "last_success": state.last_success_at if state is not None else None,
                 "last_sync_at": state.last_success_at if state is not None else None,
-                "next_run_at": state.next_run_at if state is not None else None,
-                "scheduler_job_id": (
-                    schedule.job_id
-                    if schedule is not None
-                    else (state.scheduler_job_id if state is not None else None)
-                ),
+                "next_run_at": resolved_next_run_at,
+                "scheduler_job_id": resolved_scheduler_job_id,
                 "runtime_base_dir": str(runtime_paths.base_dir),
             }
         )

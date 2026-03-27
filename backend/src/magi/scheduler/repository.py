@@ -173,6 +173,50 @@ class ScheduleRepository:
             return None
         return self._row_to_schedule(row)
 
+    async def get_recurring_target_binding(
+        self,
+        target_type: ScheduledTargetType,
+        target_key: str,
+    ) -> Optional[tuple[str, float | None]]:
+        """Return the active recurring job binding for a target, if any."""
+
+        async with self._connect() as db:
+            jobs_table_cursor = await db.execute(
+                """
+                SELECT 1
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'apscheduler_jobs'
+                LIMIT 1
+                """
+            )
+            has_apscheduler_jobs = await jobs_table_cursor.fetchone() is not None
+            jobs_join = (
+                "LEFT JOIN apscheduler_jobs AS j ON j.id = COALESCE(s.job_id, s.schedule_id)"
+                if has_apscheduler_jobs
+                else ""
+            )
+            next_run_select = "j.next_run_time" if has_apscheduler_jobs else "NULL"
+            cursor = await db.execute(
+                f"""
+                SELECT
+                    COALESCE(s.job_id, s.schedule_id) AS job_binding_id,
+                    {next_run_select}
+                FROM schedules AS s
+                {jobs_join}
+                WHERE s.target_type = ?
+                  AND s.target_key = ?
+                  AND s.enabled = 1
+                  AND s.trigger_type != 'once'
+                ORDER BY s.updated_at DESC
+                LIMIT 1
+                """,
+                (target_type.value, target_key),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return str(row[0]), float(row[1]) if row[1] is not None else None
+
     async def list_schedules(self, *, enabled_only: bool = False) -> list[ScheduleDefinition]:
         query = (
             "SELECT schedule_id, target_type, target_key, trigger_type, trigger_config, "

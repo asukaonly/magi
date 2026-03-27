@@ -8,6 +8,7 @@ from magi.api.routers import timeline as timeline_module
 from magi.api.routers.timeline import timeline_router
 from magi.plugins import ExtensionFieldSpec
 from magi.scheduler import (
+    SchedulerService,
     ScheduleDefinition,
     ScheduledExecutionResult,
     ScheduledTargetState,
@@ -697,6 +698,137 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
     assert body["sources"][0]["source_name"] == "photo_library"
     assert body["sources"][0]["supports_pull_sync"] is False
     assert body["sources"][0]["last_error"] is None
+
+
+def test_get_timeline_source_status_prefers_recurring_next_run_after_manual_sync(monkeypatch, tmp_path):
+    app = FastAPI()
+    app.include_router(timeline_router, prefix="/api/timeline")
+    monkeypatch.setattr(timeline_module, "get_timeline_service", lambda: _FakeTimelineService())
+    monkeypatch.setattr(timeline_module, "get_config", lambda: type("Config", (), {})())
+    runtime_base_dir = tmp_path / "runtime"
+    scheduler_db_path = runtime_base_dir / "data" / "scheduler.db"
+    runtime_base_dir.mkdir(parents=True, exist_ok=True)
+
+    async def _seed_state():
+        service = SchedulerService(db_path=scheduler_db_path, runtime_dir=runtime_base_dir)
+
+        async def _handler(_context):
+            return ScheduledExecutionResult(success=True, message="ok", stats={"count": 1})
+
+        service.register_handler(ScheduledTargetType.TIMELINE_SENSOR_SYNC, _handler)
+        await service.start()
+        await service.schedule_interval(
+            schedule_id="timeline-sync:calendar:calendar",
+            target_type=ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+            target_key="calendar:calendar",
+            seconds=1800.0,
+            target_payload={"plugin_id": "calendar", "source_type": "calendar", "manual": False},
+        )
+        await service.repository.record_target_success(
+            ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+            "calendar:calendar",
+            result=ScheduledExecutionResult(success=True, message="timeline_sync_completed", stats={"count": 1}),
+            next_run_at=None,
+            scheduler_job_id="timeline-sync-manual:calendar:calendar:test",
+        )
+        await service.stop()
+
+    asyncio.run(_seed_state())
+    monkeypatch.setattr(
+        timeline_module,
+        "get_runtime_paths",
+        lambda: type(
+            "Paths",
+            (),
+            {
+                "base_dir": runtime_base_dir,
+                "scheduler_db_path": scheduler_db_path,
+            },
+        )(),
+    )
+    plugin_state = type(
+        "PluginState",
+        (),
+        {
+            "manifest": type("Manifest", (), {"plugin_id": "calendar"})(),
+            "current_settings": {
+                "sensors": {
+                    "calendar": {
+                        "enabled": True,
+                        "sync_mode": "interval",
+                        "sync_interval_minutes": 30,
+                    }
+                }
+            },
+        },
+    )()
+    monkeypatch.setattr(
+        timeline_module,
+        "require_plugin_manager",
+        lambda: type("Manager", (), {"list_packages": lambda self: [plugin_state]})(),
+    )
+    monkeypatch.setattr(
+        timeline_module,
+        "require_sensor_registry",
+        lambda: type(
+            "Registry",
+            (),
+            {
+                "list_contributions": lambda self: [
+                    type(
+                        "Contribution",
+                        (),
+                        {
+                            "plugin_id": "calendar",
+                            "contribution_id": "timeline.calendar",
+                            "display_name": "Calendar",
+                            "description": "Calendar event ingestion for the timeline.",
+                            "fields": [
+                                ExtensionFieldSpec(
+                                    key="sensors.calendar.enabled",
+                                    type="switch",
+                                    label="Enabled",
+                                    description="Whether this source is active.",
+                                    default=True,
+                                    section="general",
+                                    surface="timeline",
+                                    order=10,
+                                )
+                            ],
+                            "metadata": {
+                                "domain": "timeline",
+                                "source_type": "calendar",
+                                "default_settings": {
+                                    "enabled": True,
+                                    "sync_mode": "interval",
+                                    "sync_interval_minutes": 30,
+                                },
+                                "sync_mode": "interval",
+                            },
+                        },
+                    )()
+                ],
+                "resolve_domain_sensor": lambda self, domain, source_name: (
+                    (
+                        "calendar",
+                        "timeline.calendar",
+                        type("Sensor", (), {"supports_pull_sync": True})(),
+                        type("Spec", (), {"metadata": {"default_settings": {}}, "sync_mode": "interval"})(),
+                    )
+                    if domain == "timeline" and source_name == "calendar"
+                    else None
+                ),
+            },
+        )(),
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/timeline/sources/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sources"][0]["scheduler_job_id"] == "timeline-sync:calendar:calendar"
+    assert body["sources"][0]["next_run_at"] is not None
 
 
 def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):
