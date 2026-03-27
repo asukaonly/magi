@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
+from ..runtime_trace import PluginIngressEventRecord
 from .contracts import RuntimeCommandType
+from .plugin_ingress import PluginIngressHandlerRegistration
 from .events import (
     Event,
     EventLevel,
@@ -215,3 +218,86 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                     self._idle_event.set()
                 logger.warning("Runtime command processing failed", error=str(exc))
                 await asyncio.sleep(self._poll_interval_seconds)
+
+
+class PluginIngressProcessorModule(LifecycleModule):
+    """Consume persisted plugin ingress events and route them to handlers."""
+
+    def __init__(
+        self,
+        context: RuntimeBootstrapContext,
+        *,
+        handlers: list[PluginIngressHandlerRegistration] | None = None,
+        poll_interval_seconds: float = 0.1,
+    ):
+        super().__init__(
+            name="runtime_plugin_ingress_processor",
+            dependencies=("runtime_trace",),
+        )
+        self._context = context
+        self._poll_interval_seconds = poll_interval_seconds
+        self._task: asyncio.Task | None = None
+        self._running = False
+        self._handlers = {
+            (registration.plugin_target, registration.event_type): registration.handler
+            for registration in (handlers or [])
+        }
+
+    async def init(self) -> None:
+        self._running = True
+        self._task = asyncio.create_task(self._run_loop())
+
+    async def shutdown(self) -> None:
+        self._running = False
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+    async def _run_loop(self) -> None:
+        store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
+
+        while self._running:
+            try:
+                event = await store.claim_next_plugin_ingress_event(consumer_name="runtime_worker")
+                if event is None:
+                    await asyncio.sleep(self._poll_interval_seconds)
+                    continue
+
+                await self._dispatch_event(store, event)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Plugin ingress processing failed", error=str(exc))
+                await asyncio.sleep(self._poll_interval_seconds)
+
+    async def _dispatch_event(
+        self,
+        store,
+        event: PluginIngressEventRecord,
+    ) -> None:
+        handler = self._handlers.get((event.plugin_target, event.event_type))
+        if handler is None:
+            await store.fail_plugin_ingress_event(
+                event.event_id,
+                error_text=(
+                    f"No plugin ingress handler registered for "
+                    f"{event.plugin_target}:{event.event_type}"
+                ),
+            )
+            return
+
+        payload = json.loads(event.payload_json or "{}")
+        if not isinstance(payload, dict):
+            payload = {}
+
+        try:
+            await handler.handle_event(event, payload)
+        except Exception as exc:
+            await store.fail_plugin_ingress_event(event.event_id, error_text=str(exc))
+            return
+
+        await store.complete_plugin_ingress_event(event.event_id)

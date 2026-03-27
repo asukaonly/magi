@@ -154,3 +154,79 @@ async def test_runtime_trace_store_persists_runtime_heartbeat(tmp_path: Path) ->
         assert heartbeat.queue_backlog == 3
     finally:
         await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_store_creates_plugin_ingress_events_table(tmp_path: Path) -> None:
+    from magi.runtime_trace.store import RuntimeTraceStore
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+
+    await store.initialize()
+
+    try:
+        tables = _list_tables(db_path)
+        assert "plugin_ingress_events" in tables
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_path: Path) -> None:
+    from magi.runtime_trace import PluginIngressEventRecord, RuntimeTraceStore
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        event_id = await store.append_plugin_ingress_event(
+            PluginIngressEventRecord(
+                event_id=0,
+                source_kind="desktop",
+                producer="frontmost_app_monitor",
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                occurred_at_ms=1_711_523_200_000,
+                payload_json='{"bundle_id":"com.apple.Safari","app_name":"Safari"}',
+                created_at_ms=1_711_523_200_050,
+            )
+        )
+
+        claimed = await store.claim_next_plugin_ingress_event(consumer_name="runtime_worker")
+        assert claimed is not None
+        assert claimed.event_id == event_id
+        assert claimed.status == "claimed"
+        assert claimed.claimed_by == "runtime_worker"
+
+        await store.complete_plugin_ingress_event(event_id)
+        completed = await store.get_plugin_ingress_event(event_id)
+        assert completed is not None
+        assert completed.status == "completed"
+        assert completed.processed_at_ms is not None
+
+        failed_event_id = await store.append_plugin_ingress_event(
+            PluginIngressEventRecord(
+                event_id=0,
+                source_kind="desktop",
+                producer="frontmost_app_monitor",
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                occurred_at_ms=1_711_523_500_000,
+                payload_json='{"bundle_id":"com.apple.Terminal","app_name":"Terminal"}',
+                created_at_ms=1_711_523_500_010,
+            )
+        )
+        failed_claim = await store.claim_next_plugin_ingress_event(consumer_name="runtime_worker")
+        assert failed_claim is not None
+        assert failed_claim.event_id == failed_event_id
+
+        await store.fail_plugin_ingress_event(failed_event_id, error_text="HANDLER_FAILED")
+        failed = await store.get_plugin_ingress_event(failed_event_id)
+        assert failed is not None
+        assert failed.status == "failed"
+        assert failed.last_error == "HANDLER_FAILED"
+        assert failed.processed_at_ms is not None
+    finally:
+        await store.shutdown()

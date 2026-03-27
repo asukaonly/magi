@@ -124,3 +124,21 @@ class RuntimeHeartbeatRecord:
     active_turns: int = 0
     active_workers: int = 0
     last_error: str | None = None
+
+
+@dataclass(slots=True)
+class PluginIngressEventRecord:
+    event_id: int
+    source_kind: str
+    producer: str
+    plugin_target: str
+    event_type: str
+    occurred_at_ms: int
+    payload_json: str = "{}"
+    cursor_key: str | None = None
+    status: str = "pending"
+    claimed_by: str | None = None
+    claimed_at_ms: int | None = None
+    processed_at_ms: int | None = None
+    last_error: str | None = None
+    created_at_ms: int = 0
