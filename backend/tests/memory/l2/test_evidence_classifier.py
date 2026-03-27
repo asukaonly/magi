@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.memory.event_contracts import normalize_runtime_event
+from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
 
 
 def _build_user_message(*, message: str = "I like sushi.", metadata: dict | None = None):
@@ -42,15 +42,29 @@ def _build_ai_response(*, text: str = "You like sushi.", metadata: dict | None =
     )
 
 
-def _build_timeline_event(*, summary: str = "Calendar shows a meeting tomorrow."):
-    return Event(
-        type="TIMELINE_EVENT",
-        data={"content": summary, "content_type": "observation"},
-        source="calendar",
-        level=EventLevel.INFO,
+def _build_external_observation(*, summary: str = "Calendar shows a meeting tomorrow."):
+    return MemoryEvent(
+        event_id="evt-timeline-1",
         correlation_id="evt-timeline-1",
-        metadata={"timeline": {"source_type": "calendar"}, "user_id": "u1"},
         timestamp=1710000002.0,
+        created_at=1710000002.0,
+        event_type="SENSOR_EVENT",
+        source="calendar",
+        source_item_id="calendar:item-1",
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        ingest_target=IngestTarget.L1_ONLY,
+        cognition_eligible=True,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+        retention_class=RetentionClass.COMPRESSIBLE,
+        session_id=None,
+        turn_id=None,
+        user_id="u1",
+        task_id=None,
+        content=summary,
+        author_type="external",
+        content_type="observation",
+        importance_score=0.75,
+        level=EventLevel.INFO.value,
     )
 
 
@@ -81,7 +95,7 @@ def test_normalized_event_defaults_assistant_evidence_metadata():
 
 
 def test_normalized_event_defaults_external_observation_metadata():
-    memory_event = normalize_runtime_event(_build_timeline_event())
+    memory_event = _build_external_observation()
 
     assert memory_event.author_type == "external"
     assert memory_event.content_type == "observation"
@@ -142,7 +156,7 @@ def test_classifier_maps_assistant_freeform():
 def test_classifier_maps_external_observation():
     from magi.memory.l2.evidence_classifier import classify_event_evidence
 
-    classification = classify_event_evidence(normalize_runtime_event(_build_timeline_event()))
+    classification = classify_event_evidence(_build_external_observation())
 
     assert classification.evidence_class == "external_observation"
     assert classification.reason_code == "external_source"

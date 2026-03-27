@@ -242,24 +242,6 @@ def _extract_content(event: Event, *, payload: dict[str, Any], metadata: dict[st
     content = _first_non_empty(payload.get("content"))
     if content is not None:
         return content
-    if event_type == "TIMELINE_EVENT":
-        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
-        content_blocks = payload.get("content_blocks") if isinstance(payload.get("content_blocks"), list) else []
-        block_text = " ".join(
-            str(item.get("value")).strip()
-            for item in content_blocks
-            if isinstance(item, dict) and str(item.get("value") or "").strip()
-        )
-        return (
-            _first_non_empty(
-                payload.get("summary"),
-                timeline.get("summary"),
-                block_text,
-                payload.get("title"),
-                timeline.get("title"),
-            )
-            or ""
-        )
     if event_type == EventTypes.ACTION_EXECUTED:
         return _first_non_empty(payload.get("optimized_prompt"), payload.get("action_type")) or ""
     if event_type in TRACE_RUNTIME_EVENT_TYPES:
@@ -284,10 +266,6 @@ def _resolve_author_type(event: Event, *, payload: dict[str, Any], metadata: dic
         return "user"
     if event_type == EventTypes.AI_RESPONSE:
         return "assistant"
-    if event_type == "TIMELINE_EVENT":
-        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
-        source_type = str(timeline.get("source_type") or source)
-        return "user" if source_type == "manual_journal" else "external"
     if event_type == EventTypes.ACTION_EXECUTED:
         return "tool"
     if rule["memory_domain"] == MemoryDomain.RUNTIME_TELEMETRY or source == "system":
@@ -306,8 +284,6 @@ def _resolve_content_type(event: Event, *, payload: dict[str, Any], metadata: di
         return "text"
     if event_type == EventTypes.ACTION_EXECUTED:
         return "tool_result"
-    if event_type == "TIMELINE_EVENT":
-        return "observation"
     if event_type in TRACE_RUNTIME_EVENT_TYPES:
         return "observation"
     return "text"
@@ -326,26 +302,6 @@ def _classify_event(event: Event) -> Dict[str, Any]:
             "tom_depth": TomDepth.DEFENSIVE_PSYCHOLOGY,
             "retention_class": RetentionClass.PERMANENT,
             "importance": 0.8,
-        }
-
-    if event_type == "TIMELINE_EVENT":
-        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
-        source_type = str(timeline.get("source_type") or source)
-        if source_type == "manual_journal":
-            tom_depth = TomDepth.DEFENSIVE_PSYCHOLOGY
-            retention_class = RetentionClass.PERMANENT
-            domain = MemoryDomain.USER_AUTHORED
-        else:
-            tom_depth = TomDepth.TOPOLOGY_ONLY
-            retention_class = RetentionClass.COMPRESSIBLE
-            domain = MemoryDomain.EXTERNAL_ACTIVITY
-        return {
-            "memory_domain": domain,
-            "ingest_target": IngestTarget.L1_ONLY,
-            "cognition_eligible": True,
-            "tom_depth": tom_depth,
-            "retention_class": retention_class,
-            "importance": 0.75,
         }
 
     if event_type in {"WORKER_AGENT_PROGRESS", EventTypes.LOOP_STARTED, EventTypes.LOOP_PHASE_STARTED, "Heartbeat"}:

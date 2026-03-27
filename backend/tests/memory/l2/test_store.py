@@ -6,7 +6,7 @@ import aiosqlite
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.memory.event_contracts import normalize_runtime_event
+from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
 
 
 async def _build_user_message(text: str, *, correlation_id: str, timestamp: float):
@@ -25,17 +25,46 @@ async def _build_user_message(text: str, *, correlation_id: str, timestamp: floa
 
 
 async def _build_group_timeline_message(text: str, *, correlation_id: str, timestamp: float):
-    return normalize_runtime_event(
-        Event(
-            type="TIMELINE_EVENT",
-            data={"title": "Group chat", "summary": text},
-            source="group_chat",
-            level=EventLevel.INFO,
-            correlation_id=correlation_id,
-            metadata={"timeline": {"source_type": "group_chat"}, "user_id": "u1"},
-            timestamp=timestamp,
-        ),
+    return MemoryEvent(
         event_id=correlation_id,
+        correlation_id=correlation_id,
+        timestamp=timestamp,
+        created_at=timestamp,
+        event_type="SENSOR_EVENT",
+        source="group_chat",
+        source_item_id=f"group_chat:{correlation_id}",
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        ingest_target=IngestTarget.L1_ONLY,
+        cognition_eligible=True,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+        retention_class=RetentionClass.COMPRESSIBLE,
+        session_id=None,
+        turn_id=None,
+        user_id="u1",
+        task_id=None,
+        content=text,
+        author_type="external",
+        content_type="observation",
+        importance_score=0.75,
+        level=EventLevel.INFO.value,
+        metadata_json={
+            "timeline": {
+                "event_id": correlation_id,
+                "source_type": "group_chat",
+                "source_item_id": f"group_chat:{correlation_id}",
+                "occurred_at": timestamp,
+                "captured_at": timestamp,
+                "title": "Group chat",
+                "summary": text,
+                "retention_mode": "analyze_only",
+                "content_blocks": [{"kind": "text", "value": text, "mime_type": None}],
+                "entities": [],
+                "tags": [],
+                "privacy_labels": [],
+                "processing_status": {"stored": True, "analyzed": False},
+                "provenance": {},
+            }
+        },
     )
 
 

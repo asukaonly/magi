@@ -29,7 +29,7 @@ class TimelineService:
         allowed_edge_whitelist: Optional[list[str]] = None,
     ) -> str:
         # Sensor outputs are already persisted into L1 by SensorIngestionGateway.
-        # Re-ingesting them here would create a second TIMELINE_EVENT entry and
+        # Re-ingesting them here would create a second derived memory record and
         # enqueue duplicate L2 work for the same source item.
         event.processing_status["stored"] = True
         if relation_candidates:
