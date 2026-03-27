@@ -30,6 +30,7 @@ class SensorBase(ABC):
     sensor_id: str = "sensor.base"
     display_name: str = "Sensor"
     source_type: str = "unknown"
+    memory_event_type: str = "SENSOR_EVENT"
 
     # Sync capabilities
     supports_pull_sync: bool = False

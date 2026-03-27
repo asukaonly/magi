@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import json
 import re
 import time
 from pathlib import Path
@@ -112,6 +113,7 @@ class L1EventStore:
                     importance_score REAL NOT NULL DEFAULT 0.5,
                     level INTEGER NOT NULL DEFAULT 1,
                     media_path TEXT,
+                    metadata_json TEXT,
                     embedding_status TEXT NOT NULL DEFAULT 'disabled',
                     embedding_profile_id TEXT,
                     deleted_at REAL
@@ -157,6 +159,7 @@ class L1EventStore:
                 """
             )
             await self._ensure_embedding_status_columns(db)
+            await self._ensure_metadata_json_column(db)
             await db.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON {FACT_EVENTS_TABLE}(embedding_status)"
             )
@@ -231,8 +234,8 @@ class L1EventStore:
                     event_type, source, source_item_id, memory_domain, ingest_target,
                     cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
                     task_id, content, author_type, content_type, importance_score,
-                    level, media_path, embedding_status, embedding_profile_id, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    level, media_path, metadata_json, embedding_status, embedding_profile_id, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -257,6 +260,7 @@ class L1EventStore:
                     float(event.importance_score),
                     int(event.level),
                     event.media_path,
+                    json.dumps(event.metadata_json) if event.metadata_json is not None else None,
                     self._initial_embedding_status(event),
                     self._initial_embedding_profile_id(event),
                     None,
@@ -875,6 +879,14 @@ class L1EventStore:
                 f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN embedding_profile_id TEXT"
             )
 
+    async def _ensure_metadata_json_column(self, db: aiosqlite.Connection) -> None:
+        async with db.execute(f"PRAGMA table_info({FACT_EVENTS_TABLE})") as cursor:
+            columns = {str(row[1]) for row in await cursor.fetchall()}
+        if "metadata_json" not in columns:
+            await db.execute(
+                f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN metadata_json TEXT"
+            )
+
     def _embedding_eligible(self, event: MemoryEvent) -> bool:
         return event.memory_domain not in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}
 
@@ -971,6 +983,7 @@ class L1EventStore:
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         stored_profile_id = row["embedding_profile_id"]
+        metadata_json = row["metadata_json"]
         return {
             "event_id": str(row["event_id"]),
             "correlation_id": str(row["correlation_id"]),
@@ -994,6 +1007,7 @@ class L1EventStore:
             "importance_score": float(row["importance_score"]),
             "level": int(row["level"]),
             "media_path": row["media_path"],
+            "metadata_json": json.loads(str(metadata_json)) if metadata_json else None,
             "embedding_status": self._effective_embedding_status(row["embedding_status"], stored_profile_id),
             "embedding_profile_id": stored_profile_id,
             "deleted_at": float(row["deleted_at"]) if row["deleted_at"] is not None else None,
@@ -1001,6 +1015,7 @@ class L1EventStore:
 
     def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent:
         stored_profile_id = row["embedding_profile_id"]
+        metadata_json = row["metadata_json"]
         return MemoryEvent(
             event_id=str(row["event_id"]),
             correlation_id=str(row["correlation_id"]),
@@ -1024,6 +1039,7 @@ class L1EventStore:
             importance_score=float(row["importance_score"]),
             level=int(row["level"]),
             media_path=row["media_path"],
+            metadata_json=json.loads(str(metadata_json)) if metadata_json else None,
             embedding_status=self._effective_embedding_status(row["embedding_status"], stored_profile_id),
             embedding_profile_id=stored_profile_id,
         )

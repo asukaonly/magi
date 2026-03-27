@@ -144,6 +144,7 @@ class MemoryEvent:
     importance_score: float
     level: int
     media_path: Optional[str] = None
+    metadata_json: Optional[Dict[str, Any]] = None
     embedding_status: Optional[str] = None
     embedding_profile_id: Optional[str] = None
 
@@ -171,6 +172,7 @@ class MemoryEvent:
             "importance_score": self.importance_score,
             "level": self.level,
             "media_path": self.media_path,
+            "metadata_json": dict(self.metadata_json) if self.metadata_json is not None else None,
             "embedding_status": self.embedding_status,
             "embedding_profile_id": self.embedding_profile_id,
         }

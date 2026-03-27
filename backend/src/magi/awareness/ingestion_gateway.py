@@ -63,7 +63,7 @@ class SensorIngestionGateway:
         policy = sensor.memory_policy
 
         # 1. Build MemoryEvent with sensor's policy
-        memory_event = self._build_memory_event(event_id, output, policy)
+        memory_event = self._build_memory_event(sensor, event_id, output, policy)
 
         # 2. Ingest into unified memory (L0/L1/L2/L4 as policy dictates)
         await self._unified_memory.ingest_event(memory_event.to_dict())
@@ -92,6 +92,7 @@ class SensorIngestionGateway:
 
     def _build_memory_event(
         self,
+        sensor: SensorBase,
         event_id: str,
         output: SensorOutput,
         policy: Any,
@@ -112,7 +113,7 @@ class SensorIngestionGateway:
             correlation_id=event_id,
             timestamp=output.occurred_at,
             created_at=output.captured_at,
-            event_type="SENSOR_EVENT",
+            event_type=str(getattr(sensor, "memory_event_type", "SENSOR_EVENT")),
             source=output.source_type,
             source_item_id=output.source_item_id,
             memory_domain=MemoryDomain.from_value(policy.memory_domain),
@@ -130,6 +131,7 @@ class SensorIngestionGateway:
             importance_score=policy.importance_bias,
             level=EventLevel.INFO.value,
             media_path=output.raw_payload_ref,
+            metadata_json=dict(output.domain_payload) if output.domain_payload else None,
         )
 
     async def _process_relations(

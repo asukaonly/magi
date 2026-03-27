@@ -8,7 +8,7 @@ import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
-from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event
+from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event, MemoryEvent
 
 
 class _BatchTrackingEmbeddingService:
@@ -190,6 +190,66 @@ async def test_l1_event_store_restores_final_memory_event_shape(tmp_path):
         assert restored.turn_id == "turn-identity-1"
         assert not hasattr(restored, "runtime_user_id")
         assert not hasattr(restored, "memory_owner_id")
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_persists_metadata_json(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        now = time.time()
+        event = MemoryEvent(
+            event_id="evt-app-usage-1",
+            correlation_id="corr-app-usage-1",
+            timestamp=1711504800.0,
+            created_at=now,
+            event_type="APP_USAGE_HOURLY",
+            source="active_app_usage",
+            source_item_id="app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari",
+            memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=False,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id=None,
+            turn_id=None,
+            user_id=None,
+            task_id=None,
+            content="10:00-11:00 Safari used for 38m.",
+            author_type="external",
+            content_type="observation",
+            importance_score=0.3,
+            level=1,
+            metadata_json={
+                "bucket_start": "2026-03-27T10:00:00+08:00",
+                "bucket_end": "2026-03-27T11:00:00+08:00",
+                "bundle_id": "com.apple.Safari",
+                "app_name": "Safari",
+                "duration_seconds": 2280,
+            },
+        )
+
+        await store.store(event)
+
+        fetched = await store.get_event(event.event_id)
+        restored = await store.get_memory_event(event.event_id)
+
+        assert fetched is not None
+        assert fetched["event_type"] == "APP_USAGE_HOURLY"
+        assert fetched["metadata_json"] == {
+            "bucket_start": "2026-03-27T10:00:00+08:00",
+            "bucket_end": "2026-03-27T11:00:00+08:00",
+            "bundle_id": "com.apple.Safari",
+            "app_name": "Safari",
+            "duration_seconds": 2280,
+        }
+        assert restored is not None
+        assert restored.metadata_json == fetched["metadata_json"]
     finally:
         await store.shutdown()
 
