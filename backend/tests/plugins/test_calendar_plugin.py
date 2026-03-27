@@ -249,10 +249,10 @@ def test_reader_get_authorization_status_maps_authorized(monkeypatch):
     reader = EventKitReader()
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(reader, "is_available", lambda: True)
-    mock_store = MagicMock()
-    mock_store.authorizationStatusForEntityType_.return_value = 3
-    reader._event_store = mock_store
+    mock_event_store_class = MagicMock()
+    mock_event_store_class.authorizationStatusForEntityType_.return_value = 3
     reader._ek_module = {
+        "EKEventStore": mock_event_store_class,
         "EKEntityTypeEvent": 0,
         "EKAuthorizationStatusNotDetermined": 0,
         "EKAuthorizationStatusDenied": 1,
@@ -265,6 +265,7 @@ def test_reader_get_authorization_status_maps_authorized(monkeypatch):
     status = reader.get_authorization_status()
 
     assert status == "authorized"
+    mock_event_store_class.authorizationStatusForEntityType_.assert_called_once_with(0)
 
 
 def test_reader_request_authorization_uses_full_access_result(monkeypatch):

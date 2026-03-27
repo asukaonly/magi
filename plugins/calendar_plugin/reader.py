@@ -190,7 +190,18 @@ class EventKitReader:
                     reason="missing_event_entity_type",
                 )
                 return "unavailable"
-            status = self.event_store.authorizationStatusForEntityType_(entity_type)
+            ek_event_store = (self._ek_module or {}).get("EKEventStore")
+            if ek_event_store is None:
+                logger.warning(
+                    "Calendar authorization status unavailable",
+                    reason="missing_event_store_class",
+                )
+                return "unavailable"
+            status = self._call_selector(
+                ek_event_store,
+                ["authorizationStatusForEntityType_"],
+                entity_type,
+            )
             if status in {
                 (self._ek_module or {}).get("EKAuthorizationStatusAuthorized"),
                 (self._ek_module or {}).get("EKAuthorizationStatusFullAccess"),
