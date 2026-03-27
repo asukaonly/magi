@@ -446,34 +446,21 @@ class L1EventStore:
     async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Return a minimal timeline-shaped view from canonical L1 columns."""
         event = await self.get_event(event_id)
-        if event is None or event.get("event_type") != "TIMELINE_EVENT":
-            return None
-        return {
-            "event_id": event["event_id"],
-            "source_type": event["source"],
-            "source_item_id": event["source_item_id"],
-            "occurred_at": event["timestamp"],
-            "title": event["content"],
-            "summary": event["content"],
-        }
+        return self._to_timeline_view(event)
 
     async def list_timeline_events(self, *, limit: int = 100, source_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """List timeline-shaped views with optional source filtering."""
-        events = await self.query_events(event_type="TIMELINE_EVENT", limit=limit)
+        events = await self.query_events(limit=max(limit * 10, limit))
         items: List[Dict[str, Any]] = []
         for event in events:
-            if source_type and event["source"] != source_type:
+            item = self._to_timeline_view(event)
+            if item is None:
                 continue
-            items.append(
-                {
-                    "event_id": event["event_id"],
-                    "source_type": event["source"],
-                    "source_item_id": event["source_item_id"],
-                    "occurred_at": event["timestamp"],
-                    "title": event["content"],
-                    "summary": event["content"],
-                }
-            )
+            if source_type and item["source_type"] != source_type:
+                continue
+            items.append(item)
+            if len(items) >= limit:
+                break
         return items
 
     async def count_events(self) -> int:
@@ -1053,6 +1040,25 @@ class L1EventStore:
             embedding_status=self._effective_embedding_status(row["embedding_status"], stored_profile_id),
             embedding_profile_id=stored_profile_id,
         )
+
+    @staticmethod
+    def _to_timeline_view(event: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if event is None:
+            return None
+        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        if not metadata:
+            metadata = event.get("metadata_json") if isinstance(event.get("metadata_json"), dict) else {}
+        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+        if not timeline:
+            return None
+        return {
+            "event_id": str(event["event_id"]),
+            "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
+            "source_item_id": timeline.get("source_item_id") or event.get("source_item_id"),
+            "occurred_at": float(event.get("timestamp") or event.get("created_at") or 0.0),
+            "title": str(timeline.get("title") or event.get("content") or event.get("event_id") or "Event"),
+            "summary": str(timeline.get("summary") or event.get("content") or ""),
+        }
 
 
 __all__ = ["L1EventStore"]

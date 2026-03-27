@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
 from magi.memory import UnifiedMemoryStore
+from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import L3Candidate, StateChangePacket, TaskOutcomePacket
@@ -540,6 +541,38 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             provenance={"sensor_id": "manual_journal"},
         )
 
+        await self.store.add_event(
+            MemoryEvent(
+                event_id="timeline-1",
+                correlation_id="timeline-1",
+                timestamp=event.occurred_at,
+                created_at=event.captured_at,
+                event_type="SENSOR_EVENT",
+                source="manual_journal",
+                source_item_id="manual-1",
+                memory_domain=MemoryDomain.USER_AUTHORED,
+                ingest_target=IngestTarget.L1_ONLY,
+                cognition_eligible=True,
+                tom_depth=TomDepth.DEFENSIVE_PSYCHOLOGY,
+                retention_class=RetentionClass.PERMANENT,
+                session_id=None,
+                turn_id=None,
+                user_id=None,
+                task_id=None,
+                content="Wrote about the day",
+                author_type="user",
+                content_type="text",
+                importance_score=0.8,
+                level=EventLevel.INFO.value,
+                media_path="/tmp/day-note.md",
+                metadata_json={
+                    "timeline": event.to_dict(),
+                    "raw_payload_ref": "/tmp/day-note.md",
+                    "processing_status": {"stored": True, "embedded": False},
+                },
+            )
+        )
+
         stored_id = await service.upsert_event(
             event,
             relation_candidates=[
@@ -562,7 +595,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored_id, "timeline-1")
         self.assertIsNotNone(fetched)
         self.assertEqual(fetched["summary"], "Wrote about the day")
-        self.assertEqual(listed[0]["title"], "Wrote about the day")
+        self.assertEqual(listed[0]["title"], "Evening note")
         self.assertEqual(context["anchor"]["anchor_type"], "event")
         self.assertTrue(context["l2_state_evidence"])
         self.assertIn("timeline-1", context["l2_state_evidence"][0].get("evidence_events", []))
