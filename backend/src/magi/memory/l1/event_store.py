@@ -217,6 +217,15 @@ class L1EventStore:
     async def store(self, event: MemoryEvent) -> str:
         """Persist a normalized memory event."""
         await self.initialize()
+        if event.source == "calendar":
+            logger.info(
+                "L1EventStore storing calendar event",
+                event_id=event.event_id,
+                event_type=event.event_type,
+                source_item_id=event.source_item_id,
+                content=event.content,
+                metadata_json=event.metadata_json,
+            )
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
                 "L1EventStore persisting event | event_id=%s type=%s session_id=%s user_id=%s correlation_id=%s",

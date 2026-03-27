@@ -612,11 +612,33 @@ class UnifiedMemoryStore:
 
     def _normalize_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> MemoryEvent:
         if isinstance(event, MemoryEvent):
+            if str(getattr(event, "source", "")) == "calendar":
+                logger.info(
+                    "Calendar memory normalization used canonical MemoryEvent path",
+                    event_id=event.event_id,
+                    event_type=event.event_type,
+                    source_item_id=event.source_item_id,
+                    content=event.content,
+                )
             return event
         if isinstance(event, Event):
+            if str(getattr(event, "source", "")) == "calendar":
+                logger.warning(
+                    "Calendar memory normalization fell back to runtime Event path",
+                    event_type=event.type,
+                    correlation_id=event.correlation_id,
+                )
             return normalize_runtime_event(event)
 
         payload = dict(event)
+        if str(payload.get("source", "")) == "calendar" or str(payload.get("event_id", "")).startswith("calendar:"):
+            logger.warning(
+                "Calendar memory normalization fell back to dict path",
+                payload_keys=sorted(payload.keys()),
+                payload_event_id=payload.get("event_id"),
+                payload_type=payload.get("type"),
+                payload_source=payload.get("source"),
+            )
         raw_event = Event(
             type=str(payload.get("type", "unknown")),
             data=payload.get("data", {}),
