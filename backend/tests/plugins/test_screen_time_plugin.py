@@ -143,6 +143,84 @@ def test_screen_time_ingress_handler_updates_activation_state(tmp_path: Path) ->
     ]
 
 
+def test_screen_time_state_reuses_session_for_consecutive_same_app_activations(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(base_dir=tmp_path / ".magi")
+    state_store = ScreenTimeStateStore()
+    handler = ScreenTimePluginIngressHandler(runtime_paths=runtime_paths, state_store=state_store)
+
+    asyncio.run(
+        handler.handle_event(
+            PluginIngressEventRecord(
+                event_id=1,
+                source_kind="desktop",
+                producer="frontmost_app_monitor",
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                occurred_at_ms=int(datetime(2026, 3, 27, 10, 15, tzinfo=timezone.utc).timestamp() * 1000),
+                payload_json="{}",
+                created_at_ms=0,
+            ),
+            {"bundle_id": "com.apple.Safari", "app_name": "Safari"},
+        )
+    )
+    asyncio.run(
+        handler.handle_event(
+            PluginIngressEventRecord(
+                event_id=2,
+                source_kind="desktop",
+                producer="frontmost_app_monitor",
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                occurred_at_ms=int(datetime(2026, 3, 27, 10, 20, tzinfo=timezone.utc).timestamp() * 1000),
+                payload_json="{}",
+                created_at_ms=0,
+            ),
+            {"bundle_id": "com.apple.Safari", "app_name": "Safari"},
+        )
+    )
+    asyncio.run(
+        handler.handle_event(
+            PluginIngressEventRecord(
+                event_id=3,
+                source_kind="desktop",
+                producer="frontmost_app_monitor",
+                plugin_target="screen_time",
+                event_type="frontmost_app_activated",
+                occurred_at_ms=int(datetime(2026, 3, 27, 10, 42, tzinfo=timezone.utc).timestamp() * 1000),
+                payload_json="{}",
+                created_at_ms=0,
+            ),
+            {"bundle_id": "com.apple.Terminal", "app_name": "Terminal"},
+        )
+    )
+
+    completed = asyncio.run(
+        state_store.flush_completed(
+            runtime_paths=runtime_paths,
+            now=datetime(2026, 3, 27, 11, 5, tzinfo=timezone.utc),
+        )
+    )
+
+    assert completed == [
+        {
+            "bucket_start": "2026-03-27T10:00:00+00:00",
+            "bucket_end": "2026-03-27T11:00:00+00:00",
+            "bundle_id": "com.apple.Safari",
+            "app_name": "Safari",
+            "duration_seconds": 1620,
+            "session_count": 1,
+        },
+        {
+            "bucket_start": "2026-03-27T10:00:00+00:00",
+            "bucket_end": "2026-03-27T11:00:00+00:00",
+            "bundle_id": "com.apple.Terminal",
+            "app_name": "Terminal",
+            "duration_seconds": 1080,
+            "session_count": 1,
+        },
+    ]
+
+
 def test_sensor_build_output() -> None:
     sensor = ScreenTimeTimelineSensor()
     item = {

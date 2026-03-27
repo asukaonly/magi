@@ -106,7 +106,14 @@ class ScreenTimeStateStore:
                         end_at=occurred_at,
                     )
 
-            session_id = f"{int(occurred_at.timestamp() * 1000)}:{bundle_id}"
+            if (
+                isinstance(last_activation, dict)
+                and str(last_activation.get("bundle_id") or "") == bundle_id
+                and last_activation.get("session_id")
+            ):
+                session_id = str(last_activation["session_id"])
+            else:
+                session_id = f"{int(occurred_at.timestamp() * 1000)}:{bundle_id}"
             next_state = {
                 "last_activation": {
                     "session_id": session_id,
