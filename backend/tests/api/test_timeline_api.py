@@ -194,6 +194,15 @@ class _FakeTimelineSchedulerContrib:
         return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
 
 
+class _FakeRuntimeCommandQueue:
+    def __init__(self) -> None:
+        self.timeline_sync_commands: list[object] = []
+
+    async def enqueue_timeline_source_sync(self, command):
+        self.timeline_sync_commands.append(command)
+        return len(self.timeline_sync_commands)
+
+
 def _build_client(monkeypatch):
     app = FastAPI()
     app.include_router(timeline_router, prefix="/api/timeline")
@@ -299,8 +308,8 @@ def _build_client(monkeypatch):
     )
     monkeypatch.setattr(
         timeline_module,
-        "require_timeline_scheduler_contrib",
-        lambda: _FakeTimelineSchedulerContrib(),
+        "require_runtime_command_queue",
+        lambda: _FakeRuntimeCommandQueue(),
     )
     return TestClient(app), service
 
@@ -471,7 +480,6 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
             )
 
     monkeypatch.setattr(timeline_module, "require_scheduler_service", lambda: _NonPullSchedulerService())
-    monkeypatch.setattr(timeline_module, "require_timeline_scheduler_contrib", lambda: _FakeTimelineSchedulerContrib())
 
     client = TestClient(app)
 
@@ -491,7 +499,8 @@ def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["queued"] is True
-    assert response.json()["schedule_id"] == "manual:photo_library"
+    assert response.json()["source_name"] == "photo_library"
+    assert response.json()["command_id"] == 1
 
 
 def test_authorize_timeline_source_returns_authorization_result(monkeypatch):

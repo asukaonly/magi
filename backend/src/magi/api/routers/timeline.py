@@ -10,11 +10,12 @@ from pydantic import BaseModel, Field
 from ...config import get_config
 from ...core.runtime_bindings import (
     require_plugin_manager,
+    require_runtime_command_queue,
     require_scheduler_service,
     require_sensor_registry,
-    require_timeline_scheduler_contrib,
     require_unified_memory,
 )
+from ...events.contracts import TimelineSourceSyncCommand
 from ...scheduler import (
     ScheduledTargetType,
 )
@@ -250,15 +251,23 @@ async def trigger_timeline_source_sync(source_name: str):
     resolved = sensor_registry.resolve_domain_sensor("timeline", source_name)
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline source not found")
+    _, _, sensor, _ = resolved
+    if not bool(getattr(sensor, "supports_pull_sync", False)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Timeline source does not support pull sync: {source_name}",
+        )
     try:
-        timeline_scheduler = require_timeline_scheduler_contrib()
+        runtime_command_queue = require_runtime_command_queue()
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Scheduler unavailable")
-    try:
-        schedule = await timeline_scheduler.queue_manual_sync(source_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return {"queued": True, "source_name": source_name, "schedule_id": schedule.schedule_id}
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Scheduler unavailable") from exc
+    command_id = await runtime_command_queue.enqueue_timeline_source_sync(
+        TimelineSourceSyncCommand(
+            source="api.timeline",
+            source_name=source_name,
+        )
+    )
+    return {"queued": True, "source_name": source_name, "command_id": command_id}
 
 
 @timeline_router.post("/sources/{source_name}/authorize")

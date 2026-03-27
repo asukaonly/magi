@@ -136,6 +136,7 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                     command_types=(
                         RuntimeCommandType.USER_MESSAGE,
                         RuntimeCommandType.REFRESH_LLM_CONFIG,
+                        RuntimeCommandType.TIMELINE_SOURCE_SYNC,
                     ),
                 )
                 if command is None:
@@ -173,6 +174,14 @@ class RuntimeCommandProcessorModule(LifecycleModule):
 
                     refreshed_config = reload_config()
                     refresh_runtime_llm_config(refreshed_config)
+                    published = True
+                elif command.command_type is RuntimeCommandType.TIMELINE_SOURCE_SYNC:
+                    timeline_sync = command.as_timeline_source_sync()
+                    timeline_scheduler = require_initialized(
+                        self._context.timeline.timeline_scheduler_contrib,
+                        "timeline scheduler contributor",
+                    )
+                    await timeline_scheduler.queue_manual_sync(timeline_sync.source_name)
                     published = True
                 else:
                     raise RuntimeError(f"Unsupported runtime command type: {command.command_type}")

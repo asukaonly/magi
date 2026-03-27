@@ -14,6 +14,7 @@ from .contracts import (
     RefreshLLMConfigCommand,
     RuntimeCommandType,
     RuntimeQueuedCommand,
+    TimelineSourceSyncCommand,
     UserMessageCommand,
 )
 
@@ -51,6 +52,14 @@ class SQLiteRuntimeCommandQueue:
     async def enqueue_refresh_llm_config(self, command: RefreshLLMConfigCommand) -> int:
         return await self._enqueue_command(
             command_type=RuntimeCommandType.REFRESH_LLM_CONFIG,
+            payload=command.to_payload(),
+            correlation_id=command.correlation_id,
+            created_at=command.created_at,
+        )
+
+    async def enqueue_timeline_source_sync(self, command: TimelineSourceSyncCommand) -> int:
+        return await self._enqueue_command(
+            command_type=RuntimeCommandType.TIMELINE_SOURCE_SYNC,
             payload=command.to_payload(),
             correlation_id=command.correlation_id,
             created_at=command.created_at,

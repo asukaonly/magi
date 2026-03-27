@@ -7,7 +7,7 @@ import pytest
 
 from magi.awareness.sensor_hub import SensorHub
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.events.contracts import RefreshLLMConfigCommand, UserMessageCommand
+from magi.events.contracts import RefreshLLMConfigCommand, TimelineSourceSyncCommand, UserMessageCommand
 from magi.events.events import EventTypes
 from magi.events.lifecycle import RuntimeCommandProcessorModule
 from magi.events.memory_backend import MemoryMessageBackend
@@ -164,5 +164,54 @@ async def test_runtime_command_processor_stops_claiming_commands_while_draining(
     finally:
         await processor.shutdown()
         await sensor_hub.stop()
+        await message_bus.stop()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_processor_queues_timeline_source_sync(tmp_path: Path) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    message_bus = MemoryMessageBackend()
+    await message_bus.start()
+
+    class _FakeTimelineSchedulerContrib:
+        def __init__(self) -> None:
+            self.queued_sources: list[str] = []
+
+        async def queue_manual_sync(self, source_name: str):
+            self.queued_sources.append(source_name)
+            return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
+
+    timeline_scheduler = _FakeTimelineSchedulerContrib()
+
+    context = RuntimeBootstrapContext()
+    context.runtime_commands.runtime_command_queue = queue
+    context.message_bus.message_bus = message_bus
+    context.agent_runtime.agent_runtime = object()
+    context.timeline.timeline_scheduler_contrib = timeline_scheduler
+
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+    await processor.init()
+
+    try:
+        await queue.enqueue_timeline_source_sync(
+            TimelineSourceSyncCommand(
+                source="api",
+                source_name="calendar",
+            )
+        )
+
+        for _ in range(100):
+            stats = await queue.get_stats()
+            if stats["completed_count"] == 1:
+                break
+            await asyncio.sleep(0.02)
+
+        stats = await queue.get_stats()
+        assert stats["completed_count"] == 1
+        assert timeline_scheduler.queued_sources == ["calendar"]
+    finally:
+        await processor.shutdown()
         await message_bus.stop()
         await queue.stop()

@@ -15,6 +15,7 @@ class RuntimeCommandType(str, Enum):
 
     USER_MESSAGE = "user_message"
     REFRESH_LLM_CONFIG = "refresh_llm_config"
+    TIMELINE_SOURCE_SYNC = "timeline_source_sync"
 
 
 @dataclass(slots=True)
@@ -51,6 +52,19 @@ class RefreshLLMConfigCommand:
 
 
 @dataclass(slots=True)
+class TimelineSourceSyncCommand:
+    """Persisted command payload for queueing a timeline source sync on the runtime worker."""
+
+    source: str
+    source_name: str
+    created_at: float = field(default_factory=time.time)
+    correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
+
+    def to_payload(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class RuntimeQueuedCommand:
     """One claimed runtime command."""
 
@@ -67,6 +81,10 @@ class RuntimeQueuedCommand:
     def as_refresh_llm_config(self) -> RefreshLLMConfigCommand:
         """Convert the queued payload into a typed config-refresh command."""
         return RefreshLLMConfigCommand(**self.payload)
+
+    def as_timeline_source_sync(self) -> TimelineSourceSyncCommand:
+        """Convert the queued payload into a typed timeline-source-sync command."""
+        return TimelineSourceSyncCommand(**self.payload)
 
 
 @dataclass(slots=True)
