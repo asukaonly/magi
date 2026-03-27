@@ -14,6 +14,7 @@ const translationMap: Record<string, string> = {
   'settings.plugins.netease-music.description': '本地网易云音乐播放历史接入时间线',
   'settings.timeline.fields.enabled': '启用',
   'settings.plugins.photo-library.name': '照片库',
+  'settings.timeline.workspace.manualTrigger': '手动触发',
 };
 
 vi.mock('react-i18next', () => ({
@@ -111,7 +112,13 @@ describe('TimelineSourcesSection', () => {
     render(
       <TimelineSourcesSection
         userMode={userModeFixture}
-        statuses={[timelineSourceFixture]}
+        statuses={[
+          {
+            ...timelineSourceFixture,
+            sync_mode: 'manual',
+            next_run_at: null,
+          },
+        ]}
         loadingStatus={false}
         selectedSourceName="photo_library"
         pluginDrafts={{}}
@@ -128,6 +135,9 @@ describe('TimelineSourcesSection', () => {
     expect(screen.getByText('启用')).toBeInTheDocument();
     expect(within(detail).queryByText('来源启用')).not.toBeInTheDocument();
     expect(within(detail).queryByText('interval · 60m · retain_raw')).not.toBeInTheDocument();
+    expect(within(detail).getByText('手动触发')).toBeInTheDocument();
+    expect(within(detail).queryByText('来源配置')).not.toBeInTheDocument();
+    expect(within(detail).queryByText('这些声明式字段会回写到插件配置，并由调度器和运行时消费。')).not.toBeInTheDocument();
   });
 
   it('keeps status badges on the left and actions on the right in the detail header', () => {

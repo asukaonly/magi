@@ -814,6 +814,7 @@
         "pullSupport": "Pull sync",
         "available": "Available",
         "notAvailable": "Not available",
+        "manualTrigger": "Manual only",
         "nextRunInline": "Next run: {{time}}",
         "pullSupportInline": "Pull sync: {{status}}",
         "configurationTitle": "Source configuration",

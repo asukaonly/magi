@@ -814,6 +814,7 @@
         "pullSupport": "拉取同步",
         "available": "可用",
         "notAvailable": "不可用",
+        "manualTrigger": "手动触发",
         "nextRunInline": "下次执行：{{time}}",
         "pullSupportInline": "拉取同步：{{status}}",
         "configurationTitle": "来源配置",

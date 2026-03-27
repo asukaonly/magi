@@ -123,15 +123,17 @@ const StatusMetric: React.FC<{ label: string; value: string }> = ({ label, value
 );
 
 const SectionBlock: React.FC<{
-  title: string;
+  title?: string;
   description?: string;
   children: React.ReactNode;
 }> = ({ title, description, children }) => (
   <section className="space-y-4 pt-4">
-    <div className="space-y-1">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
-    </div>
+    {title || description ? (
+      <div className="space-y-1">
+        {title ? <h3 className="text-sm font-semibold text-foreground">{title}</h3> : null}
+        {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
+      </div>
+    ) : null}
     {children}
   </section>
 );
@@ -327,6 +329,10 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   );
   const activationRequired = Boolean(activationFlow && !sourceEnabled && !activationConfigured);
   const operationallyEnabled = selectedSource.enabled && sourceEnabled;
+  const nextRunValue =
+    selectedSource.sync_mode === 'manual'
+      ? t('settings.timeline.workspace.manualTrigger')
+      : formatTimestamp(selectedSource.next_run_at) || '—';
   const detailFields = selectedSource.fields.filter((field) => {
     if (field.key === sourceEnabledKey) {
       return false;
@@ -426,7 +432,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           />
           <StatusMetric
             label={t('settings.timeline.workspace.nextRun')}
-            value={formatTimestamp(selectedSource.next_run_at) || '—'}
+            value={nextRunValue}
           />
           <StatusMetric
             label={t('settings.timeline.workspace.lastBatch')}
@@ -445,10 +451,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         </div>
       </SectionBlock>
 
-      <SectionBlock
-        title={t('settings.timeline.workspace.configurationTitle')}
-        description={t('settings.timeline.workspace.configurationDesc')}
-      >
+      <SectionBlock>
         <PluginSettingsFields
           fields={detailFields}
           values={detailValues}
