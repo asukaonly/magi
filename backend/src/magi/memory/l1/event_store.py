@@ -219,12 +219,13 @@ class L1EventStore:
         await self.initialize()
         if event.source == "calendar":
             logger.info(
-                "L1EventStore storing calendar event",
-                event_id=event.event_id,
-                event_type=event.event_type,
-                source_item_id=event.source_item_id,
-                content=event.content,
-                metadata_json=event.metadata_json,
+                "L1EventStore storing calendar event | "
+                "event_id=%s event_type=%s source_item_id=%s content=%s metadata_json=%s",
+                event.event_id,
+                event.event_type,
+                event.source_item_id,
+                event.content,
+                event.metadata_json,
             )
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
