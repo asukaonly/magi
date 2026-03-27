@@ -1011,21 +1011,21 @@
         "description": "日历事件接入时间线",
         "fields": {
           "enabled": { "label": "启用", "description": "开启日历事件同步。" },
-          "sync_interval_minutes": { "label": "同步间隔", "description": "多久同步一次日历事件。" },
+          "sync_mode": { "label": "同步方式", "description": "选择手动触发，还是按固定时间自动同步。" },
+          "sync_interval_minutes": { "label": "定时间隔", "description": "选择定时同步时，多久拉取一次日历事件。" },
           "lookback_days": { "label": "回溯天数", "description": "首次同步时回溯多少天的历史日历。" },
-          "recurring_expansion_days": { "label": "重复事件展开天数", "description": "向未来展开重复事件的天数。" },
-          "default_retention_mode": { "label": "保留模式", "description": "决定日历数据的保留粒度。" }
+          "recurring_expansion_days": { "label": "未来重复日程天数", "description": "对按周或按月重复的日程，向未来预先展开多少天，避免未来一段时间的重复事件漏掉。" }
         },
         "options": {
+          "sync_mode": { "manual": "手动", "interval": "定时" },
           "sync_interval_minutes": {
             "15": "15 分钟",
             "30": "30 分钟",
             "60": "1 小时",
             "360": "6 小时"
-          },
-          "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" }
+          }
         },
-        "sections": { "general": "常规", "sync": "同步", "retention": "保留策略" },
+        "sections": { "general": "常规", "sync": "同步" },
         "activation": {
           "title": "连接日历",
           "description": "允许 Magi 读取你的日历事件，用于时间线同步。",

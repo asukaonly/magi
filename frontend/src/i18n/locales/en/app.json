@@ -1011,21 +1011,21 @@
         "description": "Calendar event ingestion for the timeline",
         "fields": {
           "enabled": { "label": "Enable", "description": "Turn on calendar sync for the timeline." },
-          "sync_interval_minutes": { "label": "Sync Interval", "description": "How often to sync calendar events." },
+          "sync_mode": { "label": "Sync Mode", "description": "Choose whether calendar sync runs manually or on a schedule." },
+          "sync_interval_minutes": { "label": "Scheduled Interval", "description": "How often to sync calendar events when scheduled sync is enabled." },
           "lookback_days": { "label": "Lookback Days", "description": "How many past days to include on first sync." },
-          "recurring_expansion_days": { "label": "Recurring Event Expansion", "description": "How many future days to expand recurring events." },
-          "default_retention_mode": { "label": "Retention Mode", "description": "How calendar data should be retained." }
+          "recurring_expansion_days": { "label": "Future Recurring Event Window", "description": "How many future days of recurring events should be prefetched so upcoming repeating events are not missed." }
         },
         "options": {
+          "sync_mode": { "manual": "Manual", "interval": "Scheduled" },
           "sync_interval_minutes": {
             "15": "15 minutes",
             "30": "30 minutes",
             "60": "1 hour",
             "360": "6 hours"
-          },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" }
+          }
         },
-        "sections": { "general": "General", "sync": "Sync", "retention": "Retention" },
+        "sections": { "general": "General", "sync": "Sync" },
         "activation": {
           "title": "Connect Calendar",
           "description": "Allow Magi to read your calendar events for timeline sync.",

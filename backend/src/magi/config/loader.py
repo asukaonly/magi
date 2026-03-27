@@ -326,10 +326,11 @@ class ConfigLoader:
                 "sensors": {
                     "calendar": {
                         "enabled": False,
+                        "sync_mode": "interval",
                         "sync_interval_minutes": 30,
                         "lookback_days": 30,
                         "recurring_expansion_days": 30,
-                        "default_retention_mode": "analyze_only",
+                        "default_retention_mode": "full",
                     }
                 }
             },

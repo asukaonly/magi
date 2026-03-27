@@ -12,10 +12,11 @@ from .sensor import CalendarTimelineSensor
 DEFAULT_SETTINGS = {
     "enabled": False,
     "authorization_configured": False,
+    "sync_mode": "interval",
     "sync_interval_minutes": 30,
     "lookback_days": 30,
     "recurring_expansion_days": 30,
-    "default_retention_mode": "analyze_only",
+    "default_retention_mode": "full",
 }
 
 
@@ -47,10 +48,24 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             order=10,
         ),
         ExtensionFieldSpec(
+            key=f"{prefix}.sync_mode",
+            type="select",
+            label="Sync Mode",
+            description="Choose whether calendar sync runs manually or on a schedule.",
+            default="interval",
+            options=[
+                ExtensionFieldOption(label="Manual", value="manual"),
+                ExtensionFieldOption(label="Scheduled", value="interval"),
+            ],
+            section="sync",
+            surface="timeline",
+            order=20,
+        ),
+        ExtensionFieldSpec(
             key=f"{prefix}.sync_interval_minutes",
             type="select",
             label="Sync Interval",
-            description="How often to sync calendar events.",
+            description="How often to sync calendar events when scheduled sync is enabled.",
             default="30",
             options=[
                 ExtensionFieldOption(label="15 minutes", value="15"),
@@ -60,7 +75,9 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             ],
             section="sync",
             surface="timeline",
-            order=20,
+            order=30,
+            depends_on_key=f"{prefix}.sync_mode",
+            depends_on_values=["interval"],
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.lookback_days",
@@ -72,31 +89,17 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             max=365,
             section="sync",
             surface="timeline",
-            order=30,
+            order=40,
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.recurring_expansion_days",
             type="number",
-            label="Recurring Event Expansion",
-            description="Days to expand recurring events into the future.",
+            label="Future Recurring Event Window",
+            description="How many future days of recurring events should be prefetched into the timeline.",
             default=30,
             min=1,
             max=365,
             section="sync",
-            surface="timeline",
-            order=40,
-        ),
-        ExtensionFieldSpec(
-            key=f"{prefix}.default_retention_mode",
-            type="select",
-            label="Retention Mode",
-            description="How calendar data should be retained.",
-            default="analyze_only",
-            options=[
-                ExtensionFieldOption(label="Analyze Only", value="analyze_only"),
-                ExtensionFieldOption(label="Full Retention", value="full"),
-            ],
-            section="retention",
             surface="timeline",
             order=50,
         ),
@@ -136,7 +139,7 @@ class CalendarPlugin(Plugin):
 
         # Create sensor (reader may be None if not available)
         sensor = CalendarTimelineSensor(
-            retention_mode=str(settings.get("default_retention_mode", DEFAULT_SETTINGS["default_retention_mode"])),
+            retention_mode=DEFAULT_SETTINGS["default_retention_mode"],
             reader=reader,
         )
 

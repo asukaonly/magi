@@ -571,15 +571,18 @@ def test_default_settings():
     """Test DEFAULT_SETTINGS has expected structure."""
     from calendar_plugin.plugin import DEFAULT_SETTINGS
     assert "enabled" in DEFAULT_SETTINGS
+    assert "sync_mode" in DEFAULT_SETTINGS
     assert "sync_interval_minutes" in DEFAULT_SETTINGS
     assert "lookback_days" in DEFAULT_SETTINGS
     assert "recurring_expansion_days" in DEFAULT_SETTINGS
     assert "default_retention_mode" in DEFAULT_SETTINGS
 
     assert DEFAULT_SETTINGS["enabled"] is False
+    assert DEFAULT_SETTINGS["sync_mode"] == "interval"
     assert DEFAULT_SETTINGS["sync_interval_minutes"] == 30
     assert DEFAULT_SETTINGS["lookback_days"] == 30
     assert DEFAULT_SETTINGS["recurring_expansion_days"] == 30
+    assert DEFAULT_SETTINGS["default_retention_mode"] == "full"
 
 
 def test_fields_function():
@@ -595,8 +598,18 @@ def test_fields_function():
 
     # Check that key fields exist
     field_keys = [f.key for f in fields]
+    assert any("sync_mode" in k for k in field_keys)
     assert any("sync_interval" in k for k in field_keys)
     assert any("lookback" in k for k in field_keys)
+    assert not any("default_retention_mode" in k for k in field_keys)
+
+    sync_mode_field = next(field for field in fields if field.key.endswith(".sync_mode"))
+    assert sync_mode_field.type == "select"
+    assert [option.value for option in sync_mode_field.options] == ["manual", "interval"]
+
+    sync_interval_field = next(field for field in fields if field.key.endswith(".sync_interval_minutes"))
+    assert sync_interval_field.depends_on_key == "sensors.calendar.sync_mode"
+    assert sync_interval_field.depends_on_values == ["interval"]
 
 
 def test_plugin_get_sensors_on_non_darwin():

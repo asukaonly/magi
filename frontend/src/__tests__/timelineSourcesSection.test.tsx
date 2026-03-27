@@ -281,4 +281,80 @@ describe('TimelineSourcesSection', () => {
     expect(screen.queryByText('Chrome History')).not.toBeInTheDocument();
     expect(screen.queryByText('NetEase Cloud Music')).not.toBeInTheDocument();
   });
+
+  it('uses calendar fields without exposing retention mode and only shows interval controls when scheduled', () => {
+    render(
+      <TimelineSourcesSection
+        userMode={userModeFixture}
+        statuses={[
+          {
+            ...timelineSourceFixture,
+            source_name: 'calendar',
+            plugin_id: 'calendar',
+            contribution_id: 'timeline.calendar',
+            display_name: 'Calendar',
+            description: 'Calendar event ingestion for the timeline.',
+            fields: [
+              {
+                ...timelineSourceFixture.fields[0],
+                key: 'sensors.calendar.enabled',
+              },
+              {
+                key: 'sensors.calendar.sync_mode',
+                type: 'select',
+                label: 'Sync Mode',
+                description: 'Choose manual or interval sync.',
+                default: 'interval',
+                required: false,
+                options: [
+                  { label: 'Manual', value: 'manual' },
+                  { label: 'Interval', value: 'interval' },
+                ],
+                section: 'sync',
+                surface: 'timeline',
+                order: 20,
+              },
+              {
+                key: 'sensors.calendar.sync_interval_minutes',
+                type: 'select',
+                label: 'Sync Interval',
+                description: 'How often to sync calendar events.',
+                default: '30',
+                required: false,
+                options: [
+                  { label: 'Manual only', value: 'manual' },
+                  { label: '30 minutes', value: '30' },
+                ],
+                section: 'sync',
+                surface: 'timeline',
+                order: 30,
+                depends_on_key: 'sensors.calendar.sync_mode',
+                depends_on_values: ['interval'],
+              },
+            ],
+            current_settings: {
+              'sensors.calendar.enabled': true,
+              'sensors.calendar.sync_mode': 'manual',
+              'sensors.calendar.sync_interval_minutes': 30,
+            },
+            sync_mode: 'manual',
+            next_run_at: null,
+          },
+        ]}
+        loadingStatus={false}
+        selectedSourceName="calendar"
+        pluginDrafts={{}}
+        onSelectSource={vi.fn()}
+        onRefreshSources={vi.fn().mockResolvedValue(undefined)}
+        onPluginFieldChange={vi.fn()}
+        onPluginFieldsChange={vi.fn()}
+      />
+    );
+
+    const detail = screen.getByTestId('timeline-source-detail-calendar');
+
+    expect(within(detail).getByText('Sync Mode')).toBeInTheDocument();
+    expect(within(detail).queryByText('Retention Mode')).not.toBeInTheDocument();
+    expect(within(detail).queryByText('Sync Interval')).not.toBeInTheDocument();
+  });
 });
