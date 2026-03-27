@@ -149,3 +149,41 @@ async def test_timeline_service_interprets_natural_language_query() -> None:
     assert l1_store.last_query["start_time"] == (14 - 7) * 24 * 60 * 60.0
     assert viewport["summary"]["event_count"] == 1
     assert viewport["clusters"][0]["label"] == "Game"
+
+
+async def test_timeline_service_reads_timeline_projection_from_metadata_json() -> None:
+    class _MetadataJsonL1Store(_FakeL1Store):
+        async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.last_query = kwargs
+            return [
+                {
+                    "event_id": "evt-3",
+                    "timestamp": 100.0,
+                    "source": "calendar",
+                    "content": "Interview",
+                    "metadata_json": {
+                        "timeline": {
+                            "title": "Interview (09:00-10:00)",
+                            "summary": "Interview",
+                            "source_type": "calendar",
+                            "tags": ["calendar"],
+                            "entities": [{"label": "interview"}],
+                        }
+                    },
+                }
+            ]
+
+    service = TimelineService(
+        SimpleNamespace(
+            l1=_MetadataJsonL1Store(),
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+        )
+    )
+
+    viewport = await service.get_viewport(scale="hour", start=0.0, end=200.0, focus="self")
+
+    assert viewport["raw_events"][0]["title"] == "Interview (09:00-10:00)"
+    assert viewport["raw_events"][0]["summary"] == "Interview"
+    assert viewport["raw_events"][0]["source_type"] == "calendar"

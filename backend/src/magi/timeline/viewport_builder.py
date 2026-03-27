@@ -136,7 +136,7 @@ class TimelineViewportBuilder:
         return f"{category.title()} Reflection"
 
     def _to_raw_event(self, event: dict[str, Any]) -> dict[str, Any]:
-        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        metadata = self._event_metadata(event)
         timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
         return {
             "event_id": str(event.get("event_id")),
@@ -183,7 +183,7 @@ class TimelineViewportBuilder:
 
     @staticmethod
     def _event_search_text(event: dict[str, Any]) -> str:
-        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        metadata = TimelineViewportBuilder._event_metadata(event)
         timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
         parts: list[str] = [
             str(event.get("source") or ""),
@@ -196,6 +196,16 @@ class TimelineViewportBuilder:
             if isinstance(entity, dict):
                 parts.extend([str(entity.get("label") or ""), str(entity.get("id") or "")])
         return " ".join(part for part in parts if part).lower()
+
+    @staticmethod
+    def _event_metadata(event: dict[str, Any]) -> dict[str, Any]:
+        metadata = event.get("metadata")
+        if isinstance(metadata, dict):
+            return metadata
+        metadata_json = event.get("metadata_json")
+        if isinstance(metadata_json, dict):
+            return metadata_json
+        return {}
 
     @staticmethod
     def _summary_search_text(summary: dict[str, Any]) -> str:

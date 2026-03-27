@@ -228,8 +228,31 @@ class TestSensorIngestionGateway:
 
         call_args = memory.ingest_event.call_args[0][0]
         assert isinstance(call_args, MemoryEvent)
-        assert call_args.metadata_json == {
-            "bucket_start": "2026-03-27T10:00:00+08:00",
-            "bundle_id": "com.apple.Safari",
-            "duration_seconds": 2280,
+        assert call_args.metadata_json is not None
+        assert call_args.metadata_json["bucket_start"] == "2026-03-27T10:00:00+08:00"
+        assert call_args.metadata_json["bundle_id"] == "com.apple.Safari"
+        assert call_args.metadata_json["duration_seconds"] == 2280
+        assert call_args.metadata_json["timeline"] == {
+            "event_id": "fake_source:item-1",
+            "source_type": "fake_source",
+            "source_item_id": "item-1",
+            "occurred_at": 1700000000.0,
+            "captured_at": 1700000001.0,
+            "title": "Test Event",
+            "summary": "Something happened",
+            "retention_mode": "analyze_only",
+            "raw_payload_ref": None,
+            "content_blocks": [
+                {
+                    "kind": "text",
+                    "value": "hello",
+                    "mime_type": None,
+                }
+            ],
+            "entities": [],
+            "tags": ["tag1"],
+            "privacy_labels": [],
+            "processing_status": {"stored": True, "analyzed": False},
+            "provenance": {},
         }
+        assert call_args.metadata_json["processing_status"] == {"stored": True, "analyzed": False}

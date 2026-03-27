@@ -1,9 +1,8 @@
 """Timeline service facade over memory-backed viewport and context bundles."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
-from ..events.events import Event, EventLevel
 from .contracts import TimelineEvent
 from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
@@ -29,19 +28,9 @@ class TimelineService:
         relation_candidates: Optional[list[dict]] = None,
         allowed_edge_whitelist: Optional[list[str]] = None,
     ) -> str:
-        runtime_event = self._build_timeline_runtime_event(event)
-        await self._unified_memory.ingest_event(
-            {
-                "id": event.event_id,
-                "type": runtime_event.type,
-                "timestamp": runtime_event.timestamp,
-                "source": runtime_event.source,
-                "level": runtime_event.level.value if hasattr(runtime_event.level, "value") else int(runtime_event.level),
-                "correlation_id": runtime_event.correlation_id,
-                "data": runtime_event.data,
-                "metadata": runtime_event.metadata,
-            }
-        )
+        # Sensor outputs are already persisted into L1 by SensorIngestionGateway.
+        # Re-ingesting them here would create a second TIMELINE_EVENT entry and
+        # enqueue duplicate L2 work for the same source item.
         event.processing_status["stored"] = True
         if relation_candidates:
             persisted = await self._insight_pipeline.process_event(
@@ -97,37 +86,8 @@ class TimelineService:
         return await self._viewport_builder.build_context_bundle(anchor=anchor)
 
     @staticmethod
-    def _build_timeline_runtime_event(event: TimelineEvent) -> Event:
-        payload = event.to_dict()
-        return Event(
-            type="TIMELINE_EVENT",
-            data={
-                "title": event.title,
-                "summary": event.summary,
-                "content_blocks": payload["content_blocks"],
-                "entities": event.entities,
-                "tags": event.tags,
-                "source_type": event.source_type,
-                "retention_mode": event.retention_mode,
-                "raw_payload_ref": event.raw_payload_ref,
-                "privacy_labels": event.privacy_labels,
-                "processing_status": event.processing_status,
-                "provenance": event.provenance,
-            },
-            timestamp=event.occurred_at,
-            source=event.source_type,
-            level=EventLevel.INFO,
-            correlation_id=event.event_id,
-            metadata={
-                "timeline": payload,
-                "raw_payload_ref": event.raw_payload_ref,
-                "processing_status": event.processing_status,
-            },
-        )
-
-    @staticmethod
     def _event_to_timeline_payload(event: dict) -> dict:
-        metadata = event.get("metadata", {}) if isinstance(event.get("metadata"), dict) else {}
+        metadata = TimelineService._event_metadata(event)
         timeline = metadata.get("timeline", {}) if isinstance(metadata.get("timeline"), dict) else {}
         occurred_at = float(event.get("timestamp") or event.get("created_at") or 0.0)
         return {
@@ -147,3 +107,13 @@ class TimelineService:
             "processing_status": timeline.get("processing_status") or {},
             "provenance": timeline.get("provenance") or metadata,
         }
+
+    @staticmethod
+    def _event_metadata(event: dict[str, Any]) -> dict[str, Any]:
+        metadata = event.get("metadata")
+        if isinstance(metadata, dict):
+            return metadata
+        metadata_json = event.get("metadata_json")
+        if isinstance(metadata_json, dict):
+            return metadata_json
+        return {}

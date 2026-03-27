@@ -68,7 +68,7 @@ class TimelineContextBundleBuilder:
         }
 
     def _to_event_preview(self, event: dict[str, Any]) -> dict[str, Any]:
-        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        metadata = self._event_metadata(event)
         timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
         return {
             "event_id": str(event.get("event_id")),
@@ -77,3 +77,13 @@ class TimelineContextBundleBuilder:
             "summary": str(timeline.get("summary") or event.get("content") or ""),
             "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
         }
+
+    @staticmethod
+    def _event_metadata(event: dict[str, Any]) -> dict[str, Any]:
+        metadata = event.get("metadata")
+        if isinstance(metadata, dict):
+            return metadata
+        metadata_json = event.get("metadata_json")
+        if isinstance(metadata_json, dict):
+            return metadata_json
+        return {}
