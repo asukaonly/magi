@@ -19,7 +19,7 @@ class ChromeHistoryTimelineSensor(SensorBase):
     polling_mode = "interval"
     default_interval = 30
     update_key_fields = ("visit_id",)
-    relation_edge_whitelist = ("VISITED", "VIEWED")
+    relation_edge_whitelist = ("VIEWED",)
     supports_pull_sync = True
 
     memory_policy = SensorMemoryPolicy()  # defaults match design

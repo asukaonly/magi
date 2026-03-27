@@ -91,7 +91,7 @@ def is_noise_visit(item: dict[str, Any]) -> bool:
 
 
 def should_mark_viewed(item: dict[str, Any]) -> bool:
-    """Return whether a visit should be promoted from VISITED to VIEWED."""
+    """Return whether a visit is strong enough to emit a VIEWED relation."""
 
     url = str(item.get("canonical_url") or item.get("url") or "")
     title = normalize_title(str(item.get("title") or ""))
@@ -121,32 +121,20 @@ def build_relation_candidates(item: dict[str, Any]) -> list[dict[str, Any]]:
         "label": domain,
         "source_kind": "site",
     }
-    candidates = [
+    if not should_mark_viewed(item):
+        return []
+    return [
         {
             "subject_id": "user:self",
             "subject_type": "user",
-            "predicate": "VISITED",
+            "predicate": "VIEWED",
             "object_id": object_id,
             "object_type": "site",
-            "confidence": 0.6,
+            "confidence": 0.78,
             "observed_at": observed_at,
             "object_attributes": object_attributes,
         }
     ]
-    if should_mark_viewed(item):
-        candidates.append(
-            {
-                "subject_id": "user:self",
-                "subject_type": "user",
-                "predicate": "VIEWED",
-                "object_id": object_id,
-                "object_type": "site",
-                "confidence": 0.78,
-                "observed_at": observed_at,
-                "object_attributes": object_attributes,
-            }
-        )
-    return candidates
 
 
 def should_merge_visit(

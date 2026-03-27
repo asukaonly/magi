@@ -17,7 +17,6 @@ DEFAULT_SETTINGS = {
     "lookback_hours": 24,
     "max_items_per_sync": 200,
     "fetch_page_content": False,
-    "edge_whitelist": ["VISITED", "VIEWED"],
     "initial_sync_policy": "lookback_days",
     "initial_sync_lookback_days": 7,
     "initial_sync_configured": False,
@@ -145,16 +144,6 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             section="analysis",
             surface="timeline",
             order=70,
-        ),
-        ExtensionFieldSpec(
-            key=f"{prefix}.edge_whitelist",
-            type="tags",
-            label="Edge Whitelist",
-            description="Relationship edge types this source may write into the user graph.",
-            default=["VISITED", "VIEWED"],
-            section="analysis",
-            surface="timeline",
-            order=80,
         ),
     ]
 

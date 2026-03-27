@@ -1022,15 +1022,11 @@
           "sensors.chrome_history.fetch_page_content": {
             "label": "抓取页面正文",
             "description": "预留给后续页面正文抓取能力，目前不会启用。"
-          },
-          "sensors.chrome_history.edge_whitelist": {
-            "label": "边白名单",
-            "description": "允许该来源写入用户图谱的关系类型。"
           }
         },
         "options": {
           "enabled": { "true": "启用", "false": "停用" },
-          "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },
+          "sync_mode": { "manual": "手动", "interval": "定时" },
           "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
           "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
           "initial_sync_policy": {

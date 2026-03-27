@@ -1022,15 +1022,11 @@
           "sensors.chrome_history.fetch_page_content": {
             "label": "Fetch Page Content",
             "description": "Reserved for future page-content capture and currently stays disabled."
-          },
-          "sensors.chrome_history.edge_whitelist": {
-            "label": "Edge Whitelist",
-            "description": "Relationship edge types this source may write into the user graph."
           }
         },
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
+          "sync_mode": { "manual": "Manual", "interval": "Interval" },
           "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
           "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
           "initial_sync_policy": {

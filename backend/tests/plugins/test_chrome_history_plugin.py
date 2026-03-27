@@ -199,11 +199,13 @@ def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_defa
     assert resolved is not None
     _, _, _, spec = resolved
     assert spec.metadata["default_settings"]["enabled"] is False
+    assert "edge_whitelist" not in spec.metadata["default_settings"]
     activation_flow = spec.metadata["activation_flow"]
     assert activation_flow["enabled_key"] == "sensors.chrome_history.enabled"
     assert activation_flow["configured_key"] == "sensors.chrome_history.initial_sync_configured"
     assert activation_flow["fields"][0]["key"] == "sensors.chrome_history.initial_sync_policy"
     assert all(field.key != "sensors.chrome_history.source_path" for field in spec.fields)
+    assert all(field.key != "sensors.chrome_history.edge_whitelist" for field in spec.fields)
     sync_mode_field = next(field for field in spec.fields if field.key == "sensors.chrome_history.sync_mode")
     assert [option.value for option in sync_mode_field.options] == ["manual", "interval"]
     sync_interval_field = next(field for field in spec.fields if field.key == "sensors.chrome_history.sync_interval_minutes")
@@ -246,7 +248,6 @@ async def test_chrome_history_sensor_collects_events_and_relations(
                     "lookback_hours": 48,
                     "max_items_per_sync": 50,
                     "fetch_page_content": False,
-                    "edge_whitelist": ["VISITED", "VIEWED"],
                 }
             }
         },
@@ -302,9 +303,9 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     content_metadata = await sensor.extract_metadata(result.items[1])
     noise_metadata = await sensor.extract_metadata(result.items[2])
 
-    assert [candidate["predicate"] for candidate in root_metadata.relation_candidates] == ["VISITED"]
-    assert [candidate["predicate"] for candidate in content_metadata.relation_candidates] == ["VISITED", "VIEWED"]
-    assert [candidate["predicate"] for candidate in noise_metadata.relation_candidates] == ["VISITED"]
+    assert root_metadata.relation_candidates == []
+    assert [candidate["predicate"] for candidate in content_metadata.relation_candidates] == ["VIEWED"]
+    assert noise_metadata.relation_candidates == []
     assert all(candidate["object_id"] == "site:github.com" for candidate in content_metadata.relation_candidates)
 
 
@@ -330,7 +331,6 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
                     "lookback_hours": 48,
                     "max_items_per_sync": 50,
                     "fetch_page_content": False,
-                    "edge_whitelist": ["VISITED", "VIEWED"],
                 }
             }
         },
@@ -373,7 +373,7 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
     assert mermaid_output.provenance["canonical_url"] == "https://mermaid.live/edit"
 
     mermaid_metadata = await sensor.extract_metadata(mermaid_item)
-    assert [candidate["predicate"] for candidate in mermaid_metadata.relation_candidates] == ["VISITED", "VIEWED"]
+    assert [candidate["predicate"] for candidate in mermaid_metadata.relation_candidates] == ["VIEWED"]
     assert all(candidate["object_id"] == "site:mermaid.live" for candidate in mermaid_metadata.relation_candidates)
 
     assert lastfm_item["source_item_id"] == "204-205"
@@ -405,7 +405,6 @@ async def test_chrome_history_sensor_from_now_skips_initial_backfill(
                     "initial_sync_configured": True,
                     "max_items_per_sync": 50,
                     "fetch_page_content": False,
-                    "edge_whitelist": ["VISITED", "VIEWED"],
                 }
             }
         },

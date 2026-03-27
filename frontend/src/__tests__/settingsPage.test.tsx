@@ -1190,6 +1190,7 @@ describe('settings page draft saving', () => {
     expect(within(chromePanel).getByText('配置档案')).toBeInTheDocument();
     expect(within(chromePanel).getByText('同步方式')).toBeInTheDocument();
     expect(within(chromePanel).queryByText('Chrome Data Path')).not.toBeInTheDocument();
+    expect(within(chromePanel).queryByText('Edge Whitelist')).not.toBeInTheDocument();
     expect(within(chromePanel).queryByText('定时间隔')).not.toBeInTheDocument();
   });
 
