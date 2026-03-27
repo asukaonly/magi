@@ -325,7 +325,7 @@ class EventKitReader:
         url_value = self._read_value(event, "URL")
         url = self._read_value(url_value, "absoluteString", default=None) if url_value is not None else None
 
-        return {
+        serialized = {
             "event_id": str(event_id),
             "title": str(self._read_value(event, "title", default="Untitled Event")),
             "start_time": start_time,
@@ -343,6 +343,20 @@ class EventKitReader:
             "recurrence_rule": recurrence_rule,
             "url": url,
         }
+        logger.info(
+            "Calendar event serialized",
+            event_id=serialized["event_id"],
+            title=serialized["title"],
+            start_time=start_time.isoformat(),
+            end_time=end_time.isoformat(),
+            is_all_day=serialized["is_all_day"],
+            calendar_name=serialized["calendar_name"],
+            location=serialized["location"],
+            has_notes=bool(serialized["notes"]),
+            participant_count=len(serialized["participants"]),
+            is_recurring=serialized["is_recurring"],
+        )
+        return serialized
 
     def _execute_events_query(
         self,
@@ -413,6 +427,13 @@ class EventKitReader:
             return []
 
         rows = self._execute_events_query(start_date, end_date, calendars)
+        logger.info(
+            "Calendar events query completed",
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            requested_calendar_count=len(calendars or []),
+            row_count=len(rows),
+        )
         events: list[CalendarEvent] = []
         for row in rows:
             start_time = row.get("start_time")

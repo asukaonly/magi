@@ -64,6 +64,15 @@ class SensorIngestionGateway:
 
         # 1. Build MemoryEvent with sensor's policy
         memory_event = self._build_memory_event(sensor, event_id, output, policy)
+        if output.source_type == "calendar":
+            logger.info(
+                "Calendar memory event prepared",
+                event_id=memory_event.event_id,
+                source_item_id=memory_event.source_item_id,
+                event_type=memory_event.event_type,
+                content=memory_event.content,
+                metadata_json=memory_event.metadata_json,
+            )
 
         # 2. Ingest into unified memory (L0/L1/L2/L4 as policy dictates)
         await self._unified_memory.ingest_event(memory_event)

@@ -129,6 +129,15 @@ class CalendarTimelineSensor(SensorBase):
 
         # Read events
         events = self.reader.read_events(start_date, end_date)
+        logger.info(
+            "Calendar sensor collected events",
+            source_type=self.source_type,
+            manual=context.manual,
+            initial_sync=context.last_cursor is None,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            event_count=len(events),
+        )
 
         # Convert to items
         items = []
@@ -152,6 +161,16 @@ class CalendarTimelineSensor(SensorBase):
                 "url": event.url,
             }
             items.append(item)
+            logger.info(
+                "Calendar sensor prepared source item",
+                event_id=item["event_id"],
+                title=item["title"],
+                start_time=item["start_time"],
+                end_time=item["end_time"],
+                location=item["location"],
+                has_notes=bool(item["notes"]),
+                participant_count=len(item["participants"]),
+            )
 
         # Sort items by start time
         items.sort(key=lambda x: x.get("start_time", 0), reverse=True)
@@ -207,6 +226,15 @@ class CalendarTimelineSensor(SensorBase):
 
         # Normalize
         normalized_data = normalize_calendar_event(event, self)
+        logger.info(
+            "Calendar sensor built output",
+            event_id=event.event_id,
+            source_item_id=normalized_data["source_item_id"],
+            output_title=normalized_data["title"],
+            output_summary=normalized_data["summary"],
+            content_block_count=len(normalized_data["content_blocks"]),
+            tag_count=len(normalized_data["tags"]),
+        )
 
         return self._build_output(
             source_item_id=normalized_data["source_item_id"],
