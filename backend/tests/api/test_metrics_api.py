@@ -188,7 +188,7 @@ async def test_get_llm_usage_timeseries_returns_cost_series(monkeypatch: pytest.
 
 @pytest.mark.asyncio
 async def test_build_runtime_overview_returns_aggregated_runtime_data(monkeypatch: pytest.MonkeyPatch) -> None:
-    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="combined"))
+    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="api"))
     fake_memory = SimpleNamespace(percent=48.0, used=5 * 1024**3, total=16 * 1024**3)
 
     async def _fake_runtime_status(_app):
@@ -200,7 +200,7 @@ async def test_build_runtime_overview_returns_aggregated_runtime_data(monkeypatc
             "runtime_heartbeat_age_ms": 1200,
             "queue_backlog_healthy": True,
             "pending_commands": 3,
-            "process_role": "combined",
+            "process_role": "api",
         }
 
     monkeypatch.setattr(

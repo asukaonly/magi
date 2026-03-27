@@ -11,26 +11,25 @@ PROCESS_ROLE_ENV_VAR = "MAGI_PROCESS_ROLE"
 class ProcessRole(str, Enum):
     """Supported backend process roles."""
 
-    COMBINED = "combined"
     API = "api"
     RUNTIME_WORKER = "runtime_worker"
 
     @property
     def runs_transport(self) -> bool:
         """Return whether the role should host HTTP/WebSocket transport."""
-        return self in {ProcessRole.COMBINED, ProcessRole.API}
+        return self is ProcessRole.API
 
     @property
     def runs_runtime(self) -> bool:
         """Return whether the role should host the background runtime graph."""
-        return self in {ProcessRole.COMBINED, ProcessRole.RUNTIME_WORKER}
+        return self is ProcessRole.RUNTIME_WORKER
 
 
 def resolve_process_role(
     value: str | None = None,
     *,
     env: Mapping[str, str] | None = None,
-    default: ProcessRole = ProcessRole.COMBINED,
+    default: ProcessRole = ProcessRole.API,
 ) -> ProcessRole:
     """Resolve the backend process role from explicit input or environment."""
     source_env = env if env is not None else {}

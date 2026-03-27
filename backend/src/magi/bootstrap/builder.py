@@ -12,18 +12,12 @@ from ..process_roles import ProcessRole
 def build_runtime_modules(
     context: RuntimeBootstrapContext,
     *,
-    role: ProcessRole = ProcessRole.COMBINED,
+    role: ProcessRole = ProcessRole.API,
 ) -> list[LifecycleModule]:
-    """Build ordered runtime lifecycle modules from layer-owned contributions.
-
-    The combined role preserves the current single-process topology while the
-    dedicated API and runtime-worker roles expose the split bootstrap graphs.
-    """
+    """Build ordered runtime lifecycle modules from layer-owned contributions."""
     if role is ProcessRole.API:
         return build_api_runtime_modules(context)
     if role is ProcessRole.RUNTIME_WORKER:
-        return build_runtime_worker_modules(context)
-    if role is ProcessRole.COMBINED:
         return build_runtime_worker_modules(context)
 
     raise ValueError(f"Unsupported process role: {role}")

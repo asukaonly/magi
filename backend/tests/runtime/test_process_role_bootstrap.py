@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 
 
-def test_resolve_process_role_defaults_to_combined_mode() -> None:
-    """Verify role resolution preserves the current combined startup mode by default."""
+def test_resolve_process_role_defaults_to_api_mode() -> None:
+    """Verify role resolution defaults transport startup to the API role."""
     from magi.process_roles import ProcessRole, resolve_process_role
 
-    assert resolve_process_role(None, env={}) is ProcessRole.COMBINED
-    assert resolve_process_role("", env={}) is ProcessRole.COMBINED
+    assert resolve_process_role(None, env={}) is ProcessRole.API
+    assert resolve_process_role("", env={}) is ProcessRole.API
 
 
 def test_resolve_process_role_rejects_unknown_values() -> None:

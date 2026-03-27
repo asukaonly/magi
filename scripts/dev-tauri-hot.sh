@@ -28,7 +28,8 @@ if [[ "${CONNECT_HOST}" == "0.0.0.0" || "${CONNECT_HOST}" == "::" || "${CONNECT_
   CONNECT_HOST="127.0.0.1"
 fi
 
-BACKEND_PID=""
+BACKEND_API_PID=""
+BACKEND_RUNTIME_PID=""
 BACKEND_CLEANUP_DONE=0
 
 cleanup_stale_backend_log_holders() {
@@ -44,7 +45,7 @@ cleanup_stale_backend_log_holders() {
   while IFS= read -r pid; do
     [[ -z "${pid}" ]] && continue
     command="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
-    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|run_supervisor\.py|spawn_main|resource_tracker) ]]; then
+    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|spawn_main|resource_tracker) ]]; then
       continue
     fi
 
@@ -62,7 +63,7 @@ cleanup_stale_backend_log_holders() {
   while IFS= read -r pid; do
     [[ -z "${pid}" ]] && continue
     command="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
-    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|run_supervisor\.py|spawn_main|resource_tracker) ]]; then
+    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|spawn_main|resource_tracker) ]]; then
       continue
     fi
 
@@ -134,54 +135,27 @@ kill_listeners_on_port() {
   done <<< "${pids}"
 }
 
-collect_descendant_pids() {
-  local parent_pid="$1"
-  local child_pid
-  while IFS= read -r child_pid; do
-    [[ -z "${child_pid}" ]] && continue
-    echo "${child_pid}"
-    collect_descendant_pids "${child_pid}"
-  done < <(pgrep -P "${parent_pid}" 2>/dev/null || true)
-}
-
-signal_process_tree() {
-  local signal_name="$1"
-  local root_pid="$2"
-  local descendants
-
-  descendants="$(collect_descendant_pids "${root_pid}" | awk '!seen[$0]++')"
-  if [[ -n "${descendants}" ]]; then
-    while IFS= read -r pid; do
-      [[ -z "${pid}" ]] && continue
-      kill "-${signal_name}" "${pid}" 2>/dev/null || true
-    done <<< "${descendants}"
-  fi
-
-  kill "-${signal_name}" "${root_pid}" 2>/dev/null || true
-}
-
-stop_backend_process_tree() {
-  local root_pid="$1"
+stop_backend_process() {
+  local pid="$1"
+  local label="$2"
   local deadline
 
-  if ! kill -0 "${root_pid}" 2>/dev/null; then
+  if [[ -z "${pid}" ]] || ! kill -0 "${pid}" 2>/dev/null; then
     return 0
   fi
 
-  echo "Stopping backend process tree rooted at PID ${root_pid}..."
-  signal_process_tree TERM "${root_pid}"
+  echo "Stopping backend ${label} process PID ${pid}..."
+  kill -TERM "${pid}" 2>/dev/null || true
 
   deadline=$((SECONDS + 5))
-  while kill -0 "${root_pid}" 2>/dev/null; do
+  while kill -0 "${pid}" 2>/dev/null; do
     if (( SECONDS >= deadline )); then
-      echo "Backend process tree did not exit after TERM, forcing stop..."
-      signal_process_tree KILL "${root_pid}"
+      echo "Backend ${label} process did not exit after TERM, forcing stop..."
+      kill -KILL "${pid}" 2>/dev/null || true
       break
     fi
     sleep 0.2
   done
-
-  sleep 0.5
 }
 
 ensure_sidecar_placeholder() {
@@ -217,8 +191,12 @@ cleanup() {
   echo
   echo "Stopping Tauri hot-reload dev environment..."
 
-  if [[ -n "${BACKEND_PID}" ]] && kill -0 "${BACKEND_PID}" 2>/dev/null; then
-    stop_backend_process_tree "${BACKEND_PID}"
+  if [[ -n "${BACKEND_RUNTIME_PID}" ]] && kill -0 "${BACKEND_RUNTIME_PID}" 2>/dev/null; then
+    stop_backend_process "${BACKEND_RUNTIME_PID}" "runtime_worker"
+  fi
+
+  if [[ -n "${BACKEND_API_PID}" ]] && kill -0 "${BACKEND_API_PID}" 2>/dev/null; then
+    stop_backend_process "${BACKEND_API_PID}" "api"
   fi
 
   local remain_port_pids
@@ -270,6 +248,51 @@ PY
   done
 }
 
+wait_for_runtime_worker_ready() {
+  local deadline=$((SECONDS + 60))
+
+  echo "Waiting for runtime worker heartbeat..."
+
+  while true; do
+    if (
+      cd "${BACKEND_DIR}"
+      python - <<'PY'
+import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.getcwd(), "src"))
+
+from magi.runtime_trace import RuntimeTraceStore
+from magi.utils.runtime import get_runtime_paths
+
+
+async def main() -> int:
+    store = RuntimeTraceStore(db_path=str(get_runtime_paths().runtime_trace_db_path))
+    heartbeat = await store.get_runtime_heartbeat(role="runtime_worker")
+    if heartbeat is not None and str(heartbeat.status or "").strip() == "ready":
+        return 0
+    return 1
+
+
+raise SystemExit(asyncio.run(main()))
+PY
+    ); then
+      echo "Runtime worker is ready."
+      return 0
+    fi
+
+    if (( SECONDS >= deadline )); then
+      echo "Runtime worker did not become ready within 60 seconds."
+      echo "Recent backend logs:"
+      tail -n 40 "${BACKEND_LOG_FILE}" || true
+      return 1
+    fi
+
+    sleep 0.5
+  done
+}
+
 ensure_sidecar_placeholder
 cleanup_stale_backend_log_holders
 kill_listeners_on_port "${FRONTEND_PORT}"
@@ -283,17 +306,26 @@ BACKEND_PORT="${SELECTED_BACKEND_PORT}"
 mkdir -p "$(dirname "${BACKEND_LOG_FILE}")"
 touch "${BACKEND_LOG_FILE}"
 
-echo "Starting dual-process backend supervisor for Tauri..."
+echo "Starting dual-process backend for Tauri..."
 (
   cd "${BACKEND_DIR}"
-  MAGI_API_PORT_OVERRIDE="${BACKEND_PORT}" python run_supervisor.py
+  python run_server.py --role runtime_worker --no-reload
 ) >"${BACKEND_LOG_FILE}" 2>&1 &
-BACKEND_PID=$!
+BACKEND_RUNTIME_PID=$!
+echo "Runtime worker PID: ${BACKEND_RUNTIME_PID}"
+wait_for_runtime_worker_ready
+
+(
+  cd "${BACKEND_DIR}"
+  python run_server.py --role api --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" --no-reload
+) >>"${BACKEND_LOG_FILE}" 2>&1 &
+BACKEND_API_PID=$!
+echo "API PID: ${BACKEND_API_PID}"
 echo "Backend logs: ${BACKEND_LOG_FILE}"
 echo "Tail backend logs manually: tail -f ${BACKEND_LOG_FILE}"
 echo "Backend bind host(from config): ${BACKEND_HOST}:${BACKEND_PORT}"
 echo "Backend connect endpoint: http://${CONNECT_HOST}:${BACKEND_PORT}"
-echo "Backend topology: supervisor + api + runtime_worker"
+echo "Backend topology: api + runtime_worker"
 echo "Backend reload(from config): ${BACKEND_RELOAD}"
 wait_for_backend_ready
 

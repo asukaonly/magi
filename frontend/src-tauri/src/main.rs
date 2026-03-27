@@ -1,5 +1,7 @@
 mod desktop_presence;
 
+#[cfg(unix)]
+use libc::{kill, SIGTERM};
 use serde::Serialize;
 use std::env;
 use std::io::{Read, Write};
@@ -29,11 +31,13 @@ struct BackendState {
 
 #[derive(Default)]
 struct BackendRuntime {
-    process: Option<BackendProcess>,
+    api_process: Option<BackendProcess>,
+    runtime_worker_process: Option<BackendProcess>,
     base_url: Option<String>,
     ws_base_url: Option<String>,
     session_token: Option<String>,
-    pid: Option<u32>,
+    api_pid: Option<u32>,
+    runtime_worker_pid: Option<u32>,
 }
 
 struct ExternalBackendConfig {
@@ -91,6 +95,13 @@ impl BackendProcess {
     }
 }
 
+struct ManagedBackendStart {
+    api_process: BackendProcess,
+    runtime_worker_process: BackendProcess,
+    api_pid: Option<u32>,
+    runtime_worker_pid: Option<u32>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartBackendResponse {
@@ -98,7 +109,8 @@ struct StartBackendResponse {
     base_url: String,
     ws_base_url: String,
     session_token: String,
-    pid: Option<u32>,
+    api_pid: Option<u32>,
+    runtime_worker_pid: Option<u32>,
     error: Option<String>,
 }
 
@@ -108,7 +120,8 @@ struct BackendStatusResponse {
     running: bool,
     base_url: Option<String>,
     ws_base_url: Option<String>,
-    pid: Option<u32>,
+    api_pid: Option<u32>,
+    runtime_worker_pid: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -165,6 +178,51 @@ fn wait_for_port_close(host: &str, port: u16, timeout: Duration) -> bool {
         thread::sleep(SHUTDOWN_POLL_INTERVAL);
     }
     false
+}
+
+#[cfg(unix)]
+fn send_termination_signal(pid: u32) -> bool {
+    unsafe { kill(pid as i32, SIGTERM) == 0 }
+}
+
+#[cfg(not(unix))]
+fn send_termination_signal(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn is_pid_running(pid: u32) -> bool {
+    let result = unsafe { kill(pid as i32, 0) };
+    if result == 0 {
+        return true;
+    }
+
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn is_pid_running(_pid: u32) -> bool {
+    false
+}
+
+fn wait_for_pid_exit(pid: u32, timeout: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if !is_pid_running(pid) {
+            return true;
+        }
+        thread::sleep(SHUTDOWN_POLL_INTERVAL);
+    }
+    !is_pid_running(pid)
+}
+
+fn wait_for_process_stop(process: &mut BackendProcess, pid: Option<u32>, timeout: Duration) -> bool {
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        return wait_for_pid_exit(pid, timeout);
+    }
+    let _ = pid;
+    process.wait_for_exit(timeout)
 }
 
 fn request_runtime_shutdown(host: &str, port: u16, session_token: &str) -> bool {
@@ -251,18 +309,30 @@ fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, Stri
     }))
 }
 
-fn spawn_sidecar(
+fn spawn_sidecar_role(
     app: &AppHandle,
-    port: u16,
+    role: &str,
+    port: Option<u16>,
     session_token: &str,
     recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
-    let port_text = port.to_string();
+    let mut args = vec!["--role".to_string(), role.to_string(), "--no-reload".to_string()];
+    if role == "api" {
+        let port_text = port
+            .ok_or_else(|| "API role requires a port".to_string())?
+            .to_string();
+        args.extend([
+            "--host".to_string(),
+            BACKEND_HOST.to_string(),
+            "--port".to_string(),
+            port_text,
+        ]);
+    }
     let (mut rx, child) = app
         .shell()
         .sidecar("magi-backend")
         .map_err(|err| format!("Failed to prepare backend sidecar: {err}"))?
-        .args(["--role", "combined", "--host", BACKEND_HOST, "--port", &port_text, "--no-reload"])
+        .args(args)
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .spawn()
@@ -270,31 +340,37 @@ fn spawn_sidecar(
 
     let pid = child.pid();
     let app_handle = app.clone();
+    let role_label = role.to_string();
     let errors_clone = recent_errors.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
                     let message = String::from_utf8_lossy(&line).to_string();
-                    let _ = app_handle.emit("backend-log", format!("stdout: {}", message.trim_end()));
+                    let _ = app_handle.emit(
+                        "backend-log",
+                        format!("{} stdout: {}", role_label, message.trim_end()),
+                    );
                 }
                 CommandEvent::Stderr(line) => {
                     let message = String::from_utf8_lossy(&line).to_string();
-                    let _ = app_handle.emit("backend-log", format!("stderr: {}", message.trim_end()));
-                    // Store recent error lines for error reporting
+                    let _ = app_handle.emit(
+                        "backend-log",
+                        format!("{} stderr: {}", role_label, message.trim_end()),
+                    );
                     if let Ok(mut errors) = errors_clone.lock() {
                         if errors.len() >= MAX_ERROR_LINES {
                             errors.remove(0);
                         }
-                        errors.push(message.trim_end().to_string());
+                        errors.push(format!("{}: {}", role_label, message.trim_end()));
                     }
                 }
                 CommandEvent::Terminated(payload) => {
                     let _ = app_handle.emit(
                         "backend-exit",
                         format!(
-                            "Backend exited (code: {:?}, signal: {:?})",
-                            payload.code, payload.signal
+                            "{} exited (code: {:?}, signal: {:?})",
+                            role_label, payload.code, payload.signal
                         ),
                     );
                     break;
@@ -323,19 +399,18 @@ fn find_backend_dir() -> Result<PathBuf, String> {
     }
 }
 
-fn spawn_dev_backend(port: u16, session_token: &str) -> Result<(BackendProcess, Option<u32>), String> {
+fn spawn_dev_backend_role(
+    role: &str,
+    port: Option<u16>,
+    session_token: &str,
+) -> Result<(BackendProcess, Option<u32>), String> {
     let backend_dir = find_backend_dir()?;
-    let port_text = port.to_string();
 
     let mut command = Command::new("python");
     command
         .arg("run_server.py")
         .arg("--role")
-        .arg("combined")
-        .arg("--host")
-        .arg(BACKEND_HOST)
-        .arg("--port")
-        .arg(&port_text)
+        .arg(role)
         .arg("--no-reload")
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
@@ -343,11 +418,68 @@ fn spawn_dev_backend(port: u16, session_token: &str) -> Result<(BackendProcess, 
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
+    if role == "api" {
+        let port_text = port
+            .ok_or_else(|| "API role requires a port".to_string())?
+            .to_string();
+        command
+            .arg("--host")
+            .arg(BACKEND_HOST)
+            .arg("--port")
+            .arg(&port_text);
+    }
+
     let child = command
         .spawn()
         .map_err(|err| format!("Failed to spawn backend with python fallback: {err}"))?;
     let pid = Some(child.id());
     Ok((BackendProcess::Dev(Some(child)), pid))
+}
+
+fn spawn_sidecar_backend(
+    app: &AppHandle,
+    port: u16,
+    session_token: &str,
+    recent_errors: Arc<Mutex<Vec<String>>>,
+) -> Result<ManagedBackendStart, String> {
+    let (runtime_worker_process, runtime_worker_pid) =
+        spawn_sidecar_role(app, "runtime_worker", None, session_token, recent_errors.clone())?;
+    let (api_process, api_pid) = match spawn_sidecar_role(app, "api", Some(port), session_token, recent_errors)
+    {
+        Ok(result) => result,
+        Err(err) => {
+            let mut process = runtime_worker_process;
+            process.kill();
+            return Err(err);
+        }
+    };
+
+    Ok(ManagedBackendStart {
+        api_process,
+        runtime_worker_process,
+        api_pid,
+        runtime_worker_pid,
+    })
+}
+
+fn spawn_dev_backend_pair(port: u16, session_token: &str) -> Result<ManagedBackendStart, String> {
+    let (runtime_worker_process, runtime_worker_pid) =
+        spawn_dev_backend_role("runtime_worker", None, session_token)?;
+    let (api_process, api_pid) = match spawn_dev_backend_role("api", Some(port), session_token) {
+        Ok(result) => result,
+        Err(err) => {
+            let mut process = runtime_worker_process;
+            process.kill();
+            return Err(err);
+        }
+    };
+
+    Ok(ManagedBackendStart {
+        api_process,
+        runtime_worker_process,
+        api_pid,
+        runtime_worker_pid,
+    })
 }
 
 fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
@@ -357,19 +489,38 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
     let base_url = runtime.base_url.clone();
     let session_token = runtime.session_token.clone().unwrap_or_default();
-    if let Some(mut process) = runtime.process.take() {
+    let api_pid = runtime.api_pid;
+    let runtime_worker_pid = runtime.runtime_worker_pid;
+    if let Some(mut process) = runtime.api_process.take() {
         if let Some(base_url) = base_url.as_deref() {
             if let Some((host, port)) = extract_backend_endpoint(base_url) {
                 if request_runtime_shutdown(&host, port, &session_token) {
-                    let exited = process.wait_for_exit(SHUTDOWN_TIMEOUT)
+                    let exited = wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT)
                         || wait_for_port_close(&host, port, SHUTDOWN_TIMEOUT);
                     if !exited {
                         process.kill();
                     }
                 } else {
-                    process.kill();
+                    if let Some(pid) = api_pid {
+                        let _ = send_termination_signal(pid);
+                        if !wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT) {
+                            process.kill();
+                        }
+                    } else {
+                        process.kill();
+                    }
                 }
             } else {
+                process.kill();
+            }
+        } else {
+            process.kill();
+        }
+    }
+    if let Some(mut process) = runtime.runtime_worker_process.take() {
+        if let Some(pid) = runtime_worker_pid {
+            let _ = send_termination_signal(pid);
+            if !wait_for_process_stop(&mut process, runtime_worker_pid, SHUTDOWN_TIMEOUT) {
                 process.kill();
             }
         } else {
@@ -379,7 +530,8 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
     runtime.base_url = None;
     runtime.ws_base_url = None;
     runtime.session_token = None;
-    runtime.pid = None;
+    runtime.api_pid = None;
+    runtime.runtime_worker_pid = None;
     Ok(())
 }
 
@@ -413,7 +565,8 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
                 base_url,
                 ws_base_url,
                 session_token,
-                pid: runtime.pid,
+                api_pid: runtime.api_pid,
+                runtime_worker_pid: runtime.runtime_worker_pid,
                 error: None,
             });
         }
@@ -428,18 +581,21 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
             .runtime
             .lock()
             .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-        runtime.process = None;
+        runtime.api_process = None;
+        runtime.runtime_worker_process = None;
         runtime.base_url = Some(external.base_url.clone());
         runtime.ws_base_url = Some(external.ws_base_url.clone());
         runtime.session_token = Some(external.session_token.clone());
-        runtime.pid = None;
+        runtime.api_pid = None;
+        runtime.runtime_worker_pid = None;
 
         return Ok(StartBackendResponse {
             ok: true,
             base_url: external.base_url,
             ws_base_url: external.ws_base_url,
             session_token: external.session_token,
-            pid: None,
+            api_pid: None,
+            runtime_worker_pid: None,
             error: None,
         });
     }
@@ -449,11 +605,11 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, port);
     let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, port);
 
-    let (process, pid) = match spawn_sidecar(&app, port, &session_token, state.recent_errors.clone()) {
+    let start = match spawn_sidecar_backend(&app, port, &session_token, state.recent_errors.clone()) {
         Ok(result) => result,
         Err(sidecar_err) => {
             if cfg!(debug_assertions) {
-                spawn_dev_backend(port, &session_token)
+                spawn_dev_backend_pair(port, &session_token)
                     .map_err(|dev_err| format!("{}; fallback failed: {}", sidecar_err, dev_err))?
             } else {
                 return Err(sidecar_err);
@@ -461,9 +617,11 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
         }
     };
 
-    let mut process = process;
     if !wait_for_health(BACKEND_HOST, port, STARTUP_TIMEOUT) {
-        process.kill();
+        let mut api_process = start.api_process;
+        let mut runtime_worker_process = start.runtime_worker_process;
+        api_process.kill();
+        runtime_worker_process.kill();
         // Collect recent error logs for better error message
         let error_details = if let Ok(errors) = state.recent_errors.lock() {
             if errors.is_empty() {
@@ -481,18 +639,21 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
         .runtime
         .lock()
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-    runtime.process = Some(process);
+    runtime.api_process = Some(start.api_process);
+    runtime.runtime_worker_process = Some(start.runtime_worker_process);
     runtime.base_url = Some(base_url.clone());
     runtime.ws_base_url = Some(ws_base_url.clone());
     runtime.session_token = Some(session_token.clone());
-    runtime.pid = pid;
+    runtime.api_pid = start.api_pid;
+    runtime.runtime_worker_pid = start.runtime_worker_pid;
 
     Ok(StartBackendResponse {
         ok: true,
         base_url,
         ws_base_url,
         session_token,
-        pid,
+        api_pid: runtime.api_pid,
+        runtime_worker_pid: runtime.runtime_worker_pid,
         error: None,
     })
 }
@@ -513,7 +674,8 @@ fn backend_status(state: State<'_, BackendState>) -> Result<BackendStatusRespons
         running: runtime.base_url.is_some(),
         base_url: runtime.base_url.clone(),
         ws_base_url: runtime.ws_base_url.clone(),
-        pid: runtime.pid,
+        api_pid: runtime.api_pid,
+        runtime_worker_pid: runtime.runtime_worker_pid,
     })
 }
 

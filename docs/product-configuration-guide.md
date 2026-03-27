@@ -413,7 +413,7 @@ Hiding the window is not equivalent to shutting down the desktop runtime.
 
 Important rule:
 
-- ordinary close-to-tray behavior must not stop the Python sidecar or other desktop runtime services
+- ordinary close-to-tray behavior must not stop the Python backend processes or other desktop runtime services
 - backend shutdown should happen only during an explicit quit flow or unrecoverable application termination
 
 ## Cross-Cutting Product Rules

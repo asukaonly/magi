@@ -55,7 +55,8 @@ describe('runtime config URL normalization', () => {
       baseUrl: 'http://127.0.0.1:8000/api',
       wsBaseUrl: 'ws://127.0.0.1:8000',
       sessionToken: 'token-1',
-      pid: 4321,
+      apiPid: 4321,
+      runtimeWorkerPid: 5678,
     });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -80,6 +81,7 @@ describe('runtime config URL normalization', () => {
       expect.objectContaining({ method: 'GET' })
     );
     expect(runtime.isDesktop).toBe(true);
-    expect(runtime.backendPid).toBe(4321);
+    expect(runtime.apiPid).toBe(4321);
+    expect(runtime.runtimeWorkerPid).toBe(5678);
   });
 });

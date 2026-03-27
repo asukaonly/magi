@@ -46,7 +46,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--role",
         dest="process_role",
-        help="Backend process role: combined, api, or runtime_worker",
+        help="Backend process role: api or runtime_worker",
     )
     parser.add_argument(
         "--host",

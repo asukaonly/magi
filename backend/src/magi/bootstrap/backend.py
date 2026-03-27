@@ -72,7 +72,7 @@ def _is_runtime_initialized() -> bool:
     return _resolve_from_container("runtime_orchestrator") is not None
 
 
-async def initialize_agent_runtime(*, role: ProcessRole = ProcessRole.COMBINED) -> None:
+async def initialize_agent_runtime(*, role: ProcessRole = ProcessRole.API) -> None:
     """Initialize agent runtime on application startup."""
     if _is_runtime_initialized():
         logger.warning("Agent runtime already initialized")

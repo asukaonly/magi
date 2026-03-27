@@ -13,7 +13,8 @@ interface RuntimeConfig {
   apiBaseUrl: string;
   wsBaseUrl: string;
   sessionToken?: string;
-  backendPid?: number;
+  apiPid?: number;
+  runtimeWorkerPid?: number;
 }
 
 interface Window {

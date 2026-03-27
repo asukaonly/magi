@@ -3,7 +3,8 @@ export interface RuntimeConfig {
   apiBaseUrl: string;
   wsBaseUrl: string;
   sessionToken?: string;
-  backendPid?: number;
+  apiPid?: number;
+  runtimeWorkerPid?: number;
 }
 
 interface ReadyCheckResponse {
@@ -19,7 +20,8 @@ interface StartBackendResult {
   baseUrl?: string;
   wsBaseUrl?: string;
   sessionToken?: string;
-  pid?: number;
+  apiPid?: number;
+  runtimeWorkerPid?: number;
   error?: string;
 }
 
@@ -143,7 +145,8 @@ export async function initializeRuntime(): Promise<RuntimeConfig> {
       apiBaseUrl,
       wsBaseUrl: result.wsBaseUrl || buildWsBaseUrl(apiBaseUrl),
       sessionToken: result.sessionToken || undefined,
-      backendPid: result.pid,
+      apiPid: result.apiPid,
+      runtimeWorkerPid: result.runtimeWorkerPid,
     };
     initialized = true;
     startupError = null;

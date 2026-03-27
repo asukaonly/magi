@@ -82,7 +82,7 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
             "queue_backlog_healthy": True,
             "status": "ready",
             "runtime_status": "ready",
-            "process_role": getattr(app.state, "process_role", "combined"),
+            "process_role": getattr(app.state, "process_role", "api"),
             "runtime_heartbeat_age_ms": 1200,
             "pending_commands": 4,
         }
@@ -95,7 +95,7 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
 
     app = create_transport_app()
     app.state.backend_ready = True
-    app.state.process_role = "combined"
+    app.state.process_role = "api"
     client = TestClient(app)
 
     response = client.get("/api/health")
@@ -110,7 +110,7 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
         "queue_backlog_healthy": True,
         "runtime_heartbeat_age_ms": 1200,
         "pending_commands": 4,
-        "process_role": "combined",
+        "process_role": "api",
     }
 
 

@@ -37,10 +37,22 @@ async def test_get_runtime_system_status_reports_degraded_when_runtime_heartbeat
     assert status["runtime_status"] == "offline"
 
 
-async def test_get_runtime_system_status_reports_ready_for_combined_role(monkeypatch) -> None:
-    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="combined"))
+async def test_get_runtime_system_status_reports_ready_for_api_role(monkeypatch) -> None:
+    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="api"))
+    heartbeat = RuntimeHeartbeatRecord(
+        role="runtime_worker",
+        instance_id="runtime-1",
+        pid=4321,
+        started_at_ms=1_711_260_000_000,
+        last_seen_at_ms=int(service.time.time() * 1000),
+        status="ready",
+        queue_backlog=0,
+        active_turns=0,
+        active_workers=0,
+        last_error=None,
+    )
 
-    monkeypatch.setattr(service, "require_runtime_trace_store", lambda: (_ for _ in ()).throw(RuntimeError("unused")))
+    monkeypatch.setattr(service, "require_runtime_trace_store", lambda: _FakeRuntimeTraceStore(heartbeat))
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(0))
 
     status = await service.get_runtime_system_status(app)
