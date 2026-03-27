@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -11,7 +12,6 @@ from ...config import get_config
 from ...core.runtime_bindings import (
     require_plugin_manager,
     require_runtime_command_queue,
-    require_scheduler_service,
     require_sensor_registry,
     require_unified_memory,
 )
@@ -19,6 +19,7 @@ from ...events.contracts import TimelineSourceSyncCommand
 from ...scheduler import (
     ScheduledTargetType,
 )
+from ...scheduler.repository import ScheduleRepository
 from ...timeline.scheduler_contrib import (
     build_timeline_schedule_id,
     build_timeline_target_key,
@@ -104,12 +105,11 @@ async def get_timeline_context_bundle(anchor_id: str):
 async def get_timeline_source_status():
     get_config()
     runtime_paths = get_runtime_paths()
+    scheduler_db_path = getattr(runtime_paths, "scheduler_db_path", Path(runtime_paths.base_dir) / "data" / "scheduler.db")
+    repository = ScheduleRepository(scheduler_db_path)
+    await repository.initialize()
     manager = require_plugin_manager()
     sensor_registry = require_sensor_registry()
-    try:
-        scheduler_service = require_scheduler_service()
-    except RuntimeError:
-        scheduler_service = None
     packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
     contributions = [
         contribution
@@ -125,15 +125,11 @@ async def get_timeline_source_status():
         resolved = sensor_registry.resolve_domain_sensor("timeline", source_name)
         sensor = resolved[2] if resolved is not None else None
         schedule_id = build_timeline_schedule_id(item.plugin_id, source_name)
-        if scheduler_service is not None:
-            state = await scheduler_service.get_target_state(
-                ScheduledTargetType.TIMELINE_SENSOR_SYNC,
-                build_timeline_target_key(item.plugin_id, source_name),
-            )
-            schedule = await scheduler_service.repository.get_schedule(schedule_id)
-        else:
-            state = None
-            schedule = None
+        state = await repository.get_target_state(
+            ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+            build_timeline_target_key(item.plugin_id, source_name),
+        )
+        schedule = await repository.get_schedule(schedule_id)
         supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
         visible_last_error = state.last_error if (state is not None and supports_pull_sync) else None
         sources.append(

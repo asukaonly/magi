@@ -104,6 +104,7 @@ describe('TimelineSourcesSection', () => {
     expect(screen.getByText('引用照片库或导出目录，并决定保留多少原始媒体信息。')).toBeInTheDocument();
     expect(screen.queryByText('Photo Library')).not.toBeInTheDocument();
     expect(screen.queryByText('Photo assets referenced from a local library path.')).not.toBeInTheDocument();
+    expect(screen.queryByText('interval · 60m · retain_raw')).not.toBeInTheDocument();
   });
 
   it('removes the detail back link and shortens the enable label', () => {
@@ -126,6 +127,7 @@ describe('TimelineSourcesSection', () => {
     expect(screen.queryByText('settings.timeline.workspace.backToOverview')).not.toBeInTheDocument();
     expect(screen.getByText('启用')).toBeInTheDocument();
     expect(within(detail).queryByText('来源启用')).not.toBeInTheDocument();
+    expect(within(detail).queryByText('interval · 60m · retain_raw')).not.toBeInTheDocument();
   });
 
   it('keeps status badges on the left and actions on the right in the detail header', () => {

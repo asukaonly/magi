@@ -74,9 +74,6 @@ const formatTimestamp = (value: number | string | null | undefined) => {
   }).format(new Date(normalized));
 };
 
-const joinSourceMeta = (source: TimelineSourceStatusItem) =>
-  [source.sync_mode, `${source.sync_interval_minutes}m`, source.default_retention_mode].filter(Boolean).join(' · ');
-
 const getPluginTranslation = (
   t: (key: string, params?: Record<string, any>) => string,
   pluginId: string,
@@ -108,8 +105,7 @@ const SourceRow: React.FC<{
       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{description}</p>
     </div>
     <div className="text-xs text-muted-foreground sm:text-right">
-      <div>{joinSourceMeta(source)}</div>
-      <div className="mt-1">{source.last_error || formatTimestamp(source.last_sync_at) || '—'}</div>
+      <div>{source.last_error || formatTimestamp(source.last_sync_at) || '—'}</div>
     </div>
     <div className="sm:justify-self-end">
       <Badge variant={source.enabled ? 'default' : 'secondary'} className="rounded-md">
@@ -415,7 +411,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             {getSourceDescription(selectedSource)}
           </p>
         </div>
-        <div className="text-sm text-muted-foreground">{selectedSource.last_error || joinSourceMeta(selectedSource)}</div>
+        {selectedSource.last_error ? <div className="text-sm text-destructive">{selectedSource.last_error}</div> : null}
       </header>
 
       <SectionBlock title={t('settings.timeline.workspace.sourceStatusTitle')}>
