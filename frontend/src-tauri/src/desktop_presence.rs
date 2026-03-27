@@ -214,10 +214,11 @@ mod tests {
     fn desktop_presence_includes_a_macos_template_icon_asset() {
         let icon_path = super::macos_template_icon_path();
 
-        let icon_bytes = std::fs::read(&icon_path).expect("expected macOS tray template icon asset");
+        let icon_bytes =
+            std::fs::read(&icon_path).expect("expected macOS tray template icon asset");
         assert!(icon_bytes.starts_with(&[0x89, b'P', b'N', b'G']));
-        let image =
-            tauri::image::Image::from_path(&icon_path).expect("expected macOS tray template icon to load");
+        let image = tauri::image::Image::from_path(&icon_path)
+            .expect("expected macOS tray template icon to load");
         assert!(image.width() > 0);
         assert!(image.height() > 0);
     }

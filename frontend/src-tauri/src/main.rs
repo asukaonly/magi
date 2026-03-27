@@ -158,7 +158,8 @@ fn wait_for_health(host: &str, port: u16, timeout: Duration) -> bool {
             if stream.write_all(request.as_bytes()).is_ok() {
                 let mut response = String::new();
                 if stream.read_to_string(&mut response).is_ok()
-                    && (response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200"))
+                    && (response.starts_with("HTTP/1.1 200")
+                        || response.starts_with("HTTP/1.0 200"))
                 {
                     return true;
                 }
@@ -216,7 +217,11 @@ fn wait_for_pid_exit(pid: u32, timeout: Duration) -> bool {
     !is_pid_running(pid)
 }
 
-fn wait_for_process_stop(process: &mut BackendProcess, pid: Option<u32>, timeout: Duration) -> bool {
+fn wait_for_process_stop(
+    process: &mut BackendProcess,
+    pid: Option<u32>,
+    timeout: Duration,
+) -> bool {
     #[cfg(unix)]
     if let Some(pid) = pid {
         return wait_for_pid_exit(pid, timeout);
@@ -289,7 +294,8 @@ fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, Stri
         return Ok(None);
     }
 
-    let host = env::var("MAGI_TAURI_EXTERNAL_BACKEND_HOST").unwrap_or_else(|_| BACKEND_HOST.to_string());
+    let host =
+        env::var("MAGI_TAURI_EXTERNAL_BACKEND_HOST").unwrap_or_else(|_| BACKEND_HOST.to_string());
     let port = env::var("MAGI_TAURI_EXTERNAL_BACKEND_PORT")
         .ok()
         .and_then(|text| text.parse::<u16>().ok())
@@ -316,7 +322,11 @@ fn spawn_sidecar_role(
     session_token: &str,
     recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
-    let mut args = vec!["--role".to_string(), role.to_string(), "--no-reload".to_string()];
+    let mut args = vec![
+        "--role".to_string(),
+        role.to_string(),
+        "--no-reload".to_string(),
+    ];
     if role == "api" {
         let port_text = port
             .ok_or_else(|| "API role requires a port".to_string())?
@@ -442,17 +452,22 @@ fn spawn_sidecar_backend(
     session_token: &str,
     recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<ManagedBackendStart, String> {
-    let (runtime_worker_process, runtime_worker_pid) =
-        spawn_sidecar_role(app, "runtime_worker", None, session_token, recent_errors.clone())?;
-    let (api_process, api_pid) = match spawn_sidecar_role(app, "api", Some(port), session_token, recent_errors)
-    {
-        Ok(result) => result,
-        Err(err) => {
-            let mut process = runtime_worker_process;
-            process.kill();
-            return Err(err);
-        }
-    };
+    let (runtime_worker_process, runtime_worker_pid) = spawn_sidecar_role(
+        app,
+        "runtime_worker",
+        None,
+        session_token,
+        recent_errors.clone(),
+    )?;
+    let (api_process, api_pid) =
+        match spawn_sidecar_role(app, "api", Some(port), session_token, recent_errors) {
+            Ok(result) => result,
+            Err(err) => {
+                let mut process = runtime_worker_process;
+                process.kill();
+                return Err(err);
+            }
+        };
 
     Ok(ManagedBackendStart {
         api_process,
@@ -536,7 +551,10 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<StartBackendResponse, String> {
+fn start_backend(
+    app: AppHandle,
+    state: State<'_, BackendState>,
+) -> Result<StartBackendResponse, String> {
     // Clear previous error logs
     if let Ok(mut errors) = state.recent_errors.lock() {
         errors.clear();
@@ -605,7 +623,8 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, port);
     let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, port);
 
-    let start = match spawn_sidecar_backend(&app, port, &session_token, state.recent_errors.clone()) {
+    let start = match spawn_sidecar_backend(&app, port, &session_token, state.recent_errors.clone())
+    {
         Ok(result) => result,
         Err(sidecar_err) => {
             if cfg!(debug_assertions) {
@@ -632,7 +651,10 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
         } else {
             String::new()
         };
-        return Err(format!("Backend startup timeout: /api/health did not become ready{}", error_details));
+        return Err(format!(
+            "Backend startup timeout: /api/health did not become ready{}",
+            error_details
+        ));
     }
 
     let mut runtime = state
@@ -699,10 +721,7 @@ fn set_close_to_tray_enabled(
 }
 
 #[tauri::command]
-fn confirm_exit_app(
-    app: AppHandle,
-    backend_state: State<'_, BackendState>,
-) -> Result<(), String> {
+fn confirm_exit_app(app: AppHandle, backend_state: State<'_, BackendState>) -> Result<(), String> {
     stop_backend_inner(&backend_state)?;
     app.exit(0);
     Ok(())
@@ -719,31 +738,27 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(BackendState::default())
         .manage(desktop_presence::DesktopPresenceState::default())
-        .setup(|app| {
-            desktop_presence::setup(app.handle()).map_err(Into::into)
-        })
-        .on_window_event(|window, event| {
-            match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    let state: State<'_, desktop_presence::DesktopPresenceState> = window.state();
-                    match state.close_action() {
-                        Ok(desktop_presence::CloseAction::HideToTray) => {
-                            api.prevent_close();
-                            let _ = desktop_presence::hide_main_window(window.app_handle());
-                        }
-                        Ok(desktop_presence::CloseAction::RequestQuitConfirmation) => {
-                            api.prevent_close();
-                            let _ = desktop_presence::emit_quit_requested(window.app_handle());
-                        }
-                        Err(_) => {}
+        .setup(|app| desktop_presence::setup(app.handle()).map_err(Into::into))
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                let state: State<'_, desktop_presence::DesktopPresenceState> = window.state();
+                match state.close_action() {
+                    Ok(desktop_presence::CloseAction::HideToTray) => {
+                        api.prevent_close();
+                        let _ = desktop_presence::hide_main_window(window.app_handle());
                     }
+                    Ok(desktop_presence::CloseAction::RequestQuitConfirmation) => {
+                        api.prevent_close();
+                        let _ = desktop_presence::emit_quit_requested(window.app_handle());
+                    }
+                    Err(_) => {}
                 }
-                tauri::WindowEvent::Destroyed => {
-                    let state: State<'_, BackendState> = window.state();
-                    let _ = stop_backend_inner(&state);
-                }
-                _ => {}
             }
+            tauri::WindowEvent::Destroyed => {
+                let state: State<'_, BackendState> = window.state();
+                let _ = stop_backend_inner(&state);
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             start_backend,
