@@ -116,17 +116,17 @@ const CalendarListResourcePicker: React.FC<{
       ) : null}
 
       {!loading && !error ? (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {groups.map((group) => (
-            <div key={group.group_id} className="space-y-3">
+            <div key={group.group_id} className="space-y-2">
               <div className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 {group.label}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {group.items.map((item) => (
                   <label
                     key={item.item_id}
-                    className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-colors hover:bg-muted/40"
+                    className="flex items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 transition-colors hover:bg-muted/40"
                   >
                     <input
                       type="checkbox"
@@ -134,11 +134,6 @@ const CalendarListResourcePicker: React.FC<{
                       aria-label={item.label}
                       checked={selectedIds.includes(item.item_id)}
                       onChange={(event) => toggleItem(item.item_id, event.target.checked)}
-                    />
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: item.accent_color || 'hsl(var(--muted-foreground))' }}
-                      aria-hidden="true"
                     />
                     <div className="min-w-0">
                       <div className="text-sm text-foreground">{item.label}</div>
