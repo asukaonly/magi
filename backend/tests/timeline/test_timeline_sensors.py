@@ -84,7 +84,7 @@ async def test_insight_pipeline_enforces_source_edge_whitelist():
     metadata = await sensor.extract_metadata(item)
 
     # Pipeline expects TimelineEvent; convert via adapter
-    event_id = f"{output.source_type}:{output.source_item_id}"
+    event_id = "evt_photo_whitelist_1"
     event = TimelineAdapter._build_timeline_event(event_id, output, metadata)
 
     memory = _FakeUnifiedMemory()
@@ -95,3 +95,4 @@ async def test_insight_pipeline_enforces_source_edge_whitelist():
     assert len(persisted) == 1
     assert persisted[0]["predicate"] == "LIKES"
     assert memory.edges[0]["predicate"] == "LIKES"
+    assert memory.edges[0]["evidence_event_ids"] == ["evt_photo_whitelist_1"]

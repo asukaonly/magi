@@ -33,16 +33,17 @@ class TestTimelineAdapter:
     @pytest.mark.asyncio
     async def test_on_sensor_output_calls_upsert(self):
         service = MagicMock()
-        service.upsert_event = AsyncMock(return_value="test_source:item-1")
+        service.upsert_event = AsyncMock(return_value="evt_adapter_1")
         adapter = TimelineAdapter(service)
 
         output = _make_output()
-        await adapter.on_sensor_output("test_source:item-1", output)
+        await adapter.on_sensor_output("evt_adapter_1", output)
 
         service.upsert_event.assert_awaited_once()
         event = service.upsert_event.call_args[0][0]
         assert isinstance(event, TimelineEvent)
-        assert event.event_id == "test_source:item-1"
+        assert event.event_id == "evt_adapter_1"
+        assert event.source_item_id == "item-1"
         assert event.title == "Test Title"
 
     def test_build_timeline_event_maps_fields(self):
@@ -53,9 +54,9 @@ class TestTimelineAdapter:
             relation_candidates=[{"predicate": "LIKES"}],
         )
 
-        event = TimelineAdapter._build_timeline_event("test_source:item-1", output, metadata)
+        event = TimelineAdapter._build_timeline_event("evt_adapter_2", output, metadata)
 
-        assert event.event_id == "test_source:item-1"
+        assert event.event_id == "evt_adapter_2"
         assert event.source_type == "test_source"
         assert event.source_item_id == "item-1"
         assert event.occurred_at == 1700000000.0
@@ -77,7 +78,9 @@ class TestTimelineAdapter:
 
     def test_build_timeline_event_no_metadata(self):
         output = _make_output()
-        event = TimelineAdapter._build_timeline_event("test_source:item-1", output, None)
+        event = TimelineAdapter._build_timeline_event("evt_adapter_3", output, None)
+        assert event.event_id == "evt_adapter_3"
+        assert event.source_item_id == "item-1"
         assert event.entities == [{"name": "entity1"}]
         assert event.tags == ["tag1"]
         assert event.processing_status["analyzed"] is False

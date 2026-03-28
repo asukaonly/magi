@@ -21,7 +21,7 @@ async def test_upsert_event_does_not_reingest_into_unified_memory() -> None:
     service = TimelineService(unified_memory)
 
     event = TimelineEvent(
-        event_id="calendar:item-1",
+        event_id="evt_calendar_1",
         source_type="calendar",
         source_item_id="item-1",
         occurred_at=1700000000.0,
@@ -33,5 +33,5 @@ async def test_upsert_event_does_not_reingest_into_unified_memory() -> None:
 
     result = await service.upsert_event(event)
 
-    assert result == "calendar:item-1"
+    assert result == "evt_calendar_1"
     unified_memory.ingest_event.assert_not_awaited()
