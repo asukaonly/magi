@@ -869,6 +869,7 @@
       },
       "actions": {
         "refresh": "刷新状态",
+        "flushStateNow": "立即落盘",
         "syncNow": "立即同步",
         "resetActivation": "重置首次同步设置"
       },
@@ -877,9 +878,11 @@
         "resetSuccess": "{{source}} 的首次同步设置已重置"
       },
       "syncQueued": "{{source}} 已进入同步队列",
+      "stateFlushQueued": "{{source}} 已进入落盘队列",
       "errors": {
         "statusLoadFailed": "来源状态加载失败：{{message}}",
         "syncFailed": "同步请求失败：{{message}}",
+        "stateFlushFailed": "落盘请求失败：{{message}}",
         "authorizationFailed": "授权失败：{{message}}",
         "settingsSaveFailed": "来源设置保存失败：{{message}}",
         "activationFailed": "来源启用失败：{{message}}",

@@ -182,3 +182,47 @@ class ScreenTimeStateStore:
 
         completed.sort(key=lambda item: (item.get("bucket_start", ""), item.get("bundle_id", "")))
         return completed
+
+    async def flush_in_progress(
+        self,
+        *,
+        runtime_paths: Any,
+        now: datetime,
+    ) -> dict[str, Any]:
+        path = self._state_path(runtime_paths)
+        async with self._lock_for(path):
+            state = self._load_state(path)
+            open_buckets = dict(state.get("open_buckets") or {})
+            last_activation = state.get("last_activation")
+
+            if isinstance(last_activation, dict) and last_activation.get("bundle_id") and last_activation.get("observed_at"):
+                start_at = datetime.fromisoformat(str(last_activation["observed_at"]))
+                if start_at.tzinfo is None:
+                    start_at = start_at.replace(tzinfo=timezone.utc)
+                if now > start_at:
+                    self._increment_buckets(
+                        open_buckets,
+                        session_id=str(last_activation.get("session_id") or ""),
+                        bundle_id=str(last_activation["bundle_id"]),
+                        app_name=str(last_activation.get("app_name") or last_activation["bundle_id"]),
+                        start_at=start_at,
+                        end_at=now,
+                    )
+                    last_activation = dict(last_activation)
+                    last_activation["observed_at"] = now.isoformat()
+
+            next_state = {
+                "last_activation": last_activation,
+                "open_buckets": open_buckets,
+            }
+            self._save_state(path, next_state)
+
+        return {
+            "bucket_count": len(open_buckets),
+            "active_bundle_id": (
+                str(last_activation.get("bundle_id"))
+                if isinstance(last_activation, dict) and last_activation.get("bundle_id")
+                else None
+            ),
+            "flushed_at": now.isoformat(),
+        }

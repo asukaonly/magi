@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 from magi.awareness import ContentBlock, SensorBase, SensorMemoryPolicy, SensorOutput, SensorSyncContext, SensorSyncResult
 
@@ -21,6 +22,7 @@ class ScreenTimeTimelineSensor(SensorBase):
     default_interval = 300
     update_key_fields = ("bucket_start", "bundle_id")
     supports_pull_sync = True
+    supports_state_flush = True
 
     memory_policy = SensorMemoryPolicy(
         memory_domain="external_activity",
@@ -63,6 +65,10 @@ class ScreenTimeTimelineSensor(SensorBase):
             watermark_ts=now_ts,
             stats={"count": len(items)},
         )
+
+    async def flush_runtime_state(self, *, runtime_paths: Any, plugin_settings: dict[str, Any]) -> dict[str, Any]:
+        _ = plugin_settings
+        return await self._state_store.flush_in_progress(runtime_paths=runtime_paths, now=self._now())
 
     async def build_output(self, item: dict[str, Any]) -> SensorOutput:
         bucket_start = datetime.fromisoformat(str(item["bucket_start"]))

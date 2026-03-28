@@ -869,6 +869,7 @@
       },
       "actions": {
         "refresh": "Refresh status",
+        "flushStateNow": "Flush state now",
         "syncNow": "Sync now",
         "resetActivation": "Reset first sync setup"
       },
@@ -877,9 +878,11 @@
         "resetSuccess": "{{source}} first-sync setup reset"
       },
       "syncQueued": "{{source}} sync queued",
+      "stateFlushQueued": "{{source}} state flush queued",
       "errors": {
         "statusLoadFailed": "Failed to load source status: {{message}}",
         "syncFailed": "Failed to queue sync: {{message}}",
+        "stateFlushFailed": "Failed to queue state flush: {{message}}",
         "authorizationFailed": "Authorization failed: {{message}}",
         "settingsSaveFailed": "Failed to save source settings: {{message}}",
         "activationFailed": "Failed to enable source: {{message}}",

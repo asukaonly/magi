@@ -20,10 +20,15 @@ from magi.scheduler.repository import ScheduleRepository
 class _FakeRuntimeCommandQueue:
     def __init__(self) -> None:
         self.sensor_sync_commands: list[object] = []
+        self.sensor_state_flush_commands: list[object] = []
 
     async def enqueue_sensor_sync(self, command):
         self.sensor_sync_commands.append(command)
         return len(self.sensor_sync_commands)
+
+    async def enqueue_sensor_state_flush(self, command):
+        self.sensor_state_flush_commands.append(command)
+        return len(self.sensor_state_flush_commands)
 
 
 def _build_client(monkeypatch):
@@ -105,7 +110,7 @@ def _build_client(monkeypatch):
                     (
                         "screen-time",
                         "timeline.screen_time",
-                        type("Sensor", (), {"supports_pull_sync": True})(),
+                        type("Sensor", (), {"supports_pull_sync": True, "supports_state_flush": True})(),
                         type("Spec", (), {"metadata": {"default_settings": {"enabled": True, "sync_interval_minutes": 5}}})(),
                     )
                     if source_name == "screen_time"
@@ -174,6 +179,7 @@ def test_get_sensor_source_status(monkeypatch):
     body = response.json()
     assert body["sources"][0]["source_name"] == "screen_time"
     assert body["sources"][0]["scheduler_job_id"] == "sensor-sync:screen-time:screen_time"
+    assert body["sources"][0]["supports_state_flush"] is True
 
 
 def test_trigger_sensor_source_sync(monkeypatch):
@@ -184,3 +190,13 @@ def test_trigger_sensor_source_sync(monkeypatch):
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert len(queue.sensor_sync_commands) == 1
+
+
+def test_trigger_sensor_source_state_flush(monkeypatch):
+    client, queue = _build_client(monkeypatch)
+
+    response = client.post("/api/sensors/screen_time/flush-state")
+
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
+    assert len(queue.sensor_state_flush_commands) == 1

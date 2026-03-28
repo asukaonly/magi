@@ -9,7 +9,7 @@ import pytest
 
 from magi.awareness.sensor_hub import SensorHub
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.events.contracts import RefreshLLMConfigCommand, SensorSyncCommand, UserMessageCommand
+from magi.events.contracts import RefreshLLMConfigCommand, SensorStateFlushCommand, SensorSyncCommand, UserMessageCommand
 from magi.events.events import EventTypes
 from magi.events.lifecycle import RuntimeCommandProcessorModule
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
@@ -241,6 +241,67 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
         stats = await queue.get_stats()
         assert stats["completed_count"] == 1
         assert sensor_scheduler.queued_sources == ["calendar"]
+    finally:
+        await processor.shutdown()
+        await message_bus.stop()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_processor_flushes_sensor_state(tmp_path: Path) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    message_bus = await _start_sqlite_message_bus(tmp_path / "message_queue.db")
+
+    class _FakeSensor:
+        supports_state_flush = True
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, dict[str, object]]] = []
+
+        async def flush_runtime_state(self, *, runtime_paths, plugin_settings):
+            self.calls.append((runtime_paths, plugin_settings))
+            return {"bucket_count": 1}
+
+    sensor = _FakeSensor()
+
+    context = RuntimeBootstrapContext()
+    context.runtime_commands.runtime_command_queue = queue
+    context.message_bus.message_bus = message_bus
+    context.agent_runtime.agent_runtime = object()
+    context.core.runtime_paths = type("Paths", (), {"memories_dir": tmp_path})()
+    context.plugins.sensor_registry = type(
+        "Registry",
+        (),
+        {"resolve_source_sensor": lambda self, source_name: ("screen-time", "timeline.screen_time", sensor, object()) if source_name == "screen_time" else None},
+    )()
+    context.plugins.plugin_manager = type(
+        "Manager",
+        (),
+        {"get_package": lambda self, plugin_id: type("Package", (), {"current_settings": {"sensors": {"screen_time": {"enabled": True}}}})() if plugin_id == "screen-time" else None},
+    )()
+
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+    await processor.init()
+
+    try:
+        await queue.enqueue_sensor_state_flush(
+            SensorStateFlushCommand(
+                source="api",
+                source_name="screen_time",
+            )
+        )
+
+        for _ in range(100):
+            stats = await queue.get_stats()
+            if stats["completed_count"] == 1:
+                break
+            await asyncio.sleep(0.02)
+
+        stats = await queue.get_stats()
+        assert stats["completed_count"] == 1
+        assert len(sensor.calls) == 1
+        assert sensor.calls[0][1] == {"sensors": {"screen_time": {"enabled": True}}}
     finally:
         await processor.shutdown()
         await message_bus.stop()

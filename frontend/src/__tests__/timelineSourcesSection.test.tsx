@@ -73,6 +73,7 @@ const timelineSourceFixture: SensorSourceStatusItem = {
   fetch_page_content: false,
   edge_whitelist: ['CAPTURED', 'RELATED_TO'],
   supports_pull_sync: false,
+  supports_state_flush: false,
   running: false,
   last_run_at: '2026-03-11T08:58:00Z',
   last_result_count: 4,
@@ -458,5 +459,44 @@ describe('TimelineSourcesSection', () => {
     expect(within(detail).getByText('Sync Mode')).toBeInTheDocument();
     expect(within(detail).queryByText('Retention Mode')).not.toBeInTheDocument();
     expect(within(detail).queryByText('Sync Interval')).not.toBeInTheDocument();
+  });
+
+  it('shows a flush-state action only for sources that support it', () => {
+    render(
+      <TimelineSourcesSection
+        userMode={userModeFixture}
+        statuses={[
+          {
+            ...timelineSourceFixture,
+            source_name: 'screen_time',
+            plugin_id: 'screen-time',
+            contribution_id: 'timeline.screen_time',
+            display_name: 'App Usage',
+            description: 'Event-driven frontmost app usage aggregated into hourly summaries.',
+            supports_pull_sync: true,
+            supports_state_flush: true,
+            fields: [
+              {
+                ...timelineSourceFixture.fields[0],
+                key: 'sensors.screen_time.enabled',
+              },
+            ],
+            current_settings: {
+              'sensors.screen_time.enabled': true,
+            },
+          },
+        ]}
+        loadingStatus={false}
+        selectedSourceName="screen_time"
+        pluginDrafts={{}}
+        onSelectSource={vi.fn()}
+        onRefreshSources={vi.fn().mockResolvedValue(undefined)}
+        onPluginFieldChange={vi.fn()}
+        onPluginFieldsChange={vi.fn()}
+      />
+    );
+
+    const detail = screen.getByTestId('timeline-source-detail-screen_time');
+    expect(within(detail).getByRole('button', { name: 'settings.timeline.actions.flushStateNow' })).toBeInTheDocument();
   });
 });

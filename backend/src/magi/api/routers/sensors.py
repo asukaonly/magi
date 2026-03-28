@@ -14,7 +14,7 @@ from ...core.runtime_bindings import (
     require_runtime_command_queue,
     require_sensor_registry,
 )
-from ...events.contracts import SensorSyncCommand
+from ...events.contracts import SensorStateFlushCommand, SensorSyncCommand
 from ...scheduler import ScheduledTargetType
 from ...scheduler.contracts import build_sensor_schedule_id, build_sensor_target_key
 from ...scheduler.repository import ScheduleRepository
@@ -94,6 +94,7 @@ async def get_sensor_source_status():
             build_sensor_target_key(item.plugin_id, source_name),
         )
         supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
+        supports_state_flush = bool(getattr(sensor, "supports_state_flush", False))
         visible_last_error = state.last_error if (state is not None and supports_pull_sync) else None
         resolved_next_run_at = (
             state.next_run_at
@@ -169,6 +170,7 @@ async def get_sensor_source_status():
                     )
                 ),
                 "supports_pull_sync": supports_pull_sync,
+                "supports_state_flush": supports_state_flush,
                 "activation_flow": item.metadata.get("activation_flow"),
                 "settings_ui_blocks": item.metadata.get("settings_ui_blocks", []),
                 "activation_required": bool(
@@ -222,6 +224,32 @@ async def trigger_sensor_source_sync(source_name: str):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Scheduler unavailable") from exc
     command_id = await runtime_command_queue.enqueue_sensor_sync(
         SensorSyncCommand(
+            source="api.sensors",
+            source_name=source_name,
+        )
+    )
+    return {"queued": True, "source_name": source_name, "command_id": command_id}
+
+
+@sensors_router.post("/{source_name}/flush-state")
+async def trigger_sensor_state_flush(source_name: str):
+    _ = get_config()
+    sensor_registry = require_sensor_registry()
+    resolved = sensor_registry.resolve_source_sensor(source_name)
+    if resolved is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sensor source not found")
+    _, _, sensor, _ = resolved
+    if not bool(getattr(sensor, "supports_state_flush", False)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Sensor source does not support state flush: {source_name}",
+        )
+    try:
+        runtime_command_queue = require_runtime_command_queue()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Scheduler unavailable") from exc
+    command_id = await runtime_command_queue.enqueue_sensor_state_flush(
+        SensorStateFlushCommand(
             source="api.sensors",
             source_name=source_name,
         )

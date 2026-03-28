@@ -12,6 +12,7 @@ import aiosqlite
 from ..core.sqlite import sqlite_connection_async
 from .contracts import (
     RefreshLLMConfigCommand,
+    SensorStateFlushCommand,
     RuntimeCommandType,
     RuntimeQueuedCommand,
     SensorSyncCommand,
@@ -60,6 +61,14 @@ class SQLiteRuntimeCommandQueue:
     async def enqueue_sensor_sync(self, command: SensorSyncCommand) -> int:
         return await self._enqueue_command(
             command_type=RuntimeCommandType.SENSOR_SYNC,
+            payload=command.to_payload(),
+            correlation_id=command.correlation_id,
+            created_at=command.created_at,
+        )
+
+    async def enqueue_sensor_state_flush(self, command: SensorStateFlushCommand) -> int:
+        return await self._enqueue_command(
+            command_type=RuntimeCommandType.SENSOR_STATE_FLUSH,
             payload=command.to_payload(),
             correlation_id=command.correlation_id,
             created_at=command.created_at,

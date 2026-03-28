@@ -134,6 +134,7 @@ vi.mock('@/api/modules/sensors', () => ({
   sensorsApi: {
     getStatus: vi.fn(),
     requestSync: vi.fn(),
+    requestStateFlush: vi.fn(),
     requestAuthorization: vi.fn(),
   },
 }));
@@ -224,6 +225,7 @@ const timelineSourceFixture = {
   fetch_page_content: false,
   edge_whitelist: ['CAPTURED', 'RELATED_TO'],
   supports_pull_sync: false,
+  supports_state_flush: false,
   running: false,
   last_run_at: '2026-03-11T08:58:00Z',
   last_result_count: 4,
@@ -286,6 +288,7 @@ const chromeTimelineSourceFixture = {
   fetch_page_content: false,
   edge_whitelist: ['VISITED', 'VIEWED'],
   supports_pull_sync: true,
+  supports_state_flush: false,
   activation_required: true,
   activation_flow: {
     title: 'Enable Chrome History',
@@ -537,6 +540,10 @@ describe('settings page draft saving', () => {
     vi.mocked(sensorsApi.requestSync).mockResolvedValue({
       queued: true,
       source_name: 'photo_library',
+    } as any);
+    vi.mocked(sensorsApi.requestStateFlush).mockResolvedValue({
+      queued: true,
+      source_name: 'screen_time',
     } as any);
     vi.mocked(sensorsApi.requestAuthorization).mockResolvedValue({
       authorized: true,
@@ -1221,6 +1228,43 @@ describe('settings page draft saving', () => {
     expect(
       within(chromePanel).queryByRole('button', { name: 'settings.timeline.actions.refresh' })
     ).not.toBeInTheDocument();
+  });
+
+  it('shows a flush-state action for app usage and queues it locally', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...timelineSourceFixture,
+          source_name: 'screen_time',
+          plugin_id: 'screen-time',
+          contribution_id: 'timeline.screen_time',
+          display_name: 'App Usage',
+          description: 'Event-driven frontmost app usage aggregated into hourly summaries.',
+          supports_pull_sync: true,
+          supports_state_flush: true,
+          fields: [
+            {
+              ...timelineSourceFixture.fields[0],
+              key: 'sensors.screen_time.enabled',
+            },
+          ],
+          current_settings: {
+            'sensors.screen_time.enabled': true,
+          },
+        },
+      ],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-screen_time'));
+
+    const panel = await screen.findByTestId('timeline-source-detail-screen_time');
+    await user.click(within(panel).getByRole('button', { name: 'settings.timeline.actions.flushStateNow' }));
+
+    await waitFor(() => expect(sensorsApi.requestStateFlush).toHaveBeenCalledWith('screen_time'));
   });
 
   it('prompts before closing when there are unsaved changes', async () => {

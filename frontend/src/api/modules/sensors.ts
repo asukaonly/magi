@@ -17,6 +17,7 @@ export interface SensorSourceStatusItem {
   fetch_page_content: boolean;
   edge_whitelist: string[];
   supports_pull_sync: boolean;
+  supports_state_flush?: boolean;
   activation_flow?: ActivationFlowSpec | null;
   settings_ui_blocks?: PluginSettingsUiBlockSpec[];
   activation_required?: boolean;
@@ -52,6 +53,11 @@ export const sensorsApi = {
 
   requestSync: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
     const response = await api.post<{ queued: boolean; source_name: string }>(`/sensors/${sourceName}/sync`, {});
+    return (response.data || response) as { queued: boolean; source_name: string };
+  },
+
+  requestStateFlush: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
+    const response = await api.post<{ queued: boolean; source_name: string }>(`/sensors/${sourceName}/flush-state`, {});
     return (response.data || response) as { queued: boolean; source_name: string };
   },
 

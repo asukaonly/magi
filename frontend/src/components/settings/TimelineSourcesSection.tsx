@@ -153,6 +153,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
 }) => {
   const { t } = useTranslation('app');
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
+  const [flushingSource, setFlushingSource] = useState<string | null>(null);
   const [queuedSource, setQueuedSource] = useState<{
     sourceName: string;
     lastRunAt: number | string | null | undefined;
@@ -247,6 +248,19 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       toast.error(t('settings.timeline.errors.syncFailed', { message: error?.message || 'unknown' }));
     } finally {
       setSyncingSource(null);
+    }
+  };
+
+  const performStateFlush = async (source: SensorSourceStatusItem) => {
+    setFlushingSource(source.source_name);
+    try {
+      await sensorsApi.requestStateFlush(source.source_name);
+      toast.success(t('settings.timeline.stateFlushQueued', { source: getSourceDisplayName(source) }));
+      await onRefreshSources();
+    } catch (error: any) {
+      toast.error(t('settings.timeline.errors.stateFlushFailed', { message: error?.message || 'unknown' }));
+    } finally {
+      setFlushingSource(null);
     }
   };
 
@@ -391,6 +405,20 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                   <RefreshCw className="mr-2 h-4 w-4" />
                   {t('settings.timeline.actions.refresh')}
                 </Button>
+                {selectedSource.supports_state_flush ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void performStateFlush(selectedSource)}
+                    disabled={flushingSource === selectedSource.source_name}
+                  >
+                    <RefreshCw
+                      className={cn('mr-2 h-4 w-4', flushingSource === selectedSource.source_name && 'animate-spin')}
+                    />
+                    {t('settings.timeline.actions.flushStateNow')}
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   size="sm"
