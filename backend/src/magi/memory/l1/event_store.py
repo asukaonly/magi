@@ -423,6 +423,8 @@ class L1EventStore:
         event_type: Optional[str] = None,
         query: Optional[str] = None,
         source_filters: Optional[List[str]] = None,
+        source_item_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
         cognition_eligible: Optional[bool] = None,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
@@ -452,6 +454,12 @@ class L1EventStore:
             placeholders = ", ".join("?" for _ in source_filters)
             sql += f" AND source IN ({placeholders})"
             args.extend(source_filters)
+        if source_item_id:
+            sql += " AND source_item_id = ?"
+            args.append(source_item_id)
+        if idempotency_key:
+            sql += " AND idempotency_key = ?"
+            args.append(idempotency_key)
         if cognition_eligible is not None:
             sql += " AND cognition_eligible = ?"
             args.append(1 if cognition_eligible else 0)

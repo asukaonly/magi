@@ -92,6 +92,8 @@ export interface L1EventQueryParams {
   session_id?: string;
   query?: string;
   source?: string;
+  source_item_id?: string;
+  idempotency_key?: string;
   start_date?: string;
   end_date?: string;
 }

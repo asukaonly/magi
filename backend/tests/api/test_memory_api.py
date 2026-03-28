@@ -45,6 +45,8 @@ class _FakeL1Store:
         event_type=None,
         query=None,
         source_filters=None,
+        source_item_id=None,
+        idempotency_key=None,
         start_time=None,
         end_time=None,
         limit=50,
@@ -55,6 +57,8 @@ class _FakeL1Store:
             "event_type": event_type,
             "query": query,
             "source_filters": source_filters,
+            "source_item_id": source_item_id,
+            "idempotency_key": idempotency_key,
             "start_time": start_time,
             "end_time": end_time,
             "limit": limit,
@@ -2066,6 +2070,29 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
     assert isinstance(memory.l1.last_query_kwargs["start_time"], float)
     assert isinstance(memory.l1.last_query_kwargs["end_time"], float)
     assert memory.l1.last_query_kwargs["end_time"] > memory.l1.last_query_kwargs["start_time"]
+
+
+def test_memory_l1_events_api_forwards_identity_filters(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get(
+        "/api/memory/l1/events",
+        params={
+            "source_item_id": "chrome:181979-181982",
+            "idempotency_key": "default:181979-181982",
+        },
+    )
+
+    assert response.status_code == 200
+    assert memory.l1.last_query_kwargs is not None
+    assert memory.l1.last_query_kwargs["source_item_id"] == "chrome:181979-181982"
+    assert memory.l1.last_query_kwargs["idempotency_key"] == "default:181979-181982"
 
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):

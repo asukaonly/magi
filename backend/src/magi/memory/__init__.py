@@ -671,7 +671,7 @@ class UnifiedMemoryStore:
         )
         return normalize_runtime_event(
             raw_event,
-            event_id=payload.get("id") or payload.get("event_id"),
+            event_id=payload.get("event_id"),
             idempotency_key=payload.get("idempotency_key"),
         )
 

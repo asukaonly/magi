@@ -488,6 +488,75 @@ async def test_l1_store_initializes_without_runtime_observations_table(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_l1_event_store_query_events_filters_by_source_item_and_idempotency_key(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        first = MemoryEvent(
+            event_id="evt-source-1",
+            correlation_id="corr-source-1",
+            timestamp=100.0,
+            created_at=101.0,
+            event_type="SENSOR_EVENT",
+            source="chrome_history",
+            source_item_id="chrome:181979-181982",
+            idempotency_key="default:181979-181982",
+            memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id=None,
+            turn_id=None,
+            user_id="local_user",
+            task_id=None,
+            content="first",
+            author_type="external",
+            content_type="text",
+            importance_score=0.5,
+            level=20,
+        )
+        second = MemoryEvent(
+            event_id="evt-source-2",
+            correlation_id="corr-source-2",
+            timestamp=200.0,
+            created_at=201.0,
+            event_type="SENSOR_EVENT",
+            source="chrome_history",
+            source_item_id="chrome:190000-190001",
+            idempotency_key="default:190000-190001",
+            memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id=None,
+            turn_id=None,
+            user_id="local_user",
+            task_id=None,
+            content="second",
+            author_type="external",
+            content_type="text",
+            importance_score=0.5,
+            level=20,
+        )
+
+        await store.store(first)
+        await store.store(second)
+
+        by_source_item = await store.query_events(source_item_id="chrome:181979-181982", limit=10)
+        by_idempotency = await store.query_events(idempotency_key="default:190000-190001", limit=10)
+
+        assert [event["event_id"] for event in by_source_item] == ["evt-source-1"]
+        assert [event["event_id"] for event in by_idempotency] == ["evt-source-2"]
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_l1_event_store_persists_action_events_in_fact_events(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 

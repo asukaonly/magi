@@ -1041,6 +1041,8 @@ async def get_l1_events(
     session_id: Optional[str] = Query(default=None),
     query: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
+    source_item_id: Optional[str] = Query(default=None),
+    idempotency_key: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
 ):
@@ -1056,6 +1058,8 @@ async def get_l1_events(
         event_type=event_type,
         query=str(query or "").strip() or None,
         source_filters=[str(source).strip()] if str(source or "").strip() else None,
+        source_item_id=str(source_item_id or "").strip() or None,
+        idempotency_key=str(idempotency_key or "").strip() or None,
         start_time=start_time,
         end_time=end_time,
         limit=limit,
