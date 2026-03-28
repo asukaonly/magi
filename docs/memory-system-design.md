@@ -1,438 +1,390 @@
-# Agent 核心记忆系统架构设计文档
+# 记忆系统架构设计
 
-> 版本: 1.2
-> 日期: 2026-03-24
-> 状态: 当前 source-of-truth（需随实现持续校准）
+## 目的
 
-## 0. 文档目标
+本文档是 Magi 记忆系统的长期 source-of-truth，用来回答两类问题：
 
-本文档定义 Magi 下一代核心记忆系统的可实施架构。
+- 对产品、运营和使用者来说：Magi 到底记住什么，不记什么，不同类型的数据分别放在哪里
+- 对开发者来说：记忆系统的分层、写入、检索、身份、幂等和下游认知到底遵循什么契约
 
-### 0.1 文档边界
+阅读本文件时，建议同时参考：
 
-为避免架构语义重复或冲突，本文档采用以下边界：
+- [Project Overview](./project-overview.md)
+- [Layered Agent Architecture](./layered-agent-architecture.md)
+- [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
+- [Unified Plugin Extension Architecture](./plugin-extension-architecture.md)
 
-1. 根目录 `docs/`（`project-overview.md`、`product-configuration-guide.md`、`task-agent-runtime-architecture.md`）是项目级与产品级语义基线。
-2. 本文档仅负责 memory 子系统的实现级设计、数据契约、分层策略与落地约束。
-3. 若本文档与根目录 `docs/` 出现冲突，以根目录 `docs/` 为准，并在 memory 文档内同步修订。
-
-目标不是单纯为大模型补充上下文，而是构建一个服务于用户长期记忆维护、事件回顾、模式洞察、关系感知与行为策略沉淀的本地优先记忆系统。
-
-本文档覆盖：
-
-1. 目标架构与边界
-2. 各层数据模型与处理流程
-3. 检索与 prompt 集成契约
-4. 遗忘与保留策略
-5. 与当前实现的替换关系
-6. 分阶段落地方案与验收标准
-
-本文档不覆盖：
-
-1. 历史数据迁移
-2. 旧表兼容
-3. 向后兼容路径
-
-本轮改造允许删除旧数据与旧表结构，直接切换到新架构。
+如果本文档与上述根文档发生冲突，应一起修订。本文档负责细化 memory 子系统，而不是重新定义项目级边界。
 
 ---
 
-## 1. 已确认的设计决策
+## 记忆系统解决什么问题
 
-以下决策已确认，后续实现以此为准：
+Magi 的记忆系统用于把本地对话、外部活动和部分运行结果，整理成可检索、可推理、可压缩的长期记忆，同时避免把聊天真相、运行时 trace、插件中间态混成一层。
 
-1. **分层原则**：按信息生命周期分层，而不是按功能插件分层。
-2. **系统目标**：核心服务于用户长期记忆与自我感知体系，而不是仅服务于回复增强。
-3. **向量定位**：向量是 L1/L3/L4 的检索属性，不是独立层级。
-4. **L4 定位**：L4 属于程序性记忆，负责沉淀“如何做一件事”的经验与策略，包括工具使用经验、异常处理肌肉记忆、熔断状态。
-5. **L0 介质**：L0 默认以内存为主，采用 checkpoint 定时落盘到 SQLite，用于恢复与异常重启保护。
-6. **ToM 必做**：L2 必须支持 ToM，但必须采用防御性设计，主观推断先进入低置信度断言层，经跨事件验证后才固化到稳定画像。
-7. **LLM 策略**：本期优先采用全 LLM 抽取方案，但各层能力都必须支持独立开关。
-8. **保留策略**：事件是否可压缩/删除取决于事件类型；聊天记录与用户主动记录默认不可删，浏览记录与部分外部活动默认可压缩删除。
-9. **污染隔离**：L1 中允许存在运行时遥测事件，但它们必须在评分、摘要、图谱与 ToM 流程中被默认隔离，不能与用户长期经验事件混算。
-10. **向量运行时固定**：向量索引后端固定为 sqlite，写入固定走异步管线；产品层不再暴露切换开关。
+它负责：
 
-### 1.1 当前实现基线（2026-03-24）
+- 保存当前会话的短期工作上下文
+- 把部分事实投影成持久化事件记忆
+- 从保留下来的事件中提取结构化认知
+- 把长历史压缩成可回顾的摘要与洞察
+- 沉淀可复用的执行经验
 
-1. `message_queue.db` 仅承担消息总线持久化（`message_queue`），不再承载 L1 主存。
-2. L1 主存独立为 `data/memory/l1_events.db`（当前为单库单表，分片后置）。
-3. L0/L2/L3/L4 共享 `data/memory/memory.db`（多表分层，统一 checkpoint 与认知/摘要/程序性记忆）。
-4. `event_store` 已移除，聊天/trace 读链路统一读取 L1 `events`。
-5. 向量不再使用独立 `embeddings.db`，改为分层向量表：
-   - `l1_event_vectors`
-   - `l3_summary_vectors`
-   - `l4_skill_vectors`
-6. `scheduler.db` 除 `schedules/target_state` 外，新增 `schedule_executions` 记录每次调度执行。
-7. `tasks.db` 当前不参与 runtime 主链路，不作为调度执行记录来源。
+它不负责：
+
+- 作为完整聊天记录的 source of truth
+- 作为 runtime span、tool trace、执行观测数据的 source of truth
+- 永久保存每一个原始 producer payload
+- 为旧架构保留兼容路径
+
+Magi 的记忆模型按信息生命周期分层，而不是按功能插件分层：
+
+- `L0`：工作记忆
+- `L1`：标准化事件事实
+- `L2`：结构化认知
+- `L3`：反思与摘要
+- `L4`：程序性记忆
 
 ---
 
-## 2. 现状与主要问题
+## 心智模型
 
-当前实现位于以下模块：
+可以把记忆系统理解成一条稳定的数据演化链：
 
-- [UnifiedMemoryStore](/Users/asuka/code/magi/backend/src/magi/memory/__init__.py)
-- [L1EventStore](/Users/asuka/code/magi/backend/src/magi/memory/l1/event_store.py)
-- [L2 store and pipeline](/Users/asuka/code/magi/backend/src/magi/memory/l2/store.py)
-- [L3SummaryStore](/Users/asuka/code/magi/backend/src/magi/memory/l3/summary_store.py)
-- [L4ProceduralMemoryStore](/Users/asuka/code/magi/backend/src/magi/memory/l4/procedural_memory.py)
-- [MemoryIntegrationModule](/Users/asuka/code/magi/backend/src/magi/memory/integration.py)
+```text
+源信号
+  -> 标准化事件契约
+  -> 路由与保留策略
+  -> L0 和/或 L1
+  -> 可选的 L2 认知
+  -> 可选的 L3 反思
+  -> 可选的 L4 经验沉淀
+```
 
-当前方案的主要问题：
+几个典型例子：
 
-1. **分层语义不统一**：旧实现更像功能模块堆叠，而不是围绕“事件 -> 认知 -> 摘要 -> 程序性经验”的生命周期演化。
-2. **短期工作记忆缺位**：Prompt 组装仍然手工传入 `short_term_workbench` 等占位结构，缺少真正的 L0。
-3. **L2 结构割裂**：事件关系图与用户图分成两套存储，没有统一的实体、证据、冲突与置信度模型。
-4. **向量独立成层**：向量与事件本体分离，导致检索与事件主存之间缺少统一契约。
-5. **摘要层定位不清**：当前 summary 更像统计 digest，而不是经过反思后的长期压缩记忆。
-6. **程序性经验表达不足**：当前 capability 只覆盖简单成功率与分类匹配，无法承载更强的策略学习与熔断状态。
-7. **检索链路未真正跨层**：虽然 query service 名义上支持跨层，但实际仅注册了 L1 查询处理器。
-8. **污染风险存在**：当前 L1 会混入用户消息、动作执行、错误、worker 进度等事件；如果不隔离，会导致重要度评分、摘要主题、关系图与 ToM 被运行时噪声主导。当前实现已经将 `ActionExecuted` 保持为执行期事件，不再写入 L1。
+- 一条用户聊天消息首先是真实存在于 `chat.db` 里的聊天事实，随后其中一部分内容可能被投影成 `L1` 记忆事实
+- 一段 Chrome 历史浏览会先聚组成一个 `L1` 事件，之后可能参与 `L2` 的关系抽取和 `L3` 的时间摘要
+- 一次 worker heartbeat 属于运行时遥测，不应该直接进入长期用户记忆
+- 一次任务完成结果可能值得保留到记忆层，但详细执行 trace 仍应留在 runtime trace store
 
-### 2.1 什么叫“评分、摘要、图谱被污染”
+记忆系统因此处在“原始数据源”和“上层推理”之间。它不是原始数据源本身。
 
-这里的“污染”不是指数据错误，而是指**不同语义层级的事件被混为同一种长期经验材料**，从而让下游认知结果产生系统性偏差。
+---
+
+## 运行时边界与数据存储
+
+Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
+
+### 聊天真相
+
+- `~/.magi/data/chat/chat.db`
+
+负责：
+
+- `chat_sessions`
+- `chat_turns`
+- `chat_messages`
+
+当你需要完整聊天记录、turn 呈现状态、chat 域读模型时，应读这里。
+
+### 运行时观测
+
+- `~/.magi/runtime/runtime_trace.db`
+
+负责：
+
+- turn summaries
+- tool calls
+- LLM metrics
+- spans
+- live notifications
+- append-only 的 plugin ingress events
+
+当你需要执行回放、排障、trace、原始插件接入事件时，应读这里。
+
+### 持久记忆
+
+- `~/.magi/data/memory/l1_events.db`
+- `~/.magi/data/memory/memory.db`
+
+负责：
+
+- `L1` 事实事件主存放在 `l1_events.db`
+- `L0`、`L2`、`L3`、`L4` 放在 `memory.db`
+
+当你需要历史回忆、结构化认知、摘要、长期洞察、程序性经验时，应读这里。
+
+### 可重建缓存
+
+- `~/.magi/cache/plugins/<plugin_id>/`
+
+负责插件自己的可重建中间态，例如：
+
+- 传感器进行中的聚合状态
+- flush checkpoint
+- 插件本地计算缓存
+
+重要规则：cache 不是 memory truth。
+
+---
+
+## 分层总览
+
+### L0 工作记忆
+
+`L0` 是当前 session / task 的短期工作上下文。
+
+它主要承载：
+
+- 当前会话状态
+- 当前目标栈
+- 当前活跃实体
+- 临时策略与执行态上下文
+
+关键特点：
+
+- 以当前执行为中心，不以长期回忆为中心
+- 以内存为主，并带 checkpoint 用于恢复
+- 会高频变动
+- 可以在重启后部分从 durable state 恢复
+
+`L0` 只应保存“当前轮次真的需要”的东西，而不是系统历史上曾经见过的一切。
 
 典型例子：
 
-1. 如果 `WORKER_AGENT_PROGRESS`、`LOOP_STARTED`、`TASK_ASSIGNED` 这种高频运行时事件和用户真实交互事件一起算 importance，那么真正对用户重要的聊天、日记、浏览线索会被频率更高的系统噪声淹没。
-2. 如果摘要生成不区分“用户经验事件”和“系统控制事件”，周摘要可能总结成“本周大量任务启动、完成、失败重试”，而不是“用户这周主要在准备面试、浏览文档、情绪波动上升”。
-3. 如果知识图谱直接吃入未经筛选的运行时事件，图谱会学到大量“事件与事件之间的流程关系”，却学不到“用户与项目、人物、主题之间的长期关系”。
-4. 如果 ToM 从群聊日志、截图 OCR、worker 错误中一视同仁地深挖心理状态，就会高频产出主观而不可靠的心理断言。
+- 当前 session 的活跃目标
+- 当前对话正在围绕哪些实体展开
+- 某一轮临时性的战术决策
 
-因此，新架构必须允许 L1 接收多种事件，但必须在事件标准化时明确它们的记忆用途。
+### L1 标准化事件记忆
 
----
+`L1` 是 durable fact layer，也是整个记忆系统的事实基座。
 
-## 3. 目标架构总览
+它保存那些已经足够稳定、值得参与后续流程的标准化事件，用于：
 
-```text
-┌──────────────────────────────────────────────────────────────────┐
-│                     Retrieval & Prompt Layer                     │
-│  HybridRetrievalService + PromptContextAssembler integration     │
-└──────────────────────────────────────────────────────────────────┘
-                               ↓
-┌──────────────────────────────────────────────────────────────────┐
-│ L0 Working Memory                                                │
-│ In-memory workbench + SQLite checkpoint                          │
-│ session / goal stack / active entities / temporary ToM tactics   │
-├──────────────────────────────────────────────────────────────────┤
-│ L1 Event Stream                                                  │
-│ Immutable normalized events + embedded vectors + importance      │
-│ retention policy + source taxonomy + traceability                │
-├──────────────────────────────────────────────────────────────────┤
-│ L2 Structured Cognition                                          │
-│ knowledge_graph + tom_snapshots + tom_trait_assertions           │
-│ conflict resolution + evidence validation                        │
-├──────────────────────────────────────────────────────────────────┤
-│ L3 Reflection Memory                                             │
-│ temporal summaries + thematic summaries + distilled insights     │
-│ summary vectors + evidence backtrace                             │
-├──────────────────────────────────────────────────────────────────┤
-│ L4 Procedural Memory                                             │
-│ tool/api/workflow skills + circuit breaker + best practices      │
-│ strategy templates + context affinity                            │
-└──────────────────────────────────────────────────────────────────┘
-                               ↑
-┌──────────────────────────────────────────────────────────────────┐
-│                  Ingestion & Maintenance Layer                   │
-│ MemoryIntegrationModule / LLM extractors / MaintenanceDaemon     │
-└──────────────────────────────────────────────────────────────────┘
-```
+- recall
+- search
+- cognition
+- reflection
+- 记忆投影链路的审计与调试
 
-### 3.1 核心处理原则
+如果一条事实未来会影响系统的理解、回顾或推理，它通常应该先进入 `L1`。
 
-1. **L1 是事实主存**：所有长期记忆能力都从 L1 事件流演化。
-2. **L0 是临时执行态**：L0 服务当前会话与当前任务，不直接承担长期认知结论。
-3. **L2 是有证据的解释层**：所有主观认知必须带证据、置信度和可回滚状态。
-4. **L3 是压缩层**：L3 不替代 L1，而是降低检索与回顾成本。
-5. **L4 是经验层**：L4 把成功/失败历史转为未来执行准则。
-6. **所有主观推断默认低置信度进入系统**：只有跨事件验证后才能升级为稳定记忆。
+关键特点：
 
-### 3.2 明确不纳入本轮重构的模块
+- 面向持久化的事实事件
+- 统一的 source-normalized 契约
+- 显式的 domain / retention / cognition 策略
+- 支持向量检索和关键词检索
+- 保留 source-side identity 和 business idempotency
 
-以下模块本轮不与新记忆系统合并：
+典型例子：
 
-1. `SelfMemory`
-2. `OtherMemory`
-3. 人格配置与 scenario prompt 存储
+- 用户主动写下的内容
+- 聊天投影后的记忆事实
+- Chrome history burst
+- 小时级 app usage summary
 
-这些模块仍然继续工作，但 prompt 组装时要新增读取新记忆系统的路径。
+反例：
 
----
+- 完整聊天 transcript 真相
+- heartbeat 噪声
+- 详细逐步执行 trace
 
-## 4. 事件来源分型与污染隔离
+### L2 结构化认知
 
-### 4.1 事件来源分型
+`L2` 用来保存从 `L1` 事件中提取出来的结构化理解。
 
-L1 的每条事件必须带以下分类字段：
+它承载：
 
-```python
-memory_domain: Literal[
-    "user_authored",      # 用户主动写下/说出的内容，如聊天、日记、手动时间线
-    "interaction",        # Agent 与用户的直接交互，如回复、澄清、工具结果回传
-    "external_activity",  # 浏览、终端、git、日历、健康等外部活动
-    "runtime_telemetry",  # worker 进度、调度、系统错误、loop 事件
-    "system_control",     # 配置变更、内部维护、checkpoint、压缩等控制类事件
-]
-```
+- entity mentions
+- canonical entities
+- knowledge graph edges
+- tentative 或 validated 的 trait assertions
+- 当前结构化理解的 snapshots
 
-### 4.2 记忆用途分型
+`L2` 是“有证据的解释层”，不是原始真相层。
 
-每条事件还必须带以下策略字段：
+关键特点：
 
-```python
-ingest_target: Literal[
-    "l0_only",                  # 仅进入 L0，作为当前执行态信号
-    "l0_and_l1",                # 先服务当前执行，再进入 L1 做审计/复盘
-    "l1_only",                  # 直接进入 L1，不参与当前执行态缓存
-]
-cognition_eligible: bool        # 是否允许进入 L2/L3/L4 推导
-tom_depth: Literal[
-    "none",                     # 不做 ToM
-    "topology_only",            # 只抽取显性关系与情感倾向
-    "defensive_psychology",     # 允许做防御性心理推断
-]
-retention_class: Literal[
-    "permanent",                # 默认不可压缩删除
-    "compressible",             # 允许压缩保留摘要
-    "disposable",               # 低价值可删除
-]
-```
+- 由 `L1` 派生，而不是独立原始输入
+- 带证据引用
+- 带置信度
+- 支持冲突处理和后续修正
 
-### 4.3 运行时事件分流规则
+### L3 反思与摘要
 
-对于 `WORKER_AGENT_PROGRESS`、`LOOP_STARTED`、`TASK_ASSIGNED` 这类事件，不采用“要么全进 L0，要么全进 L1”的二选一策略，而是按执行价值与长期价值分流：
+`L3` 用来保存按时间窗或主题压缩后的反思记忆。
 
-1. **只服务当前运行态的高频事件**：默认 `l0_only`
-2. **值得审计/复盘的里程碑事件**：默认 `l0_and_l1`
-3. **不属于当前执行态，但需要长期保留的关键事件**：默认 `l1_only`
+它存在的意义是降低以下场景的成本：
 
-判断标准：
+- 历史回顾
+- 周期总结
+- 模式识别
+- 反思类 prompt 组装
 
-1. 该事件是否只服务当前执行态
-2. 该事件未来是否值得审计、回放、排障
-3. 该事件是否会影响未来行为策略
+典型输出包括：
 
-### 4.4 默认策略矩阵
+- temporal summaries
+- topic summaries
+- state-change summaries
+- trend-shift summaries
+- task reflections
 
-| 来源 | ingest_target | domain | cognition_eligible | tom_depth | retention_class |
-|------|---------------|--------|--------------------|-----------|-----------------|
-| 聊天记录 | l1_only | user_authored | true | defensive_psychology | permanent |
-| 用户手动日记/时间线 | l1_only | user_authored | true | defensive_psychology | permanent |
-| 浏览历史 | l1_only | external_activity | true | topology_only | compressible |
-| 终端/Git 活动 | l1_only | external_activity | true | none | compressible |
-| 照片/OCR/群聊 | l1_only | external_activity | true | topology_only | compressible |
-| WORKER_AGENT_PROGRESS | l0_only | runtime_telemetry | false | none | disposable |
-| LOOP_STARTED / LOOP_PHASE_STARTED / HEARTBEAT | l0_only | system_control | false | none | disposable |
-| TASK_ASSIGNED / TASK_STARTED | l0_and_l1 | runtime_telemetry | false | none | compressible |
-| TASK_COMPLETED / TASK_FAILED | l0_and_l1 | runtime_telemetry | false | none | compressible |
-| 系统错误 / 熔断切换 / 策略变更 | l1_only | runtime_telemetry | false | none | compressible |
+`L3` 应该比长串 `L1` 原始事件更易读、更容易检索，但必须始终能回溯到支持它的证据事件。
 
-### 4.5 运行时事件的特殊说明
+### L4 程序性记忆
 
-1. `l0_only` 事件默认不进入长期记忆主存，避免高频噪声灌爆 L1。
-2. `l0_and_l1` 事件进入 L1 后，默认只用于审计、排障、回放与 L4 程序性经验提炼，不参与 L2/L3 主认知链路。
-3. `TASK_COMPLETED`、`TASK_FAILED`、熔断状态变更这类事件虽然属于 runtime 事件，但可能改变未来执行路径，因此保留进入 L1 的资格。
-4. 若用户未来明确要求“完整运行时回放”，可通过配置将部分 `l0_only` 事件升级为 `l0_and_l1`。
+`L4` 用来沉淀“以后怎么做更好”的执行经验。
 
-### 4.6 群体内容的特殊规则
+它回答的问题是：
 
-群聊、截图 OCR、公共社交文本等多实体内容默认不做深度单体心理诊断，仅允许抽取：
+- 这里通常什么做法更有效
+- 哪些流程经常失败
+- 下次优先走哪条 workflow
+- 哪些工具或策略应该回避
 
-1. 实体显性关系
-2. 公开立场
-3. 话题情绪倾向
-4. 群体氛围
+`L4` 不是在复述历史事实，而是在沉淀未来执行准则。
 
-禁止默认产出“某个群成员存在某种深层心理问题”之类高主观结论。
+典型例子：
+
+- 常用 workflow 模板
+- 不稳定工具的 circuit-breaker 状态
+- 某类任务的成功策略模板
+- 不同上下文下的执行偏好
 
 ---
 
-## 5. L0 工作记忆
+## 事件契约与路由
 
-### 5.1 目标
+所有进入 durable memory 的数据，都会被标准化成 [backend/src/magi/memory/event_contracts.py](/Users/asuka/code/magi/backend/src/magi/memory/event_contracts.py) 里的 `MemoryEvent`。
 
-L0 用于支撑单次会话与单个任务的高频上下文组装，负责：
+一个最小可用的 durable memory event 至少包含：
 
-1. 当前 session 生命周期
-2. 当前目标栈与任务状态
-3. 当前活跃实体卡片
-4. 低置信度临时策略
-5. prompt 侧的短期 workbench
+- `event_id`
+- `event_type`
+- `source`
+- `timestamp`
+- `content`
+- `memory_domain`
+- `ingest_target`
+- `cognition_eligible`
+- `retention_class`
+- 可选的 `source_item_id`
+- 可选的 `idempotency_key`
+- 可选的 `metadata_json`
 
-L0 不承诺长期稳定，长期沉淀由 L2/L3/L4 负责。
+### memory_domain
 
-### 5.2 存储模式
+`memory_domain` 用来表达“这条事件在语义上属于哪一类材料”。
 
-默认策略：
+当前 canonical domain 为：
 
-1. 主存：内存
-2. 恢复介质：SQLite checkpoint
-3. checkpoint 时机：
-   - 固定时间间隔
-   - 会话空闲前
-   - 会话关闭前
-   - 进程退出前
+- `user_authored`
+- `interaction`
+- `external_activity`
+- `runtime_telemetry`
+- `system_control`
 
-#### 5.2.1 配置项
+这是 Magi 用来隔离用户经验、外部活动和运行时噪声的基础字段。
 
-```python
-@dataclass
-class L0Config:
-    storage_mode: Literal["memory_checkpoint"] = "memory_checkpoint"
-    checkpoint_db_path: str = "~/.magi/data/memory/memory.db"
-    checkpoint_interval_seconds: int = 30
-    session_timeout_seconds: int = 3600
-    max_active_entities_per_session: int = 64
-    max_temporary_tactics_per_session: int = 32
-    restore_on_restart: bool = True
-```
+### ingest_target
 
-### 5.3 数据模型
+`ingest_target` 用来表达“这条事件首先应该落到哪里”。
 
-#### 5.3.1 sessions
+当前 canonical target 为：
 
-```sql
-CREATE TABLE l0_sessions (
-    session_id TEXT PRIMARY KEY,
-    user_id TEXT,
-    runtime_agent_id TEXT,
-    status TEXT NOT NULL,               -- active, idle, completed, expired
-    started_at REAL NOT NULL,
-    last_active_at REAL NOT NULL,
-    last_checkpoint_at REAL,
-    metadata TEXT
-);
-```
+- `l0_only`
+- `l1_only`
+- `l0_and_l1`
 
-#### 5.3.2 goal_stack
+这样可以把当前执行态信号和长期记忆事实拆开处理。
 
-```sql
-CREATE TABLE l0_goal_stack (
-    stack_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    goal_id TEXT NOT NULL,
-    parent_goal_id TEXT,
-    goal_type TEXT NOT NULL,            -- task, subtask, clarification, reflection
-    description TEXT NOT NULL,
-    status TEXT NOT NULL,               -- pending, in_progress, completed, failed, cancelled
-    priority INTEGER DEFAULT 0,
-    created_at REAL NOT NULL,
-    started_at REAL,
-    completed_at REAL,
-    result_summary TEXT,
-    metadata TEXT
-);
-```
+### cognition_eligible
 
-#### 5.3.3 active_entities
+`cognition_eligible` 是当前用于控制事件能否进入高层认知链路的粗粒度开关。
 
-```sql
-CREATE TABLE l0_active_entities (
-    session_id TEXT NOT NULL,
-    entity_id TEXT NOT NULL,
-    entity_type TEXT NOT NULL,
-    relevance_score REAL DEFAULT 0.0,
-    snapshot_json TEXT NOT NULL,
-    loaded_at REAL NOT NULL,
-    last_accessed_at REAL NOT NULL,
-    access_count INTEGER DEFAULT 0,
-    PRIMARY KEY (session_id, entity_id, entity_type)
-);
-```
+当前它仍然是布尔值：
 
-#### 5.3.4 temporary_tactics
+- `true`：允许参与后续认知和摘要流程
+- `false`：可以进入 `L1`，但默认不参与认知
 
-用于存放仅在 L0 生效、尚未升级到 L2/L4 的临时策略，例如：
+未来如果引入更细的路由模型，也必须保持这个核心意图：durable storage 和 higher-level reasoning 不是同一件事。
 
-1. “当前先以倾听式回应”
-2. “暂时降低追问强度”
-3. “本轮不要对某主题继续推断”
+### retention_class
 
-```sql
-CREATE TABLE l0_temporary_tactics (
-    tactic_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    scope_type TEXT NOT NULL,           -- user, topic, entity, tool
-    scope_id TEXT NOT NULL,
-    tactic_type TEXT NOT NULL,
-    tactic_payload TEXT NOT NULL,
-    source_event_ids TEXT NOT NULL,
-    expires_at REAL,
-    created_at REAL NOT NULL
-);
-```
+`retention_class` 用来表达事件的生命周期策略：
 
-### 5.4 职责归属
+- `permanent`
+- `compressible`
+- `disposable`
 
-| 模块 | 职责 |
-|------|------|
-| `ChatTaskAgent` | 建立/续期 session |
-| `TaskOrchestrator` | 更新 goal stack |
-| `PromptContextAssembler` | 读取 active_entities 与 temporary_tactics |
-| `MaintenanceDaemon` | 清理超时 session 与 checkpoint |
+保留策略必须是显式契约，而不是隐式后处理。
 
 ---
 
-## 6. L1 原始事件流
+## 事件身份规则
 
-### 6.1 目标
+`L1` 现在明确区分内部主键、外部稳定引用、源侧 identity 和业务幂等键。
 
-L1 是所有长期记忆能力的事实主存，记录不可变事件，提供：
+这些规则是强约束。
 
-1. 时间序查询
-2. 精确过滤
-3. 语义检索
-4. 证据回溯
-5. 保留与压缩决策
+1. `id`
+   SQLite 内部主键，只用于内部 join、排序和本地关系效率。
 
-### 6.2 标准事件契约
+2. `event_id`
+   稳定外部事件标识，用于：
+   - timeline 引用
+   - `L2` / `L3` 证据回溯
+   - API 返回
+   - 日志和调试
 
-所有写入 L1 的事件在进入数据库前必须完成标准化：
+3. `source_item_id`
+   源侧 item identity。它表示 producer 自己的业务项标识。
 
-```python
-@dataclass
-class MemoryEvent:
-    id: int | None
-    event_id: str
-    correlation_id: str
-    timestamp: float
-    created_at: float
+4. `idempotency_key`
+   业务幂等键。它回答的是“这是不是同一条业务事件”，而不是“这是不是同一行数据库记录”。
 
-    event_type: str
-    source: str
-    source_item_id: str | None
-    idempotency_key: str | None
+### `L1` 的唯一性规则
 
-    memory_domain: str
-    ingest_target: str
-    cognition_eligible: bool
-    tom_depth: str
-    retention_class: str
+当 `idempotency_key` 存在时，`L1` 必须按以下约束去重：
 
-    session_id: str | None
-    turn_id: str | None
-    user_id: str | None
-    task_id: str | None
-
-    content: str
-    author_type: str
-    content_type: str
-    importance_score: float
-    level: int
-    media_path: str | None
-    metadata_json: dict | None
+```sql
+UNIQUE(source, event_type, idempotency_key)
 ```
 
-事件身份规则：
+这意味着：
 
-1. `id` 是 SQLite 内部主键，仅用于内部 join / 索引，不向上层业务暴露为稳定引用。
-2. `event_id` 是稳定外部事件标识，用于 timeline、L2/L3 证据回溯、API 返回与调试日志。
-3. `idempotency_key` 是业务幂等键；当存在时，L1 必须按 `(source, event_type, idempotency_key)` 保证唯一写入。
-4. `source_item_id` 保留源侧 item 标识，但不再等同于 L1 主键，也不默认等同于业务幂等键。
+- `event_id` 不是业务去重键
+- `source_item_id` 不默认等于业务去重键
+- 内部 `id` 绝不能被复用成 `event_id`
 
-### 6.3 表结构
+### 一个具体例子
+
+一条 Chrome history burst 可能长这样：
+
+- `id = 128431`
+- `event_id = "evt_01JQ..."`
+- `source = "chrome_history"`
+- `event_type = "SENSOR_EVENT"`
+- `source_item_id = "181979-181982"`
+- `idempotency_key = "default:181979-181982"`
+
+系统会：
+
+- 用 `event_id` 作为跨层稳定引用
+- 用 `id` 做内部 join
+- 用 `source_item_id` 展示或回显源侧 identity
+- 用 `(source, event_type, idempotency_key)` 判断业务幂等
+
+---
+
+## `L1` 事实事件存储
+
+`L1` 的 canonical store 位于 [backend/src/magi/memory/l1/event_store.py](/Users/asuka/code/magi/backend/src/magi/memory/l1/event_store.py)。
+
+当前 `fact_events` 的核心结构是：
 
 ```sql
 CREATE TABLE fact_events (
@@ -465,895 +417,228 @@ CREATE TABLE fact_events (
 
     UNIQUE(source, event_type, idempotency_key)
 );
-
-CREATE INDEX idx_fact_events_timestamp ON fact_events(timestamp);
-CREATE INDEX idx_fact_events_type ON fact_events(event_type);
-CREATE INDEX idx_fact_events_source ON fact_events(source);
-CREATE INDEX idx_fact_events_idempotency_key ON fact_events(idempotency_key);
-CREATE INDEX idx_fact_events_domain ON fact_events(memory_domain);
-CREATE INDEX idx_fact_events_user ON fact_events(user_id);
-CREATE INDEX idx_fact_events_session ON fact_events(session_id);
-CREATE INDEX idx_fact_events_turn ON fact_events(turn_id);
-CREATE INDEX idx_fact_events_importance ON fact_events(importance_score DESC);
-CREATE INDEX idx_fact_events_retention ON fact_events(retention_class);
 ```
 
-L1 向量采用独立表（按模型重建）：
+关键说明：
 
-```sql
-CREATE TABLE l1_event_vectors (
-    vector_id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL,
-    embedding_model TEXT NOT NULL,
-    embedding_dim INTEGER NOT NULL,
-    embedding_payload BLOB NOT NULL,
-    metadata TEXT,
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    UNIQUE(event_id, embedding_model)
-);
-```
-
-### 6.4 时间分片
-
-L1 分片在本阶段暂不落地，先使用单库单表，保持查询与写入链路稳定。
-
-后续再引入冷热分片策略，前提是先完成指标基线与压测数据。
-
-### 6.5 importance 评分
-
-#### 6.5.1 T0 同步规则层
-
-写入时同步完成，保证每条事件都有基础 importance。
-
-#### 6.5.2 T1 异步语义层
-
-本期使用 LLM 执行，基于以下维度：
-
-1. 新颖性
-2. 目标相关性
-3. 情绪强度
-4. 长期价值
-5. 关系变化强度
-
-#### 6.5.3 T2 检索时动态层
-
-检索时叠加时间衰减、source boost、evidence boost。
-
-### 6.6 写入流程
-
-```text
-1. Runtime event / timeline event / external activity arrives
-2. EventNormalizer 标准化 MemoryEvent
-3. Raw event sync write into L1
-4. L0 session/workbench updates
-5. Async enqueue:
-   - vector generation (write to layer-owned vector tables)
-   - T1 importance
-   - L2 cognition extraction
-   - L3 summary candidate update
-   - L4 procedural update
-6. Return ack to caller
-```
-
-说明：
-
-1. “全 LLM”指 L2/L3/T1 的认知工作由 LLM 执行。
-2. 不要求主业务请求阻塞等待所有 LLM 任务完成。
-3. 任何认知失败都不能影响 L1 原始事件落库。
+- `event_id` 仍然是对外稳定引用键
+- `id` 是内部关系主键
+- `metadata_json` 用于附着结构化事件 payload
+- durable events 通过 `deleted_at` 支持软删除
 
 ---
 
-## 7. L2 结构化认知
+## 数据如何进入记忆系统
 
-### 7.1 目标
+虽然 producer 很多，但最后都会收敛到同一套 memory contract。
 
-L2 负责把 L1 中的长期有效信息转为结构化认知，分为两类：
+### 聊天投影
 
-1. **知识图谱**：稳定关系、实体属性、事件证据
-2. **ToM**：对个体与群体的状态、偏好、情绪、压力、敏感触发器、氛围等进行防御性建模
+聊天真相先写入 `chat.db`。
 
-### 7.2 为什么 ToM 需要双层结构
+其中一部分内容随后会被投影成 `L1` 的 canonical facts。
 
-如果直接把 LLM 的主观推断写进稳定快照，会导致两个问题：
+这个投影是有意做成 lossy 的：
 
-1. 一次性误判被固化
-2. 低置信度心理判断与高置信度事实关系混杂，后续无法回滚
+- 它保留记忆所需的信息
+- 它不试图复制整份 transcript truth
 
-因此 L2 必须拆成：
+### sensors 与 plugins
 
-1. `knowledge_graph`：稳定关系层
-2. `tom_trait_assertions`：主观推断断言层
-3. `tom_snapshots`：高置信度物化快照层
+sensor 运行在 awareness 层，产出 `SensorOutput`。
 
-其中：
+`SensorIngestionGateway` 负责把这些输出投影进 memory。
 
-1. `tom_trait_assertions` 是防腐层与主观推断主存
-2. `tom_snapshots` 只保存已经过验证的结果视图
+这是以下来源进入记忆层的主路径：
 
-### 7.3 knowledge_graph
+- browser history
+- app usage
+- terminal / Git activity
+- 其他 external activity 插件
 
-```sql
-CREATE TABLE knowledge_graph (
-    triple_id TEXT PRIMARY KEY,
-    subject_id TEXT NOT NULL,
-    subject_type TEXT NOT NULL,
-    predicate TEXT NOT NULL,
-    object_id TEXT NOT NULL,
-    object_type TEXT NOT NULL,
+### runtime 生成事件
 
-    confidence REAL NOT NULL DEFAULT 0.5,
-    evidence_event_ids TEXT NOT NULL,   -- JSON
-    observation_count INTEGER NOT NULL DEFAULT 1,
+部分 runtime 事件在值得审计或值得未来学习时，也可能被标准化进 memory。
 
-    first_observed_at REAL NOT NULL,
-    last_observed_at REAL NOT NULL,
-    last_confirmed_at REAL,
-
-    source_type TEXT,
-    extraction_method TEXT,
-
-    status TEXT NOT NULL DEFAULT 'active',   -- active, deprecated, conflicted
-    deprecated_by TEXT,
-    deprecated_at REAL,
-
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
-);
-```
-
-### 7.4 tom_trait_assertions
-
-该表直接承载你确认的防误判字段。
-
-```sql
-CREATE TABLE tom_trait_assertions (
-    assertion_id TEXT PRIMARY KEY,
-    entity_id TEXT NOT NULL,
-    entity_type TEXT NOT NULL,
-
-    trait_name TEXT NOT NULL,               -- 例如“存在职场竞争焦虑”
-    trait_value TEXT NOT NULL,              -- JSON 或字符串化值
-    confidence_score REAL NOT NULL,         -- 0.0 - 1.0
-    evidence_events TEXT NOT NULL,          -- JSON: 至少可追到多个 L1 event_id
-    volatility_index REAL NOT NULL,         -- 0.0 - 1.0
-
-    source_domain TEXT NOT NULL,            -- user_authored / external_activity ...
-    inference_depth TEXT NOT NULL,          -- topology_only / defensive_psychology
-    validation_state TEXT NOT NULL,         -- tentative, corroborated, stable, contradicted, expired
-
-    first_inferred_at REAL NOT NULL,
-    last_validated_at REAL NOT NULL,
-    expires_at REAL,
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
-);
-
-CREATE INDEX idx_tom_assert_entity ON tom_trait_assertions(entity_id, entity_type);
-CREATE INDEX idx_tom_assert_trait ON tom_trait_assertions(trait_name);
-CREATE INDEX idx_tom_assert_conf ON tom_trait_assertions(confidence_score DESC);
-CREATE INDEX idx_tom_assert_state ON tom_trait_assertions(validation_state);
-```
-
-### 7.5 tom_snapshots
-
-该表保存高置信度稳定结果，供 prompt 与检索直接读取。
-
-```sql
-CREATE TABLE tom_snapshots (
-    snapshot_id TEXT PRIMARY KEY,
-    entity_id TEXT NOT NULL,
-    entity_type TEXT NOT NULL,
-
-    core_traits TEXT,                  -- JSON
-    sensitive_triggers TEXT,           -- JSON
-    preferences TEXT,                  -- JSON
-    public_sentiment_profile TEXT,     -- JSON
-    relationship_topology TEXT,        -- JSON
-
-    current_stress_level REAL DEFAULT 0.0,
-    current_mood TEXT,
-    current_engagement REAL DEFAULT 0.5,
-    current_context TEXT,              -- JSON
-
-    interaction_count INTEGER DEFAULT 0,
-    last_interaction_at REAL,
-
-    last_updated_at REAL NOT NULL,
-    update_source_assertion_ids TEXT,  -- JSON
-    snapshot_version INTEGER DEFAULT 1,
-    created_at REAL NOT NULL,
-
-    UNIQUE(entity_id, entity_type)
-);
-```
-
-### 7.6 强宣称验证规则
-
-所有主观推断默认遵循以下规则：
-
-1. 初次抽取时 `confidence_score` 强制低分，默认不高于 `0.3`。
-2. 单条事件的推断只能进入 `tentative`。
-3. 只有满足以下条件，断言才允许进入 `stable` 并物化到 snapshot：
-   - 至少 3 个独立的 L1 `event_id`
-   - 时间跨度超过 24 小时
-   - 没有明显矛盾证据
-   - 置信度大于或等于 `0.8`
-4. 遇到反证事件时：
-   - `confidence_score` 快速下降
-   - `validation_state` 可进入 `contradicted`
-   - 如已物化到 snapshot，则触发回写修正
-5. 低置信度推断允许只在 L0 产生短期策略，不得直接进入长期画像。
-
-### 7.7 不同来源的 ToM 深度
-
-#### 7.7.1 聊天 / 日记 / 用户主动记录
-
-允许：
-
-1. stress
-2. mood
-3. triggers
-4. 长期偏好
-5. 关系变化
-
-#### 7.7.2 群聊 / 截图 / OCR / 照片描述
-
-允许：
-
-1. 公开情绪倾向
-2. 实体间显性拓扑
-3. 群体氛围
-
-默认不做：
-
-1. 深度心理诊断
-2. 单实体长期病理推断
-
-### 7.8 冲突处理
-
-默认策略：
-
-1. 事实关系：`confidence_wins`
-2. 心理断言：`coexist + revalidate`
-3. 高波动特征：优先保留时间序列，不强行合并成稳态
+但运行时观测和 durable memory 是两个系统。默认原则是：高频执行遥测不进入长期记忆。
 
 ---
 
-## 8. L3 反思与摘要
+## 检索与 Prompt 集成
 
-### 8.1 目标
+memory 层负责 recall、检索、排序和跨层证据组织；context 层负责 prompt shaping 和最终注入策略。
 
-L3 用于对 L1 事件进行降维压缩，产出便于长期回顾与快速检索的反思记忆。
+这是一个刻意的边界：
 
-L3 的输出分三类：
+- memory 决定“查到了什么”
+- context 决定“哪些结果真的应该进入 prompt”
 
-1. `temporal`：按小时/天/周/月的时序摘要
-2. `thematic`：跨时间的主题摘要
-3. `insight`：从压缩、聚类或对比中生成的高阶结论
+因为并不是所有可检索到的记忆，都适合被隐式注入到普通对话里。
 
-### 8.2 表结构
+### 典型检索意图
 
-```sql
-CREATE TABLE summaries (
-    summary_id TEXT PRIMARY KEY,
-    summary_type TEXT NOT NULL,         -- temporal, thematic, insight
-    summary_category TEXT NOT NULL,     -- hour/day/week/topic/...
-    period_start REAL NOT NULL,
-    period_end REAL NOT NULL,
+当前检索大体支持以下意图：
 
-    content TEXT NOT NULL,
-    key_topics TEXT,
-    key_entities TEXT,
-    sentiment_summary TEXT,
+- detail recall
+- summary-oriented recall
+- experience / workflow reuse
+- graph-oriented lookup
+- strategy-oriented lookup
 
-    source_event_ids TEXT NOT NULL,
-    source_event_count INTEGER NOT NULL,
+不同层的贡献不同：
 
-    importance_aggregate REAL,
-    event_type_distribution TEXT,
+- `L1` 负责主要事实回忆
+- `L2` 负责结构化证据
+- `L3` 负责压缩后的总结上下文
+- `L4` 负责执行经验和可复用策略
 
-    generated_by_model TEXT,
-    generation_prompt TEXT,
-    generation_reason TEXT,
+### 当前 prompt 策略
 
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
-);
-```
+当前 implicit injection 仍然偏保守：
 
-L3 向量采用独立表：
+- `L0` 是默认隐式上下文
+- 更高层的记忆需要有明确理由才注入
+- 显式历史回忆和隐式 prompt 注入是两类不同决策
 
-```sql
-CREATE TABLE l3_summary_vectors (
-    vector_id TEXT PRIMARY KEY,
-    summary_id TEXT NOT NULL,
-    embedding_model TEXT NOT NULL,
-    embedding_dim INTEGER NOT NULL,
-    embedding_payload BLOB NOT NULL,
-    metadata TEXT,
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    UNIQUE(summary_id, embedding_model)
-);
-```
-
-### 8.3 生成触发
-
-本期先做全 LLM 方案，默认采用以下触发：
-
-1. 时间摘要：固定周期 + importance 累积阈值
-2. 主题摘要：事件聚类达到最小规模
-3. insight：压缩、对比、冲突消解后触发
-
-### 8.4 生成规则
-
-L3 只处理以下事件：
-
-1. `cognition_eligible = true`
-2. `memory_domain != runtime_telemetry`
-3. `retention_class != disposable`
-
-对于 `temporal` 摘要，L3 允许在标准事件证据之外接收插件提供的结构化摘要特征。
-
-规则：
-
-1. 插件只能提供结构化统计、特征和摘要提示，不直接写入 L3 summary 记录。
-2. 最终的 temporal summary 仍由统一的 L3 管线生成，保持摘要格式、回溯链路和存储模型一致。
-3. 插件特征必须绑定到本次 summary window 内的 source events，不得引入无法追溯到 `source_event_ids` 的外部结论。
-4. 插件特征适合承载 source-specific 聚合，例如 top domains、重复访问站点、日历密度或仓库活跃焦点。
-
-### 8.5 使用原则
-
-1. L3 用于快速回顾与召回，不替代 L1 原始证据。
-2. L3 的任何结论都必须可回溯到 `source_event_ids`。
-3. 对于永久事件，允许生成摘要，但默认不删除对应 L1 原文。
-4. 插件特征用于增强摘要质量，不应替代通用 L3 的压缩、校验与持久化职责。
+这样可以避免把陈旧、弱相关或噪声记忆过度塞进普通对话。
 
 ---
 
-## 9. L4 程序性记忆
+## 保留、压缩与删除
 
-### 9.1 目标
+保留策略按事件类型和用途定义，而不是全局一刀切。
 
-L4 用于沉淀“如何做一件事”的经验，表达 Agent 在反复成功/失败后对未来执行路径的调整能力。
+### 一般规则
 
-它本质上是基于历史交互事件提取出的程序性记忆，包括：
+- 用户主动创作的 durable memory 默认保留更强
+- external activity 往往更适合 `compressible`
+- runtime telemetry 默认被严格限制或直接排除
+- 摘要和程序性记忆必须保留回溯证据的能力
 
-1. 工具/API 使用熟练度
-2. 成功/失败模式
-3. 异常处理肌肉记忆
-4. 熔断状态
-5. 最优提示模板/参数模板
-6. 特定上下文下的策略偏好
+### 压缩的含义
 
-### 9.2 表结构
+压缩并不等于“随便删”。
 
-```sql
-CREATE TABLE procedural_skills (
-    skill_id TEXT PRIMARY KEY,
-    skill_name TEXT NOT NULL,
-    skill_category TEXT NOT NULL,       -- tool, api, workflow, strategy
-    skill_type TEXT NOT NULL,           -- external_tool, internal_api, composite
+压缩意味着：
 
-    proficiency REAL NOT NULL DEFAULT 0.0,
-    total_attempts INTEGER NOT NULL DEFAULT 0,
-    success_count INTEGER NOT NULL DEFAULT 0,
-    failure_count INTEGER NOT NULL DEFAULT 0,
-    success_rate REAL NOT NULL DEFAULT 0.0,
+- 保留历史的重要形状
+- 允许低价值原始细节被缩减
+- 仍然保留足够的引用来解释某条 summary 或 procedure 为什么存在
 
-    avg_execution_time_ms REAL,
-    min_execution_time_ms REAL,
-    max_execution_time_ms REAL,
-    p95_execution_time_ms REAL,
-
-    circuit_breaker_state TEXT NOT NULL DEFAULT 'closed',
-    circuit_breaker_opened_at REAL,
-    circuit_breaker_failure_count INTEGER NOT NULL DEFAULT 0,
-    circuit_breaker_success_count INTEGER NOT NULL DEFAULT 0,
-
-    optimized_prompt TEXT,
-    optimized_params TEXT,              -- JSON
-    optimization_score REAL,
-    context_affinity TEXT,              -- JSON
-
-    source_event_ids TEXT NOT NULL,     -- JSON
-    last_used_at REAL,
-    last_success_at REAL,
-    last_failure_at REAL,
-
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-
-    UNIQUE(skill_name, skill_category)
-);
-```
-
-L4 向量采用独立表：
-
-```sql
-CREATE TABLE l4_skill_vectors (
-    vector_id TEXT PRIMARY KEY,
-    skill_id TEXT NOT NULL,
-    embedding_model TEXT NOT NULL,
-    embedding_dim INTEGER NOT NULL,
-    embedding_payload BLOB NOT NULL,
-    metadata TEXT,
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    UNIQUE(skill_id, embedding_model)
-);
-```
-
-### 9.3 L4 与 L1/L0 的关系
-
-1. L4 从可学习的执行结果中提炼程序性记忆，主要来源是工具调用结果与任务成败事件
-2. `ActionExecuted` 这类执行期结果不会进入 L1，但仍可直接更新 L4
-3. L0 在当前 session 中读取 L4 并决定是否采用某策略
-
-例如：
-
-1. 某工具连续失败，L4 熔断打开，L0 当前轮次避免再调用
-2. 某类异常在过去 5 次里已有稳定处理模式，L4 返回推荐模板，L0 当前轮次直接应用
+压缩不能以丢失唯一的重要 durable representation 为代价。
 
 ---
 
-## 10. 检索机制与 Prompt 集成
+## 当前运行规则
 
-### 10.1 统一检索目标
+下面这些规则是日常改代码时必须遵守的：
 
-统一检索不是“把所有层都查一遍”，而是：
-
-1. 根据意图决定查哪几层
-2. 根据时间范围决定查哪些分片
-3. 根据 source taxonomy 过滤噪声
-4. 给 prompt 返回可消费的结构化 payload
-
-### 10.2 查询契约
-
-```python
-@dataclass
-class RetrievalQuery:
-    query: str
-    user_id: str | None
-    session_id: str | None
-    time_range: dict[str, Any]
-    recall_intent: Literal[
-        "event_recall",
-        "preference_recall",
-        "profile_fact_recall",
-        "relationship_recall",
-        "workflow_reuse",
-    ] | None
-    query_mode: Literal["detail", "summary", "experience", "graph", "strategy"] | None
-    source_filters: list[str]
-    domain_filters: list[str]
-    limit: int
-```
-
-说明：
-
-1. `recall_intent` 负责表达“用户到底在回忆什么类型的记忆”，它决定检索层的优先层路由。
-2. `query_mode` 负责表达结果粒度（细节、总结、经验、图谱、策略），不再单独承担回忆类型分类。
-
-```python
-@dataclass
-class RetrievalPayload:
-    l0_workbench: list[dict[str, Any]]
-    l1_events: list[dict[str, Any]]
-    l1_evidence_bundles: list[dict[str, Any]]
-    l1_timeline_summary: list[dict[str, Any]]
-    l2_entity_cards: list[dict[str, Any]]
-    l2_relationships: list[dict[str, Any]]
-    l2_assertions: list[dict[str, Any]]
-    l3_reflections: list[dict[str, Any]]
-    l4_procedures: list[dict[str, Any]]
-    trace: dict[str, Any]
-```
-
-说明：
-
-1. `RetrievalPayload` 是 memory 域内部检索契约，允许保留 rich result 与调试 trace。
-2. `trace` 属于检索观测数据，不直接作为主 LLM 的回答上下文。
-3. `HybridRetrievalService` 的职责停留在“查出什么”，不承担主 LLM 消费视图整形。
-
-```python
-@dataclass
-class HistoricalRecallPayload:
-    status: Literal["found", "not_found", "ambiguous", "conflicted"]
-    recall_intent: str | None
-    query_mode: str | None
-    summary: str
-    findings: list[dict[str, Any]]
-    insufficient_evidence: bool
-    answering_hints: dict[str, Any]
-    provenance: dict[str, Any]
-```
-
-说明：
-
-1. `HistoricalRecallPayload` 是 answer-facing 契约，供 `memory_query`、prompt 组装和上层回答链路消费。
-2. `summary` + `findings` 是主 LLM 的 source-of-truth。
-3. `provenance` 只保留最小必要来源摘要；详细检索 trace 继续走 debug/trace 通路。
-
-### 10.3 检索路由
-
-#### 10.3.1 detail
-
-优先 L1，必要时补充 L2 关系和 L0 workbench。
-
-#### 10.3.2 summary
-
-优先 L3，必要时回查 L1 原始证据。
-
-#### 10.3.3 experience
-
-优先 L4，补充 L1 成败样本与 L3 经验摘要。
-
-#### 10.3.4 graph
-
-优先 L2，补充 L1 证据。
-
-#### 10.3.5 strategy
-
-优先 L4，必要时补充 L0 当前上下文。
-
-### 10.4 Prompt 组装契约
-
-显式历史回忆与隐式 prompt 注入需要分两层处理：
-
-1. `HybridRetrievalService` 返回内部 `RetrievalPayload`
-2. `RecallProjector` 将其投影为 answer-facing `HistoricalRecallPayload`
-3. `memory_query` tool 仅做 tool 协议适配，不再承载 memory 域抽象逻辑
-
-`backend/src/magi/context/assembler.py` 与 `backend/src/magi/context/service.py` 需要能够消费以下 payload：
-
-```python
-retrieved_memory_payload = {
-    "l0_workbench": [...],
-    "l2_entity_cards": [...],
-    "l3_reflection_memory": [...],
-    "l4_procedural_memory": [...],
-    "preference_memory": {...},
-}
-```
-
-#### 10.4.1 读取优先级
-
-1. L0：当前轮次立即生效的状态与临时策略
-2. L4：如何做
-3. L2：当前相关实体是谁、状态如何
-4. L3：近期主题回顾
-5. L1：仅在需要原始证据时补充
+1. 聊天 transcript truth 在 `chat.db`，不在 `L1`
+2. runtime trace truth 在 `runtime_trace.db`，不在 `L1`
+3. `L1` 是 canonical fact projection layer
+4. `L2`、`L3`、`L4` 都是 derived layers，必须能从下层解释来源
+5. cache 是可重建层，不能变成隐式真相层
+6. `event_id` 是稳定外部引用，不是 source identity 的替身，也不是 business dedupe key
+7. 当 `idempotency_key` 存在时，业务唯一性由 `(source, event_type, idempotency_key)` 定义
+8. 读路径如果需要 producer-side 业务标识，应优先取 `source_item_id`，其次 `idempotency_key`，而不是 `event_id`
 
 ---
 
-## 11. 遗忘、压缩与保留
+## 开发者入口
 
-### 11.1 核心原则
+当前主要实现入口如下：
 
-1. 默认不删除用户主动创作内容
-2. 默认允许压缩外部活动轨迹
-3. 低价值系统遥测可丢弃
-4. 压缩前必须先产出可追溯的 L3 insight 或 summary
+- [backend/src/magi/memory/__init__.py](/Users/asuka/code/magi/backend/src/magi/memory/__init__.py)
+  统一 memory facade 与 lifecycle coordination
 
-### 11.2 默认保留策略
+- [backend/src/magi/memory/event_contracts.py](/Users/asuka/code/magi/backend/src/magi/memory/event_contracts.py)
+  标准事件契约和标准化逻辑
 
-#### 11.2.1 永久保留
+- [backend/src/magi/memory/l0/working_memory.py](/Users/asuka/code/magi/backend/src/magi/memory/l0/working_memory.py)
+  `L0` 工作记忆
 
-1. 聊天记录
-2. 用户手动输入的日记/时间线/笔记
-3. 被用户显式标注为重要的记录
+- [backend/src/magi/memory/l1/event_store.py](/Users/asuka/code/magi/backend/src/magi/memory/l1/event_store.py)
+  `L1` 事实事件存储、检索和向量索引
 
-#### 11.2.2 可压缩删除
+- [backend/src/magi/memory/l2/pipeline.py](/Users/asuka/code/magi/backend/src/magi/memory/l2/pipeline.py)
+  `L2` 抽取与认知流水线
 
-1. 浏览历史
-2. 终端历史
-3. Git 活动
-4. 低层外部活动记录
+- [backend/src/magi/memory/l2/store.py](/Users/asuka/code/magi/backend/src/magi/memory/l2/store.py)
+  `L2` durable cognition store
 
-#### 11.2.3 可直接删除
+- [backend/src/magi/memory/l3/summary_store.py](/Users/asuka/code/magi/backend/src/magi/memory/l3/summary_store.py)
+  `L3` 摘要和证据回链
 
-1. worker 进度
-2. loop 控制事件
-3. checkpoint 元事件
+- [backend/src/magi/memory/l4/procedural_memory.py](/Users/asuka/code/magi/backend/src/magi/memory/l4/procedural_memory.py)
+  `L4` 程序性记忆
 
-### 11.3 压缩流程
+- [backend/src/magi/memory/hybrid_retrieval/service.py](/Users/asuka/code/magi/backend/src/magi/memory/hybrid_retrieval/service.py)
+  跨层统一检索入口
 
-```text
-1. 筛选 compressible 且过期的 L1 事件
-2. 聚合成 L3 summary / insight
-3. 回写 source_event_ids
-4. 记录压缩审计日志
-5. 软删除或物理删除原始事件
-```
+- [backend/src/magi/memory/integration.py](/Users/asuka/code/magi/backend/src/magi/memory/integration.py)
+  runtime-facing memory integration boundary
+
+- [backend/src/magi/awareness/ingestion_gateway.py](/Users/asuka/code/magi/backend/src/magi/awareness/ingestion_gateway.py)
+  sensor / plugin -> memory 的投影入口
 
 ---
 
-## 12. 运行时集成方案
+## 给插件和功能开发者的检查单
 
-### 12.1 运行时职责分布
+当你要接一个新的记忆来源时，先回答这几个问题：
 
-| 组件 | 职责 |
-|------|------|
-| `MemoryIntegrationModule` | 统一入口，负责标准化、落 L1、投递异步任务 |
-| `L0WorkingMemoryStore` | 内存态 session/workbench 管理与 checkpoint |
-| `L1EventStore` | 事件主存与分片路由 |
-| `L2 store + pipeline` | 图谱、断言、快照与抽取流水线 |
-| `L3SummaryStore` | 摘要与 insight |
-| `L4ProceduralMemoryStore` | 程序性记忆 |
-| `HybridRetrievalService` | 统一检索 |
-| `MemoryMaintenanceDaemon` | housekeeping；不走业务 scheduler |
+1. 它是 transcript truth、runtime trace，还是 durable memory projection
+2. 它应该先落 `L0`、`L1`，还是两者都要
+3. 正确的 `memory_domain` 是什么
+4. 它是否应该参与下游 cognition
+5. 正确的 `retention_class` 是什么
+6. 它的 source-side item identity 是什么
+7. 它的 business idempotency key 是什么
 
-#### 12.1.1 为什么 maintenance 不走 SchedulerService
+如果这些问题回答不清楚，这个功能通常还不适合直接写进 memory。
 
-根据当前运行时架构，`SchedulerService` 用于业务任务，housekeeping 仍然应由维护守护进程承担。因此本轮记忆维护任务继续归属于维护守护进程，而不是业务调度器。
+### 常见错误
 
-### 12.2 与当前文件的替换关系
-
-| 当前模块 | 新模块/新角色 | 动作 |
-|---------|---------------|------|
-| `raw_event_store.py` | `l1/event_store.py` | 替换 |
-| `l2_event_relations.py` | `l2/store.py` + `l2/pipeline.py` | 删除并合并 |
-| `l2_user_graph.py` | `l2/store.py` + `l2/pipeline.py` | 删除并合并 |
-| `l3_semantic_embeddings.py` | L1/L3/L4 内嵌向量能力 | 删除独立层角色 |
-| `l4_summaries.py` | `l3/summary_store.py` | 重命名并升级 |
-| `l5_capabilities.py` | `l4/procedural_memory.py` | 替换并扩展 |
-| `integration.py` | `integration.py` | 保留入口，但重写内部流程 |
-| `query/*` | `hybrid_retrieval/*` | 重写 |
-| `context/assembler.py` | 同文件 | 保留并扩展读取新 payload |
-| `bootstrap/backend.py` | 同文件 | 改造初始化与 wiring |
-
-#### 12.2.1 本轮暂不替换
-
-1. `self_memory.py`
-2. `other_memory.py`
-3. `scenario_prompts.py`
+- 把原始 runtime telemetry 直接写进 `L1`
+- 把 `event_id` 当成业务来源 ID 使用
+- 默认把 `source_item_id` 当成 dedupe key
+- 把可变的运行时中间态写进 durable memory store
+- 在 `L1` 里复制完整 chat transcript truth
 
 ---
 
-## 13. 分阶段实施方案
+## 本文档刻意不做什么
 
-以下阶段按顺序实施，每个阶段必须是独立可验证、可回退的原子任务。
+本文档不负责描述：
 
-### 13.1 Phase 0: 事件标准与配置落地
+- 分阶段实施计划
+- 临时迁移 choreography
+- 旧 schema 的兼容层
+- `L4` 之后的推测性新层级
 
-目标：
-
-1. 固化 L1 标准事件契约
-2. 引入 source taxonomy 与 retention policy
-3. 定义全局配置模型
-
-主要变更：
-
-1. 新增 `backend/src/magi/memory/event_contracts.py`
-2. 重写或替换 `backend/src/magi/memory/integration.py`
-3. 更新 `backend/src/magi/config/models.py`
-4. 更新 `backend/src/magi/bootstrap/backend.py`
-
-验收：
-
-1. 任意 memory event 入库前都能标准化
-2. 每条事件都带 `memory_domain`、`retention_class`、`cognition_eligible`
-
-### 13.2 Phase 1: L0 + 新 L1
-
-目标：
-
-1. 建立内存态 L0 workbench 与 checkpoint
-2. 完成新 L1 表结构与分片路由
-
-主要变更：
-
-1. 新增 `backend/src/magi/memory/l0/working_memory.py`
-2. 新增 `backend/src/magi/memory/l1/event_store.py`
-3. 删除/替换 `backend/src/magi/memory/raw_event_store.py`
-4. 更新 `backend/src/magi/memory/__init__.py`
-
-验收：
-
-1. 会话中可读写 goal stack / active entities / temporary tactics
-2. L1 支持原始事件写入、时间过滤、source 过滤、domain 过滤
-3. 重启后可从 checkpoint 恢复 L0
-
-### 13.3 Phase 2: L2 结构化认知
-
-目标：
-
-1. 合并关系图与用户图
-2. 引入 ToM assertion 防腐层与 snapshot 物化机制
-
-主要变更：
-
-1. 新增 `backend/src/magi/memory/l2/store.py`
-2. 新增 `backend/src/magi/memory/l2/pipeline.py`
-3. 删除 `backend/src/magi/memory/l2_event_relations.py`
-4. 删除 `backend/src/magi/memory/l2_user_graph.py`
-
-验收：
-
-1. 能从 L1 事件提取三元组
-2. 能生成 `tentative` ToM 断言
-3. 满足验证条件后可物化到 snapshot
-
-### 13.4 Phase 3: L3 反思记忆
-
-目标：
-
-1. 把当前 summary 升级成真正的反思记忆
-2. 支持 temporal / thematic / insight 三类输出
-
-主要变更：
-
-1. 新增 `backend/src/magi/memory/l3/summary_store.py`
-2. 删除/替换 `backend/src/magi/memory/l4_summaries.py`
-3. 新增 L3 生成与校验相关模块
-
-验收：
-
-1. 生成摘要时默认过滤 runtime telemetry
-2. L3 结果可回溯到 source events
-3. 对永久事件只摘要不删除
-
-### 13.5 Phase 4: L4 程序性记忆
-
-目标：
-
-1. 让 capability 升级为 procedural memory
-2. 引入熔断器、上下文亲和度、最优模板
-
-主要变更：
-
-1. 新增 `backend/src/magi/memory/l4/procedural_memory.py`
-2. 删除/替换 `backend/src/magi/memory/l5_capabilities.py`
-
-验收：
-
-1. 能记录工具/策略尝试
-2. 能根据历史成功率更新技能熟练度
-3. 能在连续失败后打开熔断并在检索中返回
-
-### 13.6 Phase 5: 检索与 Prompt 集成
-
-目标：
-
-1. 重建统一检索
-2. 让 prompt 真正读到 L0/L2/L3/L4
-
-主要变更：
-
-1. 新增 `backend/src/magi/memory/hybrid_retrieval/`
-2. 删除/替换 `backend/src/magi/memory/query/`
-3. 修改 `backend/src/magi/tools/builtin/memory_query_tool.py`
-4. 修改 `backend/src/magi/memory/prompt_context_assembler.py`
-5. 修改 `backend/src/magi/agent/task_agents/chat/prompt_service.py`
-
-验收：
-
-1. `detail / summary / experience / graph / strategy` 五种模式可跑通
-2. `event_recall / preference_recall / profile_fact_recall / relationship_recall / workflow_reuse` 五类回忆意图可被显式表达并驱动检索层路由
-3. prompt payload 中能读取 L0/L2/L3/L4
-4. 检索结果默认不被 runtime telemetry 主导
-
-### 13.7 Phase 6: 维护、API 与清理
-
-目标：
-
-1. 完成 maintenance daemon 集成
-2. 更新 memory API
-3. 删除旧实现
-
-主要变更：
-
-1. 修改 `backend/src/magi/api/routers/memory.py`
-2. 修改维护守护进程相关模块
-3. 清理旧表、旧查询与旧测试
-
-验收：
-
-1. 可按 retention policy 执行压缩/删除
-2. API 能展示新层统计、ToM 断言、L4 技能
-3. 旧模块不再被 bootstrap 引用
+这些内容应该写在任务计划、设计草案或变更说明里，而不是长期 source-of-truth 文档里。
 
 ---
 
-## 14. 验收与测试清单
+## 总结
 
-每个阶段至少补齐以下测试：
+Magi 的记忆系统建立在一个很简单但必须坚持的分离上：
 
-### 14.1 L0 / L1
+- chat truth 不是 memory
+- runtime trace 不是 memory
+- durable memory 从标准化后的 `L1` facts 开始
 
-1. session 创建、checkpoint、恢复
-2. 新事件标准化写入
-3. 时间分片查询
-4. retention policy 标记
+在这个前提下：
 
-### 14.2 L2
+- `L0` 支撑当前执行
+- `L1` 保存 canonical durable facts
+- `L2` 结构化理解
+- `L3` 压缩和反思
+- `L4` 沉淀可复用执行经验
 
-1. 三元组提取
-2. ToM 低置信度进入 assertion
-3. 多事件验证后提升为 stable
-4. 反证事件触发降级
+同时，身份模型必须始终明确：
 
-### 14.3 L3
-
-1. temporal summary 生成
-2. thematic summary 生成
-3. insight 压缩
-4. 永久事件不删除
-
-### 14.4 L4
-
-1. 成功率累计
-2. 熔断开启/恢复
-3. 最优模板回收
-4. strategy query 返回正确技能
-
-### 14.5 检索
-
-1. detail query 不被 telemetry 噪声压制
-2. summary query 优先命中 L3
-3. experience query 优先命中 L4
-4. graph query 带 L1 证据回链
-
-### 14.6 Prompt
-
-1. 当前会话能读到 L0
-2. 关系/画像能读到 L2
-3. 回顾记忆能读到 L3
-4. 如何做能读到 L4
-
----
-
-## 15. 配置总览
-
-```python
-@dataclass
-class MemorySystemConfig:
-    enable_l0: bool = True
-    enable_l1: bool = True
-    enable_l2: bool = True
-    enable_l3: bool = True
-    enable_l4: bool = True
-
-    enable_t1_importance: bool = True
-    enable_l2_llm_extraction: bool = True
-    enable_l3_llm_summary: bool = True
-    enable_l4_skill_extraction: bool = True
-
-    l0: L0Config = field(default_factory=L0Config)
-    l1: L1Config = field(default_factory=L1Config)
-    l2: L2Config = field(default_factory=L2Config)
-    l3: L3Config = field(default_factory=L3Config)
-    l4: L4Config = field(default_factory=L4Config)
-
-    embedding_model: str = "text-embedding-3-small"
-    maintenance_interval_seconds: int = 300
-```
-
----
-
-## 16. 本轮实现边界
-
-为了保证可以真正落地，本轮实现边界明确如下：
-
-1. 不做历史数据迁移
-2. 不做旧 API 兼容
-3. 不与 `SelfMemory` / `OtherMemory` 合并
-4. 不引入外部图数据库
-5. 不引入外部向量数据库
-6. 默认全部基于 SQLite + 内存态缓存实现
-
----
-
-## 17. 结论
-
-该方案相对于当前实现的核心变化不是“多了几张表”，而是把记忆系统从功能堆叠改造成统一的生命周期系统：
-
-1. L1 负责真实经历
-2. L2 负责有证据的认知
-3. L3 负责长期压缩
-4. L4 负责程序性经验
-5. L0 负责当前执行态
-
-同时，通过 source taxonomy、ToM 防腐层、分层检索和按类型保留策略，系统可以在服务长期记忆目标的前提下，避免被运行时噪声主导。
+- `id`：内部 join 主键
+- `event_id`：稳定外部引用
+- `source_item_id`：源侧 identity
+- `idempotency_key`：业务幂等键
