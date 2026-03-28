@@ -166,6 +166,78 @@ def _create_bursty_history_db(root: Path) -> Path:
     return root
 
 
+def _create_search_bursty_history_db(root: Path) -> Path:
+    profile_dir = root / "Default"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    db_path = profile_dir / "History"
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE urls (
+                id INTEGER PRIMARY KEY,
+                url TEXT,
+                title TEXT,
+                visit_count INTEGER DEFAULT 0
+            );
+            CREATE TABLE visits (
+                id INTEGER PRIMARY KEY,
+                url INTEGER,
+                visit_time INTEGER,
+                from_visit INTEGER DEFAULT 0,
+                transition INTEGER DEFAULT 0
+            );
+            """
+        )
+        rows = [
+            (
+                1,
+                "https://www.google.com/search?q=%E9%87%8E%E7%8A%AC+%E8%AF%B4%E6%B3%95&sca_esv=foo",
+                "野犬 说法 - Google Search",
+                4,
+                301,
+                13287954018000000,
+            ),
+            (
+                2,
+                "https://google.com/search?q=%E9%87%8E%E7%8A%AC+%E8%AF%B4%E6%B3%95&sxsrf=bar&ved=1",
+                "野犬 说法 - Google Search",
+                4,
+                302,
+                13287954020000000,
+            ),
+            (
+                3,
+                "https://google.com/search?newwindow=1&udm=7&q=%E9%87%8E%E7%8A%AC+%E8%AF%B4%E6%B3%95",
+                "野犬 说法 - Google Search",
+                4,
+                303,
+                13287954022000000,
+            ),
+            (
+                4,
+                "https://google.com/search?q=%E9%87%8E%E7%8A%AC+%E8%AF%B4%E6%B3%95&mstk=baz",
+                "野犬 说法 - Google Search",
+                4,
+                304,
+                13287954076000000,
+            ),
+        ]
+        for url_id, url, title, visit_count, visit_id, visit_time in rows:
+            connection.execute(
+                "INSERT INTO urls (id, url, title, visit_count) VALUES (?, ?, ?, ?)",
+                (url_id, url, title, visit_count),
+            )
+            connection.execute(
+                "INSERT INTO visits (id, url, visit_time, from_visit, transition) VALUES (?, ?, ?, ?, ?)",
+                (visit_id, url_id, visit_time, max(0, visit_id - 1), 0),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    return root
+
+
 def _plugin_root() -> Path:
     return Path(__file__).resolve().parents[3] / "plugins"
 
@@ -379,6 +451,61 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
     assert lastfm_item["source_item_id"] == "204-205"
     assert lastfm_item["merged_visit_count"] == 2
     assert lastfm_item["url"] == "https://last.fm/music/Radiohead"
+
+
+@pytest.mark.asyncio
+async def test_chrome_history_sensor_merges_search_visits_despite_query_churn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    chrome_root = _create_search_bursty_history_db(tmp_path / "chrome-search-bursty")
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="builtin",
+        settings={
+            "sensors": {
+                "chrome_history": {
+                    "enabled": True,
+                    "source_path": str(chrome_root),
+                    "profile": "Default",
+                    "sync_mode": "manual",
+                    "sync_interval_minutes": 30,
+                    "lookback_hours": 48,
+                    "max_items_per_sync": 50,
+                    "fetch_page_content": False,
+                }
+            }
+        },
+    )
+    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager.scan(persist_discovery=False)
+    manager.activate_enabled_plugins()
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    assert resolved is not None
+    _, _, sensor, _ = resolved
+
+    result = await sensor.collect_items(
+        SensorSyncContext(
+            source_type="chrome_history",
+            manual=True,
+            last_cursor=None,
+            last_success_at=None,
+            limit=50,
+            runtime_paths=RuntimePaths(tmp_path / "runtime-search-bursty"),
+            plugin_settings=config.plugins.packages["chrome-history"].settings,
+        )
+    )
+
+    assert len(result.items) == 1
+    assert result.next_cursor == "304"
+    assert result.stats["raw_count"] == 4
+
+    item = result.items[0]
+    assert item["source_item_id"] == "301-304"
+    assert item["merged_visit_count"] == 4
+    assert item["domain"] == "google.com"
 
 
 @pytest.mark.asyncio

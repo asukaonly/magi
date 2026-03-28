@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .normalizers import (
+    burst_merge_key,
     canonicalize_url,
     chrome_time_to_unix_seconds,
     normalize_domain,
@@ -168,6 +169,7 @@ class ChromeHistoryReader:
                     "visit_id": str(row["visit_id"]),
                     "url": url,
                     "canonical_url": canonicalize_url(url),
+                    "burst_merge_key": burst_merge_key(url, row["title"]),
                     "title": str(row["title"] or ""),
                     "normalized_title": normalize_title(row["title"]),
                     "visit_time": visit_time,

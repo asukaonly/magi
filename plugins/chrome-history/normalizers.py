@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 WINDOWS_TO_UNIX_EPOCH_SECONDS = 11644473600
-BURST_WINDOW_SECONDS = 45.0
+BURST_WINDOW_SECONDS = 60.0
 NOISE_PATH_TOKENS = (
     "login",
     "signin",
@@ -68,6 +68,28 @@ def canonicalize_url(url: str) -> str:
         path = path.rstrip("/") or "/"
     query = parsed.query
     return urlunparse(("https", hostname, path, "", query, ""))
+
+
+def burst_merge_key(url: str, title: str | None) -> str:
+    """Return the semantic merge key used for burst grouping.
+
+    This intentionally ignores query-string churn and relies on the stable
+    host/path shape plus the normalized title. Search result pages and similar
+    navigation surfaces often mutate query parameters while remaining the same
+    user-visible page.
+    """
+
+    parsed = urlparse(str(url or "").strip())
+    hostname = normalize_domain(url)
+    if not hostname:
+        return ""
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/") or "/"
+    normalized_title = normalize_title(title)
+    if not normalized_title:
+        return ""
+    return f"https://{hostname}{path}|{normalized_title.lower()}"
 
 
 def site_node_id(domain: str) -> str:
@@ -145,8 +167,14 @@ def should_merge_visit(
 ) -> bool:
     """Return whether two visits should collapse into one timeline item."""
 
-    current_key = str(current.get("canonical_url") or "")
-    candidate_key = str(candidate.get("canonical_url") or "")
+    current_key = str(
+        current.get("burst_merge_key")
+        or burst_merge_key(str(current.get("url") or ""), current.get("title"))
+    )
+    candidate_key = str(
+        candidate.get("burst_merge_key")
+        or burst_merge_key(str(candidate.get("url") or ""), candidate.get("title"))
+    )
     if not current_key or current_key != candidate_key:
         return False
     current_domain = str(current.get("domain") or "")
