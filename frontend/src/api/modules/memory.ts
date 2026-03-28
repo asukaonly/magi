@@ -58,11 +58,13 @@ export const getL0SessionSecondaryLabel = (
 
 // L1 Event Types
 export interface L1Event {
+  id?: number;
   event_id: string;
   correlation_id?: string | null;
   event_type: string;
   source?: string;
   source_item_id?: string | null;
+  idempotency_key?: string | null;
   timestamp: number;
   created_at?: number;
   session_id?: string | null;

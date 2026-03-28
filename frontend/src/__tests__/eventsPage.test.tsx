@@ -11,31 +11,35 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@/api/modules/memory', () => ({
-  memoryApi: {
-    getStatistics: vi.fn(),
-    getL0Sessions: vi.fn(),
-    getL0Workbench: vi.fn(),
-    getL1Events: vi.fn(),
-    getL2Relations: vi.fn(),
-    getL2Assertions: vi.fn(),
-    getL2Statistics: vi.fn(),
-    getIdentityLinks: vi.fn(),
-    getL2Entities: vi.fn(),
-    getL2Mentions: vi.fn(),
-    getL2Snapshots: vi.fn(),
-    getL2ConflictRules: vi.fn(),
-    getL3Summaries: vi.fn(),
-    getL4Skills: vi.fn(),
-    search: vi.fn(),
-    clearAll: vi.fn(),
-    createManualL2Event: vi.fn(),
-    replayL2Extraction: vi.fn(),
-    reconcileL2Entities: vi.fn(),
-    refreshL2Snapshots: vi.fn(),
-    upsertL2ConflictRule: vi.fn(),
-  },
-}));
+vi.mock('@/api/modules/memory', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/modules/memory')>();
+  return {
+    ...actual,
+    memoryApi: {
+      getStatistics: vi.fn(),
+      getL0Sessions: vi.fn(),
+      getL0Workbench: vi.fn(),
+      getL1Events: vi.fn(),
+      getL2Relations: vi.fn(),
+      getL2Assertions: vi.fn(),
+      getL2Statistics: vi.fn(),
+      getIdentityLinks: vi.fn(),
+      getL2Entities: vi.fn(),
+      getL2Mentions: vi.fn(),
+      getL2Snapshots: vi.fn(),
+      getL2ConflictRules: vi.fn(),
+      getL3Summaries: vi.fn(),
+      getL4Skills: vi.fn(),
+      search: vi.fn(),
+      clearAll: vi.fn(),
+      createManualL2Event: vi.fn(),
+      replayL2Extraction: vi.fn(),
+      reconcileL2Entities: vi.fn(),
+      refreshL2Snapshots: vi.fn(),
+      upsertL2ConflictRule: vi.fn(),
+    },
+  };
+});
 
 vi.mock('sonner', () => ({
   toast: {
@@ -46,7 +50,9 @@ vi.mock('sonner', () => ({
 }));
 
 const L1_EVENT = {
+  id: 101,
   event_id: 'event-1',
+  idempotency_key: 'chat:session-1:turn-1',
   event_type: 'AI_RESPONSE',
   content: 'hello',
   timestamp: 1710000000,
@@ -152,15 +158,10 @@ describe('events page', () => {
 
     await user.click(await screen.findByRole('tab', { name: 'L1' }));
 
-    const eventTypeBadge = await screen.findByText('AI_RESPONSE');
-    const eventCard = eventTypeBadge.closest('.rounded-lg');
-
-    expect(eventCard).toBeInTheDocument();
-    expect(eventCard).toHaveClass('rounded-lg');
+    await screen.findByText('AI_RESPONSE');
     expect(screen.getByText('hello')).toBeInTheDocument();
     expect(screen.getByText('local_user')).toBeInTheDocument();
-    expect(screen.getAllByText('assistant').length).toBeGreaterThan(0);
-    expect(screen.getByText('text')).toBeInTheDocument();
+    expect(screen.getByText(/#101/)).toBeInTheDocument();
   });
 
   it('opens the clear confirmation in a compact dialog container', async () => {

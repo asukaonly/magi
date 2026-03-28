@@ -61,6 +61,7 @@ class _FakeL1Store:
         }
         return [
             MemoryEvent(
+                id=101,
                 event_id="evt-1",
                 correlation_id="corr-1",
                 timestamp=1.0,
@@ -68,6 +69,7 @@ class _FakeL1Store:
                 event_type="UserMessage",
                 source="chat",
                 source_item_id=None,
+                idempotency_key="chat:session-1:turn-1",
                 memory_domain=MemoryDomain.INTERACTION,
                 ingest_target=IngestTarget.L1_ONLY,
                 cognition_eligible=True,
@@ -2033,6 +2035,8 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["events"][0]["content"] == "hello"
     assert body["events"][0]["memory_domain"] == "interaction"
     assert body["events"][0]["retention_class"] == "compressible"
+    assert body["events"][0]["id"] == 101
+    assert body["events"][0]["idempotency_key"] == "chat:session-1:turn-1"
 
 
 def test_memory_l1_events_api_forwards_search_filters(monkeypatch):

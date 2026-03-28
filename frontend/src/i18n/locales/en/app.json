@@ -1358,7 +1358,9 @@
       "interaction": "Interaction",
       "externalActivity": "External Activity",
       "events": "Event Stream",
-      "noEvents": "No events recorded"
+      "noEvents": "No events recorded",
+      "internalId": "Internal",
+      "idempotencyKey": "Key"
     },
     "identity": {
       "title": "Identity Mapping",

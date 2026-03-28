@@ -1353,7 +1353,9 @@
       "interaction": "交互事件",
       "externalActivity": "外部活动",
       "events": "事件流",
-      "noEvents": "暂无事件记录"
+      "noEvents": "暂无事件记录",
+      "internalId": "内部",
+      "idempotencyKey": "幂等键"
     },
     "identity": {
       "title": "身份映射",
