@@ -394,15 +394,16 @@ L1 是所有长期记忆能力的事实主存，记录不可变事件，提供�
 ```python
 @dataclass
 class MemoryEvent:
+    id: int | None
     event_id: str
     correlation_id: str
-    parent_event_id: str | None
     timestamp: float
     created_at: float
 
     event_type: str
     source: str
     source_item_id: str | None
+    idempotency_key: str | None
 
     memory_domain: str
     ingest_target: str
@@ -411,74 +412,70 @@ class MemoryEvent:
     retention_class: str
 
     session_id: str | None
+    turn_id: str | None
     user_id: str | None
     task_id: str | None
-    goal_id: str | None
 
-    raw_content: str
-    structured_payload: str
-    metadata: str
-
+    content: str
+    author_type: str
+    content_type: str
     importance_score: float
-    importance_t0_base: float
-    importance_t1_score: float | None
-    importance_version: int
-
     level: int
     media_path: str | None
-    deleted_at: float | None
+    metadata_json: dict | None
 ```
+
+事件身份规则：
+
+1. `id` 是 SQLite 内部主键，仅用于内部 join / 索引，不向上层业务暴露为稳定引用。
+2. `event_id` 是稳定外部事件标识，用于 timeline、L2/L3 证据回溯、API 返回与调试日志。
+3. `idempotency_key` 是业务幂等键；当存在时，L1 必须按 `(source, event_type, idempotency_key)` 保证唯一写入。
+4. `source_item_id` 保留源侧 item 标识，但不再等同于 L1 主键，也不默认等同于业务幂等键。
 
 ### 6.3 表结构
 
 ```sql
-CREATE TABLE events (
-    event_id TEXT PRIMARY KEY,
+CREATE TABLE fact_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE,
     correlation_id TEXT NOT NULL,
-    parent_event_id TEXT,
-
     timestamp REAL NOT NULL,
     created_at REAL NOT NULL,
-
     event_type TEXT NOT NULL,
     source TEXT NOT NULL,
     source_item_id TEXT,
-
-    memory_domain TEXT NOT NULL,
-    ingest_target TEXT NOT NULL,
+    idempotency_key TEXT,
+    memory_domain INTEGER NOT NULL,
+    ingest_target INTEGER NOT NULL,
     cognition_eligible INTEGER NOT NULL DEFAULT 0,
-    tom_depth TEXT NOT NULL DEFAULT 'none',
-    retention_class TEXT NOT NULL DEFAULT 'compressible',
-
+    tom_depth INTEGER NOT NULL DEFAULT 1,
+    retention_class INTEGER NOT NULL DEFAULT 2,
     session_id TEXT,
+    turn_id TEXT,
     user_id TEXT,
     task_id TEXT,
-    goal_id TEXT,
-
-    raw_content TEXT NOT NULL,
-    structured_payload TEXT,            -- JSON
-    metadata TEXT,                      -- JSON
-
+    content TEXT NOT NULL,
+    author_type TEXT NOT NULL,
+    content_type TEXT NOT NULL,
     importance_score REAL NOT NULL DEFAULT 0.5,
-    importance_t0_base REAL,
-    importance_t1_score REAL,
-    importance_version INTEGER NOT NULL DEFAULT 1,
-
     level INTEGER NOT NULL DEFAULT 1,
     media_path TEXT,
-    deleted_at REAL
+    metadata_json TEXT,
+    deleted_at REAL,
+
+    UNIQUE(source, event_type, idempotency_key)
 );
 
-CREATE INDEX idx_events_timestamp ON events(timestamp);
-CREATE INDEX idx_events_type ON events(event_type);
-CREATE INDEX idx_events_source ON events(source);
-CREATE INDEX idx_events_domain ON events(memory_domain);
-CREATE INDEX idx_events_user ON events(user_id);
-CREATE INDEX idx_events_session ON events(session_id);
-CREATE INDEX idx_events_goal ON events(goal_id);
-CREATE INDEX idx_events_importance ON events(importance_score DESC);
-CREATE INDEX idx_events_retention ON events(retention_class);
-CREATE INDEX idx_events_metadata_action ON events(json_extract(metadata, '$.action'));
+CREATE INDEX idx_fact_events_timestamp ON fact_events(timestamp);
+CREATE INDEX idx_fact_events_type ON fact_events(event_type);
+CREATE INDEX idx_fact_events_source ON fact_events(source);
+CREATE INDEX idx_fact_events_idempotency_key ON fact_events(idempotency_key);
+CREATE INDEX idx_fact_events_domain ON fact_events(memory_domain);
+CREATE INDEX idx_fact_events_user ON fact_events(user_id);
+CREATE INDEX idx_fact_events_session ON fact_events(session_id);
+CREATE INDEX idx_fact_events_turn ON fact_events(turn_id);
+CREATE INDEX idx_fact_events_importance ON fact_events(importance_score DESC);
+CREATE INDEX idx_fact_events_retention ON fact_events(retention_class);
 ```
 
 L1 向量采用独立表（按模型重建）：

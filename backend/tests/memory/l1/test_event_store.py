@@ -225,6 +225,7 @@ async def test_l1_event_store_persists_metadata_json(tmp_path):
             content_type="observation",
             importance_score=0.3,
             level=1,
+            idempotency_key="app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari",
             metadata_json={
                 "bucket_start": "2026-03-27T10:00:00+08:00",
                 "bucket_end": "2026-03-27T11:00:00+08:00",
@@ -240,7 +241,10 @@ async def test_l1_event_store_persists_metadata_json(tmp_path):
         restored = await store.get_memory_event(event.event_id)
 
         assert fetched is not None
+        assert isinstance(fetched["id"], int)
+        assert fetched["id"] > 0
         assert fetched["event_type"] == "APP_USAGE_HOURLY"
+        assert fetched["idempotency_key"] == "app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari"
         assert fetched["metadata_json"] == {
             "bucket_start": "2026-03-27T10:00:00+08:00",
             "bucket_end": "2026-03-27T11:00:00+08:00",
@@ -250,6 +254,83 @@ async def test_l1_event_store_persists_metadata_json(tmp_path):
         }
         assert restored is not None
         assert restored.metadata_json == fetched["metadata_json"]
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_deduplicates_by_source_type_and_idempotency_key(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        now = time.time()
+        first = MemoryEvent(
+            event_id="evt-first",
+            correlation_id="corr-first",
+            timestamp=now,
+            created_at=now,
+            event_type="SENSOR_EVENT",
+            source="chrome_history",
+            source_item_id="181979-181982",
+            memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id=None,
+            turn_id=None,
+            user_id=None,
+            task_id=None,
+            content="Burst one",
+            author_type="external",
+            content_type="observation",
+            importance_score=0.5,
+            level=1,
+            idempotency_key="default:181979-181982",
+        )
+        second = MemoryEvent(
+            event_id="evt-second",
+            correlation_id="corr-second",
+            timestamp=now + 1,
+            created_at=now + 1,
+            event_type="SENSOR_EVENT",
+            source="chrome_history",
+            source_item_id="181979-181982",
+            memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id=None,
+            turn_id=None,
+            user_id=None,
+            task_id=None,
+            content="Burst one duplicate",
+            author_type="external",
+            content_type="observation",
+            importance_score=0.5,
+            level=1,
+            idempotency_key="default:181979-181982",
+        )
+
+        stored_first = await store.store(first)
+        stored_second = await store.store(second)
+        fetched = await store.get_event("evt-first")
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            event_count = conn.execute("SELECT COUNT(*) FROM fact_events").fetchone()
+        finally:
+            conn.close()
+
+        assert stored_first == "evt-first"
+        assert stored_second == "evt-first"
+        assert fetched is not None
+        assert fetched["content"] == "Burst one"
+        assert event_count == (1,)
     finally:
         await store.shutdown()
 

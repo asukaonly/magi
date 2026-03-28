@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from uuid import uuid4
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterable
 
@@ -60,7 +61,7 @@ class SensorIngestionGateway:
         allowed_edge_whitelist: list[str] | None = None,
     ) -> SensorIngestionResult:
         """Ingest a single SensorOutput through memory, timeline, and knowledge graph."""
-        event_id = f"{output.source_type}:{output.source_item_id}"
+        event_id = f"evt_{uuid4().hex}"
         policy = sensor.memory_policy
 
         # 1. Build MemoryEvent with sensor's policy
@@ -83,17 +84,22 @@ class SensorIngestionGateway:
             )
 
         # 2. Ingest into unified memory (L0/L1/L2/L4 as policy dictates)
-        await self._unified_memory.ingest_event(memory_event)
+        memory_result = await self._unified_memory.ingest_event(memory_event)
+        stored_event_id = event_id
+        if isinstance(memory_result, dict):
+            resolved_event_id = memory_result.get("event_id")
+            if resolved_event_id is not None and str(resolved_event_id).strip():
+                stored_event_id = str(resolved_event_id)
 
         # 3. Notify timeline adapter (for viewport/query read model)
         if self._timeline_adapter is not None:
-            await self._timeline_adapter.on_sensor_output(event_id, output, metadata)
+            await self._timeline_adapter.on_sensor_output(stored_event_id, output, metadata)
 
         # 4. Process knowledge graph relations
         relation_count = 0
         if metadata and metadata.relation_candidates and allowed_edge_whitelist:
             relation_count = await self._process_relations(
-                event_id, output, metadata, sensor, allowed_edge_whitelist,
+                stored_event_id, output, metadata, sensor, allowed_edge_whitelist,
             )
 
         # 5. Update sensor state (fingerprint tracking)
@@ -102,7 +108,7 @@ class SensorIngestionGateway:
             await self._state_store.add_fingerprints(sensor.sensor_id, {fp})
 
         return SensorIngestionResult(
-            event_id=event_id,
+            event_id=stored_event_id,
             ingested=True,
             stats={"relation_count": relation_count},
         )
@@ -159,6 +165,7 @@ class SensorIngestionGateway:
             content_type=policy.content_type,
             importance_score=policy.importance_bias,
             level=EventLevel.INFO.value,
+            idempotency_key=sensor.idempotency_key(output),
             media_path=output.raw_payload_ref,
             metadata_json=metadata_json or None,
         )

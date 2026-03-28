@@ -118,6 +118,12 @@ TRACE_RUNTIME_EVENT_TYPES = {
 }
 
 
+def generate_event_id(*, prefix: str = "evt") -> str:
+    """Generate a stable external event id."""
+    normalized_prefix = str(prefix or "evt").strip() or "evt"
+    return f"{normalized_prefix}_{uuid.uuid4().hex}"
+
+
 @dataclass(slots=True)
 class MemoryEvent:
     """Canonical memory event used by the memory rewrite."""
@@ -143,6 +149,8 @@ class MemoryEvent:
     content_type: str
     importance_score: float
     level: int
+    id: Optional[int] = None
+    idempotency_key: Optional[str] = None
     media_path: Optional[str] = None
     metadata_json: Optional[Dict[str, Any]] = None
     embedding_status: Optional[str] = None
@@ -150,6 +158,7 @@ class MemoryEvent:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "id": self.id,
             "event_id": self.event_id,
             "correlation_id": self.correlation_id,
             "timestamp": self.timestamp,
@@ -157,6 +166,7 @@ class MemoryEvent:
             "event_type": self.event_type,
             "source": self.source,
             "source_item_id": self.source_item_id,
+            "idempotency_key": self.idempotency_key,
             "memory_domain": self.memory_domain.label,
             "ingest_target": self.ingest_target.label,
             "cognition_eligible": self.cognition_eligible,
@@ -182,6 +192,7 @@ def normalize_runtime_event(
     event: Event,
     *,
     event_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
     parent_event_id: Optional[str] = None,
 ) -> MemoryEvent:
     """Normalize runtime events into the canonical memory contract."""
@@ -200,9 +211,14 @@ def normalize_runtime_event(
     turn_id = _first_non_empty(payload.get("turn_id"), metadata.get("turn_id"))
     user_id = _first_non_empty(payload.get("user_id"), payload_tags.get("user_id"), metadata.get("user_id"))
     source_item_id = _resolve_source_item_id(event, payload=payload, metadata=metadata)
+    normalized_idempotency_key = _first_non_empty(
+        idempotency_key,
+        payload.get("idempotency_key"),
+        metadata.get("idempotency_key"),
+    )
 
     return MemoryEvent(
-        event_id=str(event_id or f"evt_{uuid.uuid4().hex}"),
+        event_id=str(event_id or generate_event_id()),
         correlation_id=str(event.correlation_id or ""),
         timestamp=float(event.timestamp),
         created_at=now,
@@ -223,6 +239,7 @@ def normalize_runtime_event(
         content_type=_resolve_content_type(event, payload=payload, metadata=metadata),
         importance_score=float(rule["importance"]),
         level=int(level_value),
+        idempotency_key=normalized_idempotency_key,
         media_path=_first_non_empty(payload.get("media_path"), metadata.get("media_path")),
     )
 

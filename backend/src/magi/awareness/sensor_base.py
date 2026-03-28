@@ -193,6 +193,11 @@ class SensorBase(ABC):
         _ = output
         return None
 
+    def idempotency_key(self, output: SensorOutput) -> str | None:
+        """Return an optional business-level idempotency key for sensor events."""
+        value = str(output.source_item_id or "").strip()
+        return value or None
+
     # ------------------------------------------------------------------
     # Convenience builder
     # ------------------------------------------------------------------

@@ -68,7 +68,7 @@ class TestSensorIngestionGateway:
     @pytest.mark.asyncio
     async def test_ingest_calls_unified_memory(self):
         memory = MagicMock()
-        memory.ingest_event = AsyncMock()
+        memory.ingest_event = AsyncMock(return_value={"event_id": "evt-stored-1", "l1_written": True})
         memory.upsert_user_graph_edge = AsyncMock()
         gateway = SensorIngestionGateway(unified_memory=memory)
         sensor = _FakeSensor()
@@ -76,15 +76,17 @@ class TestSensorIngestionGateway:
 
         result = await gateway.ingest(sensor, output)
 
-        assert result.event_id == "fake_source:item-1"
+        assert result.event_id == "evt-stored-1"
         assert result.ingested is True
         memory.ingest_event.assert_awaited_once()
 
         # Verify the canonical MemoryEvent object was passed through unchanged
         call_args = memory.ingest_event.call_args[0][0]
         assert isinstance(call_args, MemoryEvent)
+        assert call_args.event_id != "fake_source:item-1"
         assert call_args.event_type == "FAKE_EVENT"
         assert call_args.source == "fake_source"
+        assert call_args.idempotency_key == "item-1"
 
     @pytest.mark.asyncio
     async def test_ingest_applies_memory_policy(self):
@@ -107,7 +109,7 @@ class TestSensorIngestionGateway:
     @pytest.mark.asyncio
     async def test_ingest_with_timeline_adapter(self):
         memory = MagicMock()
-        memory.ingest_event = AsyncMock()
+        memory.ingest_event = AsyncMock(return_value={"event_id": "evt-stored-2", "l1_written": True})
         memory.upsert_user_graph_edge = AsyncMock()
         adapter = MagicMock()
         adapter.on_sensor_output = AsyncMock()
@@ -122,7 +124,7 @@ class TestSensorIngestionGateway:
         await gateway.ingest(sensor, output, metadata)
 
         adapter.on_sensor_output.assert_awaited_once_with(
-            "fake_source:item-1", output, metadata,
+            "evt-stored-2", output, metadata,
         )
 
     @pytest.mark.asyncio
@@ -238,7 +240,7 @@ class TestSensorIngestionGateway:
         assert call_args.metadata_json["bundle_id"] == "com.apple.Safari"
         assert call_args.metadata_json["duration_seconds"] == 2280
         assert call_args.metadata_json["timeline"] == {
-            "event_id": "fake_source:item-1",
+            "event_id": call_args.event_id,
             "source_type": "fake_source",
             "source_item_id": "item-1",
             "occurred_at": 1700000000.0,

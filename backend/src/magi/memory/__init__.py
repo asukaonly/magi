@@ -196,32 +196,48 @@ class UnifiedMemoryStore:
         l2_result = {"relation_count": 0, "assertion_count": 0}
         l4_skill_id: Optional[str] = None
         l1_written = False
+        stored_event_id = memory_event.event_id
 
         async with self._write_lock:
             if self.l0 is not None:
                 await self.l0.capture_event(memory_event)
 
             if self.l1 is not None and memory_event.ingest_target.includes_l1:
-                await self.l1.store(memory_event)
-                l1_written = True
+                finder = getattr(self.l1, "find_event_id_by_idempotency", None)
+                existing_event_id = None
+                if callable(finder):
+                    existing_event_id = await finder(
+                        source=memory_event.source,
+                        event_type=memory_event.event_type,
+                        idempotency_key=memory_event.idempotency_key,
+                    )
+                if existing_event_id is not None:
+                    stored_event_id = existing_event_id
+                else:
+                    stored_event_id = await self.l1.store(memory_event)
+                    l1_written = True
                 if memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES:
                     logger.info(
                         "UnifiedMemory stored event in L1 | event_id=%s type=%s session_id=%s user_id=%s",
-                        memory_event.event_id,
+                        stored_event_id,
                         memory_event.event_type,
                         memory_event.session_id,
                         memory_event.user_id,
                     )
 
         if l1_written and self.l2_pipeline is not None:
+            if stored_event_id != memory_event.event_id:
+                memory_event.event_id = stored_event_id
             await self.l2_pipeline.enqueue_event(memory_event)
         # Keep execution-scoped action outcomes out of L1 while still allowing
         # procedural memory to learn from them.
         if self.l4 is not None and (l1_written or memory_event.event_type == EventTypes.ACTION_EXECUTED):
+            if stored_event_id != memory_event.event_id:
+                memory_event.event_id = stored_event_id
             l4_skill_id = await self.l4.record_memory_event(memory_event)
 
         return {
-            "event_id": memory_event.event_id,
+            "event_id": stored_event_id,
             "ingest_target": memory_event.ingest_target.label,
             "l1_written": l1_written,
             "l2_relation_count": int(l2_result["relation_count"]),
@@ -656,6 +672,7 @@ class UnifiedMemoryStore:
         return normalize_runtime_event(
             raw_event,
             event_id=payload.get("id") or payload.get("event_id"),
+            idempotency_key=payload.get("idempotency_key"),
         )
 
     def _period_seconds(self, period_type: str) -> int:

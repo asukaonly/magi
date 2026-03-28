@@ -114,11 +114,13 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
         }
     )
 
-    assert result == {"handled": True, "event_id": "photo_library:photo-1", "source_type": "photo_library"}
+    assert result["handled"] is True
+    assert result["source_type"] == "photo_library"
     assert len(memory.l1.timeline_events) == 1
     stored = memory.l1.timeline_events[0]
     assert isinstance(stored, MemoryEvent)
-    assert stored.event_id == "photo_library:photo-1"
+    assert result["event_id"] == stored.event_id
+    assert stored.idempotency_key == "photo-1"
     assert stored.source == "photo_library"
     assert stored.content == "I still like Asuka best."
     assert len(memory.edges) == 1

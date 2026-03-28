@@ -91,13 +91,15 @@ class L1EventStore:
             await db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS fact_events (
-                    event_id TEXT PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL UNIQUE,
                     correlation_id TEXT NOT NULL,
                     timestamp REAL NOT NULL,
                     created_at REAL NOT NULL,
                     event_type TEXT NOT NULL,
                     source TEXT NOT NULL,
                     source_item_id TEXT,
+                    idempotency_key TEXT,
                     memory_domain INTEGER NOT NULL,
                     ingest_target INTEGER NOT NULL,
                     cognition_eligible INTEGER NOT NULL DEFAULT 0,
@@ -122,12 +124,15 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_fact_events_timestamp ON fact_events(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_type ON fact_events(event_type);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_source ON fact_events(source);
+                CREATE INDEX IF NOT EXISTS idx_fact_events_idempotency_key ON fact_events(idempotency_key);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_domain ON fact_events(memory_domain);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_session ON fact_events(session_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_turn ON fact_events(turn_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_user ON fact_events(user_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON fact_events(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON fact_events(retention_class);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_events_business_idempotency
+                    ON fact_events(source, event_type, idempotency_key);
                 CREATE TABLE IF NOT EXISTS embedding_profiles (
                     profile_id TEXT PRIMARY KEY,
                     provider_name TEXT NOT NULL,
@@ -158,6 +163,7 @@ class L1EventStore:
                 );
                 """
             )
+            await self._ensure_event_identity_schema(db)
             await self._ensure_embedding_status_columns(db)
             await self._ensure_metadata_json_column(db)
             await db.execute(
@@ -241,11 +247,11 @@ class L1EventStore:
                 f"""
                 INSERT OR IGNORE INTO {FACT_EVENTS_TABLE}(
                     event_id, correlation_id, timestamp, created_at,
-                    event_type, source, source_item_id, memory_domain, ingest_target,
+                    event_type, source, source_item_id, idempotency_key, memory_domain, ingest_target,
                     cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
                     task_id, content, author_type, content_type, importance_score,
                     level, media_path, metadata_json, embedding_status, embedding_profile_id, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -255,6 +261,7 @@ class L1EventStore:
                     event.event_type,
                     event.source,
                     event.source_item_id,
+                    event.idempotency_key,
                     int(event.memory_domain),
                     int(event.ingest_target),
                     1 if event.cognition_eligible else 0,
@@ -279,13 +286,14 @@ class L1EventStore:
             inserted = cursor.rowcount > 0
             if not inserted:
                 await db.rollback()
+                existing_event_id = await self._resolve_existing_event_id(db, event)
                 if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
                     logger.info(
                         "L1EventStore skipped duplicate event | event_id=%s type=%s",
                         event.event_id,
                         event.event_type,
                     )
-                return event.event_id
+                return existing_event_id or event.event_id
             # Sync FTS5 index
             tokenized = tokenize_for_fts(self.get_search_text(event))
             await db.execute(
@@ -381,6 +389,26 @@ class L1EventStore:
             ) as cursor:
                 row = await cursor.fetchone()
         return self._row_to_memory_event(row) if row else None
+
+    async def find_event_id_by_idempotency(
+        self,
+        *,
+        source: str,
+        event_type: str,
+        idempotency_key: str | None,
+    ) -> Optional[str]:
+        """Find an existing event id by business idempotency tuple."""
+        normalized_key = str(idempotency_key or "").strip()
+        if not normalized_key:
+            return None
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            return await self._find_event_id_by_idempotency(
+                db,
+                source=source,
+                event_type=event_type,
+                idempotency_key=normalized_key,
+            )
 
     async def list_events(self, *, limit: int = 100, event_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """List the newest events, optionally constrained by event type."""
@@ -884,6 +912,146 @@ class L1EventStore:
                 f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN metadata_json TEXT"
             )
 
+    async def _ensure_event_identity_schema(self, db: aiosqlite.Connection) -> None:
+        async with db.execute(f"PRAGMA table_info({FACT_EVENTS_TABLE})") as cursor:
+            rows = await cursor.fetchall()
+        columns = {str(row[1]) for row in rows}
+        if not rows:
+            return
+        if "id" in columns and "idempotency_key" in columns:
+            await db.execute(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_events_business_idempotency "
+                f"ON {FACT_EVENTS_TABLE}(source, event_type, idempotency_key)"
+            )
+            await db.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_fact_events_idempotency_key ON {FACT_EVENTS_TABLE}(idempotency_key)"
+            )
+            return
+
+        has_metadata_json = "metadata_json" in columns
+        has_embedding_status = "embedding_status" in columns
+        has_embedding_profile_id = "embedding_profile_id" in columns
+
+        await db.executescript(
+            f"""
+            DROP TABLE IF EXISTS {FACT_EVENTS_TABLE}_migrated;
+            CREATE TABLE {FACT_EVENTS_TABLE}_migrated (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL UNIQUE,
+                correlation_id TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                created_at REAL NOT NULL,
+                event_type TEXT NOT NULL,
+                source TEXT NOT NULL,
+                source_item_id TEXT,
+                idempotency_key TEXT,
+                memory_domain INTEGER NOT NULL,
+                ingest_target INTEGER NOT NULL,
+                cognition_eligible INTEGER NOT NULL DEFAULT 0,
+                tom_depth INTEGER NOT NULL DEFAULT 1,
+                retention_class INTEGER NOT NULL DEFAULT 2,
+                session_id TEXT,
+                turn_id TEXT,
+                user_id TEXT,
+                task_id TEXT,
+                content TEXT NOT NULL,
+                author_type TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                importance_score REAL NOT NULL DEFAULT 0.5,
+                level INTEGER NOT NULL DEFAULT 1,
+                media_path TEXT,
+                metadata_json TEXT,
+                embedding_status TEXT NOT NULL DEFAULT '{EMBEDDING_STATUS_DISABLED}',
+                embedding_profile_id TEXT,
+                deleted_at REAL
+            );
+            """
+        )
+        metadata_json_expr = "metadata_json" if has_metadata_json else "NULL"
+        embedding_status_expr = "embedding_status" if has_embedding_status else f"'{EMBEDDING_STATUS_DISABLED}'"
+        embedding_profile_expr = "embedding_profile_id" if has_embedding_profile_id else "NULL"
+        await db.execute(
+            f"""
+            INSERT INTO {FACT_EVENTS_TABLE}_migrated(
+                event_id, correlation_id, timestamp, created_at,
+                event_type, source, source_item_id, idempotency_key, memory_domain, ingest_target,
+                cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
+                task_id, content, author_type, content_type, importance_score,
+                level, media_path, metadata_json, embedding_status, embedding_profile_id, deleted_at
+            )
+            SELECT
+                event_id, correlation_id, timestamp, created_at,
+                event_type, source, source_item_id, NULL, memory_domain, ingest_target,
+                cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
+                task_id, content, author_type, content_type, importance_score,
+                level, media_path, {metadata_json_expr}, {embedding_status_expr}, {embedding_profile_expr}, deleted_at
+            FROM {FACT_EVENTS_TABLE}
+            """
+        )
+        await db.execute(f"DROP TABLE {FACT_EVENTS_TABLE}")
+        await db.execute(f"ALTER TABLE {FACT_EVENTS_TABLE}_migrated RENAME TO {FACT_EVENTS_TABLE}")
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_timestamp ON {FACT_EVENTS_TABLE}(timestamp)")
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_type ON {FACT_EVENTS_TABLE}(event_type)")
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_source ON {FACT_EVENTS_TABLE}(source)")
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_idempotency_key ON {FACT_EVENTS_TABLE}(idempotency_key)")
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_domain ON {FACT_EVENTS_TABLE}(memory_domain)")
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_session ON {FACT_EVENTS_TABLE}(session_id)")
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_turn ON {FACT_EVENTS_TABLE}(turn_id)")
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_user ON {FACT_EVENTS_TABLE}(user_id)")
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON {FACT_EVENTS_TABLE}(importance_score DESC)"
+        )
+        await db.execute(f"CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON {FACT_EVENTS_TABLE}(retention_class)")
+        await db.execute(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_events_business_idempotency "
+            f"ON {FACT_EVENTS_TABLE}(source, event_type, idempotency_key)"
+        )
+
+    async def _resolve_existing_event_id(
+        self,
+        db: aiosqlite.Connection,
+        event: MemoryEvent,
+    ) -> str | None:
+        if event.idempotency_key:
+            existing = await self._find_event_id_by_idempotency(
+                db,
+                source=event.source,
+                event_type=event.event_type,
+                idempotency_key=event.idempotency_key,
+            )
+            if existing:
+                return existing
+        async with db.execute(
+            f"SELECT event_id FROM {FACT_EVENTS_TABLE} WHERE event_id = ?",
+            (event.event_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return str(row[0])
+
+    async def _find_event_id_by_idempotency(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        source: str,
+        event_type: str,
+        idempotency_key: str,
+    ) -> str | None:
+        async with db.execute(
+            f"""
+            SELECT event_id
+            FROM {FACT_EVENTS_TABLE}
+            WHERE source = ? AND event_type = ? AND idempotency_key = ?
+            LIMIT 1
+            """,
+            (source, event_type, idempotency_key),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return str(row[0])
+
     def _embedding_eligible(self, event: MemoryEvent) -> bool:
         return event.memory_domain not in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}
 
@@ -982,6 +1150,7 @@ class L1EventStore:
         stored_profile_id = row["embedding_profile_id"]
         metadata_json = row["metadata_json"]
         return {
+            "id": int(row["id"]),
             "event_id": str(row["event_id"]),
             "correlation_id": str(row["correlation_id"]),
             "timestamp": float(row["timestamp"]),
@@ -989,6 +1158,7 @@ class L1EventStore:
             "event_type": str(row["event_type"]),
             "source": str(row["source"]),
             "source_item_id": row["source_item_id"],
+            "idempotency_key": row["idempotency_key"],
             "memory_domain": MemoryDomain.from_value(row["memory_domain"]).label,
             "ingest_target": IngestTarget.from_value(row["ingest_target"]).label,
             "cognition_eligible": bool(row["cognition_eligible"]),
@@ -1014,6 +1184,7 @@ class L1EventStore:
         stored_profile_id = row["embedding_profile_id"]
         metadata_json = row["metadata_json"]
         return MemoryEvent(
+            id=int(row["id"]),
             event_id=str(row["event_id"]),
             correlation_id=str(row["correlation_id"]),
             timestamp=float(row["timestamp"]),
@@ -1021,6 +1192,7 @@ class L1EventStore:
             event_type=str(row["event_type"]),
             source=str(row["source"]),
             source_item_id=row["source_item_id"],
+            idempotency_key=row["idempotency_key"],
             memory_domain=MemoryDomain.from_value(row["memory_domain"]),
             ingest_target=IngestTarget.from_value(row["ingest_target"]),
             cognition_eligible=bool(row["cognition_eligible"]),
