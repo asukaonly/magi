@@ -67,10 +67,13 @@ export const L1Tab: React.FC<L1TabProps> = ({ stats, events, showStats = true, f
                   {event.user_id ? (
                     <div className="mt-2 font-mono text-xs text-muted-foreground">{event.user_id}</div>
                   ) : null}
-                  {(event.id || event.idempotency_key) ? (
+                  {(event.id || event.source_item_id || event.idempotency_key) ? (
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
                       {event.id ? (
                         <span>{t('memory.l1.internalId')} #{event.id}</span>
+                      ) : null}
+                      {event.source_item_id ? (
+                        <span className="break-all">{t('memory.l1.sourceItemId')} {event.source_item_id}</span>
                       ) : null}
                       {event.idempotency_key ? (
                         <span className="break-all">{t('memory.l1.idempotencyKey')} {event.idempotency_key}</span>

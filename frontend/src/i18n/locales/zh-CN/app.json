@@ -1355,6 +1355,7 @@
       "events": "事件流",
       "noEvents": "暂无事件记录",
       "internalId": "内部",
+      "sourceItemId": "来源项",
       "idempotencyKey": "幂等键"
     },
     "identity": {

@@ -127,6 +127,7 @@ describe('memory page design', () => {
         l1_events: [
           {
             event_id: 'evt-1',
+            source_item_id: 'app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari',
             content: 'User mentioned a strong preference for calm lake walks',
             source: 'user',
             memory_domain: 'preference',
@@ -179,6 +180,7 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-overview-signal-strip')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-search-results')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-recommended-layers')).toBeInTheDocument();
+    expect(screen.getByText('app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari')).toBeInTheDocument();
   });
 
   it('renders the workbench page as an operational layout without the shared hero shell', () => {

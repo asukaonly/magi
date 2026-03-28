@@ -52,6 +52,7 @@ vi.mock('sonner', () => ({
 const L1_EVENT = {
   id: 101,
   event_id: 'event-1',
+  source_item_id: 'chat_msg:turn-1:user',
   idempotency_key: 'chat:session-1:turn-1',
   event_type: 'AI_RESPONSE',
   content: 'hello',
@@ -162,6 +163,7 @@ describe('events page', () => {
     expect(screen.getByText('hello')).toBeInTheDocument();
     expect(screen.getByText('local_user')).toBeInTheDocument();
     expect(screen.getByText(/#101/)).toBeInTheDocument();
+    expect(screen.getByText(/chat_msg:turn-1:user/)).toBeInTheDocument();
   });
 
   it('opens the clear confirmation in a compact dialog container', async () => {

@@ -320,6 +320,7 @@ const describeSearchItem = (item: Record<string, unknown> | undefined): string =
 
   const previewKeys = [
     'canonical_name',
+    'source_item_id',
     'content',
     'skill_name',
     'summary',
