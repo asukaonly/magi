@@ -108,7 +108,7 @@ class EmotionalStateEngine:
 
     def __init__(
         self,
-        db_path: str = "~/.magi/data/memories/emotional_state.db",
+        db_path: str = "~/.magi/data/memory/emotional_state.db",
         config: EmotionalConfig = None
     ):
         """

@@ -28,7 +28,7 @@ def _read_journal_mode(db_path: Path) -> str:
 def test_runtime_paths_exposes_runtime_trace_db_path(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(base_dir=tmp_path)
 
-    assert runtime_paths.runtime_trace_db_path == tmp_path / "data" / "runtime_trace.db"
+    assert runtime_paths.runtime_trace_db_path == tmp_path / "runtime" / "runtime_trace.db"
 
 
 @pytest.mark.asyncio

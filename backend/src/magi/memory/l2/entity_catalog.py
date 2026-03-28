@@ -47,7 +47,7 @@ class L2EntityCatalog:
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/data/memories/memory.db",
+        db_path: str = "~/.magi/data/memory/memory.db",
         embedding_service: MemoryEmbeddingService | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,

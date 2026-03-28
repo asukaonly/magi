@@ -221,6 +221,15 @@ def test_screen_time_state_reuses_session_for_consecutive_same_app_activations(t
     ]
 
 
+def test_screen_time_state_store_uses_plugin_cache_directory(tmp_path: Path) -> None:
+    runtime_paths = RuntimePaths(base_dir=tmp_path / ".magi")
+    state_store = ScreenTimeStateStore()
+
+    assert state_store._state_path(runtime_paths) == (
+        tmp_path / ".magi" / "cache" / "plugins" / "screen_time" / "state.json"
+    )
+
+
 def test_sensor_build_output() -> None:
     sensor = ScreenTimeTimelineSensor()
     item = {

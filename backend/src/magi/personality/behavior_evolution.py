@@ -82,7 +82,7 @@ class BehaviorEvolutionEngine:
     Internal note.
     """
 
-    def __init__(self, db_path: str = "~/.magi/data/memories/behavior_evolution.db"):
+    def __init__(self, db_path: str = "~/.magi/data/memory/behavior_evolution.db"):
         """
         Internal note.
 

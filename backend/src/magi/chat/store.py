@@ -15,7 +15,7 @@ from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord, C
 class ChatStore:
     """Own chat-domain persistence for sessions, turns, and messages."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/chat.db") -> None:
+    def __init__(self, *, db_path: str = "~/.magi/data/chat/chat.db") -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._initialized = False
 

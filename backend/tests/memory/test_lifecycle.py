@@ -110,11 +110,12 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     context.core.runtime_paths = SimpleNamespace(
         l1_memory_db_path=tmp_path / "l1.db",
         memory_db_path=tmp_path / "memory.db",
-        memories_dir=tmp_path / "memories",
+        memory_dir=tmp_path / "memory",
     )
     context.core.db_initializer = _FakeDBInitializer()
     context.message_bus.message_bus = SimpleNamespace()
     context.llm.scenario_llm_pool = fake_pool
+    context.plugins.plugin_manager = SimpleNamespace(build_temporal_summary_features=lambda *args, **kwargs: {})
 
     module = MemoryStoreModule(context, start_memory_integration=False)
 

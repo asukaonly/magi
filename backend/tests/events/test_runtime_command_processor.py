@@ -269,7 +269,11 @@ async def test_runtime_command_processor_flushes_sensor_state(tmp_path: Path) ->
     context.runtime_commands.runtime_command_queue = queue
     context.message_bus.message_bus = message_bus
     context.agent_runtime.agent_runtime = object()
-    context.core.runtime_paths = type("Paths", (), {"memories_dir": tmp_path})()
+    context.core.runtime_paths = type(
+        "Paths",
+        (),
+        {"plugin_cache_dir": lambda self, plugin_id: tmp_path / "cache" / plugin_id},
+    )()
     context.plugins.sensor_registry = type(
         "Registry",
         (),

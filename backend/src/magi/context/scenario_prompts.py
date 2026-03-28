@@ -32,7 +32,7 @@ class ScenarioPromptsStore:
     Manages behavior constraint prompts by persona and scenario.
     """
 
-    def __init__(self, db_path: str = "~/.magi/data/scenario_prompts.db"):
+    def __init__(self, db_path: str = "~/.magi/data/app/scenario_prompts.db"):
         self.db_path = db_path
         self._cache: Dict[str, ScenarioPrompt] = {}
         self._initialized = False

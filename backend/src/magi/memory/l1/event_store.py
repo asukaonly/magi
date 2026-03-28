@@ -48,7 +48,7 @@ class L1EventStore:
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/data/memories/l1_events.db",
+        db_path: str = "~/.magi/data/memory/l1_events.db",
         embedding_service: MemoryEmbeddingService | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,

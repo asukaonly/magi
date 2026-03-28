@@ -27,7 +27,7 @@ T = TypeVar("T")
 class RuntimeTraceStore:
     """Persist runtime trace data in a dedicated SQLite database."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/runtime_trace.db") -> None:
+    def __init__(self, *, db_path: str = "~/.magi/runtime/runtime_trace.db") -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._initialized = False
 

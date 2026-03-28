@@ -57,7 +57,7 @@ def _read_message_payload_json(db_path: Path, turn_id: str) -> dict:
 def test_runtime_paths_exposes_chat_db_path(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(base_dir=tmp_path)
 
-    assert runtime_paths.chat_db_path == tmp_path / "data" / "chat.db"
+    assert runtime_paths.chat_db_path == tmp_path / "data" / "chat" / "chat.db"
 
 
 @pytest.mark.asyncio

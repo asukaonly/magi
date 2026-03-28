@@ -62,7 +62,7 @@ class L2CognitionStore:
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/data/memories/memory.db",
+        db_path: str = "~/.magi/data/memory/memory.db",
         graph_conflict_rules: Mapping[str, GraphConflictRule | Mapping[str, Any]] | None = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())

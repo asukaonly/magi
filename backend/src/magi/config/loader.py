@@ -18,8 +18,12 @@ Directory Structure:
     │       ├── index.yaml       # Plugin package state
     │       └── <plugin>.yaml    # Per-plugin settings
     ├── data/
-    │   ├── memories/            # Memory storage (L1/L2/L3/L4/L5)
-    │   └── message_queue.db     # Message bus queue database
+    │   ├── app/                 # Durable app-owned stores
+    │   ├── chat/                # Chat-domain source of truth
+    │   ├── memory/              # Memory-layer databases
+    │   └── resources/           # Durable managed assets
+    ├── runtime/                 # Runtime coordination and observability stores
+    ├── cache/                   # Rebuildable plugin/runtime cache state
     └── personalities/           # Personality files
 
 First Run:

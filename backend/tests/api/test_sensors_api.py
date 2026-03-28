@@ -44,7 +44,7 @@ def _build_client(monkeypatch):
             (),
             {
                 "base_dir": runtime_base_dir,
-                "scheduler_db_path": f"{runtime_base_dir}/data/scheduler.db",
+                "scheduler_db_path": f"{runtime_base_dir}/runtime/scheduler.db",
             },
         )(),
     )
@@ -125,7 +125,7 @@ def _build_client(monkeypatch):
         "require_runtime_command_queue",
         lambda: queue,
     )
-    repository = ScheduleRepository(f"{runtime_base_dir}/data/scheduler.db")
+    repository = ScheduleRepository(f"{runtime_base_dir}/runtime/scheduler.db")
 
     async def _seed_state():
         await repository.initialize()

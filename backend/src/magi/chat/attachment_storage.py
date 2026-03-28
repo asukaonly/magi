@@ -27,7 +27,7 @@ class StoredChatAttachment:
 
 
 class LocalChatAttachmentStorage:
-    """Store chat attachments inside the managed runtime data directory."""
+    """Store chat attachments inside the managed runtime resource directory."""
 
     def __init__(self, *, runtime_paths: RuntimePaths | None = None) -> None:
         self._runtime_paths = runtime_paths or get_runtime_paths()

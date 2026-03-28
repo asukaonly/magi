@@ -177,7 +177,10 @@ fn runtime_trace_db_path() -> Result<PathBuf, String> {
     let home_dir = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| "HOME environment variable is not set".to_string())?;
-    Ok(home_dir.join(".magi").join("data").join("runtime_trace.db"))
+    Ok(home_dir
+        .join(".magi")
+        .join("runtime")
+        .join("runtime_trace.db"))
 }
 
 fn current_time_millis() -> i64 {

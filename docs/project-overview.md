@@ -120,29 +120,32 @@ Execution observability is now a separate concern from durable memory:
 
 ## Persistence Boundaries
 
-- `~/.magi/data/message_queue.db`
+- `~/.magi/runtime/message_queue.db`
   Runtime command-queue persistence only
 
-- `~/.magi/data/chat.db`
+- `~/.magi/data/chat/chat.db`
   Chat-domain source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
 
-- `~/.magi/data/chat_assets/`
+- `~/.magi/data/resources/chat/`
   Managed local chat attachments and derived artifacts grouped by type, session, and turn
 
-- `~/.magi/data/memories/l1_events.db`
+- `~/.magi/data/memory/l1_events.db`
   Canonical L1 fact storage for lossy memory projection of `user_text` and `assistant_final` content only
 
-- `~/.magi/data/memories/memory.db`
+- `~/.magi/data/memory/memory.db`
   Shared L0/L2/L3/L4 storage
 
-- `~/.magi/data/runtime_trace.db`
+- `~/.magi/runtime/runtime_trace.db`
   Runtime execution observability only: turn summaries, spans, LLM metrics, tool calls, intent-resolution details, live notifications, and append-only plugin ingress events produced by the desktop shell
 
-- `~/.magi/data/scenario_prompts.db`
+- `~/.magi/data/app/scenario_prompts.db`
   Scenario prompt policy and prompt metadata
 
-- `~/.magi/data/llm_usage.db`
+- `~/.magi/runtime/llm_usage.db`
   LLM usage metrics and usage-event persistence
+
+- `~/.magi/cache/plugins/<plugin_id>/`
+  Rebuildable plugin-owned state such as in-progress sensor aggregation caches
 
 Chat ownership is now intentionally separated by domain:
 

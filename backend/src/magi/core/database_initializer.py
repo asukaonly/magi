@@ -1,14 +1,10 @@
-"""
-Database Initializer - unified database initialization manager.
-
-Initializes all database tables on application startup.
-"""
+"""Database initializer for runtime-owned SQLite stores."""
 import logging
 import aiosqlite
-from pathlib import Path
 from typing import List, Callable, Awaitable
 
 from .sqlite import sqlite_connection_async
+from ..utils.runtime import RuntimePaths
 
 logger = logging.getLogger(__name__)
 
@@ -25,23 +21,22 @@ class DatabaseInitializer:
 
     INIT_MARKER_FILE = ".db_initialized"
 
-    def __init__(self, data_dir):
+    def __init__(self, runtime_paths: RuntimePaths):
         """
         Args:
-            data_dir: Data directory path.
+            runtime_paths: Runtime directory mapping.
         """
-        self.data_dir = Path(data_dir)
-        self.memories_dir = self.data_dir / "memories"
+        self.runtime_paths = runtime_paths
         self._initializers: List[Callable[[], Awaitable[None]]] = []
 
     @property
     def is_first_run(self) -> bool:
         """Whether this is the first run (no init marker yet)."""
-        return not (self.data_dir / self.INIT_MARKER_FILE).exists()
+        return not (self.runtime_paths.runtime_dir / self.INIT_MARKER_FILE).exists()
 
     def mark_initialized(self) -> None:
         """Mark initialization as complete."""
-        marker_file = self.data_dir / self.INIT_MARKER_FILE
+        marker_file = self.runtime_paths.runtime_dir / self.INIT_MARKER_FILE
         marker_file.touch()
         logger.info(f"Marked database as initialized: {marker_file}")
 
@@ -52,8 +47,12 @@ class DatabaseInitializer:
     async def initialize_all(self) -> None:
         """Run all initialization."""
         # Ensure directories exist
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.memories_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_paths.data_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_paths.app_data_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_paths.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_paths.chat_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_paths.resources_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_paths.runtime_dir.mkdir(parents=True, exist_ok=True)
 
         if self.is_first_run:
             logger.info("=" * 50)
@@ -89,7 +88,7 @@ class DatabaseInitializer:
 
     async def _init_message_queue_db(self) -> None:
         """Initialize message bus database."""
-        db_path = self.data_dir / "message_queue.db"
+        db_path = self.runtime_paths.message_queue_db_path
         async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             # message_queue table is managed by SQLiteMessageBackend.
             await db.commit()
@@ -99,7 +98,7 @@ class DatabaseInitializer:
         """Initialize dedicated chat database."""
         from ..chat import ChatStore
 
-        db_path = self.data_dir / "chat.db"
+        db_path = self.runtime_paths.chat_db_path
         store = ChatStore(db_path=str(db_path))
         await store.initialize()
         await store.shutdown()
@@ -112,7 +111,7 @@ class DatabaseInitializer:
         from ..memory.l3.summary_store import L3SummaryStore
         from ..memory.l4.procedural_memory import L4ProceduralMemoryStore
 
-        db_path = self.memories_dir / "memory.db"
+        db_path = self.runtime_paths.memory_db_path
 
         l0_store = L0WorkingMemoryStore(checkpoint_db_path=str(db_path))
         l2_store = L2CognitionStore(db_path=str(db_path))
@@ -129,14 +128,14 @@ class DatabaseInitializer:
         """Initialize L1 memory database."""
         from ..memory.l1.event_store import L1EventStore
 
-        db_path = self.memories_dir / "l1_events.db"
+        db_path = self.runtime_paths.l1_memory_db_path
         store = L1EventStore(db_path=str(db_path))
         await store.initialize()
         logger.debug(f"Initialized l1_events.db at {db_path}")
 
     async def _init_behavior_evolution_db(self) -> None:
         """Initialize behavior evolution database."""
-        db_path = self.memories_dir / "behavior_evolution.db"
+        db_path = self.runtime_paths.behavior_db_path
         async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             # task_interactions table
             await db.execute("""
@@ -191,7 +190,7 @@ class DatabaseInitializer:
 
     async def _init_emotional_state_db(self) -> None:
         """Initialize emotional state database."""
-        db_path = self.memories_dir / "emotional_state.db"
+        db_path = self.runtime_paths.emotional_db_path
         async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             # emotional_state table (key-value)
             await db.execute("""
@@ -228,7 +227,7 @@ class DatabaseInitializer:
 
     async def _init_growth_memory_db(self) -> None:
         """Initialize growth memory database."""
-        db_path = self.memories_dir / "growth_memory.db"
+        db_path = self.runtime_paths.growth_db_path
         async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             # milestones table
             await db.execute("""
@@ -295,7 +294,7 @@ class DatabaseInitializer:
 
     async def _init_scenario_prompts_db(self) -> None:
         """Initialize scenario prompts database."""
-        db_path = self.data_dir / "scenario_prompts.db"
+        db_path = self.runtime_paths.scenario_prompts_db_path
         async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS scenario_prompts (
@@ -312,7 +311,7 @@ class DatabaseInitializer:
 
     async def _init_llm_usage_db(self) -> None:
         """Initialize LLM usage statistics database."""
-        db_path = self.data_dir / "llm_usage.db"
+        db_path = self.runtime_paths.llm_usage_db_path
         async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS llm_usage (
@@ -355,7 +354,7 @@ class DatabaseInitializer:
 
         from ..context.scenario_prompts import DEFAULT_SCENARIO_PROMPTS
 
-        db_path = self.data_dir / "scenario_prompts.db"
+        db_path = self.runtime_paths.scenario_prompts_db_path
         async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
             import time
 

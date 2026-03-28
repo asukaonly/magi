@@ -138,7 +138,7 @@ class MemoryL4ConfigModel(BaseModel):
 
 
 class MemoryConfigModel(BaseModel):
-    db_path: Optional[str] = Field(default="~/.magi/data/memories")
+    db_path: Optional[str] = Field(default="~/.magi/data/memory")
     l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
     l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
     l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)

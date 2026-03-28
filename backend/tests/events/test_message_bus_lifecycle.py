@@ -14,7 +14,7 @@ def _build_message_bus_config() -> SimpleNamespace:
     return SimpleNamespace(
         max_queue_size=128,
         num_workers=1,
-        db_path="~/.magi/data/message_queue.db",
+        db_path="~/.magi/runtime/message_queue.db",
         broadcast_max_concurrency=4,
         handler_timeout_seconds=0.5,
         max_retries=3,

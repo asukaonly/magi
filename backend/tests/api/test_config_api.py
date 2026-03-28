@@ -48,7 +48,7 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
 def test_system_config_defaults_include_memory_lifecycle_settings():
     config = SystemConfigModel()
 
-    assert config.memory.db_path == "~/.magi/data/memories"
+    assert config.memory.db_path == "~/.magi/data/memory"
     assert config.memory.l0.enabled is True
     assert config.memory.l4.enabled is True
     assert config.memory.l0.checkpoint_interval_seconds == 30

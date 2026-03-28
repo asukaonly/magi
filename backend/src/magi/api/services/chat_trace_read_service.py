@@ -172,7 +172,7 @@ class ChatTraceReadService:
         runtime_paths = get_runtime_paths()
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
-        self._orchestrations_path: Path = runtime_paths.data_dir / "task_orchestrations.json"
+        self._orchestrations_path: Path = runtime_paths.task_orchestrations_path
 
     def get_trace_snapshot(
         self,

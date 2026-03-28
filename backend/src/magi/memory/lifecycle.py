@@ -56,7 +56,7 @@ class MemoryStoreModule(LifecycleModule):
         self._context.memory.unified_memory = UnifiedMemoryStore(
             l1_db_path=str(runtime_paths.l1_memory_db_path),
             memory_db_path=str(runtime_paths.memory_db_path),
-            persist_dir=str(runtime_paths.memories_dir),
+            persist_dir=str(runtime_paths.memory_dir),
             embedding_service=embedding_service,
             scenario_llm_pool=scenario_llm_pool,
             memory_config_getter=lambda: get_config().agent.memory,

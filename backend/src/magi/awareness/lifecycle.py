@@ -93,7 +93,7 @@ class SensorScheduleRegistrationModule(LifecycleModule):
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
 
-        sensor_state_store = SqliteSensorStateStore(runtime_paths.memories_dir / "sensor_state.db")
+        sensor_state_store = SqliteSensorStateStore(runtime_paths.sensor_state_db_path)
         timeline_adapter = None
         if self._context.timeline.timeline_service is not None:
             timeline_adapter = TimelineAdapter(self._context.timeline.timeline_service)

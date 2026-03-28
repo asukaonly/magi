@@ -68,7 +68,7 @@ def _collect_source_setting_defaults(item) -> dict[str, Any]:
 async def get_sensor_source_status():
     get_config()
     runtime_paths = get_runtime_paths()
-    scheduler_db_path = getattr(runtime_paths, "scheduler_db_path", Path(runtime_paths.base_dir) / "data" / "scheduler.db")
+    scheduler_db_path = getattr(runtime_paths, "scheduler_db_path", Path(runtime_paths.base_dir) / "runtime" / "scheduler.db")
     repository = ScheduleRepository(scheduler_db_path)
     await repository.initialize()
     manager = require_plugin_manager()

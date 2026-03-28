@@ -120,12 +120,23 @@ Persistence is separated the same way:
 
 - `chat.db`
   Source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
+  Current path: `~/.magi/data/chat/chat.db`
 
 - `runtime_trace.db`
   Execution observability only, including spans, tool calls, turn summaries, intent records, live notifications, and append-only plugin ingress events emitted by the desktop shell or other local producers
+  Current path: `~/.magi/runtime/runtime_trace.db`
 
-- `memories/l1_events.db`
+- `memory/l1_events.db`
   Canonical memory projection only; it stores `user_text` and `assistant_final` as lossy memory facts, but it is no longer the chat transcript source of truth
+  Current path: `~/.magi/data/memory/l1_events.db`
+
+- `message_queue.db`
+  Runtime command queue only
+  Current path: `~/.magi/runtime/message_queue.db`
+
+- `cache/plugins/<plugin_id>/`
+  Rebuildable plugin-owned runtime state such as in-progress sensor aggregation files
+  Current path pattern: `~/.magi/cache/plugins/<plugin_id>/`
 
 Important rule: runtime notifications are best-effort live fan-out of already committed chat state. Transcript recovery and reload must come from `chat.db`, not from notifications or `fact_events`.
 

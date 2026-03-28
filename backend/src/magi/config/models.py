@@ -294,7 +294,7 @@ class MemoryL4Settings(BaseModel):
 
 class MemorySettings(BaseModel):
     """Memory configuration."""
-    db_path: str = Field(default="~/.magi/data/memories")
+    db_path: str = Field(default="~/.magi/data/memory")
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
@@ -322,7 +322,7 @@ class MessageBusSettings(BaseModel):
     """Message bus configuration."""
     max_queue_size: int = Field(default=1000, ge=1)
     num_workers: int = Field(default=4, ge=1)
-    db_path: str = Field(default="~/.magi/data/message_queue.db")
+    db_path: str = Field(default="~/.magi/runtime/message_queue.db")
     broadcast_max_concurrency: int = Field(default=8, ge=1)
     handler_timeout_seconds: float = Field(default=2.0, ge=0.1)
     max_retries: int = Field(default=3, ge=0, description="Max retry attempts for failed message handling")

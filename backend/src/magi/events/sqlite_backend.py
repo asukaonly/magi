@@ -55,7 +55,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
     def __init__(
         self,
-        db_path: str = "~/.magi/data/message_queue.db",
+        db_path: str = "~/.magi/runtime/message_queue.db",
         max_queue_size: int = 1000,
         num_workers: int = 4,
         memory_cache_size: int = 100,

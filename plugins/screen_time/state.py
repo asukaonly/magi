@@ -15,7 +15,7 @@ class ScreenTimeStateStore:
     _locks: dict[str, asyncio.Lock] = {}
 
     def _state_path(self, runtime_paths: Any) -> Path:
-        return runtime_paths.memories_dir / "screen_time_state.json"
+        return runtime_paths.plugin_cache_dir("screen_time") / "state.json"
 
     def _lock_for(self, path: Path) -> asyncio.Lock:
         key = str(path.resolve())

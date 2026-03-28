@@ -26,7 +26,7 @@ def test_store_image_attachment_writes_to_managed_image_directory(tmp_path: Path
     assert stored.mime_type == "image/png"
     assert stored.size_bytes == len(b"image-bytes")
     assert stored.sha256 == hashlib.sha256(b"image-bytes").hexdigest()
-    assert stored_path.parent == runtime_paths.data_dir / "chat_assets" / "images" / "session-1" / "turn-1"
+    assert stored_path.parent == runtime_paths.data_dir / "resources" / "chat" / "images" / "session-1" / "turn-1"
     assert stored_path.read_bytes() == b"image-bytes"
 
 
@@ -49,6 +49,6 @@ def test_store_file_attachment_writes_to_managed_file_directory_and_sanitizes_na
     assert stored.mime_type == "text/markdown"
     assert stored.size_bytes == len(b"# notes")
     assert stored.sha256 == hashlib.sha256(b"# notes").hexdigest()
-    assert stored_path.parent == runtime_paths.data_dir / "chat_assets" / "files" / "session-1" / "turn-2"
+    assert stored_path.parent == runtime_paths.data_dir / "resources" / "chat" / "files" / "session-1" / "turn-2"
     assert stored_path.name.endswith("__notes.md")
     assert stored_path.read_bytes() == b"# notes"

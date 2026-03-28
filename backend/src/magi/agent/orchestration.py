@@ -307,7 +307,7 @@ class OrchestrationStore:
 
     def __init__(self, file_path: Optional[Path] = None) -> None:
         runtime_paths = get_runtime_paths()
-        self._file_path = file_path or runtime_paths.data_dir / "task_orchestrations.json"
+        self._file_path = file_path or runtime_paths.task_orchestrations_path
         self._lock = asyncio.Lock()
 
     async def save_orchestration(self, state: TaskOrchestrationState) -> None:

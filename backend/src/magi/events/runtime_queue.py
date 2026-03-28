@@ -28,7 +28,7 @@ STATUS_FAILED = "failed"
 class SQLiteRuntimeCommandQueue:
     """Persisted command queue used between API and runtime worker processes."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/message_queue.db", poll_interval_seconds: float = 0.1) -> None:
+    def __init__(self, *, db_path: str = "~/.magi/runtime/message_queue.db", poll_interval_seconds: float = 0.1) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self.poll_interval_seconds = poll_interval_seconds
         self._started = False

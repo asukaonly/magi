@@ -19,13 +19,14 @@ def _list_tables(db_path: Path) -> set[str]:
 @pytest.mark.asyncio
 async def test_database_initializer_creates_chat_db_with_chat_tables(tmp_path: Path) -> None:
     from magi.core.database_initializer import DatabaseInitializer
+    from magi.utils.runtime import RuntimePaths
 
-    data_dir = tmp_path / "runtime-data"
-    initializer = DatabaseInitializer(data_dir)
+    runtime_paths = RuntimePaths(tmp_path / "runtime-data")
+    initializer = DatabaseInitializer(runtime_paths)
 
     await initializer.initialize_all()
 
-    chat_db_path = data_dir / "chat.db"
+    chat_db_path = runtime_paths.chat_db_path
     assert chat_db_path.exists()
     tables = _list_tables(chat_db_path)
     assert "chat_sessions" in tables

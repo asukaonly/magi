@@ -1,8 +1,4 @@
-"""
-Runtime data directory management.
-
-Put all runtime-generated data in ~/.magi directory, separate from code.
-"""
+"""Runtime directory management for durable and operational local storage."""
 import json
 import logging
 from pathlib import Path
@@ -36,8 +32,14 @@ class RuntimePaths:
             self.base_dir,
             self.personalities_dir,
             self.data_dir,
-            self.chat_assets_dir,
-            self.memories_dir,
+            self.app_data_dir,
+            self.memory_dir,
+            self.chat_dir,
+            self.resources_dir,
+            self.chat_resources_dir,
+            self.runtime_dir,
+            self.cache_dir,
+            self.plugins_cache_dir,
             self.others_dir,
             self.logs_dir,
         ]
@@ -54,33 +56,63 @@ class RuntimePaths:
 
     @property
     def data_dir(self) -> Path:
-        """Data directory."""
+        """Durable product data directory."""
         return self.base_dir / "data"
 
     @property
-    def memories_dir(self) -> Path:
-        """Memory database directory."""
-        return self.data_dir / "memories"
+    def app_data_dir(self) -> Path:
+        """Durable app-owned data that is not chat truth or memory."""
+        return self.data_dir / "app"
 
     @property
-    def chat_assets_dir(self) -> Path:
+    def memory_dir(self) -> Path:
+        """Canonical memory storage directory."""
+        return self.data_dir / "memory"
+
+    @property
+    def chat_dir(self) -> Path:
+        """Durable chat-domain storage directory."""
+        return self.data_dir / "chat"
+
+    @property
+    def resources_dir(self) -> Path:
+        """Managed durable resource directory."""
+        return self.data_dir / "resources"
+
+    @property
+    def chat_resources_dir(self) -> Path:
         """Managed chat attachment asset directory."""
-        return self.data_dir / "chat_assets"
+        return self.resources_dir / "chat"
 
     @property
     def chat_images_dir(self) -> Path:
         """Managed chat image attachment directory."""
-        return self.chat_assets_dir / "images"
+        return self.chat_resources_dir / "images"
 
     @property
     def chat_files_dir(self) -> Path:
         """Managed chat file attachment directory."""
-        return self.chat_assets_dir / "files"
+        return self.chat_resources_dir / "files"
 
     @property
     def chat_derived_dir(self) -> Path:
         """Managed chat derived-asset directory."""
-        return self.chat_assets_dir / "derived"
+        return self.chat_resources_dir / "derived"
+
+    @property
+    def runtime_dir(self) -> Path:
+        """Runtime coordination and observability directory."""
+        return self.base_dir / "runtime"
+
+    @property
+    def cache_dir(self) -> Path:
+        """Rebuildable runtime and plugin cache directory."""
+        return self.base_dir / "cache"
+
+    @property
+    def plugins_cache_dir(self) -> Path:
+        """Plugin-owned cache directory."""
+        return self.cache_dir / "plugins"
 
     @property
     def others_dir(self) -> Path:
@@ -95,62 +127,79 @@ class RuntimePaths:
     @property
     def behavior_db_path(self) -> Path:
         """Behavior evolution database path."""
-        return self.memories_dir / "behavior_evolution.db"
+        return self.memory_dir / "behavior_evolution.db"
 
     @property
     def scenario_prompts_db_path(self) -> Path:
         """Scenario prompts database path."""
-        return self.data_dir / "scenario_prompts.db"
+        return self.app_data_dir / "scenario_prompts.db"
 
     @property
     def emotional_db_path(self) -> Path:
         """Emotional state database path."""
-        return self.memories_dir / "emotional_state.db"
+        return self.memory_dir / "emotional_state.db"
 
     @property
     def growth_db_path(self) -> Path:
         """Growth memory database path."""
-        return self.memories_dir / "growth_memory.db"
+        return self.memory_dir / "growth_memory.db"
 
     @property
     def self_memory_db_path(self) -> Path:
-        """Self memory database path (compatibility)."""
-        return self.memories_dir / "self_memory_v2.db"
+        """Self memory database path."""
+        return self.memory_dir / "self_memory_v2.db"
 
     @property
     def memory_db_path(self) -> Path:
         """Shared memory database path for L0/L2/L3/L4."""
-        return self.memories_dir / "memory.db"
+        return self.memory_dir / "memory.db"
 
     @property
     def message_queue_db_path(self) -> Path:
         """Message bus queue database path."""
-        return self.data_dir / "message_queue.db"
+        return self.runtime_dir / "message_queue.db"
 
     @property
     def chat_db_path(self) -> Path:
         """Dedicated chat-domain database path."""
-        return self.data_dir / "chat.db"
+        return self.chat_dir / "chat.db"
 
     @property
     def l1_memory_db_path(self) -> Path:
         """L1 memory database path."""
-        return self.memories_dir / "l1_events.db"
+        return self.memory_dir / "l1_events.db"
 
     @property
     def runtime_trace_db_path(self) -> Path:
         """Runtime trace database path."""
-        return self.data_dir / "runtime_trace.db"
+        return self.runtime_dir / "runtime_trace.db"
 
     @property
     def llm_usage_db_path(self) -> Path:
         """LLM usage statistics database path."""
-        return self.data_dir / "llm_usage.db"
+        return self.runtime_dir / "llm_usage.db"
 
     @property
     def scheduler_db_path(self) -> Path:
         """Unified scheduler database path."""
-        return self.data_dir / "scheduler.db"
+        return self.runtime_dir / "scheduler.db"
+
+    @property
+    def sensor_state_db_path(self) -> Path:
+        """Sensor runtime state database path."""
+        return self.runtime_dir / "sensor_state.db"
+
+    @property
+    def task_orchestrations_path(self) -> Path:
+        """Task-orchestration recovery store path."""
+        return self.runtime_dir / "task_orchestrations.json"
+
+    def plugin_cache_dir(self, plugin_id: str) -> Path:
+        """Return the cache directory for one plugin."""
+        normalized = str(plugin_id or "").strip().replace("/", "_").replace("\\", "_")
+        if not normalized:
+            raise ValueError("plugin_id is required")
+        return self.plugins_cache_dir / normalized
 
     def other_file(self, user_id: str) -> Path:
         """

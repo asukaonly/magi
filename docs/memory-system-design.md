@@ -55,8 +55,8 @@
 ### 1.1 当前实现基线（2026-03-24）
 
 1. `message_queue.db` 仅承担消息总线持久化（`message_queue`），不再承载 L1 主存。
-2. L1 主存独立为 `memories/l1_events.db`（当前为单库单表，分片后置）。
-3. L0/L2/L3/L4 共享 `memories/memory.db`（多表分层，统一 checkpoint 与认知/摘要/程序性记忆）。
+2. L1 主存独立为 `data/memory/l1_events.db`（当前为单库单表，分片后置）。
+3. L0/L2/L3/L4 共享 `data/memory/memory.db`（多表分层，统一 checkpoint 与认知/摘要/程序性记忆）。
 4. `event_store` 已移除，聊天/trace 读链路统一读取 L1 `events`。
 5. 向量不再使用独立 `embeddings.db`，改为分层向量表：
    - `l1_event_vectors`
@@ -281,7 +281,7 @@ L0 不承诺长期稳定，长期沉淀由 L2/L3/L4 负责。
 @dataclass
 class L0Config:
     storage_mode: Literal["memory_checkpoint"] = "memory_checkpoint"
-    checkpoint_db_path: str = "~/.magi/data/l0_working_context.db"
+    checkpoint_db_path: str = "~/.magi/data/memory/memory.db"
     checkpoint_interval_seconds: int = 30
     session_timeout_seconds: int = 3600
     max_active_entities_per_session: int = 64

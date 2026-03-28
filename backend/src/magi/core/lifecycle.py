@@ -23,7 +23,7 @@ class CoreDependenciesModule(LifecycleModule):
         self._context.core.runtime_paths = get_runtime_paths()
         logger.info("Runtime directory: %s", self._context.core.runtime_paths.base_dir)
 
-        db_initializer = DatabaseInitializer(data_dir=self._context.core.runtime_paths.data_dir)
+        db_initializer = DatabaseInitializer(runtime_paths=self._context.core.runtime_paths)
         await db_initializer.initialize_all()
         set_database_initializer(db_initializer)
         self._context.core.db_initializer = db_initializer

@@ -76,8 +76,8 @@ class UnifiedMemoryStore:
         from ..utils.runtime import get_runtime_paths
 
         runtime_paths = get_runtime_paths()
-        memories_dir = Path(persist_dir).expanduser() if persist_dir else runtime_paths.memories_dir
-        memories_dir.mkdir(parents=True, exist_ok=True)
+        memory_dir = Path(persist_dir).expanduser() if persist_dir else runtime_paths.memory_dir
+        memory_dir.mkdir(parents=True, exist_ok=True)
         l1_db = str(
             (
                 Path(l1_db_path).expanduser()
@@ -88,7 +88,7 @@ class UnifiedMemoryStore:
         shared_memory_db = str(
             Path(memory_db_path).expanduser()
             if memory_db_path
-            else (memories_dir / "memory.db")
+            else (memory_dir / "memory.db")
         )
 
         self.l0: Optional[L0WorkingMemoryStore] = None

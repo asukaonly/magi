@@ -94,7 +94,7 @@ class GrowthMemoryEngine:
     Internal note.
     """
 
-    def __init__(self, db_path: str = "~/.magi/data/memories/growth_memory.db"):
+    def __init__(self, db_path: str = "~/.magi/data/memory/growth_memory.db"):
         """
         Internal note.
 
