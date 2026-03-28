@@ -5,11 +5,10 @@ import time
 import pytest
 
 from magi.awareness.sensor_base import SensorBase
-from magi.awareness.sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput
+from magi.awareness.sensor_output import ContentBlock, SensorMemoryPolicy
 from magi.awareness.sensor_sync import PullSyncSensor, SensorSyncResult
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.plugins.sensors import SensorRegistry, SensorSpec
-from magi.timeline.contracts import TimelineEvent
 from magi.utils.runtime import RuntimePaths
 
 
@@ -22,14 +21,8 @@ class _FakeUnifiedMemory:
 
 
 class _FakeTimelineService:
-    def __init__(self) -> None:
-        self.events: list[TimelineEvent] = []
-        self.relations: list[list[dict]] = []
-
-    async def upsert_event(self, event, *, relation_candidates=None, allowed_edge_whitelist=None) -> str:
-        self.events.append(event)
-        self.relations.append(list(relation_candidates or []))
-        return event.event_id
+    async def on_sensor_output(self, *args, **kwargs):
+        return None
 
 
 class _FakePluginManager:
@@ -130,7 +123,7 @@ def _build_sensor_registry() -> SensorRegistry:
         SensorSpec(
             sensor_id="timeline.pull_history",
             display_name="Pull History",
-            description="Pull-capable timeline sensor",
+            description="Pull-capable sensor",
             domain="timeline",
             surface="timeline",
             sync_mode="interval",
@@ -149,9 +142,9 @@ def _build_sensor_registry() -> SensorRegistry:
 
 
 @pytest.mark.asyncio
-async def test_timeline_schedule_registration_module_registers_handler_and_syncs_schedules(monkeypatch, tmp_path) -> None:
-    from magi.scheduler.contracts import ScheduledTargetType, build_timeline_schedule_id
-    from magi.timeline.lifecycle import TimelineScheduleRegistrationModule
+async def test_sensor_schedule_registration_module_registers_handler_and_syncs_schedules(monkeypatch, tmp_path) -> None:
+    from magi.awareness.lifecycle import SensorScheduleRegistrationModule
+    from magi.scheduler.contracts import ScheduledTargetType, build_sensor_schedule_id
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
@@ -160,30 +153,26 @@ async def test_timeline_schedule_registration_module_registers_handler_and_syncs
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.memory.unified_memory = _FakeUnifiedMemory()
-    monkeypatch.setattr(
-        "magi.timeline.lifecycle.get_config",
-        lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),
-    )
 
-    module = TimelineScheduleRegistrationModule(context)
+    module = SensorScheduleRegistrationModule(context)
     await module.init()
 
     registrations = context.scheduler.scheduler_service.registrations
     assert len(registrations) == 1
-    assert registrations[0][0] == ScheduledTargetType.TIMELINE_SENSOR_SYNC
-    assert context.scheduler.scheduler_service.interval_calls[0]["schedule_id"] == build_timeline_schedule_id(
+    assert registrations[0][0] == ScheduledTargetType.SENSOR_SYNC
+    assert context.scheduler.scheduler_service.interval_calls[0]["schedule_id"] == build_sensor_schedule_id(
         "pull-plugin",
         "pull_history",
     )
-    assert context.timeline.timeline_scheduler_contrib is not None
+    assert context.agent_runtime.sensor_scheduler_contrib is not None
 
     await module.shutdown()
-    assert context.timeline.timeline_scheduler_contrib is None
+    assert context.agent_runtime.sensor_scheduler_contrib is None
 
 
 @pytest.mark.asyncio
-async def test_timeline_schedule_registration_module_supports_manual_sync(monkeypatch, tmp_path) -> None:
-    from magi.timeline.lifecycle import TimelineScheduleRegistrationModule
+async def test_sensor_schedule_registration_module_supports_manual_sync(tmp_path) -> None:
+    from magi.awareness.lifecycle import SensorScheduleRegistrationModule
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
@@ -192,17 +181,13 @@ async def test_timeline_schedule_registration_module_supports_manual_sync(monkey
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.memory.unified_memory = _FakeUnifiedMemory()
-    monkeypatch.setattr(
-        "magi.timeline.lifecycle.get_config",
-        lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),
-    )
 
-    module = TimelineScheduleRegistrationModule(context)
+    module = SensorScheduleRegistrationModule(context)
     await module.init()
 
     schedule = await module.queue_manual_sync("pull_history")
 
-    assert schedule.schedule_id.startswith("timeline-sync-manual:pull-plugin:pull_history:")
+    assert schedule.schedule_id.startswith("sensor-sync-manual:pull-plugin:pull_history:")
     assert context.scheduler.scheduler_service.once_calls[0]["run_at"] <= time.time() + 1.0
 
     await module.shutdown()

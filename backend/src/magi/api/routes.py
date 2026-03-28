@@ -72,9 +72,11 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "timeline": {
         "/viewport": {"GET"},
         "/context/{anchor_id}": {"GET"},
-        "/sources/status": {"GET"},
-        "/sources/{source_name}/sync": {"POST"},
-        "/sources/{source_name}/authorize": {"POST"},
+    },
+    "sensors": {
+        "/status": {"GET"},
+        "/{source_name}/sync": {"POST"},
+        "/{source_name}/authorize": {"POST"},
     },
     "plugins": {
         "": {"GET"},
@@ -129,6 +131,7 @@ def register_api_routes(app: FastAPI) -> None:
         personality_config_router,
         personality_presets_router,
         skills_router,
+        sensors_router,
         timeline_router,
         plugins_router,
     )
@@ -176,6 +179,11 @@ def register_api_routes(app: FastAPI) -> None:
     app.include_router(
         _build_public_router(skills_router, _PUBLIC_ROUTE_METHODS["skills"]),
         tags=["Skills"],
+    )
+    app.include_router(
+        _build_public_router(sensors_router, _PUBLIC_ROUTE_METHODS["sensors"]),
+        prefix="/api/sensors",
+        tags=["Sensors"],
     )
     app.include_router(
         _build_public_router(timeline_router, _PUBLIC_ROUTE_METHODS["timeline"]),

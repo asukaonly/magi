@@ -60,6 +60,14 @@ class SensorRegistry:
                 return self._plugin_ownership.get(sensor_id, ""), sensor_id, sensor, spec
         return None
 
+    def resolve_source_sensor(self, source_type: str) -> tuple[str, str, Any, SensorSpec] | None:
+        for sensor_id, sensor in self._sensors.items():
+            spec = self._specs[sensor_id]
+            candidate = str(spec.metadata.get("source_type") or getattr(sensor, "source_type", ""))
+            if candidate == source_type:
+                return self._plugin_ownership.get(sensor_id, ""), sensor_id, sensor, spec
+        return None
+
     def list_contributions(self, plugin_id: Optional[str] = None) -> list[PluginContribution]:
         contributions: list[PluginContribution] = []
         for sensor_id, spec in self._specs.items():

@@ -131,8 +131,8 @@ class _FakeSchedulerRepository:
         assert enabled_only is True
         return [
             ScheduleDefinition(
-                schedule_id="timeline-sync:core:history",
-                target_type=ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+                schedule_id="sensor-sync:core:history",
+                target_type=ScheduledTargetType.SENSOR_SYNC,
                 target_key="core:history",
                 trigger=TriggerDefinition(TriggerType.INTERVAL, {"seconds": 60}),
                 target_payload={},
@@ -150,7 +150,7 @@ class _FakeSchedulerService:
         target_type: ScheduledTargetType,
         target_key: str,
     ) -> ScheduledTargetState:
-        assert target_type is ScheduledTargetType.TIMELINE_SENSOR_SYNC
+        assert target_type is ScheduledTargetType.SENSOR_SYNC
         assert target_key == "core:history"
         return ScheduledTargetState(
             target_type=target_type,

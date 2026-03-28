@@ -328,7 +328,7 @@ They are intentionally separated from runtime orchestration, but they still use 
 
 - message bus
 - scheduler service
-- timeline scheduler contributor
+- sensor scheduler contributor
 - plugin manager
 - other memory
 - user message sensor
@@ -343,7 +343,7 @@ Current rule:
 
 The scheduler runtime currently supports three target families:
 
-- `timeline_sensor_sync`
+- `sensor_sync`
 - `agent_task`
 - `action_dispatch`
 
@@ -351,7 +351,7 @@ The scheduler engine lives in `scheduler/service.py`. Layer-owned schedule regis
 
 - `AgentScheduleRegistrationModule`
 - `ActionScheduleRegistrationModule`
-- `TimelineScheduleRegistrationModule`
+- `SensorScheduleRegistrationModule`
 
 This keeps scheduling policy with the owning layers instead of centralizing it in one runtime module.
 
@@ -391,11 +391,11 @@ Two rules matter here:
 
 Pull-capable timeline sensors participate in the runtime like this:
 
-1. the scheduler fires a `timeline_sensor_sync` target
+1. the scheduler fires a `sensor_sync` target
 2. the target handler resolves the sensor from `SensorRegistry`
 3. the sensor collects source items
-4. those items are normalized through timeline contracts
-5. `TimelineService` writes normalized events and triggers downstream memory processing
+4. those items are normalized through sensor output and memory contracts
+5. downstream consumers such as `TimelineAdapter` project the ingested outputs into timeline read models
 
 This is how plugin-backed local sources participate in timeline ingestion without each source inventing its own background loop.
 

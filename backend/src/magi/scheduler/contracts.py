@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 class ScheduledTargetType(str, Enum):
     """Supported scheduler target families."""
 
-    TIMELINE_SENSOR_SYNC = "timeline_sensor_sync"
+    SENSOR_SYNC = "sensor_sync"
     AGENT_TASK = "agent_task"
     ACTION_DISPATCH = "action_dispatch"
 
@@ -115,14 +115,13 @@ class ScheduleContributor(Protocol):
         ...
 
 
-# --- Timeline schedule helpers ---
+# --- Sensor schedule helpers ---
 
-def build_timeline_target_key(plugin_id: str, source_type: str) -> str:
-    """Build stable scheduler target key for a timeline source."""
+def build_sensor_target_key(plugin_id: str, source_type: str) -> str:
+    """Build stable scheduler target key for a sensor source."""
     return f"{plugin_id}:{source_type}"
 
 
-def build_timeline_schedule_id(plugin_id: str, source_type: str) -> str:
-    """Build stable recurring schedule id for a timeline source."""
-    return f"timeline-sync:{plugin_id}:{source_type}"
-
+def build_sensor_schedule_id(plugin_id: str, source_type: str) -> str:
+    """Build stable recurring schedule id for a sensor source."""
+    return f"sensor-sync:{plugin_id}:{source_type}"

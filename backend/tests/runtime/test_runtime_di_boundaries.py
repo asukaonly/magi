@@ -27,7 +27,7 @@ def test_events_service_access_has_no_global_fallback() -> None:
 
 
 def test_timeline_and_llm_runtime_do_not_keep_module_level_singletons() -> None:
-    timeline_contrib = (BACKEND_SRC / "timeline/scheduler_contrib.py").read_text(encoding="utf-8")
+    sensor_contrib = (BACKEND_SRC / "awareness/scheduler_contrib.py").read_text(encoding="utf-8")
     timeline_lifecycle = (BACKEND_SRC / "timeline/lifecycle.py").read_text(encoding="utf-8")
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     usage_events = (BACKEND_SRC / "llm/usage_events.py").read_text(encoding="utf-8")
@@ -35,11 +35,11 @@ def test_timeline_and_llm_runtime_do_not_keep_module_level_singletons() -> None:
     provider_bridge = (BACKEND_SRC / "llm/provider_bridge.py").read_text(encoding="utf-8")
     scheduler_service = (BACKEND_SRC / "scheduler/service.py").read_text(encoding="utf-8")
 
-    assert "_timeline_contrib" not in timeline_contrib
-    assert "def get_timeline_scheduler_contrib" not in timeline_contrib
-    assert "def set_timeline_scheduler_contrib" not in timeline_contrib
-    assert "set_timeline_scheduler_contrib" not in timeline_lifecycle
-    assert "get_timeline_scheduler_contrib" not in timeline_router
+    assert "_sensor_contrib" not in sensor_contrib
+    assert "def get_sensor_scheduler_contrib" not in sensor_contrib
+    assert "def set_sensor_scheduler_contrib" not in sensor_contrib
+    assert "set_sensor_scheduler_contrib" not in timeline_lifecycle
+    assert "get_sensor_scheduler_contrib" not in timeline_router
     assert "_message_bus: MessageBusBackend | None = None" not in usage_events
     assert "configure_llm_usage_event_publisher" not in usage_events
     assert "configure_llm_usage_event_publisher" not in memory_lifecycle

@@ -144,9 +144,9 @@ Sensors are registered into `SensorRegistry` with:
 - `SensorSpec`
 - owning `plugin_id`
 
-The most important current consumer is timeline ingestion.
+The most important current consumers are the generic sensor status/scheduler flow and downstream timeline ingestion.
 
-Timeline no longer owns a fixed list of built-in sources in the settings surface or status API. It resolves timeline-capable sensors from `SensorRegistry`.
+Timeline no longer owns the settings surface or operational status API for sensors. The host resolves sensor sources from `SensorRegistry`, while timeline remains a downstream read model that consumes ingested sensor outputs.
 
 Builtin timeline sensor packages that should be configurable in Settings are expected to stay plugin-enabled even when their own source-level `enabled` switch is off. In other words, package activation controls whether the plugin participates in runtime discovery, while source activation controls whether the sensor actually syncs.
 
@@ -388,9 +388,9 @@ The plugin runtime directly affects timeline behavior.
 
 Current rules:
 
-- timeline source definitions are derived from `SensorRegistry`
-- only sensors declaring `metadata.domain == "timeline"` are treated as timeline sources
-- the timeline settings page renders source cards from plugin metadata rather than a fixed frontend enum
+- timeline event projections are derived from ingested sensor outputs
+- sensor definitions and sensor settings cards are derived from `SensorRegistry`
+- sensors may still declare `domain="timeline"` when their outputs should participate in timeline-oriented downstream projections
 - per-source settings are persisted through plugin package settings instead of `config.timeline.sources`
 
 Global timeline switches still remain in the root config because they control timeline behavior at the domain level rather than at one plugin contribution.

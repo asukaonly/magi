@@ -84,16 +84,16 @@ async def test_runtime_command_queue_enqueues_and_claims_llm_refresh(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_queue_enqueues_and_claims_timeline_source_sync(tmp_path: Path) -> None:
-    from magi.events.contracts import RuntimeCommandType, TimelineSourceSyncCommand
+async def test_runtime_command_queue_enqueues_and_claims_sensor_sync(tmp_path: Path) -> None:
+    from magi.events.contracts import RuntimeCommandType, SensorSyncCommand
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
 
     try:
-        queued_command_id = await queue.enqueue_timeline_source_sync(
-            TimelineSourceSyncCommand(
+        queued_command_id = await queue.enqueue_sensor_sync(
+            SensorSyncCommand(
                 source="api",
                 source_name="calendar",
             )
@@ -101,12 +101,12 @@ async def test_runtime_command_queue_enqueues_and_claims_timeline_source_sync(tm
 
         claimed = await queue.claim_next(
             consumer_name="runtime-worker",
-            command_types=(RuntimeCommandType.TIMELINE_SOURCE_SYNC,),
+            command_types=(RuntimeCommandType.SENSOR_SYNC,),
         )
 
         assert claimed is not None
         assert claimed.command_id == queued_command_id
-        assert claimed.command_type is RuntimeCommandType.TIMELINE_SOURCE_SYNC
+        assert claimed.command_type is RuntimeCommandType.SENSOR_SYNC
         assert claimed.payload["source_name"] == "calendar"
 
         await queue.ack(claimed.command_id)

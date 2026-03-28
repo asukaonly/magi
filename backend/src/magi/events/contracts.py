@@ -15,7 +15,7 @@ class RuntimeCommandType(str, Enum):
 
     USER_MESSAGE = "user_message"
     REFRESH_LLM_CONFIG = "refresh_llm_config"
-    TIMELINE_SOURCE_SYNC = "timeline_source_sync"
+    SENSOR_SYNC = "sensor_sync"
 
 
 @dataclass(slots=True)
@@ -52,8 +52,8 @@ class RefreshLLMConfigCommand:
 
 
 @dataclass(slots=True)
-class TimelineSourceSyncCommand:
-    """Persisted command payload for queueing a timeline source sync on the runtime worker."""
+class SensorSyncCommand:
+    """Persisted command payload for queueing a sensor sync on the runtime worker."""
 
     source: str
     source_name: str
@@ -82,9 +82,9 @@ class RuntimeQueuedCommand:
         """Convert the queued payload into a typed config-refresh command."""
         return RefreshLLMConfigCommand(**self.payload)
 
-    def as_timeline_source_sync(self) -> TimelineSourceSyncCommand:
-        """Convert the queued payload into a typed timeline-source-sync command."""
-        return TimelineSourceSyncCommand(**self.payload)
+    def as_sensor_sync(self) -> SensorSyncCommand:
+        """Convert the queued payload into a typed sensor-sync command."""
+        return SensorSyncCommand(**self.payload)
 
 
 @dataclass(slots=True)

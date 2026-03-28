@@ -1,4 +1,4 @@
-import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
+import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 
 type TimelineTranslateFn = (key: string) => string;
 
@@ -20,12 +20,12 @@ const resolveSourceTranslation = (
   || resolveTranslation(t, `settings.tabs.${sourceName}`);
 
 const shouldUsePluginCopy = (
-  source: Pick<TimelineSourceStatusItem, 'source_name' | 'plugin_id'>
+  source: Pick<SensorSourceStatusItem, 'source_name' | 'plugin_id'>
 ): boolean => normalizeIdentity(source.source_name) === normalizeIdentity(source.plugin_id);
 
 export const getTimelineSourceDisplayName = (
   t: TimelineTranslateFn,
-  source: Pick<TimelineSourceStatusItem, 'source_name' | 'plugin_id' | 'display_name'>
+  source: Pick<SensorSourceStatusItem, 'source_name' | 'plugin_id' | 'display_name'>
 ): string =>
   resolveSourceTranslation(t, source.source_name)
   || (shouldUsePluginCopy(source) ? resolveTranslation(t, `settings.plugins.${source.plugin_id}.name`) : null)
@@ -34,7 +34,7 @@ export const getTimelineSourceDisplayName = (
 
 export const getTimelineSourceDescription = (
   t: TimelineTranslateFn,
-  source: Pick<TimelineSourceStatusItem, 'source_name' | 'plugin_id' | 'description'>
+  source: Pick<SensorSourceStatusItem, 'source_name' | 'plugin_id' | 'description'>
 ): string =>
   resolveTranslation(t, `settings.timeline.sourceDesc.${source.source_name}`)
   || (shouldUsePluginCopy(source) ? resolveTranslation(t, `settings.plugins.${source.plugin_id}.description`) : null)

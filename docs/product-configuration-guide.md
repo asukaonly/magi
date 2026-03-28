@@ -21,7 +21,7 @@ Magi currently exposes these major configuration areas:
 - memory system
 - tool management
 - plugin and extension management
-- timeline source management
+- sensor source management
 - outbound action management
 - settings page structure
 
@@ -314,7 +314,7 @@ Expected product behavior:
 - manual sync should enqueue a one-shot scheduler job for the selected source
 - interval sync should register a recurring schedule when the source is enabled
 - watch mode may be offered as a source capability, but a source without native watch support may fall back to interval semantics
-- timeline source status may expose scheduler-backed state such as last sync, next run, and last error
+- sensor source status may expose scheduler-backed state such as last sync, next run, and last error
 
 ## Timeline Review Surface
 

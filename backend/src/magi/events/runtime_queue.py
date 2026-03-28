@@ -14,7 +14,7 @@ from .contracts import (
     RefreshLLMConfigCommand,
     RuntimeCommandType,
     RuntimeQueuedCommand,
-    TimelineSourceSyncCommand,
+    SensorSyncCommand,
     UserMessageCommand,
 )
 
@@ -57,9 +57,9 @@ class SQLiteRuntimeCommandQueue:
             created_at=command.created_at,
         )
 
-    async def enqueue_timeline_source_sync(self, command: TimelineSourceSyncCommand) -> int:
+    async def enqueue_sensor_sync(self, command: SensorSyncCommand) -> int:
         return await self._enqueue_command(
-            command_type=RuntimeCommandType.TIMELINE_SOURCE_SYNC,
+            command_type=RuntimeCommandType.SENSOR_SYNC,
             payload=command.to_payload(),
             correlation_id=command.correlation_id,
             created_at=command.created_at,

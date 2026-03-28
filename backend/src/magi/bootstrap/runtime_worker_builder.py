@@ -8,7 +8,11 @@ from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule
 
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
-from ..awareness.lifecycle import SensorsAndActionsModule, ActionScheduleRegistrationModule
+from ..awareness.lifecycle import (
+    SensorsAndActionsModule,
+    ActionScheduleRegistrationModule,
+    SensorScheduleRegistrationModule,
+)
 from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
@@ -25,7 +29,7 @@ from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
 from ..scheduler.lifecycle import SchedulerModule
 from ..skills.lifecycle import SkillsModule
-from ..timeline.lifecycle import TimelineModule, TimelineScheduleRegistrationModule
+from ..timeline.lifecycle import TimelineModule
 from ..tools.lifecycle import ToolsModule
 
 from .api_builder import _build_runtime_trace_module
@@ -56,7 +60,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         SchedulerModule(context),
         AgentScheduleRegistrationModule(context),
         ActionScheduleRegistrationModule(context),
-        TimelineScheduleRegistrationModule(context),
+        SensorScheduleRegistrationModule(context),
         RuntimeExportsModule(context),
         OtherDependenciesModule(context),
     ]

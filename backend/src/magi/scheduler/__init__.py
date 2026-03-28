@@ -8,8 +8,8 @@ from .contracts import (
     ScheduledTargetType,
     TriggerDefinition,
     TriggerType,
-    build_timeline_schedule_id,
-    build_timeline_target_key,
+    build_sensor_schedule_id,
+    build_sensor_target_key,
 )
 from .repository import ScheduleRepository
 from .service import SchedulerService
@@ -24,6 +24,6 @@ __all__ = [
     "SchedulerService",
     "TriggerDefinition",
     "TriggerType",
-    "build_timeline_schedule_id",
-    "build_timeline_target_key",
+    "build_sensor_schedule_id",
+    "build_sensor_target_key",
 ]

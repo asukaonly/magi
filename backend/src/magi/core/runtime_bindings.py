@@ -66,9 +66,9 @@ def require_scheduler_service():
     return _require_binding("scheduler_service")
 
 
-def require_timeline_scheduler_contrib():
-    """Return the active timeline scheduler contributor binding."""
-    return _require_binding("timeline_scheduler_contrib")
+def require_sensor_scheduler_contrib():
+    """Return the active sensor scheduler contributor binding."""
+    return _require_binding("sensor_scheduler_contrib")
 
 
 def require_other_memory():

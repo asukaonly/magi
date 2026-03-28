@@ -58,14 +58,19 @@ export type { SkillItem } from './modules/skills';
 export { memoryApi } from './modules/memory';
 export type { ModelDownloadStatus } from './modules/memory';
 
+export { sensorsApi } from './modules/sensors';
+export type {
+  SensorSourceAuthorizationResponse,
+  SensorSourceStatusItem,
+  SensorSourceStatusResponse,
+} from './modules/sensors';
+
 export { timelineApi } from './modules/timeline';
 export type {
   TimelineClusterBlock,
   TimelineContextBundle,
   TimelineRawEvent,
   TimelineReflectionWindow,
-  TimelineSourceStatusItem,
-  TimelineSourceStatusResponse,
   TimelineStateBand,
   TimelineStateMarker,
   TimelineViewportResponse,

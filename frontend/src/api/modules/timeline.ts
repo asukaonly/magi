@@ -1,5 +1,4 @@
 import { api } from '../client';
-import type { ActivationFlowSpec, ExtensionFieldSpec, PluginSettingsUiBlockSpec } from './plugins';
 
 export interface TimelineStateBand {
   band_id: string;
@@ -102,49 +101,6 @@ export interface TimelineContextBundle {
   runtime_trace: Array<Record<string, unknown>>;
 }
 
-export interface TimelineSourceStatusItem {
-  source_name: string;
-  plugin_id: string;
-  contribution_id: string;
-  display_name: string;
-  description: string;
-  fields: ExtensionFieldSpec[];
-  current_settings: Record<string, any>;
-  enabled: boolean;
-  sync_mode: string;
-  sync_interval_minutes: number;
-  storage_mode: string;
-  source_path?: string | null;
-  fetch_page_content: boolean;
-  edge_whitelist: string[];
-  supports_pull_sync: boolean;
-  activation_flow?: ActivationFlowSpec | null;
-  settings_ui_blocks?: PluginSettingsUiBlockSpec[];
-  activation_required?: boolean;
-  running?: boolean;
-  last_run_at?: number | string | null;
-  last_result_count?: number;
-  last_raw_result_count?: number;
-  last_error?: string | null;
-  last_success?: string | null;
-  last_sync_at?: number | string | null;
-  next_run_at?: number | string | null;
-  scheduler_job_id?: string | null;
-  runtime_base_dir?: string | null;
-}
-
-export interface TimelineSourceStatusResponse {
-  sources: TimelineSourceStatusItem[];
-}
-
-export interface TimelineSourceAuthorizationResponse {
-  authorized: boolean;
-  requested_types: string[];
-  granted_types: string[];
-  denied_types: string[];
-  message?: string | null;
-}
-
 export const timelineApi = {
   getViewport: async (options: {
     scale: 'month' | 'week' | 'day' | 'hour';
@@ -170,26 +126,5 @@ export const timelineApi = {
   getContext: async (anchorId: string): Promise<TimelineContextBundle> => {
     const response = await api.get<TimelineContextBundle>(`/timeline/context/${anchorId}`);
     return (response.data || response) as TimelineContextBundle;
-  },
-
-  getSourceStatus: async (): Promise<TimelineSourceStatusResponse> => {
-    const response = await api.get<TimelineSourceStatusResponse>('/timeline/sources/status');
-    return (response.data || response) as TimelineSourceStatusResponse;
-  },
-
-  requestSync: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
-    const response = await api.post<{ queued: boolean; source_name: string }>(`/timeline/sources/${sourceName}/sync`, {});
-    return (response.data || response) as { queued: boolean; source_name: string };
-  },
-
-  requestAuthorization: async (
-    sourceName: string,
-    fieldValues: Record<string, any>
-  ): Promise<TimelineSourceAuthorizationResponse> => {
-    const response = await api.post<TimelineSourceAuthorizationResponse>(
-      `/timeline/sources/${sourceName}/authorize`,
-      { field_values: fieldValues }
-    );
-    return (response.data || response) as TimelineSourceAuthorizationResponse;
   },
 };

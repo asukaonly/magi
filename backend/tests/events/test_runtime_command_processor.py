@@ -9,7 +9,7 @@ import pytest
 
 from magi.awareness.sensor_hub import SensorHub
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.events.contracts import RefreshLLMConfigCommand, TimelineSourceSyncCommand, UserMessageCommand
+from magi.events.contracts import RefreshLLMConfigCommand, SensorSyncCommand, UserMessageCommand
 from magi.events.events import EventTypes
 from magi.events.lifecycle import RuntimeCommandProcessorModule
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
@@ -200,12 +200,12 @@ async def test_runtime_command_processor_stops_claiming_commands_while_draining(
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_processor_queues_timeline_source_sync(tmp_path: Path) -> None:
+async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_sqlite_message_bus(tmp_path / "message_queue.db")
 
-    class _FakeTimelineSchedulerContrib:
+    class _FakeSensorSchedulerContrib:
         def __init__(self) -> None:
             self.queued_sources: list[str] = []
 
@@ -213,20 +213,20 @@ async def test_runtime_command_processor_queues_timeline_source_sync(tmp_path: P
             self.queued_sources.append(source_name)
             return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
 
-    timeline_scheduler = _FakeTimelineSchedulerContrib()
+    sensor_scheduler = _FakeSensorSchedulerContrib()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
     context.message_bus.message_bus = message_bus
     context.agent_runtime.agent_runtime = object()
-    context.timeline.timeline_scheduler_contrib = timeline_scheduler
+    context.agent_runtime.sensor_scheduler_contrib = sensor_scheduler
 
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
     await processor.init()
 
     try:
-        await queue.enqueue_timeline_source_sync(
-            TimelineSourceSyncCommand(
+        await queue.enqueue_sensor_sync(
+            SensorSyncCommand(
                 source="api",
                 source_name="calendar",
             )
@@ -240,7 +240,7 @@ async def test_runtime_command_processor_queues_timeline_source_sync(tmp_path: P
 
         stats = await queue.get_stats()
         assert stats["completed_count"] == 1
-        assert timeline_scheduler.queued_sources == ["calendar"]
+        assert sensor_scheduler.queued_sources == ["calendar"]
     finally:
         await processor.shutdown()
         await message_bus.stop()

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from ..plugins import ActionRegistry, PluginManager, SensorRegistry
     from ..personality.other_memory import OtherMemory
     from ..runtime_trace import RuntimeTraceStore
-    from ..timeline.scheduler_contrib import TimelineSchedulerContrib
+    from ..awareness.scheduler_contrib import SensorSchedulerContrib
 
 
 def _create_chat_read_service():
@@ -68,7 +68,7 @@ class Container(containers.DeclarativeContainer):
     unified_memory: providers.Singleton[UnifiedMemoryStore] = providers.Singleton(object)
     hybrid_retrieval_service: providers.Singleton[HybridRetrievalService] = providers.Singleton(object)
     scheduler_service: providers.Singleton[SchedulerService] = providers.Singleton(object)
-    timeline_scheduler_contrib: providers.Singleton[TimelineSchedulerContrib] = providers.Singleton(object)
+    sensor_scheduler_contrib: providers.Singleton[SensorSchedulerContrib] = providers.Singleton(object)
     scenario_llm_pool: providers.Singleton[ScenarioLLMPool] = providers.Singleton(object)
     other_memory: providers.Singleton[OtherMemory] = providers.Singleton(object)
     plugin_manager: providers.Singleton[PluginManager] = providers.Singleton(object)

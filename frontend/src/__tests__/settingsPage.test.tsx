@@ -7,7 +7,7 @@ import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
 import { SettingsPage } from '@/pages/Settings';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { pluginsApi } from '@/api/modules/plugins';
-import { timelineApi } from '@/api/modules/timeline';
+import { sensorsApi } from '@/api/modules/sensors';
 import { toolsApi } from '@/api/modules/tools';
 
 const { syncCloseToTrayPreferenceMock, pickDirectoryMock, llmFormAutoChangeRef } = vi.hoisted(() => ({
@@ -130,9 +130,9 @@ vi.mock('@/api/modules/config', async () => {
   };
 });
 
-vi.mock('@/api/modules/timeline', () => ({
-  timelineApi: {
-    getSourceStatus: vi.fn(),
+vi.mock('@/api/modules/sensors', () => ({
+  sensorsApi: {
+    getStatus: vi.fn(),
     requestSync: vi.fn(),
     requestAuthorization: vi.fn(),
   },
@@ -531,14 +531,14 @@ describe('settings page draft saving', () => {
       success: true,
       data: structuredClone(nextConfig),
     }) as any);
-    vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
       sources: [chromeTimelineSourceFixture, timelineSourceFixture],
     } as any);
-    vi.mocked(timelineApi.requestSync).mockResolvedValue({
+    vi.mocked(sensorsApi.requestSync).mockResolvedValue({
       queued: true,
       source_name: 'photo_library',
     } as any);
-    vi.mocked(timelineApi.requestAuthorization).mockResolvedValue({
+    vi.mocked(sensorsApi.requestAuthorization).mockResolvedValue({
       authorized: true,
       granted_types: ['steps'],
       denied_types: [],
@@ -1000,7 +1000,7 @@ describe('settings page draft saving', () => {
 
   it('keeps timeline nav items alphabetized after overview', async () => {
     const user = userEvent.setup();
-    vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...timelineSourceFixture,
@@ -1107,7 +1107,7 @@ describe('settings page draft saving', () => {
 
   it('renders translated chrome history fields without the chrome data path control', async () => {
     const user = userEvent.setup();
-    vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...chromeTimelineSourceFixture,

@@ -78,7 +78,7 @@ const overviewFixture = {
     upcoming_target_count: 3,
     recent_targets: [
       {
-        target_type: 'timeline_sensor_sync',
+        target_type: 'sensor_sync',
         target_key: 'core:history',
         running: true,
         last_error: null,

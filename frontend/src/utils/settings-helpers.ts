@@ -5,7 +5,7 @@
 import i18n from '@/i18n';
 import type { LanguageCode } from '@/api/modules/config';
 import { buildPluginFieldValueMap, type PluginPackageState } from '@/api/modules/plugins';
-import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
+import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 import type { ToolConfig } from '@/api/modules/tools';
 import type { PluginDraftMap, ToolDraftMap } from '@/types/settings';
 import { LANGUAGE_STORAGE_KEY } from '@/constants/settings';
@@ -60,8 +60,8 @@ export const buildPluginDraftSnapshotFromPackages = (
     ])
   );
 
-export const buildPluginDraftSnapshotFromTimeline = (
-  statuses: TimelineSourceStatusItem[]
+export const buildPluginDraftSnapshotFromSensors = (
+  statuses: SensorSourceStatusItem[]
 ): PluginDraftMap =>
   statuses.reduce<PluginDraftMap>((acc, source) => {
     const current = acc[source.plugin_id] || {};

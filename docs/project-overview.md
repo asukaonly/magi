@@ -86,7 +86,7 @@ Discovery, enablement, and settings metadata are owned by the plugin runtime; ex
 
 `SchedulerService` is the local persistent scheduler for business-facing runtime work such as:
 
-- timeline source sync
+- sensor sync
 - agent task dispatch
 - outbound action dispatch
 

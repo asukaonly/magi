@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig, type LanguageCode } from '@/api/modules/config';
 import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
-import { timelineApi, type TimelineSourceStatusItem } from '@/api/modules/timeline';
+import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
 import { useThemeStore, type ThemeMode } from '@/stores/theme';
 import { syncCloseToTrayPreference } from '@/runtime/desktop';
 import type {
@@ -22,7 +22,7 @@ import type {
 } from '@/types/settings';
 import {
   buildPluginDraftSnapshotFromPackages,
-  buildPluginDraftSnapshotFromTimeline,
+  buildPluginDraftSnapshotFromSensors,
   buildToolDraftSnapshot,
   diffFlatMaps,
   mergeDraftMaps,
@@ -87,7 +87,7 @@ export interface UseSettingsReturn {
   handleToolEnabledChange: (toolName: string, enabled: boolean) => void;
 
   // Timeline
-  timelineStatuses: TimelineSourceStatusItem[];
+  timelineStatuses: SensorSourceStatusItem[];
   timelineStatusesLoading: boolean;
   timelineSelection: string | null;
   setTimelineSelection: React.Dispatch<React.SetStateAction<string | null>>;
@@ -138,7 +138,7 @@ export function useSettings(): UseSettingsReturn {
   });
 
   // Timeline state
-  const [timelineStatuses, setTimelineStatuses] = useState<TimelineSourceStatusItem[]>([]);
+  const [timelineStatuses, setTimelineStatuses] = useState<SensorSourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
 
@@ -248,9 +248,9 @@ export function useSettings(): UseSettingsReturn {
   const fetchTimelineStatuses = useCallback(async () => {
     setTimelineStatusesLoading(true);
     try {
-      const response = await timelineApi.getSourceStatus();
+      const response = await sensorsApi.getStatus();
       const nextStatuses = response.sources || [];
-      const nextSnapshot = buildPluginDraftSnapshotFromTimeline(nextStatuses);
+      const nextSnapshot = buildPluginDraftSnapshotFromSensors(nextStatuses);
       setTimelineStatuses(nextStatuses);
       setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
       setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));

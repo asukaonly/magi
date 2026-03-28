@@ -23,11 +23,11 @@ if TYPE_CHECKING:
     from ..personality.self_memory import SelfMemory
     from ..personality.other_memory import OtherMemory
     from ..context.scenario_prompts import ScenarioPromptsStore
+    from ..awareness.scheduler_contrib import SensorSchedulerContrib
     from ..awareness.sensor_hub import SensorHub
     from ..agent.runtime import AgentRuntime, TaskAgentManager
     from ..awareness.action_emitter import ActionEmitter
     from ..timeline.service import TimelineService
-    from ..timeline.scheduler_contrib import TimelineSchedulerContrib
     from ..scheduler import SchedulerService
     from ..runtime_trace import RuntimeTraceStore
 
@@ -141,6 +141,7 @@ class AgentRuntimeBootstrapState:
 
     sensor_hub: SensorHub | None = None
     action_emitter: ActionEmitter | None = None
+    sensor_scheduler_contrib: SensorSchedulerContrib | None = None
     agent_runtime: AgentRuntime | None = None
     task_agent_manager: TaskAgentManager | None = None
 
@@ -150,7 +151,6 @@ class TimelineBootstrapState:
     """L12 Timeline Domain state slice."""
 
     timeline_service: TimelineService | None = None
-    timeline_scheduler_contrib: TimelineSchedulerContrib | None = None
 
 
 @dataclass

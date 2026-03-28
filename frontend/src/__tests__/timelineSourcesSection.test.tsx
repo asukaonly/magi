@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { TimelineSourcesSection } from '@/components/settings/TimelineSourcesSection';
 import { pluginsApi } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
-import type { TimelineSourceStatusItem } from '@/api/modules/timeline';
+import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 
 const translationMap: Record<string, string> = {
   'settings.timeline.sources.photo_library': '照片库',
@@ -43,7 +43,7 @@ vi.mock('@/api/modules/plugins', async () => {
   };
 });
 
-const timelineSourceFixture: TimelineSourceStatusItem = {
+const timelineSourceFixture: SensorSourceStatusItem = {
   source_name: 'photo_library',
   plugin_id: 'photo-library',
   contribution_id: 'timeline.photo_library',
@@ -360,7 +360,7 @@ describe('TimelineSourcesSection', () => {
                 depends_on_values: ['true'],
               },
             ],
-          } as TimelineSourceStatusItem,
+          } as SensorSourceStatusItem,
         ]}
         loadingStatus={false}
         selectedSourceName="calendar"

@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from ..config import get_config, save_config
 from ..config.models import PluginSettings
-from ..timeline.scheduler_contrib import request_timeline_schedule_refresh
+from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from .actions import ActionRegistry, BaseAction, build_action_tool_class
 from .base import Plugin
@@ -154,7 +154,7 @@ class PluginManager:
             self.unload_plugin(plugin_id)
         self.scan(persist_discovery=persist_discovery)
         self.activate_enabled_plugins()
-        request_timeline_schedule_refresh()
+        request_sensor_schedule_refresh()
         return self.list_packages()
 
     def list_packages(self) -> list[PluginPackageState]:
@@ -242,7 +242,7 @@ class PluginManager:
             state.last_error = None
             state.contributions = registered_contributions
             self._plugin_instances[plugin_id] = plugin_instance
-            request_timeline_schedule_refresh()
+            request_sensor_schedule_refresh()
             return state
         except Exception as exc:
             state.loaded = False
@@ -267,7 +267,7 @@ class PluginManager:
         if state is not None:
             state.loaded = False
             state.contributions = self._placeholder_contributions(state.manifest)
-        request_timeline_schedule_refresh()
+        request_sensor_schedule_refresh()
 
     def enable_plugin(self, plugin_id: str) -> PluginPackageState:
         """Persist enable/trust state and load the plugin."""
@@ -283,7 +283,7 @@ class PluginManager:
         )
         self.scan(persist_discovery=False)
         state = self.load_plugin(plugin_id)
-        request_timeline_schedule_refresh()
+        request_sensor_schedule_refresh()
         return state
 
     def disable_plugin(self, plugin_id: str) -> PluginPackageState:
@@ -294,7 +294,7 @@ class PluginManager:
         save_config({f"plugins.packages.{plugin_id}.enabled": False})
         self.scan(persist_discovery=False)
         state = self._require_package(plugin_id)
-        request_timeline_schedule_refresh()
+        request_sensor_schedule_refresh()
         return state
 
     def reload_plugin(self, plugin_id: str) -> PluginPackageState:
@@ -304,7 +304,7 @@ class PluginManager:
         self.unload_plugin(plugin_id)
         if state.enabled:
             state = self.load_plugin(plugin_id)
-        request_timeline_schedule_refresh()
+        request_sensor_schedule_refresh()
         return state
 
     def update_plugin_settings(self, plugin_id: str, updates: dict[str, Any]) -> PluginPackageState:
@@ -321,7 +321,7 @@ class PluginManager:
         state = self._require_package(plugin_id)
         if state.enabled:
             state = self.reload_plugin(plugin_id)
-        request_timeline_schedule_refresh()
+        request_sensor_schedule_refresh()
         return state
 
     def read_plugin_settings_resource(self, plugin_id: str, resource_name: str) -> PluginSettingsResourcePayload:

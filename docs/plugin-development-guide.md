@@ -188,11 +188,11 @@ class ExamplePlugin(Plugin):
 Guidelines:
 
 - use `domain="timeline"` when you want the sensor to appear as a timeline source
-- set `metadata.source_type` because timeline routing uses it
+- set `metadata.source_type` because sensor routing and scheduling use it
 - provide a `default_settings` object when the contribution needs stable defaults
 - store settings under a stable subtree such as `sensors.<source_name>.*`
 - keep the sensor contribution visible when the source-level `enabled` setting is false; disabled sources should stay configurable in Settings, with runtime sync gated by the saved setting instead of disappearing from discovery
-- when first enablement needs an OS permission prompt, expose an `activation_flow` and set `authorize_on_confirm=True`; the host will call the timeline source authorization endpoint before flipping the source to enabled
+- when first enablement needs an OS permission prompt, expose an `activation_flow` and set `authorize_on_confirm=True`; the host will call the sensor authorization endpoint before flipping the source to enabled
 
 ## Action Plugins
 
