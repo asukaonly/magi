@@ -66,6 +66,8 @@ def resolve_extraction_profile(
 
 def _default_profile_id_for_event(event: MemoryEvent) -> str:
     source = (event.source or "").strip().lower()
+    if source == "chrome_history":
+        return "timeline.chrome_history"
     if source in {"timeline", "calendar"}:
         return "timeline.calendar"
     return "chat.user_message"

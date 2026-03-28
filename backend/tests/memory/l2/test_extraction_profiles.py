@@ -54,3 +54,16 @@ def test_calendar_source_uses_calendar_profile_restrictions():
     assert profile.profile_id == "timeline.calendar"
     assert profile.allow_graph is True
     assert profile.allow_assertion is False
+
+
+def test_chrome_history_source_uses_chrome_history_profile_restrictions():
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+
+    profile = resolve_extraction_profile(
+        _make_event(source="chrome_history", content="Visited GitHub repository page")
+    )
+
+    assert profile.profile_id == "timeline.chrome_history"
+    assert profile.allowed_entity_types == frozenset({"product"})
+    assert profile.allowed_predicates == frozenset({"VISITED"})
+    assert profile.allow_assertion is False

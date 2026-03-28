@@ -204,7 +204,14 @@ class L2Pipeline:
             self._stats.extract_skipped += 1
             return False
 
-        bucket_key = build_l2_batch_bucket_key(session_id=event.session_id, user_id=event.user_id)
+        owner_key = None
+        if isinstance(event.metadata_json, dict):
+            owner_key = event.metadata_json.get("l2_batch_owner")
+        bucket_key = build_l2_batch_bucket_key(
+            session_id=event.session_id,
+            user_id=event.user_id,
+            owner_key=str(owner_key) if owner_key is not None else None,
+        )
         if bucket_key is None:
             await self._enqueue_extract_job(
                 L2BatchJob(
@@ -223,7 +230,11 @@ class L2Pipeline:
         async with self._staging_lock:
             bucket = self._staging_buckets.get(bucket_key)
             if bucket is None:
-                bucket = L2PendingBatchBucket.for_owner(session_id=event.session_id, user_id=event.user_id)
+                bucket = L2PendingBatchBucket.for_owner(
+                    session_id=event.session_id,
+                    user_id=event.user_id,
+                    owner_key=str(owner_key) if owner_key is not None else None,
+                )
                 self._staging_buckets[bucket_key] = bucket
             bucket.add_event(
                 self._serialize_event_for_batch(event),

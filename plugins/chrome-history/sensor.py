@@ -54,6 +54,10 @@ class ChromeHistoryTimelineSensor(SensorBase):
             ]
         )
 
+    def l2_batch_owner(self, output: SensorOutput) -> str | None:
+        profile = str(output.provenance.get("profile") or self.profile or "").strip()
+        return f"{self.source_type}:{profile or 'default'}"
+
     async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
         sensor_settings = (
             context.plugin_settings.get("sensors", {}).get(self.source_type, {})

@@ -128,6 +128,9 @@ class SensorIngestionGateway:
                 content = block_text
 
         metadata_json = dict(output.domain_payload) if output.domain_payload else {}
+        l2_batch_owner = sensor.l2_batch_owner(output)
+        if l2_batch_owner:
+            metadata_json["l2_batch_owner"] = str(l2_batch_owner)
         metadata_json["timeline"] = timeline_event.to_dict()
         if timeline_event.raw_payload_ref:
             metadata_json["raw_payload_ref"] = timeline_event.raw_payload_ref

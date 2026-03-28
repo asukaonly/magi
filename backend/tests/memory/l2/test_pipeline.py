@@ -631,6 +631,27 @@ async def test_enqueue_event_without_session_or_user_uses_direct_fallback_job():
 
 
 @pytest.mark.asyncio
+async def test_enqueue_event_uses_explicit_l2_batch_owner_without_session_or_user():
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
+        try:
+            event = _make_memory_event(event_id="evt-stage-4b", session_id=None, user_id=None)
+            event.metadata_json = {"l2_batch_owner": "chrome_history:Default"}
+
+            await pipeline.enqueue_event(event)
+
+            assert "owner:chrome_history:Default" in pipeline._staging_buckets
+            assert pipeline._extract_queue.qsize() == 0
+            stats = pipeline.get_statistics()
+            assert stats["extract_enqueued"] == 0
+            assert stats["pending_staged_event_count"] == 1
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
     from magi.memory.l2.models import L2PendingBatchBucket
     from magi.memory.l2.pipeline import L2Pipeline

@@ -44,6 +44,11 @@ class _FakeSensor(SensorBase):
         )
 
 
+class _FakeBatchingSensor(_FakeSensor):
+    def l2_batch_owner(self, output: SensorOutput) -> str | None:
+        return f"{output.source_type}:default"
+
+
 def _make_output(**overrides: Any) -> SensorOutput:
     defaults = dict(
         source_type="fake_source",
@@ -256,3 +261,18 @@ class TestSensorIngestionGateway:
             "provenance": {},
         }
         assert call_args.metadata_json["processing_status"] == {"stored": True, "analyzed": False}
+
+    @pytest.mark.asyncio
+    async def test_ingest_adds_sensor_l2_batch_owner_to_memory_metadata(self):
+        memory = MagicMock()
+        memory.ingest_event = AsyncMock()
+        gateway = SensorIngestionGateway(unified_memory=memory)
+        sensor = _FakeBatchingSensor()
+        output = _make_output()
+
+        await gateway.ingest(sensor, output)
+
+        call_args = memory.ingest_event.call_args[0][0]
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.metadata_json is not None
+        assert call_args.metadata_json["l2_batch_owner"] == "fake_source:default"

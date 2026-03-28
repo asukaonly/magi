@@ -23,13 +23,21 @@ def _optional_text(value: str | None) -> str | None:
     return text or None
 
 
-def build_l2_batch_bucket_key(*, session_id: str | None, user_id: str | None) -> str | None:
+def build_l2_batch_bucket_key(
+    *,
+    session_id: str | None,
+    user_id: str | None,
+    owner_key: str | None = None,
+) -> str | None:
     normalized_session_id = _optional_text(session_id)
     if normalized_session_id is not None:
         return f"session:{normalized_session_id}"
     normalized_user_id = _optional_text(user_id)
     if normalized_user_id is not None:
         return f"user:{normalized_user_id}"
+    normalized_owner_key = _optional_text(owner_key)
+    if normalized_owner_key is not None:
+        return f"owner:{normalized_owner_key}"
     return None
 
 
@@ -805,10 +813,20 @@ class L2PendingBatchBucket:
             self.last_event_at = float(self.last_event_at or enqueued_at)
 
     @classmethod
-    def for_owner(cls, *, session_id: str | None = None, user_id: str | None = None) -> "L2PendingBatchBucket":
-        bucket_key = build_l2_batch_bucket_key(session_id=session_id, user_id=user_id)
+    def for_owner(
+        cls,
+        *,
+        session_id: str | None = None,
+        user_id: str | None = None,
+        owner_key: str | None = None,
+    ) -> "L2PendingBatchBucket":
+        bucket_key = build_l2_batch_bucket_key(
+            session_id=session_id,
+            user_id=user_id,
+            owner_key=owner_key,
+        )
         if bucket_key is None:
-            raise ValueError("session_id or user_id is required")
+            raise ValueError("session_id, user_id, or owner_key is required")
         return cls(bucket_key=bucket_key, session_id=session_id, user_id=user_id)
 
     def add_event(self, event: dict[str, Any], *, estimated_tokens: int, queued_at: float | None = None) -> None:

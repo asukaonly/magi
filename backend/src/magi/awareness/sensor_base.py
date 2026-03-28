@@ -188,6 +188,11 @@ class SensorBase(ABC):
         """Optional pre-processing/enrichment before build_output."""
         return dict(item)
 
+    def l2_batch_owner(self, output: SensorOutput) -> str | None:
+        """Return an optional stable L2 microbatch owner key for sensor events."""
+        _ = output
+        return None
+
     # ------------------------------------------------------------------
     # Convenience builder
     # ------------------------------------------------------------------
