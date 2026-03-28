@@ -113,7 +113,6 @@ export interface TimelineSourceStatusItem {
   enabled: boolean;
   sync_mode: string;
   sync_interval_minutes: number;
-  default_retention_mode: string;
   storage_mode: string;
   source_path?: string | null;
   fetch_page_content: boolean;

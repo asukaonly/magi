@@ -69,7 +69,6 @@ const timelineSourceFixture: TimelineSourceStatusItem = {
   enabled: true,
   sync_mode: 'interval',
   sync_interval_minutes: 60,
-  default_retention_mode: 'retain_raw',
   storage_mode: 'external_reference',
   fetch_page_content: false,
   edge_whitelist: ['CAPTURED', 'RELATED_TO'],

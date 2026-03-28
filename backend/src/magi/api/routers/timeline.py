@@ -197,13 +197,6 @@ async def get_timeline_source_status():
                         item.metadata.get("default_settings", {}).get("sync_interval_minutes", 1),
                     )
                 ),
-                "default_retention_mode": str(
-                    _get_nested_value(
-                        current_settings,
-                        f"sensors.{source_name}.default_retention_mode",
-                        item.metadata.get("default_settings", {}).get("default_retention_mode", "analyze_only"),
-                    )
-                ),
                 "storage_mode": str(
                     _get_nested_value(
                         current_settings,
