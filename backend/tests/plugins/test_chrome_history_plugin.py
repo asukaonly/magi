@@ -365,7 +365,8 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     assert [item["visit_id"] for item in incremental.items] == ["102", "103"]
 
     output = await sensor.build_output(result.items[1])
-    assert f"{output.source_type}:{output.source_item_id}" == "chrome_history:102"
+    assert output.source_type == "chrome_history"
+    assert output.source_item_id == "102"
     assert "chrome_history" in output.tags
     assert "github.com" in output.tags
     assert output.provenance["browser"] == "chrome"
@@ -439,7 +440,8 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
     assert mermaid_item["canonical_url"] == "https://mermaid.live/edit"
 
     mermaid_output = await sensor.build_output(mermaid_item)
-    assert f"{mermaid_output.source_type}:{mermaid_output.source_item_id}" == "chrome_history:201-203"
+    assert mermaid_output.source_type == "chrome_history"
+    assert mermaid_output.source_item_id == "201-203"
     assert mermaid_output.summary.endswith("(3 visits)")
     assert mermaid_output.provenance["merged_visit_count"] == 3
     assert mermaid_output.provenance["canonical_url"] == "https://mermaid.live/edit"

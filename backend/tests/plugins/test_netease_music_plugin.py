@@ -469,8 +469,8 @@ async def test_build_output():
     output = await sensor.build_output(item)
 
     # Check output properties
-    assert f"{output.source_type}:{output.source_item_id}" == "netease_music:netease_123_1641000000"
     assert output.source_type == "netease_music"
+    assert output.source_item_id == "netease_123_1641000000"
     assert output.title == "Test Song - Test Artist"
     assert output.summary == "播放了 Test Song (30秒)"
     assert output.occurred_at == 1641000000
