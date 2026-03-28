@@ -33,9 +33,8 @@ class ScreenTimeTimelineSensor(SensorBase):
         content_type="observation",
     )
 
-    def __init__(self, *, retention_mode: str | None = None, state_store: ScreenTimeStateStore | None = None):
+    def __init__(self, *, state_store: ScreenTimeStateStore | None = None):
         super().__init__()
-        self.retention_mode = retention_mode or "analyze_only"
         self._state_store = state_store or ScreenTimeStateStore()
 
     def _now(self) -> datetime:
@@ -101,7 +100,7 @@ class ScreenTimeTimelineSensor(SensorBase):
                 "app_name": app_name,
             },
             domain_payload={
-                "retention_mode": self.retention_mode,
+                "retention_mode": "analyze_only",
                 "bucket_start": bucket_start.isoformat(),
                 "bucket_end": bucket_end.isoformat(),
                 "bundle_id": bundle_id,

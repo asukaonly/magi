@@ -842,7 +842,7 @@
         "chat": "Use chat turns as direct evidence for preferences, relationships, and recurring concerns.",
         "manual_journal": "Let the user add notes and image references that are saved to memory and shown on the timeline.",
         "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained.",
-        "screen_time": "Sample the current frontmost app and roll it up into hourly local usage events.",
+        "screen_time": "Track frontmost-app activation events and roll them up into hourly local usage events.",
         "terminal_history": "Monitor terminal command history from zsh and bash shells.",
         "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations."
       },
@@ -1080,17 +1080,26 @@
       },
       "screen-time": {
         "name": "App Usage",
-        "description": "Sample the current frontmost app and aggregate it hourly for the timeline",
+        "description": "Track frontmost-app activation events and aggregate them hourly for the timeline",
+        "fields": {
+          "enabled": {
+            "label": "Enable App Usage Sync",
+            "description": "Track frontmost-app activation events and write hourly summaries to memory."
+          },
+          "sync_interval_minutes": {
+            "label": "Flush Interval",
+            "description": "How often to flush completed hourly app-usage buckets into memory."
+          }
+        },
         "options": {
           "sync_interval_minutes": {
             "1": "Every 1 minute",
             "5": "Every 5 minutes",
             "15": "Every 15 minutes",
             "60": "Every 60 minutes"
-          },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" }
+          }
         },
-        "sections": { "general": "General", "sync": "Sync", "retention": "Retention" }
+        "sections": { "general": "General", "sync": "Sync" }
       },
       "terminal-history": {
         "name": "Terminal History",

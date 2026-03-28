@@ -842,7 +842,7 @@
         "chat": "把对话轮次作为偏好、关系和持续关注点的直接证据。",
         "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。",
         "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。",
-        "screen_time": "按采样记录当前前台应用，并按小时汇总成本地使用事件。",
+        "screen_time": "基于前台应用激活事件记录使用情况，并按小时汇总成本地使用事件。",
         "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
         "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
       },
@@ -1075,17 +1075,26 @@
       },
       "screen-time": {
         "name": "应用使用情况",
-        "description": "采样当前前台应用并按小时汇总到时间线",
+        "description": "基于前台应用激活事件记录使用情况，并按小时汇总到时间线",
+        "fields": {
+          "enabled": {
+            "label": "启用应用使用同步",
+            "description": "跟踪前台应用激活事件，并把按小时汇总的结果写入记忆。"
+          },
+          "sync_interval_minutes": {
+            "label": "刷新间隔",
+            "description": "已完成的小时应用使用桶，多久刷新一次并写入记忆。"
+          }
+        },
         "options": {
           "sync_interval_minutes": {
             "1": "每 1 分钟",
             "5": "每 5 分钟",
             "15": "每 15 分钟",
             "60": "每 60 分钟"
-          },
-          "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" }
+          }
         },
-        "sections": { "general": "常规", "sync": "同步", "retention": "保留策略" }
+        "sections": { "general": "常规", "sync": "同步" }
       },
       "terminal-history": {
         "name": "终端历史",

@@ -329,7 +329,6 @@ class ConfigLoader:
                     "screen_time": {
                         "enabled": False,
                         "sync_interval_minutes": 5,
-                        "default_retention_mode": "analyze_only",
                     }
                 }
             },

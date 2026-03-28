@@ -245,7 +245,6 @@ def test_sensor_build_output() -> None:
 def test_default_settings() -> None:
     assert "enabled" in DEFAULT_SETTINGS
     assert "sync_interval_minutes" in DEFAULT_SETTINGS
-    assert "default_retention_mode" in DEFAULT_SETTINGS
 
     assert DEFAULT_SETTINGS["enabled"] is False
     assert DEFAULT_SETTINGS["sync_interval_minutes"] == 5
@@ -283,4 +282,5 @@ def test_plugin_get_sensors_exposes_hourly_usage_source() -> None:
         assert sensor_id == "timeline.screen_time"
         assert sensor.memory_event_type == "APP_USAGE_HOURLY"
         assert sensor_spec.metadata["default_settings"]["sync_interval_minutes"] == 5
+        assert "default_retention_mode" not in sensor_spec.metadata["default_settings"]
         assert sensor_spec.metadata["source_type"] == "screen_time"

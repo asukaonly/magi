@@ -12,7 +12,6 @@ from .sensor import ScreenTimeTimelineSensor
 DEFAULT_SETTINGS = {
     "enabled": False,
     "sync_interval_minutes": 5,
-    "default_retention_mode": "analyze_only",
 }
 
 
@@ -45,20 +44,6 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             surface="timeline",
             order=20,
         ),
-        ExtensionFieldSpec(
-            key=f"{prefix}.default_retention_mode",
-            type="select",
-            label="Retention Mode",
-            description="How app usage summaries should be retained.",
-            default="analyze_only",
-            options=[
-                ExtensionFieldOption(label="Analyze Only", value="analyze_only"),
-                ExtensionFieldOption(label="Full Retention", value="full"),
-            ],
-            section="retention",
-            surface="timeline",
-            order=30,
-        ),
     ]
 
 
@@ -86,9 +71,7 @@ class ScreenTimePlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("screen_time", {}))
 
-        sensor = ScreenTimeTimelineSensor(
-            retention_mode=str(settings.get("default_retention_mode", DEFAULT_SETTINGS["default_retention_mode"])),
-        )
+        sensor = ScreenTimeTimelineSensor()
         sync_interval_minutes = int(settings.get("sync_interval_minutes", DEFAULT_SETTINGS["sync_interval_minutes"]))
 
         return [
