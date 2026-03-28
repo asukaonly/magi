@@ -1226,7 +1226,11 @@ class L1EventStore:
         return {
             "event_id": str(event["event_id"]),
             "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
-            "source_item_id": timeline.get("source_item_id") or event.get("source_item_id"),
+            "source_item_id": (
+                timeline.get("source_item_id")
+                or event.get("source_item_id")
+                or event.get("idempotency_key")
+            ),
             "occurred_at": float(event.get("timestamp") or event.get("created_at") or 0.0),
             "title": str(timeline.get("title") or event.get("content") or event.get("event_id") or "Event"),
             "summary": str(timeline.get("summary") or event.get("content") or ""),
