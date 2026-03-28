@@ -74,6 +74,7 @@ class ChatProjector:
                 "user_id": user_id,
                 "session_id": session_id,
                 "turn_id": turn_id,
+                "source_item_id": message_id,
                 "author_type": "user" if event_type == EventTypes.USER_MESSAGE else "assistant",
                 "content_type": "text",
             },
@@ -86,5 +87,5 @@ class ChatProjector:
                 "chat_projection": True,
             },
         )
-        memory_event = normalize_runtime_event(event, event_id=f"chat_{message_id}")
+        memory_event = normalize_runtime_event(event, idempotency_key=message_id)
         await self._unified_memory.ingest_event(memory_event)

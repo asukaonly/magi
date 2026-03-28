@@ -64,11 +64,14 @@ async def test_backfill_chat_store_from_legacy_l1_is_idempotent(tmp_path: Path) 
             );
 
             CREATE TABLE fact_events (
-                event_id TEXT PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL UNIQUE,
                 event_type TEXT NOT NULL,
                 session_id TEXT,
                 turn_id TEXT,
                 user_id TEXT,
+                source_item_id TEXT,
+                idempotency_key TEXT,
                 content TEXT,
                 timestamp REAL NOT NULL,
                 deleted_at REAL
@@ -104,13 +107,13 @@ async def test_backfill_chat_store_from_legacy_l1_is_idempotent(tmp_path: Path) 
         conn.executemany(
             """
             INSERT INTO fact_events (
-                event_id, event_type, session_id, turn_id, user_id, content, timestamp, deleted_at
+                event_id, event_type, session_id, turn_id, user_id, source_item_id, idempotency_key, content, timestamp, deleted_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                ("evt-1", "UserMessage", "session-1", "turn-1", "user-1", "Legacy question", 1.0, None),
-                ("evt-2", "AIResponse", "session-1", "turn-1", "user-1", "Legacy answer", 2.0, None),
+                ("evt-z-user", "UserMessage", "session-1", "turn-1", "user-1", "msg-user-1", "msg-user-1", "Legacy question", 1.0, None),
+                ("evt-a-assistant", "AIResponse", "session-1", "turn-1", "user-1", "msg-assistant-1", "msg-assistant-1", "Legacy answer", 1.0, None),
             ],
         )
         conn.commit()
@@ -144,6 +147,6 @@ async def test_backfill_chat_store_from_legacy_l1_is_idempotent(tmp_path: Path) 
     assert migrated_session == ("Legacy Chat", 2)
     assert migrated_turns == [("turn-1", "completed", "final_only")]
     assert migrated_messages == [
-        ("evt-1", "user_text", "Legacy question"),
-        ("evt-2", "assistant_final", "Legacy answer"),
+        ("msg-user-1", "user_text", "Legacy question"),
+        ("msg-assistant-1", "assistant_final", "Legacy answer"),
     ]

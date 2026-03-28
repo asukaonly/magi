@@ -651,7 +651,7 @@ class UnifiedMemoryStore:
             return normalize_runtime_event(event)
 
         payload = dict(event)
-        if str(payload.get("source", "")) == "calendar" or str(payload.get("event_id", "")).startswith("calendar:"):
+        if str(payload.get("source", "")) == "calendar":
             logger.warning(
                 "Calendar memory normalization fell back to dict path | "
                 "payload_keys=%s payload_event_id=%s payload_type=%s payload_source=%s",

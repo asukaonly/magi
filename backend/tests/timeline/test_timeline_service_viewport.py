@@ -187,3 +187,38 @@ async def test_timeline_service_reads_timeline_projection_from_metadata_json() -
     assert viewport["raw_events"][0]["title"] == "Interview (09:00-10:00)"
     assert viewport["raw_events"][0]["summary"] == "Interview"
     assert viewport["raw_events"][0]["source_type"] == "calendar"
+
+
+async def test_timeline_service_uses_idempotency_key_as_source_item_fallback() -> None:
+    class _IdempotencyFallbackL1Store(_FakeL1Store):
+        async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.last_query = kwargs
+            return [
+                {
+                    "event_id": "evt-4",
+                    "idempotency_key": "calendar_event:42",
+                    "timestamp": 100.0,
+                    "source": "calendar",
+                    "content": "Interview",
+                    "metadata_json": {
+                        "timeline": {
+                            "title": "Interview (09:00-10:00)",
+                            "summary": "Interview",
+                            "source_type": "calendar",
+                        }
+                    },
+                }
+            ]
+
+    service = TimelineService(
+        SimpleNamespace(
+            l1=_IdempotencyFallbackL1Store(),
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+        )
+    )
+
+    viewport = await service.get_viewport(scale="hour", start=0.0, end=200.0, focus="self")
+
+    assert viewport["raw_events"][0]["source_item_id"] == "calendar_event:42"

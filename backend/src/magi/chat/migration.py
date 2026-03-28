@@ -59,13 +59,13 @@ async def backfill_chat_store_from_legacy(*, chat_store: ChatStore, legacy_l1_db
 
         cursor = await db.execute(
             """
-            SELECT event_id, event_type, session_id, turn_id, user_id, content, timestamp
+            SELECT id, event_id, event_type, session_id, turn_id, user_id, source_item_id, idempotency_key, content, timestamp
             FROM fact_events
             WHERE deleted_at IS NULL
               AND event_type IN ('UserMessage', 'AIResponse')
               AND session_id IS NOT NULL
               AND user_id IS NOT NULL
-            ORDER BY timestamp ASC, event_id ASC
+            ORDER BY timestamp ASC, id ASC
             """
         )
         rows = await cursor.fetchall()
@@ -100,9 +100,10 @@ async def backfill_chat_store_from_legacy(*, chat_store: ChatStore, legacy_l1_db
         event_type = str(row["event_type"])
         message_kind = "user_text" if event_type in LEGACY_USER_EVENT_TYPES else "assistant_final"
         role = "user" if event_type in LEGACY_USER_EVENT_TYPES else "assistant"
+        message_id = str(row["idempotency_key"] or row["source_item_id"] or row["event_id"])
         await chat_store.append_message(
             ChatMessageRecord(
-                message_id=str(row["event_id"]),
+                message_id=message_id,
                 session_id=session_id,
                 turn_id=turn_id or None,
                 user_id=user_id,

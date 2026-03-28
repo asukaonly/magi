@@ -93,7 +93,12 @@ class TimelineService:
         return {
             "event_id": str(event["event_id"]),
             "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
-            "source_item_id": str(timeline.get("source_item_id") or event.get("source_item_id") or event["event_id"]),
+            "source_item_id": str(
+                timeline.get("source_item_id")
+                or event.get("source_item_id")
+                or event.get("idempotency_key")
+                or ""
+            ),
             "occurred_at": occurred_at,
             "captured_at": float(event.get("created_at") or occurred_at),
             "title": str(timeline.get("title") or event.get("event_type") or "Memory Event"),

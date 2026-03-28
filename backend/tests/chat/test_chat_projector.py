@@ -45,7 +45,12 @@ async def test_chat_projector_emits_canonical_user_and_assistant_memory_events()
     )
 
     assert [event.event_type for event in memory.events] == ["UserMessage", "AIResponse"]
-    assert memory.events[0].event_id == "chat_msg-user-1"
-    assert memory.events[1].event_id == "chat_msg-assistant-1"
+    assert memory.events[0].event_id.startswith("evt_")
+    assert memory.events[1].event_id.startswith("evt_")
+    assert memory.events[0].event_id != memory.events[1].event_id
+    assert memory.events[0].source_item_id == "msg-user-1"
+    assert memory.events[1].source_item_id == "msg-assistant-1"
+    assert memory.events[0].idempotency_key == "msg-user-1"
+    assert memory.events[1].idempotency_key == "msg-assistant-1"
     assert memory.events[0].content == "hello"
     assert memory.events[1].content == "world"

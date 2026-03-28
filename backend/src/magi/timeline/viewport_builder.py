@@ -144,6 +144,12 @@ class TimelineViewportBuilder:
             "title": str(timeline.get("title") or event.get("event_type") or event.get("event_id") or "Event"),
             "summary": str(timeline.get("summary") or event.get("content") or ""),
             "source_type": str(timeline.get("source_type") or event.get("source") or "memory"),
+            "source_item_id": str(
+                timeline.get("source_item_id")
+                or event.get("source_item_id")
+                or event.get("idempotency_key")
+                or ""
+            ),
         }
 
     def _filter_events(
