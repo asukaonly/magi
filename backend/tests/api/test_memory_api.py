@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from magi.api.routes import register_api_routes
 from magi.api.routers.memory import memory_router
 from magi.memory.event_contracts import (
     IngestTarget,
@@ -2040,6 +2041,27 @@ def test_memory_clear_api_clears_all_layers(monkeypatch):
     assert body["results"]["l2"]["count"] == 10
     assert body["results"]["l3"]["count"] == 2
     assert body["results"]["l4"]["count"] == 1
+    assert body["results"]["chat_context"]["count"] == 4
+
+
+def test_registered_memory_clear_api_is_public(monkeypatch):
+    app = FastAPI()
+    register_api_routes(app)
+
+    class _FakeChatReadService:
+        def clear_all_sessions(self) -> int:
+            return 4
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())
+
+    client = TestClient(app)
+    response = client.delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["results"]["l1"]["count"] == 12
     assert body["results"]["chat_context"]["count"] == 4
 
 

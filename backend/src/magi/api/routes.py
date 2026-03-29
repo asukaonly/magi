@@ -17,6 +17,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l0/sessions": {"GET"},
         "/l0/workbench/{session_id}": {"GET"},
         "/l1/events": {"GET"},
+        "/clear": {"DELETE"},
         "/identity/links": {"GET"},
         "/l2/statistics": {"GET"},
         "/l2/relations": {"GET"},
