@@ -194,17 +194,74 @@ Guidelines:
 - keep the sensor contribution visible when the source-level `enabled` setting is false; disabled sources should stay configurable in Settings, with runtime sync gated by the saved setting instead of disappearing from discovery
 - when first enablement needs an OS permission prompt, expose an `activation_flow` and set `authorize_on_confirm=True`; the host will call the sensor authorization endpoint before flipping the source to enabled
 
-Useful `SensorBase` hooks for memory routing:
+### SensorBase Hooks
 
-- `source_item_identity(item)`: producer-side stable item identity
-- `idempotency_key(output)`: business-level idempotency key written to `L1`
-- `l2_batch_policy(output)`: optional advisory `L2BatchPolicy` describing:
-  - `owner`: stable owner key used by `L2` durable microbatch grouping
+Sensors inheriting `SensorBase` have access to the following hooks that control memory routing and L2 cognition behavior:
+
+**Core contract:**
+
+- `build_output(item)`: convert a source item into a domain-neutral `SensorOutput` (required)
+- `extract_metadata(item)`: extract `SensorOutputMetadata` containing entity hints, tags, and relation candidates
+- `collect_items(context)`: pull-sync entry point; returns `SensorSyncResult` with items, cursor, and stats
+- `fetch_item(item)`: optional pre-processing/enrichment before `build_output`
+
+**Dedup helpers:**
+
+- `source_item_identity(item)`: producer-side stable item identity for dedup
+- `source_item_version_fingerprint(item)`: content fingerprint to detect changes in already-seen items
+- `idempotency_key(output)`: business-level idempotency key written to L1
+
+**L2 cognition hooks:**
+
+- `l2_batch_policy(output)`: return an `L2BatchPolicy` describing batching preferences:
+  - `owner`: stable owner key for durable microbatch grouping (e.g., `chrome_history:Default:github.com`)
   - `max_events`: preferred full-batch size for this source
   - `max_estimated_tokens`: optional token cap for one execution batch
-  - `max_wait_seconds`: how long an underfilled durable owner bucket may wait before it becomes ready
+  - `max_wait_seconds`: how long an underfilled bucket may wait before it becomes ready
 
-`L2` remains the final owner of batching policy. Plugins may suggest a tighter bucket key or preferred batch shape for their own source, but the runtime still decides when an owner bucket is ready, how much work to claim under backpressure, and when a forced manual flush may bypass waiting.
+L2 remains the final owner of batching policy. Plugins suggest a tighter bucket key or preferred batch shape, but the runtime decides when a bucket is ready, how much work to claim under backpressure, and when a forced flush may bypass waiting.
+
+### Entity Hints and Relation Candidates
+
+`extract_metadata()` returns `SensorOutputMetadata` with three fields:
+
+- `entities`: structured entity hints (list of dicts with `mention_text`, `entity_type`, `canonical_name_hint`)
+- `tags`: classification tags for the event
+- `relation_candidates`: rule-based graph edge candidates (e.g., `user:self VIEWED site:github.com`)
+
+Entity hints are injected into the L2 Phase 1 LLM prompt as **context anchors** — they help the LLM resolve entities to consistent canonical names. Hints are NOT automatically materialized into the entity catalog; only entities that the LLM independently confirms in Phase 1 output are persisted.
+
+Relation candidates are persisted as rule-based graph edges without LLM involvement.
+
+### L2 Extraction Profiles
+
+Each event source is mapped to an `ExtractionProfile` that controls L2 cognition behavior. Profiles define:
+
+- `allowed_entity_types`: which entity types LLM may create (e.g., `software`, `media`, `person`)
+- `allowed_predicates`: which predicates LLM may use (e.g., `USES`, `INTERESTED_IN`, `VIEWED`)
+- `allowed_assertion_families`: which ToM assertion families are permitted (empty disables assertions)
+- `allow_graph` / `allow_assertion`: master switches for graph and assertion writing
+- `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt
+
+The extraction instructions are the primary mechanism for plugins to guide LLM behavior. They tell the LLM how to interpret source-specific content patterns, which entities to extract vs. skip, and how to choose predicates.
+
+Example (Chrome history):
+
+```python
+extraction_instructions=(
+    "These events are browser history page titles, NOT user-authored messages.\n"
+    "Predicate guidance:\n"
+    "- USES: for tool/platform usage (GitHub, ChatGPT)\n"
+    "- INTERESTED_IN: for repeatedly browsed topics\n"
+    "- VIEWED: for individual content consumption\n"
+    "Entity rules:\n"
+    "- Be SELECTIVE: only extract entities that reveal user interests or tool usage\n"
+    "- MERGE related content: multiple pages about the same topic → one entity\n"
+    "- SKIP noise: error messages, email addresses, UI element names\n"
+)
+```
+
+Profiles are currently registered in `extraction_profiles.py`. New source types fall back to the unrestricted `chat.user_message` default profile.
 
 ## Action Plugins
 
@@ -380,7 +437,7 @@ Useful existing references:
 Use these as the primary templates:
 
 - [core-tools plugin](/Users/asuka/code/magi/plugins/core-tools/plugin.py)
-- [photo-library plugin](/Users/asuka/code/magi/plugins/photo-library/plugin.py)
+- [chrome-history plugin](/Users/asuka/code/magi/plugins/chrome-history/) — full sensor with entity hints, L2 batch policy, and extraction metadata
 - [core-actions plugin](/Users/asuka/code/magi/plugins/core-actions/plugin.py)
 
 ## Common Mistakes
@@ -391,6 +448,8 @@ Use these as the primary templates:
 - exposing timeline sensors without `metadata.source_type`
 - trying to ship plugin-owned frontend code instead of field metadata
 - assuming new external plugins auto-enable after discovery
+- returning entity hints with types not in the source's `ExtractionProfile.allowed_entity_types`
+- using full page titles as canonical entity names instead of concise subject names
 
 ## Related Documents
 

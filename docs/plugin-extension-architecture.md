@@ -67,7 +67,7 @@ A plugin package is a directory containing:
 Official built-in examples live in:
 
 - [core-tools](/Users/asuka/code/magi/plugins/core-tools/plugin.py)
-- [photo-library](/Users/asuka/code/magi/plugins/photo-library/plugin.py)
+- [chrome-history](/Users/asuka/code/magi/plugins/chrome-history/) — full-featured sensor with entity hints, batch policies, and metadata extraction
 - [core-actions](/Users/asuka/code/magi/plugins/core-actions/plugin.py)
 
 ## Manifest Contract
@@ -165,6 +165,109 @@ An action may optionally declare a tool adapter name, which lets the plugin runt
 The contracts live in:
 
 - [actions.py](/Users/asuka/code/magi/backend/src/magi/plugins/actions.py)
+
+## Sensor Memory Integration
+
+### Data Flow
+
+Sensor outputs flow through the memory system via the following chain:
+
+```
+SensorBase.build_output(item)     → SensorOutput (content, provenance)
+SensorBase.extract_metadata(item) → SensorOutputMetadata (entity hints, tags, relations)
+IngestionGateway.ingest()         → MemoryEvent with metadata_json
+L1 EventStore                     → persisted fact event
+L2 Pipeline                       → cognition (graph, entities, assertions)
+```
+
+### SensorOutput
+
+`SensorOutput` is the domain-neutral output produced by all sensors:
+
+- `source_type` / `source_item_id`: identity
+- `title` / `summary` / `content_blocks`: content for display and L2 processing
+- `tags` / `entities`: classification
+- `provenance`: source-specific metadata (sensor_id, domain, visit_id, etc.)
+- `domain_payload`: extra structured data for downstream consumers
+
+### SensorOutputMetadata
+
+`SensorOutputMetadata` is extracted separately from the raw source item and carries:
+
+- `entities`: structured entity hints (list of dicts with `mention_text`, `entity_type`, `canonical_name_hint`)
+- `tags`: classification tags
+- `relation_candidates`: rule-based graph edge candidates
+
+Entity hints are passed through the ingestion gateway as `structured_entity_hints` in `MemoryEvent.metadata_json`. In the L2 pipeline, these hints are injected into the Phase 1 LLM prompt as **context anchors** — they help the LLM resolve entities to consistent canonical names and types, but are NOT automatically materialized into the entity catalog. Only entities that the LLM independently extracts in Phase 1 output become persisted entities.
+
+Relation candidates are persisted as rule-based graph edges (with `extraction_method="rule"`) without LLM involvement.
+
+### L2 Batch Policy
+
+Sensors can influence L2 microbatch grouping by returning an `L2BatchPolicy` from `l2_batch_policy(output)`:
+
+```python
+@dataclass(slots=True)
+class L2BatchPolicy:
+    owner: str | None = None
+    max_events: int | None = None
+    max_estimated_tokens: int | None = None
+    max_wait_seconds: int | None = None
+```
+
+- `owner`: stable key for durable microbatch grouping. Chrome history uses `chrome_history:{profile}:{domain}` to batch by site rather than mixing all browsing into one bucket.
+- `max_events`: preferred batch size for this source (e.g., Chrome uses 20 instead of the global default 12).
+- `max_estimated_tokens`: optional token cap per execution batch.
+- `max_wait_seconds`: how long an underfilled bucket may wait before it becomes ready.
+
+These values are advisory. L2 remains the final owner of batching decisions: it decides when a bucket is ready, how much work to claim under backpressure, and when a forced flush may bypass waiting.
+
+The ingestion gateway propagates these hints into `MemoryEvent.metadata_json` as `l2_batch_owner`, `l2_batch_max_events`, `l2_batch_max_estimated_tokens`, and `l2_batch_max_wait_seconds`. The L2 pipeline reads them back to create appropriately scoped `L2PendingBatchBucket` instances.
+
+### Extraction Profiles
+
+Each event source is mapped to an `ExtractionProfile` that controls what the L2 LLM is allowed to produce:
+
+```python
+@dataclass(slots=True, frozen=True)
+class ExtractionProfile:
+    profile_id: str
+    allowed_entity_types: frozenset[str]
+    allowed_predicates: frozenset[str]
+    allowed_assertion_families: frozenset[str]
+    entity_type_aliases: dict[str, str]
+    predicate_aliases: dict[str, str]
+    subject_policy: DefaultSubjectPolicy
+    allow_graph: bool
+    allow_assertion: bool
+    extraction_instructions: str | None
+```
+
+Key fields:
+
+- `allowed_entity_types`: LLM-extracted entities with types outside this set are filtered out before catalog registration.
+- `allowed_predicates`: LLM-extracted graph edges with predicates outside this set are dropped.
+- `allow_assertion`: master switch for Theory of Mind assertion generation (disabled for Chrome history since browsing history does not reveal psychological states reliably).
+- `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section. This is the primary mechanism for plugins to customize LLM extraction behavior per source type.
+
+Profile mapping uses `source_type` from the event. New source types fall back to the unrestricted `chat.user_message` default profile.
+
+Current registered profiles include:
+
+- `chat.user_message` — unrestricted default
+- `chat.agent_response` — graph-only, no assertions
+- `timeline.chrome_history` — selective entity types, no assertions, detailed extraction instructions
+- `timeline.git_activity` — software/project focused
+- `timeline.screen_time` — software/activity focused
+
+### Entity Quality Controls in L2 Pipeline
+
+The L2 pipeline applies several quality controls beyond extraction profiles:
+
+- **Type filtering**: entities with types not in `allowed_entity_types` are rejected at registration time.
+- **Alias validation**: `_is_valid_alias()` rejects generic platform names (like "抖音", "YouTube") as aliases for non-software entities, and filters out very short aliases for long canonical names.
+- **Cross-type entity resolution**: when type-scoped alias resolution fails, the pipeline tries cross-type resolution against compatible type groups (e.g., `software`/`product`/`technology` are considered mergeable) to prevent type fragmentation.
+- **Hint-as-context**: structured entity hints from sensors are injected into the LLM prompt but not auto-materialized, keeping the LLM as the quality gatekeeper for entity creation.
 
 ## Declarative Settings Contract
 
@@ -426,9 +529,15 @@ The current system is a local backend Python extension model.
 - [Config models](/Users/asuka/code/magi/backend/src/magi/config/models.py)
 - [Plugins API](/Users/asuka/code/magi/backend/src/magi/api/routers/plugins.py)
 - [Timeline API](/Users/asuka/code/magi/backend/src/magi/api/routers/timeline.py)
+- [Sensor base contract](/Users/asuka/code/magi/backend/src/magi/awareness/sensor_base.py)
+- [Sensor output models](/Users/asuka/code/magi/backend/src/magi/awareness/sensor_output.py)
+- [Ingestion gateway](/Users/asuka/code/magi/backend/src/magi/awareness/ingestion_gateway.py)
+- [Extraction profiles](/Users/asuka/code/magi/backend/src/magi/memory/l2/extraction_profiles.py)
+- [L2 pipeline](/Users/asuka/code/magi/backend/src/magi/memory/l2/pipeline.py)
 
 ## Related Documents
 
 - [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)
 - [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md)
 - [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
+- [Memory System Design](/Users/asuka/code/magi/docs/memory-system-design.md)
