@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import sqlite3
 import time
 
@@ -148,72 +147,6 @@ async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
         assert "metadata" not in fetched
         assert len(queried) == 1
         assert queried[0]["event_id"] == "evt-1"
-    finally:
-        await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_l1_event_store_logs_query_timing_breakdown(tmp_path, monkeypatch, caplog):
-    from magi.memory.l1.event_store import L1EventStore
-
-    caplog.set_level(logging.INFO, logger="magi.memory.l1.event_store")
-    monkeypatch.setattr("magi.memory.l1.event_store.logger", logging.getLogger("magi.memory.l1.event_store"))
-
-    db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
-    await store.initialize()
-    try:
-        event = Event(
-            type=EventTypes.USER_MESSAGE,
-            data={
-                "user_id": "user-1",
-                "session_id": "session-1",
-                "turn_id": "turn-1",
-                "content": "Remember this",
-                "author_type": "user",
-                "content_type": "text",
-            },
-            source="chat",
-            level=EventLevel.INFO,
-            correlation_id="corr-1",
-        )
-        await store.store(normalize_runtime_event(event, event_id="evt-1"))
-
-        queried = await store.query_events(
-            session_id="session-1",
-            limit=10,
-            include_metadata_json=False,
-            include_embedding_fields=False,
-        )
-
-        assert len(queried) == 1
-        timing_logs = [
-            record.message
-            for record in caplog.records
-            if "memory.l1.query_events_timing" in record.message
-        ]
-        assert len(timing_logs) == 1
-        message = timing_logs[0]
-        assert "row_count=1" in message
-        assert "limit=10" in message
-        assert "include_metadata_json=False" in message
-        assert "include_embedding_fields=False" in message
-        assert "initialize_ms=" in message
-        assert "connect_ms=" in message
-        assert "fetch_ms=" in message
-        assert "transform_ms=" in message
-        assert "total_ms=" in message
-        assert "active_profile_lookup_ms=" in message
-        assert "active_profile_config_ms=" in message
-        assert "active_profile_decision_ms=" in message
-        assert "active_profile_profile_ms=" in message
-        profile_logs = [
-            record.message
-            for record in caplog.records
-            if "memory.l1.query_events_active_profile" in record.message
-        ]
-        assert len(profile_logs) == 1
-        assert "reason=skipped" in profile_logs[0]
     finally:
         await store.shutdown()
 

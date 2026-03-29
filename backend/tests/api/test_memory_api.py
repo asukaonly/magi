@@ -2119,36 +2119,6 @@ def test_memory_l1_events_api_forwards_identity_filters(monkeypatch):
     assert memory.l1.last_query_kwargs["source_item_id"] == "chrome:181979-181982"
     assert memory.l1.last_query_kwargs["idempotency_key"] == "default:181979-181982"
 
-
-def test_memory_l1_events_api_logs_timing_breakdown(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-
-    info_calls = []
-
-    memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-    monkeypatch.setattr(
-        "magi.api.routers.memory.logger",
-        SimpleNamespace(info=lambda event, **kwargs: info_calls.append((event, kwargs))),
-    )
-
-    client = TestClient(app)
-    response = client.get("/api/memory/l1/events")
-
-    assert response.status_code == 200
-    assert len(info_calls) == 1
-    event, payload = info_calls[0]
-    assert event == "memory.l1.events.list_timing"
-    assert payload["event_count"] == 1
-    assert payload["total_count"] == 12
-    assert payload["query_ms"] >= 0
-    assert payload["count_ms"] >= 0
-    assert payload["serialize_ms"] >= 0
-    assert payload["total_ms"] >= 0
-
-
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
     class _RejectingL2Store(_FakeL2Store):
         async def upsert_graph_conflict_rule(self, payload):

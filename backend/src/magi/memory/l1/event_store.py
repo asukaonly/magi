@@ -500,9 +500,7 @@ class L1EventStore:
         include_embedding_fields: bool = True,
     ) -> List[Dict[str, Any]]:
         """Query events with SQL-level filters."""
-        started_at = time.perf_counter()
         await self.initialize()
-        initialized_at = time.perf_counter()
         sql = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
         args: List[Any] = []
 
@@ -545,24 +543,13 @@ class L1EventStore:
         args.append(int(limit))
 
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            connected_at = time.perf_counter()
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
-        fetched_at = time.perf_counter()
         if include_embedding_fields:
-            active_embedding_profile_id, active_profile_metrics = self._resolve_active_embedding_profile_id()
+            active_embedding_profile_id, _ = self._resolve_active_embedding_profile_id()
         else:
             active_embedding_profile_id = None
-            active_profile_metrics = {
-                "lookup_ms": 0.0,
-                "config_ms": 0.0,
-                "decision_ms": 0.0,
-                "profile_ms": 0.0,
-                "vectors_enabled": False,
-                "used_default_vector_setting": False,
-                "reason": "skipped",
-            }
         items = [
             self._row_to_dict(
                 row,
@@ -572,47 +559,6 @@ class L1EventStore:
             )
             for row in rows
         ]
-        transformed_at = time.perf_counter()
-        logger.info(
-            "memory.l1.query_events_timing "
-            "row_count=%s limit=%s include_metadata_json=%s include_embedding_fields=%s "
-            "initialize_ms=%.2f connect_ms=%.2f fetch_ms=%.2f transform_ms=%.2f total_ms=%.2f "
-            "active_profile_lookup_ms=%.2f active_profile_config_ms=%.2f "
-            "active_profile_decision_ms=%.2f active_profile_profile_ms=%.2f "
-            "has_query=%s source_filter_count=%s has_session_id=%s has_user_id=%s has_start_time=%s has_end_time=%s",
-            len(items),
-            int(limit),
-            bool(include_metadata_json),
-            bool(include_embedding_fields),
-            round((initialized_at - started_at) * 1000.0, 2),
-            round((connected_at - initialized_at) * 1000.0, 2),
-            round((fetched_at - connected_at) * 1000.0, 2),
-            round((transformed_at - fetched_at) * 1000.0, 2),
-            round((transformed_at - started_at) * 1000.0, 2),
-            float(active_profile_metrics["lookup_ms"]),
-            float(active_profile_metrics["config_ms"]),
-            float(active_profile_metrics["decision_ms"]),
-            float(active_profile_metrics["profile_ms"]),
-            bool(str(query or "").strip()),
-            len(source_filters or []),
-            bool(str(session_id or "").strip()),
-            bool(str(user_id or "").strip()),
-            start_time is not None,
-            end_time is not None,
-        )
-        logger.info(
-            "memory.l1.query_events_active_profile "
-            "reason=%s vectors_enabled=%s used_default_vector_setting=%s profile_available=%s "
-            "lookup_ms=%.2f config_ms=%.2f decision_ms=%.2f profile_ms=%.2f",
-            str(active_profile_metrics["reason"]),
-            bool(active_profile_metrics["vectors_enabled"]),
-            bool(active_profile_metrics["used_default_vector_setting"]),
-            active_embedding_profile_id is not None,
-            float(active_profile_metrics["lookup_ms"]),
-            float(active_profile_metrics["config_ms"]),
-            float(active_profile_metrics["decision_ms"]),
-            float(active_profile_metrics["profile_ms"]),
-        )
         return items
 
     async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:
