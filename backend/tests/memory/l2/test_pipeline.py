@@ -693,6 +693,104 @@ async def test_enqueue_event_uses_owner_batch_size_hint_for_flush():
 
 
 @pytest.mark.asyncio
+async def test_claim_pending_projection_jobs_skips_when_extract_queue_is_full():
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        memory_db = str(Path(temp_dir) / "memory.db")
+        l1_db = str(Path(temp_dir) / "l1.db")
+        cognition_store = L2CognitionStore(db_path=memory_db)
+        await cognition_store.initialize()
+        entity_catalog = L2EntityCatalog(db_path=memory_db)
+        await entity_catalog.initialize()
+        l1_store = L1EventStore(db_path=l1_db)
+        await l1_store.initialize()
+        event = _make_memory_event(event_id="evt-claim-full", session_id=None, user_id=None)
+        await l1_store.store(event)
+        await cognition_store.enqueue_projection_job(
+            event_id=event.event_id,
+            source=event.source,
+            event_type=event.event_type,
+            batch_owner="chrome_history:Default:github.com",
+        )
+        pipeline = L2Pipeline(
+            cognition_store,
+            l1_store=l1_store,
+            entity_catalog=entity_catalog,
+            llm_service=L2LLMService(None),
+            batch_flush_interval_seconds=60,
+        )
+        try:
+            pipeline._max_inflight_extract_jobs = 1
+            await pipeline._extract_queue.put(None)
+
+            claimed_count = await pipeline._claim_pending_projection_jobs(limit=1)
+            stats = await cognition_store.get_projection_backlog_stats()
+
+            assert claimed_count == 0
+            assert stats["pending"] == 1
+            assert stats["claimed"] == 0
+        finally:
+            while not pipeline._extract_queue.empty():
+                pipeline._extract_queue.get_nowait()
+
+
+@pytest.mark.asyncio
+async def test_claim_pending_projection_jobs_respects_remaining_claim_capacity():
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        memory_db = str(Path(temp_dir) / "memory.db")
+        l1_db = str(Path(temp_dir) / "l1.db")
+        cognition_store = L2CognitionStore(db_path=memory_db)
+        await cognition_store.initialize()
+        entity_catalog = L2EntityCatalog(db_path=memory_db)
+        await entity_catalog.initialize()
+        l1_store = L1EventStore(db_path=l1_db)
+        await l1_store.initialize()
+        for index in range(3):
+            event = _make_memory_event(event_id=f"evt-capacity-{index}", session_id=None, user_id=None)
+            await l1_store.store(event)
+            await cognition_store.enqueue_projection_job(
+                event_id=event.event_id,
+                source=event.source,
+                event_type=event.event_type,
+                batch_owner="chrome_history:Default:github.com",
+            )
+        pipeline = L2Pipeline(
+            cognition_store,
+            l1_store=l1_store,
+            entity_catalog=entity_catalog,
+            llm_service=L2LLMService(None),
+            batch_flush_interval_seconds=60,
+        )
+        try:
+            pipeline._max_claimed_projection_events = 2
+
+            claimed_count = await pipeline._claim_pending_projection_jobs(limit=10)
+            stats = await cognition_store.get_projection_backlog_stats()
+
+            assert claimed_count == 1
+            assert stats["claimed"] == 2
+            assert stats["pending"] == 1
+            assert pipeline._extract_queue.qsize() == 1
+            job = pipeline._extract_queue.get_nowait()
+            assert job is not None
+            assert len(job.event_ids) == 2
+        finally:
+            while not pipeline._extract_queue.empty():
+                pipeline._extract_queue.get_nowait()
+
+
+@pytest.mark.asyncio
 async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
     from magi.memory.l2.models import L2PendingBatchBucket
     from magi.memory.l2.pipeline import L2Pipeline

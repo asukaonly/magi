@@ -231,6 +231,7 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 
 - `L2` 的 durable progress 由 projection job state 负责
 - 微批只是执行优化，不是进度真相
+- durable claim 需要受 runtime backpressure 约束，避免在 extract queue 尚未消化时继续把大量 job 从 `pending` 推成 `claimed`
 - `runtime_worker` 重启后，未完成的 `L2` 投影可以从 job state 恢复
 - 插件自己的 sync cursor 只负责“同步到 `L1`”，不负责 `L2` 进度
 

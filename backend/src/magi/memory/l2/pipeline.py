@@ -157,6 +157,8 @@ class L2Pipeline:
         self._projection_consumer_name = f"l2-pipeline:{uuid.uuid4().hex[:8]}"
         self._projection_claim_limit = DEFAULT_L2_PROJECTION_CLAIM_LIMIT
         self._projection_stale_claim_timeout_seconds = DEFAULT_L2_PROJECTION_STALE_CLAIM_TIMEOUT_SECONDS
+        self._max_inflight_extract_jobs = max(1, self._extract_worker_count * 2)
+        self._max_claimed_projection_events = self._projection_claim_limit
 
     async def start(self) -> None:
         if self._stats.is_running or self._cognition_store is None:
@@ -364,9 +366,12 @@ class L2Pipeline:
         await self._cognition_store.requeue_stale_projection_jobs(
             timeout_seconds=self._projection_stale_claim_timeout_seconds,
         )
+        claim_limit = await self._available_projection_claim_capacity(limit=limit)
+        if claim_limit <= 0:
+            return 0
         claimed_rows = await self._cognition_store.claim_projection_jobs(
             consumer_name=self._projection_consumer_name,
-            limit=max(1, int(limit or self._projection_claim_limit)),
+            limit=claim_limit,
         )
         if not claimed_rows:
             return 0
@@ -393,6 +398,22 @@ class L2Pipeline:
         for job in jobs:
             await self._enqueue_extract_job(job)
         return len(jobs)
+
+    async def _available_projection_claim_capacity(self, *, limit: int | None = None) -> int:
+        requested_limit = max(1, int(limit or self._projection_claim_limit))
+        extract_queue_capacity = max(0, self._max_inflight_extract_jobs - self._extract_queue.qsize())
+        if extract_queue_capacity <= 0:
+            return 0
+        if self._cognition_store is None:
+            return 0
+        backlog = await self._cognition_store.get_projection_backlog_stats()
+        claimed_projection_capacity = max(
+            0,
+            int(self._max_claimed_projection_events) - int(backlog.get("claimed", 0)),
+        )
+        if claimed_projection_capacity <= 0:
+            return 0
+        return min(requested_limit, extract_queue_capacity, claimed_projection_capacity)
 
     async def _flush_ready_buckets(self) -> None:
         jobs: list[L2BatchJob] = []
