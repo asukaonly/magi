@@ -325,7 +325,10 @@ class L2Pipeline:
         for job in jobs:
             await self._enqueue_extract_job(job)
 
-        projection_batch_count = await self._claim_pending_projection_jobs(limit=self._projection_claim_limit)
+        projection_batch_count = await self._claim_pending_projection_jobs(
+            limit=self._projection_claim_limit,
+            force=True,
+        )
         if jobs:
             logger.info("L2 manual microbatch flush enqueued", batch_count=len(jobs))
         if projection_batch_count:
@@ -359,20 +362,24 @@ class L2Pipeline:
             await self._claim_pending_projection_jobs()
             await self._flush_ready_buckets()
 
-    async def _claim_pending_projection_jobs(self, *, limit: int | None = None) -> int:
+    async def _claim_pending_projection_jobs(self, *, limit: int | None = None, force: bool = False) -> int:
         if self._cognition_store is None or self._l1_store is None:
             return 0
 
         await self._cognition_store.requeue_stale_projection_jobs(
             timeout_seconds=self._projection_stale_claim_timeout_seconds,
         )
-        claim_limit = await self._available_projection_claim_capacity(limit=limit)
-        if claim_limit <= 0:
-            return 0
-        claimed_rows = await self._cognition_store.claim_projection_jobs(
-            consumer_name=self._projection_consumer_name,
-            limit=claim_limit,
-        )
+        claim_limit = max(1, int(limit or self._projection_claim_limit))
+        if force:
+            claimed_rows = await self._cognition_store.claim_projection_jobs(
+                consumer_name=self._projection_consumer_name,
+                limit=claim_limit,
+            )
+        else:
+            claimed_rows = await self._cognition_store.claim_ready_projection_jobs(
+                consumer_name=self._projection_consumer_name,
+                limit=claim_limit,
+            )
         if not claimed_rows:
             return 0
 
@@ -510,7 +517,7 @@ class L2Pipeline:
                 buckets.pop(bucket_key, None)
 
         for bucket in buckets.values():
-            jobs.append(self._build_projection_bucket_job(bucket, flush_reason="projection_claim"))
+            jobs.append(self._build_projection_bucket_job(bucket, flush_reason="projection_ready"))
         return jobs, missing_event_ids
 
     def _build_and_remove_bucket_job_locked(self, *, bucket_key: str, flush_reason: str) -> L2BatchJob | None:

@@ -198,10 +198,13 @@ Useful `SensorBase` hooks for memory routing:
 
 - `source_item_identity(item)`: producer-side stable item identity
 - `idempotency_key(output)`: business-level idempotency key written to `L1`
-- `l2_batch_owner(output)`: optional stable owner key used by `L2` microbatch grouping
-- `l2_batch_limits(output)`: optional advisory batch limits such as `max_events` or `max_estimated_tokens`
+- `l2_batch_policy(output)`: optional advisory `L2BatchPolicy` describing:
+  - `owner`: stable owner key used by `L2` durable microbatch grouping
+  - `max_events`: preferred full-batch size for this source
+  - `max_estimated_tokens`: optional token cap for one execution batch
+  - `max_wait_seconds`: how long an underfilled durable owner bucket may wait before it becomes ready
 
-`L2` remains the final owner of batching policy. Plugins may suggest a tighter bucket key or smaller/larger batch shape for their own source, but the runtime still decides how and when jobs flush.
+`L2` remains the final owner of batching policy. Plugins may suggest a tighter bucket key or preferred batch shape for their own source, but the runtime still decides when an owner bucket is ready, how much work to claim under backpressure, and when a forced manual flush may bypass waiting.
 
 ## Action Plugins
 

@@ -136,17 +136,16 @@ class SensorIngestionGateway:
                 content = block_text
 
         metadata_json = dict(output.domain_payload) if output.domain_payload else {}
-        l2_batch_owner = sensor.l2_batch_owner(output)
-        if l2_batch_owner:
-            metadata_json["l2_batch_owner"] = str(l2_batch_owner)
-        l2_batch_limits = sensor.l2_batch_limits(output)
-        if isinstance(l2_batch_limits, dict):
-            max_events = l2_batch_limits.get("max_events")
-            if max_events is not None:
-                metadata_json["l2_batch_max_events"] = int(max_events)
-            max_estimated_tokens = l2_batch_limits.get("max_estimated_tokens")
-            if max_estimated_tokens is not None:
-                metadata_json["l2_batch_max_estimated_tokens"] = int(max_estimated_tokens)
+        l2_batch_policy = sensor.l2_batch_policy(output)
+        if l2_batch_policy is not None:
+            if l2_batch_policy.owner:
+                metadata_json["l2_batch_owner"] = str(l2_batch_policy.owner)
+            if l2_batch_policy.max_events is not None:
+                metadata_json["l2_batch_max_events"] = int(l2_batch_policy.max_events)
+            if l2_batch_policy.max_estimated_tokens is not None:
+                metadata_json["l2_batch_max_estimated_tokens"] = int(l2_batch_policy.max_estimated_tokens)
+            if l2_batch_policy.max_wait_seconds is not None:
+                metadata_json["l2_batch_max_wait_seconds"] = int(l2_batch_policy.max_wait_seconds)
         metadata_json["timeline"] = timeline_event.to_dict()
         if timeline_event.raw_payload_ref:
             metadata_json["raw_payload_ref"] = timeline_event.raw_payload_ref

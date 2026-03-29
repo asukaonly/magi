@@ -4,7 +4,16 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata, SensorSyncContext, SensorSyncResult
+from magi.awareness import (
+    SensorBase,
+    ContentBlock,
+    L2BatchPolicy,
+    SensorMemoryPolicy,
+    SensorOutput,
+    SensorOutputMetadata,
+    SensorSyncContext,
+    SensorSyncResult,
+)
 
 from .chrome_reader import ChromeHistoryReader, DEFAULT_MACOS_CHROME_ROOT
 from .normalizers import build_relation_candidates, normalize_domain, parse_title_entities
@@ -54,17 +63,17 @@ class ChromeHistoryTimelineSensor(SensorBase):
             ]
         )
 
-    def l2_batch_owner(self, output: SensorOutput) -> str | None:
+    def l2_batch_policy(self, output: SensorOutput) -> L2BatchPolicy | None:
         profile = str(output.provenance.get("profile") or self.profile or "").strip()
         domain = str(output.provenance.get("domain") or "").strip().lower()
         parts = [self.source_type, profile or "default"]
         if domain:
             parts.append(domain)
-        return ":".join(parts)
-
-    def l2_batch_limits(self, output: SensorOutput) -> dict[str, int] | None:
-        _ = output
-        return {"max_events": 20}
+        return L2BatchPolicy(
+            owner=":".join(parts),
+            max_events=20,
+            max_wait_seconds=180,
+        )
 
     async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
         sensor_settings = (

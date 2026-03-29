@@ -6,6 +6,7 @@ import hashlib
 import inspect
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,6 +18,16 @@ except ModuleNotFoundError:  # pragma: no cover
 from ..plugins.i18n import PluginI18n, get_current_language
 from .sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata
 from .sensor_sync import SensorSyncContext, SensorSyncResult
+
+
+@dataclass(slots=True)
+class L2BatchPolicy:
+    """Plugin-suggested L2 batching policy for one sensor output."""
+
+    owner: str | None = None
+    max_events: int | None = None
+    max_estimated_tokens: int | None = None
+    max_wait_seconds: int | None = None
 
 
 class SensorBase(ABC):
@@ -188,13 +199,8 @@ class SensorBase(ABC):
         """Optional pre-processing/enrichment before build_output."""
         return dict(item)
 
-    def l2_batch_owner(self, output: SensorOutput) -> str | None:
-        """Return an optional stable L2 microbatch owner key for sensor events."""
-        _ = output
-        return None
-
-    def l2_batch_limits(self, output: SensorOutput) -> dict[str, int] | None:
-        """Return optional advisory L2 microbatch limits for sensor events."""
+    def l2_batch_policy(self, output: SensorOutput) -> L2BatchPolicy | None:
+        """Return an optional advisory L2 batching policy for sensor events."""
         _ = output
         return None
 

@@ -1047,3 +1047,114 @@ async def test_l2_projection_jobs_support_fail_and_stale_requeue(tmp_path):
     )
     assert [item["event_id"] for item in reclaimed] == ["evt-proj-stale"]
     assert reclaimed[0]["attempt_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_claim_ready_projection_jobs_waits_for_owner_to_fill_batch(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    for suffix in ("1", "2"):
+        await store.enqueue_projection_job(
+            event_id=f"evt-owner-wait-{suffix}",
+            source="chrome_history",
+            event_type="SENSOR_EVENT",
+            batch_owner="chrome_history:Default:github.com",
+            max_events=3,
+            max_wait_seconds=180,
+        )
+
+    claimed = await store.claim_ready_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=10,
+    )
+    stats = await store.get_projection_backlog_stats()
+
+    assert claimed == []
+    assert stats["pending"] == 2
+    assert stats["claimed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_claim_ready_projection_jobs_claims_full_chunks_and_leaves_remainder_pending(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    for index in range(5):
+        await store.enqueue_projection_job(
+            event_id=f"evt-owner-chunk-{index}",
+            source="chrome_history",
+            event_type="SENSOR_EVENT",
+            batch_owner="chrome_history:Default:x.com",
+            max_events=2,
+            max_wait_seconds=180,
+        )
+
+    claimed = await store.claim_ready_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=10,
+    )
+    stats = await store.get_projection_backlog_stats()
+
+    assert [item["event_id"] for item in claimed] == [
+        "evt-owner-chunk-0",
+        "evt-owner-chunk-1",
+        "evt-owner-chunk-2",
+        "evt-owner-chunk-3",
+    ]
+    assert stats["claimed"] == 4
+    assert stats["pending"] == 1
+
+
+@pytest.mark.asyncio
+async def test_claim_ready_projection_jobs_claims_underfilled_owner_after_wait_threshold(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.enqueue_projection_job(
+        event_id="evt-owner-aged-1",
+        source="chrome_history",
+        event_type="SENSOR_EVENT",
+        batch_owner="chrome_history:Default:mail.google.com",
+        max_events=20,
+        max_wait_seconds=60,
+    )
+    await store.enqueue_projection_job(
+        event_id="evt-owner-aged-2",
+        source="chrome_history",
+        event_type="SENSOR_EVENT",
+        batch_owner="chrome_history:Default:mail.google.com",
+        max_events=20,
+        max_wait_seconds=60,
+    )
+
+    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
+        await db.execute(
+            """
+            UPDATE l2_projection_jobs
+            SET created_at = ?, updated_at = ?
+            WHERE batch_owner = ?
+            """,
+            (
+                time.time() - 120,
+                time.time() - 120,
+                "chrome_history:Default:mail.google.com",
+            ),
+        )
+        await db.commit()
+
+    claimed = await store.claim_ready_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=10,
+    )
+    stats = await store.get_projection_backlog_stats()
+
+    assert [item["event_id"] for item in claimed] == ["evt-owner-aged-1", "evt-owner-aged-2"]
+    assert stats["claimed"] == 2
+    assert stats["pending"] == 0

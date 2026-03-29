@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from magi.awareness.ingestion_gateway import SensorIngestionGateway
-from magi.awareness.sensor_base import SensorBase
+from magi.awareness.sensor_base import L2BatchPolicy, SensorBase
 from magi.awareness.sensor_output import (
     ContentBlock,
     SensorMemoryPolicy,
@@ -45,15 +45,13 @@ class _FakeSensor(SensorBase):
 
 
 class _FakeBatchingSensor(_FakeSensor):
-    def l2_batch_owner(self, output: SensorOutput) -> str | None:
-        return f"{output.source_type}:default"
-
-    def l2_batch_limits(self, output: SensorOutput) -> dict[str, int] | None:
-        _ = output
-        return {
-            "max_events": 20,
-            "max_estimated_tokens": 3200,
-        }
+    def l2_batch_policy(self, output: SensorOutput) -> L2BatchPolicy | None:
+        return L2BatchPolicy(
+            owner=f"{output.source_type}:default",
+            max_events=20,
+            max_estimated_tokens=3200,
+            max_wait_seconds=180,
+        )
 
 
 def _make_output(**overrides: Any) -> SensorOutput:
@@ -287,3 +285,4 @@ class TestSensorIngestionGateway:
         assert call_args.metadata_json["l2_batch_owner"] == "fake_source:default"
         assert call_args.metadata_json["l2_batch_max_events"] == 20
         assert call_args.metadata_json["l2_batch_max_estimated_tokens"] == 3200
+        assert call_args.metadata_json["l2_batch_max_wait_seconds"] == 180

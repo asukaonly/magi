@@ -171,6 +171,8 @@ class L2CognitionStore:
                     source TEXT NOT NULL,
                     event_type TEXT NOT NULL,
                     batch_owner TEXT,
+                    max_events INTEGER,
+                    max_wait_seconds REAL,
                     status TEXT NOT NULL DEFAULT 'pending',
                     attempt_count INTEGER NOT NULL DEFAULT 0,
                     claimed_by TEXT,
@@ -190,6 +192,7 @@ class L2CognitionStore:
             )
             await self._ensure_tom_assertion_schema(db)
             await self._ensure_tom_snapshot_schema(db)
+            await self._ensure_projection_job_schema(db)
             await self._seed_default_graph_conflict_rules(db)
             await self._reload_graph_conflict_rules(db)
             await db.commit()
@@ -343,6 +346,20 @@ class L2CognitionStore:
             if column_name in existing_columns:
                 continue
             await db.execute(f"ALTER TABLE tom_snapshots ADD COLUMN {column_name} {column_type}")
+
+    async def _ensure_projection_job_schema(self, db: aiosqlite.Connection) -> None:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("PRAGMA table_info(l2_projection_jobs)") as cursor:
+            rows = await cursor.fetchall()
+        existing_columns = {str(row["name"]) for row in rows}
+        required_columns = {
+            "max_events": "INTEGER",
+            "max_wait_seconds": "REAL",
+        }
+        for column_name, column_type in required_columns.items():
+            if column_name in existing_columns:
+                continue
+            await db.execute(f"ALTER TABLE l2_projection_jobs ADD COLUMN {column_name} {column_type}")
 
     async def list_graph_conflict_rules(self) -> List[Dict[str, Any]]:
         """List graph conflict rules from the persisted matrix."""
@@ -739,6 +756,8 @@ class L2CognitionStore:
         source: str,
         event_type: str,
         batch_owner: str | None = None,
+        max_events: int | None = None,
+        max_wait_seconds: float | None = None,
     ) -> bool:
         """Insert one pending L2 projection job if it does not already exist."""
         await self.initialize()
@@ -751,6 +770,8 @@ class L2CognitionStore:
                     source,
                     event_type,
                     batch_owner,
+                    max_events,
+                    max_wait_seconds,
                     status,
                     attempt_count,
                     claimed_by,
@@ -759,19 +780,143 @@ class L2CognitionStore:
                     last_error,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, NULL, ?, ?)
                 """,
                 (
                     event_id,
                     source,
                     event_type,
                     batch_owner,
+                    max_events,
+                    max_wait_seconds,
                     now,
                     now,
                 ),
             )
             await db.commit()
         return bool(cursor.rowcount)
+
+    async def claim_ready_projection_jobs(
+        self,
+        *,
+        consumer_name: str,
+        limit: int,
+    ) -> list[Dict[str, Any]]:
+        """Claim pending jobs whose owner bucket is ready for extraction."""
+        await self.initialize()
+        requested_limit = max(1, int(limit))
+        now = time.time()
+        selected_event_ids: list[str] = []
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            remaining = requested_limit
+
+            async with db.execute(
+                """
+                SELECT event_id
+                FROM l2_projection_jobs
+                WHERE status = 'pending'
+                  AND (batch_owner IS NULL OR batch_owner = '')
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (remaining,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            selected_event_ids.extend(str(row["event_id"]) for row in rows)
+            remaining -= len(rows)
+
+            if remaining > 0:
+                async with db.execute(
+                    """
+                    SELECT
+                        batch_owner,
+                        COUNT(*) AS pending_count,
+                        MIN(created_at) AS oldest_created_at,
+                        MIN(CASE WHEN max_events IS NOT NULL AND max_events > 0 THEN max_events END) AS bucket_max_events,
+                        MIN(CASE WHEN max_wait_seconds IS NOT NULL AND max_wait_seconds > 0 THEN max_wait_seconds END) AS bucket_max_wait_seconds
+                    FROM l2_projection_jobs
+                    WHERE status = 'pending'
+                      AND batch_owner IS NOT NULL
+                      AND batch_owner != ''
+                    GROUP BY batch_owner
+                    ORDER BY oldest_created_at ASC
+                    """,
+                ) as cursor:
+                    owner_rows = await cursor.fetchall()
+
+                for owner_row in owner_rows:
+                    if remaining <= 0:
+                        break
+                    owner = str(owner_row["batch_owner"] or "").strip()
+                    if not owner:
+                        continue
+                    pending_count = int(owner_row["pending_count"] or 0)
+                    if pending_count <= 0:
+                        continue
+                    max_events_value = owner_row["bucket_max_events"]
+                    max_events = int(max_events_value or 1)
+                    max_wait_value = owner_row["bucket_max_wait_seconds"]
+                    oldest_created_at = float(owner_row["oldest_created_at"] or now)
+                    oldest_age_seconds = max(0.0, now - oldest_created_at)
+
+                    claim_count = 0
+                    if pending_count >= max_events:
+                        claim_count = min((pending_count // max_events) * max_events, remaining)
+                        claim_count -= claim_count % max_events
+                    elif max_wait_value is not None and oldest_age_seconds >= float(max_wait_value):
+                        claim_count = min(pending_count, remaining)
+
+                    if claim_count <= 0:
+                        continue
+
+                    async with db.execute(
+                        """
+                        SELECT event_id
+                        FROM l2_projection_jobs
+                        WHERE status = 'pending'
+                          AND batch_owner = ?
+                        ORDER BY created_at ASC
+                        LIMIT ?
+                        """,
+                        (owner, claim_count),
+                    ) as cursor:
+                        owner_rows = await cursor.fetchall()
+                    owner_event_ids = [str(row["event_id"]) for row in owner_rows]
+                    selected_event_ids.extend(owner_event_ids)
+                    remaining -= len(owner_event_ids)
+
+            if not selected_event_ids:
+                return []
+
+            placeholders = ", ".join("?" for _ in selected_event_ids)
+            await db.execute(
+                f"""
+                UPDATE l2_projection_jobs
+                SET status = 'claimed',
+                    claimed_by = ?,
+                    claimed_at = ?,
+                    updated_at = ?
+                WHERE event_id IN ({placeholders})
+                """,
+                (consumer_name, now, now, *selected_event_ids),
+            )
+            async with db.execute(
+                f"""
+                SELECT *
+                FROM l2_projection_jobs
+                WHERE event_id IN ({placeholders})
+                """,
+                tuple(selected_event_ids),
+            ) as cursor:
+                claimed_rows = await cursor.fetchall()
+            await db.commit()
+
+        order = {event_id: index for index, event_id in enumerate(selected_event_ids)}
+        claimed_dicts = [self._projection_job_row_to_dict(row) for row in claimed_rows]
+        claimed_dicts.sort(key=lambda item: order.get(str(item.get("event_id") or ""), requested_limit))
+        return claimed_dicts
 
     async def claim_projection_jobs(
         self,
@@ -1686,6 +1831,8 @@ class L2CognitionStore:
             "source": str(row["source"]),
             "event_type": str(row["event_type"]),
             "batch_owner": row["batch_owner"],
+            "max_events": int(row["max_events"]) if row["max_events"] is not None else None,
+            "max_wait_seconds": float(row["max_wait_seconds"]) if row["max_wait_seconds"] is not None else None,
             "status": str(row["status"]),
             "attempt_count": int(row["attempt_count"] or 0),
             "claimed_by": row["claimed_by"],

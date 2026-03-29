@@ -236,6 +236,18 @@ class UnifiedMemoryStore:
                             and memory_event.metadata_json.get("l2_batch_owner") is not None
                             else None
                         ),
+                        max_events=(
+                            int(memory_event.metadata_json.get("l2_batch_max_events"))
+                            if isinstance(memory_event.metadata_json, dict)
+                            and memory_event.metadata_json.get("l2_batch_max_events") is not None
+                            else None
+                        ),
+                        max_wait_seconds=(
+                            float(memory_event.metadata_json.get("l2_batch_max_wait_seconds"))
+                            if isinstance(memory_event.metadata_json, dict)
+                            and memory_event.metadata_json.get("l2_batch_max_wait_seconds") is not None
+                            else None
+                        ),
                     )
 
         if (

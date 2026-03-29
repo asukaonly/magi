@@ -371,8 +371,11 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     assert "github.com" in output.tags
     assert output.provenance["browser"] == "chrome"
     assert output.provenance["visit_id"] == "102"
-    assert sensor.l2_batch_owner(output) == "chrome_history:Default:github.com"
-    assert sensor.l2_batch_limits(output) == {"max_events": 20}
+    policy = sensor.l2_batch_policy(output)
+    assert policy is not None
+    assert policy.owner == "chrome_history:Default:github.com"
+    assert policy.max_events == 20
+    assert policy.max_wait_seconds == 180
 
     root_metadata = await sensor.extract_metadata(result.items[0])
     content_metadata = await sensor.extract_metadata(result.items[1])

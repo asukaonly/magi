@@ -218,20 +218,22 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 
 1. `L1` 事实先成功写入 durable store
 2. 如果事件 `cognition_eligible=true`，会在 `memory.db` 中写入 `l2_projection_jobs`
-3. `runtime_worker` 中的 `L2Pipeline` 从这张表 claim `pending` job
+3. `runtime_worker` 中的 `L2Pipeline` 只 claim 已经 ready 的 `pending` job
 4. claim 到的事件在进程内按 batch owner / session / user 聚成执行批次
 5. 抽取成功后把 job 标记为 `completed`，失败则标记为 `failed` 或重新回到 `pending`
 
 其中：
 
-- `batch owner` 可以由插件通过 sensor hook 提供，用来把同源但更语义一致的事件放进同一个桶
-- 插件也可以提供 advisory batch limits（例如 `max_events`），但 `L2` 仍然保留最终 flush 裁决权
+- `batch owner` 可以由插件通过 `l2_batch_policy()` 提供，用来把同源但更语义一致的事件放进同一个 durable owner 桶
+- 插件也可以通过同一个 policy 提供 advisory batching 信息，例如 `max_events`、`max_estimated_tokens` 和 `max_wait_seconds`
+- durable owner 桶通常在“达到期望批大小”或“等待时间超过阈值”时才变成 ready；未 ready 的桶应继续留在 `pending`
 
 这意味着：
 
 - `L2` 的 durable progress 由 projection job state 负责
 - 微批只是执行优化，不是进度真相
 - durable claim 需要受 runtime backpressure 约束，避免在 extract queue 尚未消化时继续把大量 job 从 `pending` 推成 `claimed`
+- 对高吞吐 source，等待积累通常能降低 LLM 成本并提升同域事件的一致性理解
 - `runtime_worker` 重启后，未完成的 `L2` 投影可以从 job state 恢复
 - 插件自己的 sync cursor 只负责“同步到 `L1`”，不负责 `L2` 进度
 

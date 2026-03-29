@@ -15,7 +15,7 @@ from .sensors import (
 )
 
 # New sensor decoupling contracts (L9)
-from .sensor_base import SensorBase
+from .sensor_base import L2BatchPolicy, SensorBase
 from .sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata
 from .sensor_state import SensorStateStore, SqliteSensorStateStore
 from .sensor_sync import PullSyncSensor, SensorSyncContext, SensorSyncResult
@@ -35,6 +35,7 @@ __all__ = [
     "TimerSensor",
     # New sensor decoupling contracts
     "ContentBlock",
+    "L2BatchPolicy",
     "PullSyncSensor",
     "SensorBase",
     "SensorIngestionGateway",
