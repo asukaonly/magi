@@ -1,6 +1,7 @@
 """Normalization helpers for Chrome history timeline ingestion."""
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -157,6 +158,120 @@ def build_relation_candidates(item: dict[str, Any]) -> list[dict[str, Any]]:
             "object_attributes": object_attributes,
         }
     ]
+
+
+_TITLE_SEPARATORS = re.compile(r"\s+[\-–—|]\s+")
+
+KNOWN_PLATFORM_DOMAINS: dict[str, str] = {
+    "github.com": "GitHub",
+    "youtube.com": "YouTube",
+    "bilibili.com": "Bilibili",
+    "douyin.com": "Douyin",
+    "zhihu.com": "Zhihu",
+    "weibo.com": "Weibo",
+    "x.com": "X",
+    "twitter.com": "Twitter",
+    "reddit.com": "Reddit",
+    "medium.com": "Medium",
+    "stackoverflow.com": "Stack Overflow",
+    "wikipedia.org": "Wikipedia",
+    "google.com": "Google",
+    "last.fm": "Last.fm",
+    "spotify.com": "Spotify",
+    "netflix.com": "Netflix",
+    "twitch.tv": "Twitch",
+    "taobao.com": "Taobao",
+    "jd.com": "JD",
+    "xiaohongshu.com": "Xiaohongshu",
+}
+
+_PLATFORM_SUFFIX_VARIANTS: dict[str, str] = {}
+for _domain, _label in KNOWN_PLATFORM_DOMAINS.items():
+    _PLATFORM_SUFFIX_VARIANTS[_label.casefold()] = _label
+    _PLATFORM_SUFFIX_VARIANTS[_domain.split(".")[0].casefold()] = _label
+_PLATFORM_SUFFIX_VARIANTS.update({
+    "哔哩哔哩": "Bilibili",
+    "b站": "Bilibili",
+    "bilibili": "Bilibili",
+    "抖音": "Douyin",
+    "tiktok": "Douyin",
+    "知乎": "Zhihu",
+    "微博": "Weibo",
+    "淘宝": "Taobao",
+    "京东": "JD",
+    "小红书": "Xiaohongshu",
+    "google search": "Google",
+    "google 搜索": "Google",
+})
+
+
+def _match_platform_suffix(segment: str) -> str | None:
+    """Return canonical platform label if segment matches a known platform."""
+    cleaned = segment.strip()
+    if not cleaned:
+        return None
+    # "哔哩哔哩_bilibili" → strip "_bilibili" variations
+    for variant in ("_bilibili", " - bilibili"):
+        if cleaned.casefold().endswith(variant.casefold()):
+            cleaned = cleaned[: -len(variant)].strip()
+            if not cleaned:
+                return "Bilibili"
+    return _PLATFORM_SUFFIX_VARIANTS.get(cleaned.casefold())
+
+
+def parse_title_entities(
+    title: str,
+    domain: str,
+) -> list[dict[str, Any]]:
+    """Extract structured entity hints from a Chrome page title.
+
+    Splits common ``{content} - {platform}`` patterns and returns entity hints
+    for the recognised platform and any meaningful content label.
+    """
+    hints: list[dict[str, Any]] = []
+    normalized = normalize_title(title)
+    if not normalized:
+        return hints
+
+    # Try matching a known platform from the domain first
+    domain_platform: str | None = None
+    for known_domain, label in KNOWN_PLATFORM_DOMAINS.items():
+        if domain.endswith(known_domain):
+            domain_platform = label
+            break
+
+    # Split the title by common separators and check the last segment
+    segments = _TITLE_SEPARATORS.split(normalized)
+    detected_platform: str | None = None
+    content_part: str = normalized
+
+    if len(segments) >= 2:
+        last_segment = segments[-1].strip()
+        platform_match = _match_platform_suffix(last_segment)
+        if platform_match:
+            detected_platform = platform_match
+            content_part = _TITLE_SEPARATORS.split(normalized, maxsplit=len(segments) - 2)[0].strip()
+            if not content_part:
+                content_part = normalized
+
+    platform = detected_platform or domain_platform
+    if platform:
+        hints.append({
+            "mention_text": platform,
+            "entity_type": "software",
+            "canonical_name_hint": platform,
+        })
+
+    # Content entity: only if title had a separator and content part is meaningful
+    if detected_platform and content_part and content_part != normalized:
+        if len(content_part) >= 2:
+            hints.append({
+                "mention_text": content_part,
+                "entity_type": "media",
+                "canonical_name_hint": content_part,
+            })
+
+    return hints
 
 
 def should_merge_visit(

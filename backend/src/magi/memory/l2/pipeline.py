@@ -877,6 +877,11 @@ class L2Pipeline:
         if self._entity_catalog is not None:
             existing_entities = await self._entity_catalog.list_entities(limit=30)
 
+        # Pre-register structured entity hints from sensor metadata
+        await self._register_structured_entity_hints(
+            stored_event, existing_entities, batch_event_ids,
+        )
+
         # ── Phase 1: Extract & Resolve ──
         logger.info(
             "L2 Phase 1 extraction started",
@@ -1171,6 +1176,71 @@ class L2Pipeline:
             role = str(row.get("author_type", "user")).strip() or "user"
             messages.append({"role": role, "content": content})
         return messages[:3]
+
+    async def _register_structured_entity_hints(
+        self,
+        event: MemoryEvent,
+        existing_entities: list[dict[str, Any]],
+        evidence_event_ids: list[str],
+    ) -> None:
+        """Pre-register structured entity hints from sensor metadata into the catalog."""
+        if self._entity_catalog is None:
+            return
+        metadata_json = event.metadata_json
+        if not isinstance(metadata_json, dict):
+            return
+        hints = metadata_json.get("structured_entity_hints")
+        if not hints or not isinstance(hints, list):
+            return
+
+        existing_ids = {str(e.get("entity_id", "")) for e in existing_entities}
+        registered_count = 0
+        for hint in hints:
+            if not isinstance(hint, dict):
+                continue
+            mention_text = str(hint.get("mention_text", "")).strip()
+            entity_type = self._normalize_entity_type(hint.get("entity_type"))
+            if not mention_text or not entity_type:
+                continue
+
+            canonical_name = str(hint.get("canonical_name_hint") or mention_text).strip()
+            resolved_id = hint.get("resolved_entity_id")
+            if resolved_id:
+                entity_id = str(resolved_id)
+            else:
+                entity_id = self._build_canonical_entity_id(
+                    entity_type=entity_type, canonical_name=canonical_name,
+                )
+
+            if entity_id in existing_ids:
+                continue
+
+            await self._entity_catalog.upsert_entity(
+                entity_id=entity_id,
+                canonical_name=canonical_name,
+                entity_type=entity_type,
+            )
+            await self._entity_catalog.add_alias(
+                entity_id=entity_id,
+                alias_text=canonical_name,
+                confidence=0.95,
+            )
+            existing_entities.append({
+                "entity_id": entity_id,
+                "canonical_name": canonical_name,
+                "entity_type": entity_type,
+                "aliases": [canonical_name],
+            })
+            existing_ids.add(entity_id)
+            registered_count += 1
+
+        if registered_count:
+            logger.info(
+                "L2 structured entity hints registered",
+                event_id=event.event_id,
+                hint_count=len(hints),
+                registered_count=registered_count,
+            )
 
     async def _resolve_phase1_entities(
         self,
@@ -1684,12 +1754,54 @@ class L2Pipeline:
             alias_text = self._non_empty_text(alias)
             if not alias_text:
                 continue
+            if not self._is_valid_alias(alias_text, canonical_name, entity_type):
+                logger.debug(
+                    "L2 alias rejected by validation",
+                    alias_text=alias_text,
+                    canonical_name=canonical_name,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                )
+                continue
             await self._entity_catalog.add_alias(
                 entity_id=entity_id,
                 alias_text=alias_text,
                 confidence=min(max(mention_confidence, 0.85), 0.95),
             )
         return (entity_id, mention_confidence)
+
+    _GENERIC_PLATFORM_NAMES: frozenset[str] = frozenset({
+        "youtube", "google", "github", "bilibili", "哔哩哔哩", "b站",
+        "douyin", "抖音", "tiktok", "tiktok china",
+        "zhihu", "知乎", "weibo", "微博",
+        "twitter", "x", "reddit", "medium",
+        "stackoverflow", "stack overflow", "wikipedia",
+        "spotify", "netflix", "twitch",
+        "taobao", "淘宝", "jd", "京东",
+        "xiaohongshu", "小红书",
+        "last.fm", "facebook", "instagram", "linkedin",
+        "baidu", "百度", "bing", "yahoo",
+    })
+
+    def _is_valid_alias(
+        self,
+        alias_text: str,
+        canonical_name: str,
+        entity_type: str,
+    ) -> bool:
+        """Check whether an alias is semantically valid for the given entity."""
+        alias_cf = alias_text.casefold().strip()
+        canonical_cf = canonical_name.casefold().strip()
+        if alias_cf == canonical_cf:
+            return True
+        # Reject generic platform names as aliases for non-software entities
+        if entity_type != "software" and alias_cf in self._GENERIC_PLATFORM_NAMES:
+            return False
+        # Reject aliases that are too short relative to a long canonical name
+        # (e.g., "抖音" as alias for "坤的真爱粉的抖音直播间")
+        if len(canonical_cf) > 8 and len(alias_cf) <= 3:
+            return False
+        return True
 
     def _build_focal_entities(
         self,

@@ -7,7 +7,7 @@ from typing import Any
 from magi.awareness import SensorBase, ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata, SensorSyncContext, SensorSyncResult
 
 from .chrome_reader import ChromeHistoryReader, DEFAULT_MACOS_CHROME_ROOT
-from .normalizers import build_relation_candidates, normalize_domain
+from .normalizers import build_relation_candidates, normalize_domain, parse_title_entities
 
 
 class ChromeHistoryTimelineSensor(SensorBase):
@@ -156,8 +156,10 @@ class ChromeHistoryTimelineSensor(SensorBase):
 
     async def extract_metadata(self, item: dict[str, Any]) -> SensorOutputMetadata:
         domain = str(item.get("domain") or normalize_domain(str(item.get("url") or "")))
+        title = str(item.get("title") or "")
+        entity_hints = parse_title_entities(title, domain)
         return SensorOutputMetadata(
-            entities=[],
+            entities=entity_hints,
             tags=[tag for tag in ("chrome_history", domain) if tag],
             relation_candidates=build_relation_candidates(item),
         )

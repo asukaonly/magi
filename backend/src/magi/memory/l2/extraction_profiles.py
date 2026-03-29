@@ -38,8 +38,14 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
     ),
     "timeline.chrome_history": ExtractionProfile(
         profile_id="timeline.chrome_history",
-        allowed_entity_types=frozenset({"product"}),
-        allowed_predicates=frozenset({"VISITED"}),
+        allowed_entity_types=frozenset({
+            "product", "software", "technology", "media",
+            "person", "organization", "topic",
+        }),
+        allowed_predicates=frozenset({
+            "VISITED", "USES", "INTERESTED_IN", "FOLLOWS",
+            "VIEWED", "WORKS_WITH",
+        }),
         allowed_assertion_families=frozenset(),
         allow_assertion=False,
     ),

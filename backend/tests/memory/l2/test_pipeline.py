@@ -3168,3 +3168,120 @@ async def test_unified_memory_on_session_end_noop_without_l2():
             assert result == []
         finally:
             await store.shutdown()
+
+
+# ── Structured Entity Hints & Alias Validation ──
+
+
+@pytest.mark.asyncio
+async def test_register_structured_entity_hints_creates_catalog_entries():
+    """Sensor-provided entity hints should be registered in the entity catalog."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        event = _make_memory_event(event_id="evt-hints-1", content="testing hints")
+        event.metadata_json = {
+            "structured_entity_hints": [
+                {
+                    "mention_text": "GitHub",
+                    "entity_type": "software",
+                    "canonical_name_hint": "GitHub",
+                },
+                {
+                    "mention_text": "openai-python",
+                    "entity_type": "media",
+                    "canonical_name_hint": "openai-python",
+                },
+            ]
+        }
+
+        existing: list[dict] = []
+        await pipeline._register_structured_entity_hints(event, existing, ["evt-hints-1"])
+
+        assert len(existing) == 2
+        types = {e["entity_type"] for e in existing}
+        assert "software" in types
+        assert "media" in types
+
+        # Verify catalog persistence
+        entities = await pipeline._entity_catalog.list_entities(limit=10)
+        names = {e["canonical_name"] for e in entities}
+        assert "GitHub" in names
+        assert "openai-python" in names
+
+
+@pytest.mark.asyncio
+async def test_register_structured_entity_hints_skips_duplicates():
+    """Already-registered entities should not be duplicated."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        await pipeline._entity_catalog.upsert_entity(
+            entity_id="software:abc123",
+            canonical_name="GitHub",
+            entity_type="software",
+        )
+
+        event = _make_memory_event(event_id="evt-hints-2", content="testing")
+        event.metadata_json = {
+            "structured_entity_hints": [
+                {
+                    "mention_text": "GitHub",
+                    "entity_type": "software",
+                    "canonical_name_hint": "GitHub",
+                    "resolved_entity_id": "software:abc123",
+                },
+            ]
+        }
+
+        existing = [{"entity_id": "software:abc123", "canonical_name": "GitHub", "entity_type": "software"}]
+        await pipeline._register_structured_entity_hints(event, existing, ["evt-hints-2"])
+
+        assert len(existing) == 1
+
+
+@pytest.mark.asyncio
+async def test_register_structured_entity_hints_noop_without_metadata():
+    """Missing or empty hints should be a no-op."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        event = _make_memory_event(event_id="evt-nohints", content="no hints")
+        event.metadata_json = {}
+
+        existing: list[dict] = []
+        await pipeline._register_structured_entity_hints(event, existing, ["evt-nohints"])
+        assert existing == []
+
+
+class TestAliasValidation:
+    """Tests for _is_valid_alias quality gate."""
+
+    @pytest.fixture
+    def pipeline_cls(self):
+        from magi.memory.l2.pipeline import L2Pipeline
+        return L2Pipeline
+
+    def test_rejects_platform_alias_for_media(self, pipeline_cls):
+        p = pipeline_cls.__new__(pipeline_cls)
+        assert p._is_valid_alias("抖音", "坤的真爱粉的抖音直播间", "media") is False
+
+    def test_rejects_platform_alias_for_person(self, pipeline_cls):
+        p = pipeline_cls.__new__(pipeline_cls)
+        assert p._is_valid_alias("YouTube", "some creator channel", "person") is False
+
+    def test_allows_platform_alias_for_software(self, pipeline_cls):
+        p = pipeline_cls.__new__(pipeline_cls)
+        assert p._is_valid_alias("抖音", "Douyin", "software") is True
+
+    def test_rejects_short_alias_for_long_name(self, pipeline_cls):
+        p = pipeline_cls.__new__(pipeline_cls)
+        assert p._is_valid_alias("X", "a very long canonical entity name", "media") is False
+
+    def test_allows_same_alias_as_canonical(self, pipeline_cls):
+        p = pipeline_cls.__new__(pipeline_cls)
+        assert p._is_valid_alias("GitHub", "GitHub", "software") is True
+
+    def test_allows_reasonable_alias(self, pipeline_cls):
+        p = pipeline_cls.__new__(pipeline_cls)
+        assert p._is_valid_alias("React.js", "React Framework", "technology") is True

@@ -72,6 +72,7 @@ class SensorIngestionGateway:
             output,
             policy,
             timeline_event=timeline_event,
+            metadata=metadata,
         )
         if output.source_type == "calendar":
             logger.info(
@@ -121,6 +122,7 @@ class SensorIngestionGateway:
         policy: Any,
         *,
         timeline_event: TimelineEvent,
+        metadata: SensorOutputMetadata | None = None,
     ) -> MemoryEvent:
         """Build a MemoryEvent from SensorOutput + SensorMemoryPolicy."""
         content = output.summary or output.title or ""
@@ -142,6 +144,10 @@ class SensorIngestionGateway:
             metadata_json["raw_payload_ref"] = timeline_event.raw_payload_ref
         if timeline_event.processing_status:
             metadata_json["processing_status"] = dict(timeline_event.processing_status)
+
+        entity_hints = metadata.entities if metadata and metadata.entities else []
+        if entity_hints:
+            metadata_json["structured_entity_hints"] = entity_hints
 
         return MemoryEvent(
             event_id=event_id,

@@ -64,6 +64,12 @@ def test_chrome_history_source_uses_chrome_history_profile_restrictions():
     )
 
     assert profile.profile_id == "timeline.chrome_history"
-    assert profile.allowed_entity_types == frozenset({"product"})
-    assert profile.allowed_predicates == frozenset({"VISITED"})
+    assert profile.allowed_entity_types == frozenset({
+        "product", "software", "technology", "media",
+        "person", "organization", "topic",
+    })
+    assert profile.allowed_predicates == frozenset({
+        "VISITED", "USES", "INTERESTED_IN", "FOLLOWS",
+        "VIEWED", "WORKS_WITH",
+    })
     assert profile.allow_assertion is False
