@@ -142,7 +142,7 @@ describe('MemoryEventsPage search interactions', () => {
     expect(screen.getByRole('button', { name: 'chrome_history' })).toBeInTheDocument();
   });
 
-  it('normalizes a single selected date into a one-day query range', async () => {
+  it('passes through a single selected start date without forcing an end date', async () => {
     const user = userEvent.setup();
 
     render(
@@ -156,7 +156,7 @@ describe('MemoryEventsPage search interactions', () => {
 
     expect(queryL1Events).toHaveBeenCalledWith({
       start_date: '2026-03-28',
-      end_date: '2026-03-28',
+      end_date: undefined,
     });
   });
 });

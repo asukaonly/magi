@@ -33,16 +33,8 @@ const normalizeDateRange = (startDate: string, endDate: string) => {
   const normalizedStartDate = startDate.trim();
   const normalizedEndDate = endDate.trim();
 
-  if (!normalizedStartDate && !normalizedEndDate) {
-    return { start: undefined, end: undefined };
-  }
-
-  if (normalizedStartDate && !normalizedEndDate) {
-    return { start: normalizedStartDate, end: normalizedStartDate };
-  }
-
-  if (!normalizedStartDate && normalizedEndDate) {
-    return { start: normalizedEndDate, end: normalizedEndDate };
+  if (!normalizedStartDate || !normalizedEndDate) {
+    return { start: normalizedStartDate || undefined, end: normalizedEndDate || undefined };
   }
 
   return normalizedStartDate > normalizedEndDate
