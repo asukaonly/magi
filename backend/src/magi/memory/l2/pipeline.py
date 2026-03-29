@@ -69,7 +69,8 @@ DEFAULT_L2_MAX_EVENTS_PER_BATCH = 12
 DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH = 2400
 DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS = 2.0
 DEFAULT_L2_PROJECTION_CLAIM_LIMIT = DEFAULT_L2_MAX_EVENTS_PER_BATCH * DEFAULT_L2_EXTRACT_WORKER_COUNT
-DEFAULT_L2_PROJECTION_STALE_CLAIM_TIMEOUT_SECONDS = 300.0
+DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS = 1800.0
+DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS = 300.0
 DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT = 3
 DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3
 DEFAULT_L2_HISTORY_SEARCH_LIMIT = 4
@@ -156,7 +157,8 @@ class L2Pipeline:
         self._stats = L2PipelineStats()
         self._projection_consumer_name = f"l2-pipeline:{uuid.uuid4().hex[:8]}"
         self._projection_claim_limit = DEFAULT_L2_PROJECTION_CLAIM_LIMIT
-        self._projection_stale_claim_timeout_seconds = DEFAULT_L2_PROJECTION_STALE_CLAIM_TIMEOUT_SECONDS
+        self._projection_stale_queued_timeout_seconds = DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS
+        self._projection_stale_running_timeout_seconds = DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS
 
     async def start(self) -> None:
         if self._stats.is_running or self._cognition_store is None:
@@ -365,7 +367,8 @@ class L2Pipeline:
             return 0
 
         await self._cognition_store.requeue_stale_projection_jobs(
-            timeout_seconds=self._projection_stale_claim_timeout_seconds,
+            queued_timeout_seconds=self._projection_stale_queued_timeout_seconds,
+            running_timeout_seconds=self._projection_stale_running_timeout_seconds,
         )
         claim_limit = max(1, int(limit or self._projection_claim_limit))
         if force:
@@ -607,6 +610,11 @@ class L2Pipeline:
                     event_ids=job.event_ids,
                     flush_reason=job.flush_reason,
                     queue_size=self._extract_queue.qsize(),
+                if job.event_ids:
+                    await self._cognition_store.mark_projection_jobs_running(
+                        job.event_ids,
+                        consumer_name=self._projection_consumer_name,
+                    )
                 )
                 result = await self._extract_and_persist(job)
                 if job.event_ids:

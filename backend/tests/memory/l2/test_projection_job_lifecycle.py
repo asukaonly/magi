@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from magi.memory.l2.models import L2BatchJob
+from magi.memory.l2.pipeline import L2Pipeline
+
+
+class _RecordingCognitionStore:
+    def __init__(self) -> None:
+        self.running_calls: list[tuple[list[str], str]] = []
+        self.completed_calls: list[list[str]] = []
+        self.failed_calls: list[tuple[list[str], str | None, bool]] = []
+
+    async def mark_projection_jobs_running(self, event_ids, *, consumer_name: str) -> int:  # type: ignore[no-untyped-def]
+        ids = list(event_ids)
+        self.running_calls.append((ids, consumer_name))
+        return len(ids)
+
+    async def complete_projection_jobs(self, event_ids):  # type: ignore[no-untyped-def]
+        self.completed_calls.append(list(event_ids))
+        return len(event_ids)
+
+    async def fail_projection_jobs(self, event_ids, *, error_text: str | None = None, requeue: bool):  # type: ignore[no-untyped-def]
+        self.failed_calls.append((list(event_ids), error_text, requeue))
+        return len(event_ids)
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_marks_projection_jobs_running_before_completion():
+    cognition_store = _RecordingCognitionStore()
+    pipeline = L2Pipeline(
+        cognition_store=cognition_store,
+        l1_store=SimpleNamespace(),
+        entity_catalog=SimpleNamespace(),
+        llm_service=SimpleNamespace(),
+    )
+
+    recorded_job_ids: list[str] = []
+
+    async def _fake_extract_and_persist(job: L2BatchJob):  # type: ignore[no-untyped-def]
+        recorded_job_ids.append(job.job_id)
+        return {
+            "relation_count": 0,
+            "assertion_count": 0,
+            "touched_entity_ids": [],
+            "snapshot_refresh_entity_ids": [],
+        }
+
+    pipeline._extract_and_persist = _fake_extract_and_persist  # type: ignore[method-assign]
+
+    job = L2BatchJob(
+        job_id="projection:test-job",
+        bucket_key="owner:test",
+        events=[{"event_id": "evt-proj-1", "content": "hello", "timestamp": 1710000000.0}],
+        flush_reason="projection_ready",
+        estimated_tokens=4,
+        session_id=None,
+        user_id=None,
+    )
+
+    await pipeline._extract_queue.put(job)
+    await pipeline._extract_queue.put(None)
+
+    await pipeline._run_extract_worker()
+
+    assert recorded_job_ids == ["projection:test-job"]
+    assert cognition_store.running_calls == [
+        (["evt-proj-1"], pipeline._projection_consumer_name),
+    ]
+    assert cognition_store.completed_calls == [["evt-proj-1"]]
+    assert cognition_store.failed_calls == []

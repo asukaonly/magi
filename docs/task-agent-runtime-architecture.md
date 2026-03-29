@@ -379,7 +379,7 @@ The current memory write path is:
 3. routing decides whether it is `l0_only`, `l0_and_l1`, or `l1_only`
 4. `UnifiedMemoryStore` writes it into the enabled lifecycle stages
 5. `L1`-backed cognition work is recorded as durable `l2_projection_jobs` in `memory.db`
-6. `L2Pipeline` claims those jobs inside `runtime_worker`, batches them locally, and writes derived cognition state
+6. `L2Pipeline` claims those jobs inside `runtime_worker`, moves them through `queued -> running`, batches them locally, and writes derived cognition state
 7. retrieval surfaces read from event, cognition, reflection, and procedural memory as needed
 
 Two rules matter here:

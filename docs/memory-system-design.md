@@ -218,8 +218,8 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 
 1. `L1` 事实先成功写入 durable store
 2. 如果事件 `cognition_eligible=true`，会在 `memory.db` 中写入 `l2_projection_jobs`
-3. `runtime_worker` 中的 `L2Pipeline` 只 claim 已经 ready 的 `pending` job
-4. claim 到的事件在进程内按 batch owner / session / user 聚成执行批次
+3. `runtime_worker` 中的 `L2Pipeline` 只 claim 已经 ready 的 `pending` job，并把它们标记为 `queued`
+4. claim 到的事件在进程内按 batch owner / session / user 聚成执行批次；worker 真正开始执行前再把对应 job 标记为 `running`
 5. 抽取成功后把 job 标记为 `completed`，失败则标记为 `failed` 或重新回到 `pending`
 
 其中：
@@ -233,6 +233,7 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 
 - `L2` 的 durable progress 由 projection job state 负责
 - 微批只是执行优化，不是进度真相
+- `queued` 和 `running` 必须区分：排队中的 batch 不能因为短运行超时被误判成 stale
 - durable claim 需要受 runtime backpressure 约束，避免在 extract queue 尚未消化时继续把大量 job 从 `pending` 推成 `claimed`
 - 对高吞吐 source，等待积累通常能降低 LLM 成本并提升同域事件的一致性理解
 - 对同一个 source，`L2` 可以根据 backlog 在 `catch_up` 和 `steady_state` 之间切换：

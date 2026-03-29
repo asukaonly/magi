@@ -181,6 +181,7 @@ class L2CognitionStore:
                     attempt_count INTEGER NOT NULL DEFAULT 0,
                     claimed_by TEXT,
                     claimed_at REAL,
+                    started_at REAL,
                     completed_at REAL,
                     last_error TEXT,
                     created_at REAL NOT NULL,
@@ -368,6 +369,7 @@ class L2CognitionStore:
             "max_events": "INTEGER",
             "min_ready_events": "INTEGER",
             "max_wait_seconds": "REAL",
+            "started_at": "REAL",
         }
         for column_name, column_type in required_columns.items():
             if column_name in existing_columns:
@@ -793,11 +795,12 @@ class L2CognitionStore:
                     attempt_count,
                     claimed_by,
                     claimed_at,
+                    started_at,
                     completed_at,
                     last_error,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, NULL, NULL, ?, ?)
                 """,
                 (
                     event_id,
@@ -998,9 +1001,10 @@ class L2CognitionStore:
             await db.execute(
                 f"""
                 UPDATE l2_projection_jobs
-                SET status = 'claimed',
+                SET status = 'queued',
                     claimed_by = ?,
                     claimed_at = ?,
+                    started_at = NULL,
                     updated_at = ?
                 WHERE event_id IN ({placeholders})
                 """,
@@ -1041,9 +1045,10 @@ class L2CognitionStore:
             cursor = await db.execute(
                 """
                 UPDATE l2_projection_jobs
-                SET status = 'claimed',
+                SET status = 'queued',
                     claimed_by = ?,
                     claimed_at = ?,
+                    started_at = NULL,
                     updated_at = ?
                 WHERE event_id IN (
                     SELECT event_id
@@ -1064,6 +1069,38 @@ class L2CognitionStore:
             rows = await cursor.fetchall()
             await db.commit()
         return [self._projection_job_row_to_dict(row) for row in rows]
+
+    async def mark_projection_jobs_running(
+        self,
+        event_ids: List[str],
+        *,
+        consumer_name: str,
+    ) -> int:
+        """Mark queued projection jobs as actively running."""
+        if not event_ids:
+            return 0
+        await self.initialize()
+        placeholders = ", ".join("?" for _ in event_ids)
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"""
+                UPDATE l2_projection_jobs
+                SET status = 'running',
+                    claimed_by = ?,
+                    started_at = ?,
+                    updated_at = ?
+                WHERE event_id IN ({placeholders})
+                """,
+                (
+                    consumer_name,
+                    now,
+                    now,
+                    *event_ids,
+                ),
+            )
+            await db.commit()
+        return int(cursor.rowcount or 0)
 
     async def complete_projection_jobs(self, event_ids: List[str]) -> int:
         """Mark projection jobs as completed."""
@@ -1092,10 +1129,17 @@ class L2CognitionStore:
             increment_attempt_count=True,
         )
 
-    async def requeue_stale_projection_jobs(self, *, timeout_seconds: float) -> int:
-        """Return stale claimed jobs back to pending for replay."""
+    async def requeue_stale_projection_jobs(
+        self,
+        *,
+        queued_timeout_seconds: float,
+        running_timeout_seconds: float,
+    ) -> int:
+        """Return stale queued or running jobs back to pending for replay."""
         await self.initialize()
-        cutoff = time.time() - float(timeout_seconds)
+        now = time.time()
+        queued_cutoff = now - float(queued_timeout_seconds)
+        running_cutoff = now - float(running_timeout_seconds)
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
                 """
@@ -1104,12 +1148,19 @@ class L2CognitionStore:
                     attempt_count = attempt_count + 1,
                     claimed_by = NULL,
                     claimed_at = NULL,
+                    started_at = NULL,
                     updated_at = ?
-                WHERE status = 'claimed'
-                  AND claimed_at IS NOT NULL
-                  AND claimed_at < ?
+                WHERE (
+                    status = 'queued'
+                    AND claimed_at IS NOT NULL
+                    AND claimed_at < ?
+                ) OR (
+                    status = 'running'
+                    AND started_at IS NOT NULL
+                    AND started_at < ?
+                )
                 """,
-                (time.time(), cutoff),
+                (now, queued_cutoff, running_cutoff),
             )
             await db.commit()
         return int(cursor.rowcount or 0)
@@ -1119,12 +1170,15 @@ class L2CognitionStore:
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             pending = await self._count_projection_jobs_by_status(db, "pending")
-            claimed = await self._count_projection_jobs_by_status(db, "claimed")
+            queued = await self._count_projection_jobs_by_status(db, "queued")
+            running = await self._count_projection_jobs_by_status(db, "running")
             completed = await self._count_projection_jobs_by_status(db, "completed")
             failed = await self._count_projection_jobs_by_status(db, "failed")
         return {
             "pending": pending,
-            "claimed": claimed,
+            "queued": queued,
+            "running": running,
+            "claimed": queued + running,
             "completed": completed,
             "failed": failed,
         }
@@ -1907,6 +1961,7 @@ class L2CognitionStore:
                     {attempt_clause}
                     claimed_by = ?,
                     claimed_at = ?,
+                    started_at = ?,
                     completed_at = ?,
                     last_error = ?,
                     updated_at = ?
@@ -1915,6 +1970,7 @@ class L2CognitionStore:
                 (
                     status,
                     None if clear_claim else "runtime_worker",
+                    None if clear_claim else now,
                     None if clear_claim else now,
                     completed_at,
                     error_text,
@@ -1948,6 +2004,7 @@ class L2CognitionStore:
             "attempt_count": int(row["attempt_count"] or 0),
             "claimed_by": row["claimed_by"],
             "claimed_at": float(row["claimed_at"]) if row["claimed_at"] is not None else None,
+            "started_at": float(row["started_at"]) if row["started_at"] is not None else None,
             "completed_at": float(row["completed_at"]) if row["completed_at"] is not None else None,
             "last_error": row["last_error"],
             "created_at": float(row["created_at"]),
