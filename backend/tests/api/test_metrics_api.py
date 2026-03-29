@@ -125,6 +125,14 @@ class _FakeUnifiedMemory:
             "snapshot_failed": 0,
         }
 
+    async def get_l2_projection_backlog(self) -> dict[str, int]:
+        return {
+            "pending": 7,
+            "claimed": 5,
+            "completed": 11,
+            "failed": 2,
+        }
+
 
 class _FakeSchedulerRepository:
     async def list_schedules(self, *, enabled_only: bool = False) -> list[ScheduleDefinition]:
@@ -219,10 +227,10 @@ async def test_build_runtime_overview_returns_aggregated_runtime_data(monkeypatc
     assert overview["system"]["cpu_percent"] == 26.0
     assert overview["runtime"]["pending_commands"] == 3
     assert overview["model_execution"]["avg_ttft_ms"] == 420.0
-    assert overview["memory"]["l2"]["extract_pending"] == 1
-    assert overview["memory"]["l2"]["total_pending"] == 4
+    assert overview["memory"]["l2"]["extract_pending"] == 12
+    assert overview["memory"]["l2"]["total_pending"] == 15
     assert overview["memory"]["embeddings"]["total_pending"] == 3
-    assert overview["memory"]["total_pending"] == 7
+    assert overview["memory"]["total_pending"] == 18
     assert overview["scheduler"]["enabled_schedule_count"] == 1
     assert overview["scheduler"]["running_target_count"] == 1
 

@@ -12,13 +12,14 @@ from ...llm import get_llm_usage_store
 from .runtime_status_service import get_runtime_system_status
 
 
-def _build_l2_pending_breakdown(pipeline_stats: dict[str, Any]) -> dict[str, int]:
+def _build_l2_pending_breakdown(
+    pipeline_stats: dict[str, Any],
+    projection_backlog: dict[str, Any] | None = None,
+) -> dict[str, int]:
+    durable_projection = dict(projection_backlog or {})
     return {
         "extract_pending": max(
-            int(pipeline_stats.get("extract_enqueued", 0))
-            - int(pipeline_stats.get("extract_completed", 0))
-            - int(pipeline_stats.get("extract_failed", 0))
-            - int(pipeline_stats.get("extract_skipped", 0)),
+            int(durable_projection.get("pending", 0)) + int(durable_projection.get("claimed", 0)),
             0,
         ),
         "reconcile_pending": max(
@@ -62,7 +63,7 @@ async def build_runtime_overview(app: Any) -> dict[str, Any]:
         },
         "runtime": runtime_status,
         "model_execution": await _build_model_execution_summary(),
-        "memory": _build_memory_summary(),
+        "memory": await _build_memory_summary(),
         "scheduler": await _build_scheduler_summary(),
     }
 
@@ -91,7 +92,7 @@ async def _build_model_execution_summary() -> dict[str, Any]:
     }
 
 
-def _build_memory_summary() -> dict[str, Any]:
+async def _build_memory_summary() -> dict[str, Any]:
     try:
         unified_memory = require_unified_memory()
     except Exception:
@@ -113,7 +114,12 @@ def _build_memory_summary() -> dict[str, Any]:
         }
 
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
-    l2_pending = _build_l2_pending_breakdown(pipeline_stats)
+    projection_backlog = (
+        await unified_memory.get_l2_projection_backlog()
+        if hasattr(unified_memory, "get_l2_projection_backlog")
+        else {"pending": 0, "claimed": 0, "completed": 0, "failed": 0}
+    )
+    l2_pending = _build_l2_pending_breakdown(pipeline_stats, projection_backlog)
     l1_pending = _build_embedding_pending(
         unified_memory.l1.get_statistics() if getattr(unified_memory, "l1", None) and hasattr(unified_memory.l1, "get_statistics") else None
     )
