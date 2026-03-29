@@ -408,27 +408,33 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   }, []);
 
   const loadInitialScope = useCallback(async () => {
-    const jobs: Promise<unknown>[] = [loadStatistics()];
+    const jobs: Promise<unknown>[] = [];
 
     switch (initialLoadScope) {
       case 'all':
+        jobs.push(loadStatistics());
         jobs.push(loadL0Sessions(), loadL1Events(), loadL2Data(), loadL3Summaries(), loadL4Skills());
         break;
       case 'overview':
+        jobs.push(loadStatistics());
         break;
       case 'l0':
+        jobs.push(loadStatistics());
         jobs.push(loadL0Sessions());
         break;
       case 'l1':
         jobs.push(loadL1Events());
         break;
       case 'l2':
+        jobs.push(loadStatistics());
         jobs.push(loadL1Events(), loadL2Data());
         break;
       case 'l3':
+        jobs.push(loadStatistics());
         jobs.push(loadL3Summaries());
         break;
       case 'l4':
+        jobs.push(loadStatistics());
         jobs.push(loadL4Skills());
         break;
     }
