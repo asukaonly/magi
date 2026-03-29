@@ -425,8 +425,14 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
                 }
             )
             assert result["l1_written"] is True
+            assert result["l2_job_enqueued"] is True
             assert result["l2_relation_count"] == 0
             assert result["l2_assertion_count"] == 0
+
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_enqueued"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
 
             stats = store.get_l2_pipeline_stats()
             assert stats["extract_enqueued"] == 1
@@ -455,7 +461,7 @@ async def test_cognition_ineligible_event_is_not_enqueued_for_l2():
         )
         await store.initialize()
         try:
-            await store.ingest_event(
+            result = await store.ingest_event(
                 {
                     "id": "evt-queue-2",
                     "type": EventTypes.TASK_COMPLETED,
@@ -471,9 +477,10 @@ async def test_cognition_ineligible_event_is_not_enqueued_for_l2():
                 }
             )
 
+            assert result["l2_job_enqueued"] is False
             stats = store.get_l2_pipeline_stats()
             assert stats["extract_enqueued"] == 0
-            assert stats["extract_skipped"] == 1
+            assert stats["extract_skipped"] == 0
         finally:
             await store.shutdown()
 
@@ -1980,8 +1987,7 @@ async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
 
 
 @pytest.mark.asyncio
-@pytest.mark.asyncio
-async def test_chat_response_action_runtime_event_is_skipped_before_llm_extraction():
+async def test_chat_response_action_runtime_event_does_not_enter_l2_pipeline():
     adapter = _FakeAdapter(json.dumps({"mentions": [], "graph_candidates": [], "assertion_candidates": []}))
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2015,15 +2021,10 @@ async def test_chat_response_action_runtime_event_is_skipped_before_llm_extracti
                 )
             )
 
-            for _ in range(50):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_skipped"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
             stats = store.get_l2_pipeline_stats()
-            assert stats["extract_by_evidence_class"]["assistant_runtime_derivation"] >= 1
-            assert stats["skip_by_reason"]["assistant_runtime_derivation"] >= 1
+            assert stats["extract_enqueued"] == 0
+            assert stats["extract_completed"] == 0
+            assert stats["extract_skipped"] == 0
             assert adapter.calls == []
         finally:
             await store.shutdown()

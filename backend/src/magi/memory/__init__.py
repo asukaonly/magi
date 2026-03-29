@@ -238,7 +238,11 @@ class UnifiedMemoryStore:
                         ),
                     )
 
-        if l1_written and self.l2_pipeline is not None:
+        if (
+            self.l2_pipeline is not None
+            and memory_event.cognition_eligible
+            and not memory_event.ingest_target.includes_l1
+        ):
             if stored_event_id != memory_event.event_id:
                 memory_event.event_id = stored_event_id
             await self.l2_pipeline.enqueue_event(memory_event)

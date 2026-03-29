@@ -363,6 +363,38 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first_result["event_id"], second_result["event_id"])
         self.assertEqual(count_row, (1,))
 
+    async def test_l2_pipeline_claims_and_completes_durable_projection_jobs(self):
+        result = await self.store.ingest_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "content": "I have been really stressed about work lately."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-proj-2",
+                metadata={"user_id": "u1"},
+                timestamp=time.time(),
+            )
+        )
+
+        async def _projection_completed() -> bool:
+            async with aiosqlite.connect(str(self.base / "memory.db")) as db:
+                cursor = await db.execute(
+                    """
+                    SELECT status
+                    FROM l2_projection_jobs
+                    WHERE event_id = ?
+                    """,
+                    (str(result["event_id"]),),
+                )
+                row = await cursor.fetchone()
+            return row == ("completed",)
+
+        await _wait_for_async_condition(
+            _projection_completed,
+            timeout=2.0,
+            interval=0.05,
+        )
+
     async def test_action_executed_is_excluded_from_l1_but_still_updates_l4(self):
         now = time.time()
 

@@ -68,6 +68,8 @@ DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS = 0.2
 DEFAULT_L2_MAX_EVENTS_PER_BATCH = 12
 DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH = 2400
 DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS = 2.0
+DEFAULT_L2_PROJECTION_CLAIM_LIMIT = DEFAULT_L2_MAX_EVENTS_PER_BATCH * DEFAULT_L2_EXTRACT_WORKER_COUNT
+DEFAULT_L2_PROJECTION_STALE_CLAIM_TIMEOUT_SECONDS = 30.0
 DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT = 3
 DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3
 DEFAULT_L2_HISTORY_SEARCH_LIMIT = 4
@@ -152,6 +154,9 @@ class L2Pipeline:
         self._staging_lock = asyncio.Lock()
         self._session_touched_entities: dict[str, set[str]] = {}
         self._stats = L2PipelineStats()
+        self._projection_consumer_name = f"l2-pipeline:{uuid.uuid4().hex[:8]}"
+        self._projection_claim_limit = DEFAULT_L2_PROJECTION_CLAIM_LIMIT
+        self._projection_stale_claim_timeout_seconds = DEFAULT_L2_PROJECTION_STALE_CLAIM_TIMEOUT_SECONDS
 
     async def start(self) -> None:
         if self._stats.is_running or self._cognition_store is None:
@@ -313,9 +318,15 @@ class L2Pipeline:
         for job in jobs:
             await self._enqueue_extract_job(job)
 
+        projection_batch_count = await self._claim_pending_projection_jobs(limit=self._projection_claim_limit)
         if jobs:
             logger.info("L2 manual microbatch flush enqueued", batch_count=len(jobs))
-        return len(jobs)
+        if projection_batch_count:
+            logger.info(
+                "L2 manual durable projection flush enqueued",
+                batch_count=projection_batch_count,
+            )
+        return len(jobs) + int(projection_batch_count)
 
     def _accumulate_session_entities(
         self, session_id: str | None, entity_ids: list[str],
@@ -338,7 +349,45 @@ class L2Pipeline:
                 await asyncio.sleep(poll_interval)
             except asyncio.CancelledError:
                 break
+            await self._claim_pending_projection_jobs()
             await self._flush_ready_buckets()
+
+    async def _claim_pending_projection_jobs(self, *, limit: int | None = None) -> int:
+        if self._cognition_store is None or self._l1_store is None:
+            return 0
+
+        await self._cognition_store.requeue_stale_projection_jobs(
+            timeout_seconds=self._projection_stale_claim_timeout_seconds,
+        )
+        claimed_rows = await self._cognition_store.claim_projection_jobs(
+            consumer_name=self._projection_consumer_name,
+            limit=max(1, int(limit or self._projection_claim_limit)),
+        )
+        if not claimed_rows:
+            return 0
+
+        claimed_rows = sorted(
+            claimed_rows,
+            key=lambda item: (
+                float(item.get("created_at", 0.0) or 0.0),
+                str(item.get("event_id", "")),
+            ),
+        )
+        jobs, missing_event_ids = await self._build_extract_jobs_from_projection_rows(claimed_rows)
+        if missing_event_ids:
+            await self._cognition_store.fail_projection_jobs(
+                missing_event_ids,
+                error_text="l1_event_not_found",
+                requeue=False,
+            )
+            logger.warning(
+                "L2 projection jobs referenced missing L1 events",
+                event_ids=missing_event_ids,
+            )
+
+        for job in jobs:
+            await self._enqueue_extract_job(job)
+        return len(jobs)
 
     async def _flush_ready_buckets(self) -> None:
         jobs: list[L2BatchJob] = []
@@ -370,6 +419,69 @@ class L2Pipeline:
         await self._extract_queue.put(job)
         self._stats.extract_enqueued += 1
 
+    async def _build_extract_jobs_from_projection_rows(
+        self,
+        rows: list[dict[str, Any]],
+    ) -> tuple[list[L2BatchJob], list[str]]:
+        jobs: list[L2BatchJob] = []
+        missing_event_ids: list[str] = []
+        buckets: dict[str, L2PendingBatchBucket] = {}
+
+        for row in rows:
+            event_id = str(row.get("event_id", "")).strip()
+            if not event_id:
+                continue
+            event = await self._l1_store.get_memory_event(event_id) if self._l1_store is not None else None
+            if event is None:
+                missing_event_ids.append(event_id)
+                continue
+
+            owner_key = None
+            if isinstance(event.metadata_json, dict):
+                owner_key = event.metadata_json.get("l2_batch_owner")
+            if owner_key is None:
+                owner_key = row.get("batch_owner")
+            normalized_owner_key = str(owner_key) if owner_key is not None else None
+            bucket_key = build_l2_batch_bucket_key(
+                session_id=event.session_id,
+                user_id=event.user_id,
+                owner_key=normalized_owner_key,
+            )
+            if bucket_key is None:
+                direct_job = L2BatchJob(
+                    job_id=f"projection:{event.event_id}",
+                    bucket_key=f"event:{event.event_id}",
+                    events=[self._serialize_event_for_batch(event)],
+                    flush_reason="projection_direct",
+                    estimated_tokens=self._estimate_event_tokens(event.content),
+                    session_id=event.session_id,
+                    user_id=event.user_id,
+                )
+                self._record_batch_flush(direct_job, flush_reason=direct_job.flush_reason)
+                jobs.append(direct_job)
+                continue
+
+            bucket = buckets.get(bucket_key)
+            if bucket is None:
+                bucket = L2PendingBatchBucket.for_owner(
+                    session_id=event.session_id,
+                    user_id=event.user_id,
+                    owner_key=normalized_owner_key,
+                )
+                buckets[bucket_key] = bucket
+            bucket.add_event(
+                self._serialize_event_for_batch(event),
+                estimated_tokens=self._estimate_event_tokens(event.content),
+            )
+            flush_reason = self._flush_reason_for_bucket(bucket)
+            if flush_reason is not None:
+                jobs.append(self._build_projection_bucket_job(bucket, flush_reason=flush_reason))
+                buckets.pop(bucket_key, None)
+
+        for bucket in buckets.values():
+            jobs.append(self._build_projection_bucket_job(bucket, flush_reason="projection_claim"))
+        return jobs, missing_event_ids
+
     def _build_and_remove_bucket_job_locked(self, *, bucket_key: str, flush_reason: str) -> L2BatchJob | None:
         bucket = self._staging_buckets.pop(bucket_key, None)
         if bucket is None or not bucket.events:
@@ -377,6 +489,24 @@ class L2Pipeline:
             return None
         bucket.is_flushing = True
         job = bucket.build_job(flush_reason=flush_reason)
+        self._record_batch_flush(job, flush_reason=flush_reason)
+        self._refresh_staging_stats_locked()
+        return job
+
+    def _build_projection_bucket_job(
+        self,
+        bucket: L2PendingBatchBucket,
+        *,
+        flush_reason: str,
+    ) -> L2BatchJob:
+        job = bucket.build_job(
+            flush_reason=flush_reason,
+            job_id=f"projection:{bucket.bucket_key}:{int(bucket.newest_event_timestamp * 1000)}",
+        )
+        self._record_batch_flush(job, flush_reason=flush_reason)
+        return job
+
+    def _record_batch_flush(self, job: L2BatchJob, *, flush_reason: str) -> None:
         self._stats.batch_flush_count += 1
         self._increment_bucket(self._stats.batch_flush_by_reason, flush_reason)
         previous_flushes = self._stats.batch_flush_count - 1
@@ -390,8 +520,6 @@ class L2Pipeline:
             previous_count=previous_flushes,
             new_value=float(job.estimated_tokens),
         )
-        self._refresh_staging_stats_locked()
-        return job
 
     def _flush_reason_for_bucket(self, bucket: L2PendingBatchBucket) -> str | None:
         if len(bucket.events) >= DEFAULT_L2_MAX_EVENTS_PER_BATCH:
@@ -446,6 +574,8 @@ class L2Pipeline:
                     queue_size=self._extract_queue.qsize(),
                 )
                 result = await self._extract_and_persist(job)
+                if job.event_ids:
+                    await self._cognition_store.complete_projection_jobs(job.event_ids)
                 self._stats.extract_completed += 1
                 if result.get("skipped"):
                     self._stats.extract_skipped += 1
@@ -484,7 +614,13 @@ class L2Pipeline:
                 snapshot_refresh_entity_ids = result.get("snapshot_refresh_entity_ids", [])
                 if isinstance(snapshot_refresh_entity_ids, list) and snapshot_refresh_entity_ids:
                     await self.enqueue_snapshot_refresh(snapshot_refresh_entity_ids)
-            except Exception:
+            except Exception as exc:
+                if self._cognition_store is not None and job is not None and job.event_ids:
+                    await self._cognition_store.fail_projection_jobs(
+                        job.event_ids,
+                        error_text=str(exc),
+                        requeue=True,
+                    )
                 self._stats.extract_failed += 1
                 logger.exception(
                     "L2 extract failed",
