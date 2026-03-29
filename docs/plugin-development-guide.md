@@ -215,11 +215,20 @@ Sensors inheriting `SensorBase` have access to the following hooks that control 
 
 - `l2_batch_policy(output)`: return an `L2BatchPolicy` describing batching preferences:
   - `owner`: stable owner key for durable microbatch grouping (e.g., `chrome_history:Default:github.com`)
+  - `catch_up_owner`: optional secondary owner key used only when backlog is large and L2 enters catch-up mode
   - `max_events`: preferred full-batch size for this source
+  - `min_ready_events`: preferred smaller ready threshold for steady-state incremental sync
   - `max_estimated_tokens`: optional token cap for one execution batch
   - `max_wait_seconds`: how long an underfilled bucket may wait before it becomes ready
 
 L2 remains the final owner of batching policy. Plugins suggest a tighter bucket key or preferred batch shape, but the runtime decides when a bucket is ready, how much work to claim under backpressure, and when a forced flush may bypass waiting.
+
+For high-volume sources such as browser history, a practical pattern is:
+
+- `owner`: semantic primary bucket such as `profile + domain`
+- `catch_up_owner`: lower-fidelity shard used only for large backlog replay
+- `max_events`: large target batch size for catch-up throughput
+- `min_ready_events`: smaller steady-state threshold so routine incremental sync does not wait for the full catch-up size
 
 ### Entity Hints and Relation Candidates
 

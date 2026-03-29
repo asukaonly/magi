@@ -1,6 +1,7 @@
 """Timeline sensor for local Chrome history."""
 from __future__ import annotations
 
+import hashlib
 import time
 from typing import Any
 
@@ -32,6 +33,7 @@ class ChromeHistoryTimelineSensor(SensorBase):
     supports_pull_sync = True
 
     memory_policy = SensorMemoryPolicy()  # defaults match design
+    _catch_up_shard_count = 8
 
     def __init__(
         self,
@@ -69,11 +71,21 @@ class ChromeHistoryTimelineSensor(SensorBase):
         parts = [self.source_type, profile or "default"]
         if domain:
             parts.append(domain)
+        catch_up_owner = None
+        if domain:
+            shard = self._catch_up_shard_for_domain(domain)
+            catch_up_owner = f"{self.source_type}:{profile or 'default'}:catchup:{shard}"
         return L2BatchPolicy(
             owner=":".join(parts),
+            catch_up_owner=catch_up_owner,
             max_events=20,
+            min_ready_events=8,
             max_wait_seconds=180,
         )
+
+    def _catch_up_shard_for_domain(self, domain: str) -> int:
+        digest = hashlib.sha1(domain.strip().lower().encode("utf-8")).hexdigest()
+        return int(digest[:8], 16) % self._catch_up_shard_count
 
     async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
         sensor_settings = (

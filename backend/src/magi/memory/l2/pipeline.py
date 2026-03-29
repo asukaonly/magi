@@ -452,8 +452,8 @@ class L2Pipeline:
                 continue
 
             max_events, max_estimated_tokens = self._resolve_batch_limits(event)
-            owner_key = None
-            if isinstance(event.metadata_json, dict):
+            owner_key = row.get("effective_batch_owner")
+            if owner_key is None and isinstance(event.metadata_json, dict):
                 owner_key = event.metadata_json.get("l2_batch_owner")
             if owner_key is None:
                 owner_key = row.get("batch_owner")

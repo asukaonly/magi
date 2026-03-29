@@ -1158,3 +1158,81 @@ async def test_claim_ready_projection_jobs_claims_underfilled_owner_after_wait_t
     assert [item["event_id"] for item in claimed] == ["evt-owner-aged-1", "evt-owner-aged-2"]
     assert stats["claimed"] == 2
     assert stats["pending"] == 0
+
+
+@pytest.mark.asyncio
+async def test_claim_ready_projection_jobs_uses_min_ready_events_in_steady_state(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l2.store import L2CognitionStore
+
+    monkeypatch.setattr("magi.memory.l2.store.DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD", 9999)
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    for index in range(8):
+        await store.enqueue_projection_job(
+            event_id=f"evt-owner-steady-{index}",
+            source="chrome_history",
+            event_type="SENSOR_EVENT",
+            batch_owner="chrome_history:Default:github.com",
+            catch_up_owner="chrome_history:Default:catchup:0",
+            max_events=20,
+            min_ready_events=8,
+            max_wait_seconds=180,
+        )
+
+    claimed = await store.claim_ready_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=20,
+    )
+
+    assert [item["event_id"] for item in claimed] == [f"evt-owner-steady-{index}" for index in range(8)]
+    assert all(item["effective_batch_owner"] == "chrome_history:Default:github.com" for item in claimed)
+
+
+@pytest.mark.asyncio
+async def test_claim_ready_projection_jobs_merges_low_frequency_owners_in_catch_up_mode(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l2.store import L2CognitionStore
+
+    monkeypatch.setattr("magi.memory.l2.store.DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD", 10)
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    for index in range(10):
+        await store.enqueue_projection_job(
+            event_id=f"evt-owner-catch-a-{index}",
+            source="chrome_history",
+            event_type="SENSOR_EVENT",
+            batch_owner="chrome_history:Default:github.com",
+            catch_up_owner="chrome_history:Default:catchup:2",
+            max_events=20,
+            min_ready_events=8,
+            max_wait_seconds=180,
+        )
+    for index in range(10):
+        await store.enqueue_projection_job(
+            event_id=f"evt-owner-catch-b-{index}",
+            source="chrome_history",
+            event_type="SENSOR_EVENT",
+            batch_owner="chrome_history:Default:news.ycombinator.com",
+            catch_up_owner="chrome_history:Default:catchup:2",
+            max_events=20,
+            min_ready_events=8,
+            max_wait_seconds=180,
+        )
+
+    claimed = await store.claim_ready_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=40,
+    )
+
+    assert len(claimed) == 20
+    expected_event_ids = {f"evt-owner-catch-a-{index}" for index in range(10)} | {
+        f"evt-owner-catch-b-{index}" for index in range(10)
+    }
+    assert {item["event_id"] for item in claimed} == expected_event_ids
+    assert all(item["effective_batch_owner"] == "chrome_history:Default:catchup:2" for item in claimed)

@@ -140,8 +140,12 @@ class SensorIngestionGateway:
         if l2_batch_policy is not None:
             if l2_batch_policy.owner:
                 metadata_json["l2_batch_owner"] = str(l2_batch_policy.owner)
+            if l2_batch_policy.catch_up_owner:
+                metadata_json["l2_batch_catch_up_owner"] = str(l2_batch_policy.catch_up_owner)
             if l2_batch_policy.max_events is not None:
                 metadata_json["l2_batch_max_events"] = int(l2_batch_policy.max_events)
+            if l2_batch_policy.min_ready_events is not None:
+                metadata_json["l2_batch_min_ready_events"] = int(l2_batch_policy.min_ready_events)
             if l2_batch_policy.max_estimated_tokens is not None:
                 metadata_json["l2_batch_max_estimated_tokens"] = int(l2_batch_policy.max_estimated_tokens)
             if l2_batch_policy.max_wait_seconds is not None:

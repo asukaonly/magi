@@ -25,7 +25,9 @@ class L2BatchPolicy:
     """Plugin-suggested L2 batching policy for one sensor output."""
 
     owner: str | None = None
+    catch_up_owner: str | None = None
     max_events: int | None = None
+    min_ready_events: int | None = None
     max_estimated_tokens: int | None = None
     max_wait_seconds: int | None = None
 

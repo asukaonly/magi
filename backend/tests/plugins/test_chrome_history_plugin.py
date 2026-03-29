@@ -374,7 +374,10 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     policy = sensor.l2_batch_policy(output)
     assert policy is not None
     assert policy.owner == "chrome_history:Default:github.com"
+    assert policy.catch_up_owner is not None
+    assert policy.catch_up_owner.startswith("chrome_history:Default:catchup:")
     assert policy.max_events == 20
+    assert policy.min_ready_events == 8
     assert policy.max_wait_seconds == 180
 
     root_metadata = await sensor.extract_metadata(result.items[0])

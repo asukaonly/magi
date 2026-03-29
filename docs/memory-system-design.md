@@ -225,7 +225,8 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 其中：
 
 - `batch owner` 可以由插件通过 `l2_batch_policy()` 提供，用来把同源但更语义一致的事件放进同一个 durable owner 桶
-- 插件也可以通过同一个 policy 提供 advisory batching 信息，例如 `max_events`、`max_estimated_tokens` 和 `max_wait_seconds`
+- 插件也可以通过同一个 policy 提供 advisory batching 信息，例如 `max_events`、`min_ready_events`、`max_estimated_tokens` 和 `max_wait_seconds`
+- 对高吞吐 source，插件还可以额外提供 `catch_up_owner`，让 `L2` 在大 backlog 重放时把低频 owner 合并进更粗粒度的 catch-up shard
 - durable owner 桶通常在“达到期望批大小”或“等待时间超过阈值”时才变成 ready；未 ready 的桶应继续留在 `pending`
 
 这意味着：
@@ -234,6 +235,9 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 - 微批只是执行优化，不是进度真相
 - durable claim 需要受 runtime backpressure 约束，避免在 extract queue 尚未消化时继续把大量 job 从 `pending` 推成 `claimed`
 - 对高吞吐 source，等待积累通常能降低 LLM 成本并提升同域事件的一致性理解
+- 对同一个 source，`L2` 可以根据 backlog 在 `catch_up` 和 `steady_state` 之间切换：
+  - `catch_up` 更关注吞吐，会优先等待完整批次，并允许使用插件声明的 `catch_up_owner`
+  - `steady_state` 更关注时延，会接受较小的 `min_ready_events` 阈值
 - `runtime_worker` 重启后，未完成的 `L2` 投影可以从 job state 恢复
 - 插件自己的 sync cursor 只负责“同步到 `L1`”，不负责 `L2` 进度
 
