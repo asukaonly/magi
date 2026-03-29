@@ -285,3 +285,41 @@ def test_loader_reloads_after_external_llm_file_change(tmp_path: Path, monkeypat
     reloaded = loader.load()
 
     assert reloaded.llm.providers["openai"].model_metadata_overrides["gpt-5.2"].capabilities.vision is True
+
+
+def test_loader_reuses_cached_config_without_re_running_ensure(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    cached = loader.load()
+
+    def _fail_if_called() -> None:
+        raise AssertionError("_ensure_config_exists should not run when cached config is still valid")
+
+    monkeypatch.setattr(loader, "_ensure_config_exists", _fail_if_called)
+
+    reused = loader.load()
+
+    assert reused is cached
+
+
+def test_loader_reload_re_runs_ensure(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    loader.load()
+
+    ensure_calls = 0
+    original_ensure = loader._ensure_config_exists
+
+    def _counted_ensure() -> None:
+        nonlocal ensure_calls
+        ensure_calls += 1
+        original_ensure()
+
+    monkeypatch.setattr(loader, "_ensure_config_exists", _counted_ensure)
+
+    reloaded = loader.reload()
+
+    assert ensure_calls == 1
+    assert reloaded is loader._config

@@ -132,13 +132,14 @@ class ConfigLoader:
         Returns:
             AppConfig: Merged configuration
         """
-        # Ensure config directory exists and has default config
-        self._ensure_config_exists()
-
         if self._config is not None:
             current_signature = self._snapshot_config_signature()
             if self._config_signature == current_signature:
                 return self._config
+
+        # Ensure config directory exists and has default config when bootstrapping
+        # or after external file changes invalidate the cached signature.
+        self._ensure_config_exists()
 
         # Load YAML file
         self._yaml_data = self._load_yaml()
