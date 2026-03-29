@@ -16,6 +16,7 @@ class ScheduledTargetType(str, Enum):
     SENSOR_SYNC = "sensor_sync"
     AGENT_TASK = "agent_task"
     ACTION_DISPATCH = "action_dispatch"
+    MEMORY_L2_MAINTENANCE = "memory_l2_maintenance"
 
 
 class TriggerType(str, Enum):

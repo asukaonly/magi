@@ -24,7 +24,7 @@ from ..events.lifecycle import (
     RuntimeCommandQueueModule,
 )
 from ..llm.lifecycle import LLMRuntimeModule
-from ..memory.lifecycle import MemoryStoreModule
+from ..memory.lifecycle import L2MaintenanceScheduleRegistrationModule, MemoryStoreModule
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
 from ..scheduler.lifecycle import SchedulerModule
@@ -62,6 +62,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         ActionScheduleRegistrationModule(context),
         SensorScheduleRegistrationModule(context),
         RuntimeExportsModule(context),
+        L2MaintenanceScheduleRegistrationModule(context),
         OtherDependenciesModule(context),
     ]
 

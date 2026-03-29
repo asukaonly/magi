@@ -271,6 +271,20 @@ class MemoryL2Settings(BaseModel):
     auto_extract_relations: bool = Field(default=True)
     conflict_arbitration_enabled: bool = Field(default=True)
     conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+    maintenance_enabled: bool = Field(
+        default=True,
+        description="Register periodic L2 entity/graph maintenance with the runtime scheduler.",
+    )
+    maintenance_interval_seconds: float = Field(
+        default=86_400.0,
+        ge=300.0,
+        description="Interval between L2 maintenance runs (seconds). Minimum 300 to avoid excessive load.",
+    )
+    maintenance_min_mentions: int = Field(
+        default=2,
+        ge=1,
+        description="Orphan prune keeps entities with at least this many resolved mentions (unless referenced in graph).",
+    )
 
 
 class MemoryL3Settings(BaseModel):

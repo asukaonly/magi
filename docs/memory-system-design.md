@@ -241,6 +241,7 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
   - `steady_state` 更关注时延，会接受较小的 `min_ready_events` 阈值
 - `runtime_worker` 重启后，未完成的 `L2` 投影可以从 job state 恢复
 - 插件自己的 sync cursor 只负责“同步到 `L1`”，不负责 `L2` 进度
+- `runtime_worker` 会在统一调度器里注册 `memory_l2_maintenance` 周期任务：按 `agent.memory.l2` 配置（`maintenance_enabled`、`maintenance_interval_seconds`、`maintenance_min_mentions`）对 `entity_catalog` / `knowledge_graph` 做离线式整理（幽灵 object/subject 引用、同名可合并类型归并、低提及且无图引用的孤儿实体清理）。若配置中 `L2` 总开关关闭或统一内存未初始化 L2，任务执行时会直接跳过
 
 少数没有 `L1` durable 锚点的 runtime-only 事件，可以走进程内即时分发路径，但它们不应被视为 `L2` durable projection 的常规输入。
 
