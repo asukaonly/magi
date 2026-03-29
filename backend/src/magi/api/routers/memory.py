@@ -384,6 +384,8 @@ def _serialize_memory_event(event: MemoryEvent | Dict[str, Any]) -> Dict[str, An
 def _serialize_l1_event_list_item(event: MemoryEvent | Dict[str, Any]) -> Dict[str, Any]:
     payload = _serialize_memory_event(event)
     payload.pop("metadata_json", None)
+    payload.pop("embedding_status", None)
+    payload.pop("embedding_profile_id", None)
     return payload
 
 
@@ -1082,6 +1084,7 @@ async def get_l1_events(
     if not unified_memory or not unified_memory.l1:
         return {"events": [], "stats": {"total": 0}}
 
+    started_at = time.perf_counter()
     start_time = _parse_day_boundary(start_date, end_of_day=False)
     end_time = _parse_day_boundary(end_date, end_of_day=True)
     events = await unified_memory.l1.query_events(
@@ -1096,9 +1099,28 @@ async def get_l1_events(
         end_time=end_time,
         limit=limit,
         include_metadata_json=False,
+        include_embedding_fields=False,
     )
+    query_finished_at = time.perf_counter()
     total = await unified_memory.l1.count_events()
-    return {"events": [_serialize_l1_event_list_item(event) for event in events], "stats": {"total": total}}
+    count_finished_at = time.perf_counter()
+    payload = {"events": [_serialize_l1_event_list_item(event) for event in events], "stats": {"total": total}}
+    serialized_at = time.perf_counter()
+    logger.info(
+        "memory.l1.events.list_timing",
+        event_count=len(payload["events"]),
+        total_count=int(total),
+        limit=int(limit),
+        query_ms=round((query_finished_at - started_at) * 1000.0, 2),
+        count_ms=round((count_finished_at - query_finished_at) * 1000.0, 2),
+        serialize_ms=round((serialized_at - count_finished_at) * 1000.0, 2),
+        total_ms=round((serialized_at - started_at) * 1000.0, 2),
+        has_query=bool(str(query or "").strip()),
+        has_source=bool(str(source or "").strip()),
+        has_start_date=bool(str(start_date or "").strip()),
+        has_end_date=bool(str(end_date or "").strip()),
+    )
+    return payload
 
 
 @memory_router.post("/search")

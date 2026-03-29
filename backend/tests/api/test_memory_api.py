@@ -51,6 +51,7 @@ class _FakeL1Store:
         end_time=None,
         limit=50,
         include_metadata_json=True,
+        include_embedding_fields=True,
     ):
         self.last_query_kwargs = {
             "session_id": session_id,
@@ -64,6 +65,7 @@ class _FakeL1Store:
             "end_time": end_time,
             "limit": limit,
             "include_metadata_json": include_metadata_json,
+            "include_embedding_fields": include_embedding_fields,
         }
         return [
             MemoryEvent(
@@ -2060,6 +2062,8 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["events"][0]["id"] == 101
     assert body["events"][0]["idempotency_key"] == "chat:session-1:turn-1"
     assert "metadata_json" not in body["events"][0]
+    assert "embedding_status" not in body["events"][0]
+    assert "embedding_profile_id" not in body["events"][0]
 
 
 def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
@@ -2086,6 +2090,8 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
     assert memory.l1.last_query_kwargs["query"] == "lake"
     assert memory.l1.last_query_kwargs["source_filters"] == ["chat_projector"]
     assert memory.l1.last_query_kwargs["limit"] == 50
+    assert memory.l1.last_query_kwargs["include_metadata_json"] is False
+    assert memory.l1.last_query_kwargs["include_embedding_fields"] is False
     assert isinstance(memory.l1.last_query_kwargs["start_time"], float)
     assert isinstance(memory.l1.last_query_kwargs["end_time"], float)
     assert memory.l1.last_query_kwargs["end_time"] > memory.l1.last_query_kwargs["start_time"]
@@ -2112,6 +2118,35 @@ def test_memory_l1_events_api_forwards_identity_filters(monkeypatch):
     assert memory.l1.last_query_kwargs is not None
     assert memory.l1.last_query_kwargs["source_item_id"] == "chrome:181979-181982"
     assert memory.l1.last_query_kwargs["idempotency_key"] == "default:181979-181982"
+
+
+def test_memory_l1_events_api_logs_timing_breakdown(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    info_calls = []
+
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr(
+        "magi.api.routers.memory.logger",
+        SimpleNamespace(info=lambda event, **kwargs: info_calls.append((event, kwargs))),
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l1/events")
+
+    assert response.status_code == 200
+    assert len(info_calls) == 1
+    event, payload = info_calls[0]
+    assert event == "memory.l1.events.list_timing"
+    assert payload["event_count"] == 1
+    assert payload["total_count"] == 12
+    assert payload["query_ms"] >= 0
+    assert payload["count_ms"] >= 0
+    assert payload["serialize_ms"] >= 0
+    assert payload["total_ms"] >= 0
 
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
