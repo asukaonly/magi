@@ -157,8 +157,6 @@ class L2Pipeline:
         self._projection_consumer_name = f"l2-pipeline:{uuid.uuid4().hex[:8]}"
         self._projection_claim_limit = DEFAULT_L2_PROJECTION_CLAIM_LIMIT
         self._projection_stale_claim_timeout_seconds = DEFAULT_L2_PROJECTION_STALE_CLAIM_TIMEOUT_SECONDS
-        self._max_inflight_extract_jobs = max(1, self._extract_worker_count * 2)
-        self._max_claimed_projection_events = self._projection_claim_limit
 
     async def start(self) -> None:
         if self._stats.is_running or self._cognition_store is None:
@@ -405,22 +403,6 @@ class L2Pipeline:
         for job in jobs:
             await self._enqueue_extract_job(job)
         return len(jobs)
-
-    async def _available_projection_claim_capacity(self, *, limit: int | None = None) -> int:
-        requested_limit = max(1, int(limit or self._projection_claim_limit))
-        extract_queue_capacity = max(0, self._max_inflight_extract_jobs - self._extract_queue.qsize())
-        if extract_queue_capacity <= 0:
-            return 0
-        if self._cognition_store is None:
-            return 0
-        backlog = await self._cognition_store.get_projection_backlog_stats()
-        claimed_projection_capacity = max(
-            0,
-            int(self._max_claimed_projection_events) - int(backlog.get("claimed", 0)),
-        )
-        if claimed_projection_capacity <= 0:
-            return 0
-        return min(requested_limit, extract_queue_capacity, claimed_projection_capacity)
 
     async def _flush_ready_buckets(self) -> None:
         jobs: list[L2BatchJob] = []
@@ -930,10 +912,8 @@ class L2Pipeline:
         if self._entity_catalog is not None:
             existing_entities = await self._entity_catalog.list_entities(limit=30)
 
-        # Pre-register structured entity hints from sensor metadata
-        await self._register_structured_entity_hints(
-            stored_event, existing_entities, batch_event_ids,
-        )
+        # Inject structured entity hints as Phase 1 context (not materialized)
+        self._inject_structured_entity_hints(stored_event, existing_entities)
 
         # ── Phase 1: Extract & Resolve ──
         logger.info(
@@ -950,6 +930,7 @@ class L2Pipeline:
             focal_subject=focal_subject,
             existing_entities=existing_entities,
             context_messages=context_messages,
+            extraction_instructions=extraction_profile.extraction_instructions,
         )
 
         # Register Phase 1 entities in the entity catalog
@@ -959,6 +940,7 @@ class L2Pipeline:
                 stored_event,
                 phase1_result,
                 evidence_event_ids=batch_event_ids,
+                allowed_entity_types=extraction_profile.allowed_entity_types,
             )
 
         logger.debug(
@@ -970,8 +952,13 @@ class L2Pipeline:
             resolved_mention_count=len(resolved_mentions),
         )
 
-        # Skip Phase 2 if Phase 1 produced nothing useful
         if not phase1_result.has_content:
+            logger.info(
+                "L2 Phase 1 returned empty result, skipping Phase 2",
+                event_id=stored_event.event_id,
+                profile_id=extraction_profile.profile_id,
+                evidence_class=classification.evidence_class,
+            )
             return {
                 "relation_count": 0,
                 "assertion_count": 0,
@@ -1230,15 +1217,18 @@ class L2Pipeline:
             messages.append({"role": role, "content": content})
         return messages[:3]
 
-    async def _register_structured_entity_hints(
+    def _inject_structured_entity_hints(
         self,
         event: MemoryEvent,
         existing_entities: list[dict[str, Any]],
-        evidence_event_ids: list[str],
     ) -> None:
-        """Pre-register structured entity hints from sensor metadata into the catalog."""
-        if self._entity_catalog is None:
-            return
+        """Inject structured entity hints into existing_entities as Phase 1 context.
+
+        Hints are NOT written to the entity catalog. They only serve as
+        resolution anchors so the LLM can reference pre-identified entities.
+        Actual catalog materialization happens only when the LLM independently
+        confirms an entity in Phase 1 output.
+        """
         metadata_json = event.metadata_json
         if not isinstance(metadata_json, dict):
             return
@@ -1247,7 +1237,7 @@ class L2Pipeline:
             return
 
         existing_ids = {str(e.get("entity_id", "")) for e in existing_entities}
-        registered_count = 0
+        injected_count = 0
         for hint in hints:
             if not isinstance(hint, dict):
                 continue
@@ -1268,31 +1258,22 @@ class L2Pipeline:
             if entity_id in existing_ids:
                 continue
 
-            await self._entity_catalog.upsert_entity(
-                entity_id=entity_id,
-                canonical_name=canonical_name,
-                entity_type=entity_type,
-            )
-            await self._entity_catalog.add_alias(
-                entity_id=entity_id,
-                alias_text=canonical_name,
-                confidence=0.95,
-            )
             existing_entities.append({
                 "entity_id": entity_id,
                 "canonical_name": canonical_name,
                 "entity_type": entity_type,
                 "aliases": [canonical_name],
+                "hint_only": True,
             })
             existing_ids.add(entity_id)
-            registered_count += 1
+            injected_count += 1
 
-        if registered_count:
-            logger.info(
-                "L2 structured entity hints registered",
+        if injected_count:
+            logger.debug(
+                "L2 structured entity hints injected as context",
                 event_id=event.event_id,
                 hint_count=len(hints),
-                registered_count=registered_count,
+                injected_count=injected_count,
             )
 
     async def _resolve_phase1_entities(
@@ -1301,6 +1282,7 @@ class L2Pipeline:
         phase1_result: L2Phase1Result,
         *,
         evidence_event_ids: list[str],
+        allowed_entity_types: frozenset[str] | None = None,
     ) -> list[ResolvedEntityMention]:
         """Register Phase 1 entities in the entity catalog and return resolved mentions."""
         if self._entity_catalog is None:
@@ -1313,6 +1295,14 @@ class L2Pipeline:
             mention_text = entity.surface
             normalized_surface = entity.normalized_name or mention_text
             entity_type = self._normalize_entity_type(entity.entity_type)
+            if allowed_entity_types and entity_type not in allowed_entity_types:
+                logger.debug(
+                    "L2 Phase 1 entity filtered by profile",
+                    mention_text=mention_text,
+                    entity_type=entity_type,
+                    event_id=event.event_id,
+                )
+                continue
             mention_confidence = entity.confidence
 
             # If Phase 1 already resolved the entity to an existing ID, use it
@@ -1764,6 +1754,7 @@ class L2Pipeline:
         if self._entity_catalog is None:
             return (None, None)
 
+        # 1. Type-scoped alias resolution
         alias_resolution = await self._entity_catalog.resolve_alias(
             mention_text,
             entity_type=entity_type,
@@ -1771,6 +1762,26 @@ class L2Pipeline:
         if alias_resolution.get("decision") == "match":
             return (str(alias_resolution["entity_id"]), float(alias_resolution["matched_confidence"]))
 
+        # 2. Cross-type alias resolution: find same-name entity under a compatible type
+        if entity_type:
+            cross_type_resolution = await self._entity_catalog.resolve_alias(
+                mention_text,
+                entity_type=None,
+            )
+            if cross_type_resolution.get("decision") == "match":
+                matched_id = str(cross_type_resolution["entity_id"])
+                matched_type = matched_id.split(":", 1)[0] if ":" in matched_id else ""
+                if self._are_types_mergeable(entity_type, matched_type):
+                    logger.debug(
+                        "L2 cross-type entity resolved",
+                        mention_text=mention_text,
+                        requested_type=entity_type,
+                        matched_type=matched_type,
+                        matched_entity_id=matched_id,
+                    )
+                    return (matched_id, float(cross_type_resolution["matched_confidence"]))
+
+        # 3. LLM-based resolution against same-type candidates
         if self._llm_service is not None and entity_type:
             candidate_entities = await self._entity_catalog.list_entities_by_type(entity_type=entity_type, limit=20)
             if candidate_entities:
@@ -1855,6 +1866,25 @@ class L2Pipeline:
         if len(canonical_cf) > 8 and len(alias_cf) <= 3:
             return False
         return True
+
+    _MERGEABLE_TYPE_GROUPS: list[frozenset[str]] = [
+        frozenset({"software", "product", "technology", "organization", "activity"}),
+        frozenset({"media", "activity", "topic", "concept"}),
+        frozenset({"person", "group"}),
+        frozenset({"place", "location_state"}),
+    ]
+
+    @classmethod
+    def _are_types_mergeable(cls, type_a: str, type_b: str) -> bool:
+        """Return whether two entity types are close enough to merge."""
+        if type_a == type_b:
+            return True
+        a = type_a.strip().lower()
+        b = type_b.strip().lower()
+        for group in cls._MERGEABLE_TYPE_GROUPS:
+            if a in group and b in group:
+                return True
+        return False
 
     def _build_focal_entities(
         self,

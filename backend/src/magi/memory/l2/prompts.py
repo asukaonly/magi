@@ -227,9 +227,15 @@ def render_phase1_extract_prompt(
     focal_subject: dict[str, Any],
     existing_entities: list[dict[str, Any]] | None = None,
     context_messages: list[dict[str, Any]] | None = None,
+    extraction_instructions: str | None = None,
 ) -> str:
     """Render a Markdown-formatted Phase 1 extraction prompt."""
     parts: list[str] = []
+
+    if extraction_instructions:
+        parts.append("## Source-Specific Instructions")
+        parts.append(extraction_instructions.strip())
+        parts.append("")
 
     # Messages to analyze
     parts.append("## Messages to Analyze")

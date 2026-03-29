@@ -693,104 +693,6 @@ async def test_enqueue_event_uses_owner_batch_size_hint_for_flush():
 
 
 @pytest.mark.asyncio
-async def test_claim_pending_projection_jobs_skips_when_extract_queue_is_full():
-    from magi.memory.l1.event_store import L1EventStore
-    from magi.memory.l2.entity_catalog import L2EntityCatalog
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        memory_db = str(Path(temp_dir) / "memory.db")
-        l1_db = str(Path(temp_dir) / "l1.db")
-        cognition_store = L2CognitionStore(db_path=memory_db)
-        await cognition_store.initialize()
-        entity_catalog = L2EntityCatalog(db_path=memory_db)
-        await entity_catalog.initialize()
-        l1_store = L1EventStore(db_path=l1_db)
-        await l1_store.initialize()
-        event = _make_memory_event(event_id="evt-claim-full", session_id=None, user_id=None)
-        await l1_store.store(event)
-        await cognition_store.enqueue_projection_job(
-            event_id=event.event_id,
-            source=event.source,
-            event_type=event.event_type,
-            batch_owner="chrome_history:Default:github.com",
-        )
-        pipeline = L2Pipeline(
-            cognition_store,
-            l1_store=l1_store,
-            entity_catalog=entity_catalog,
-            llm_service=L2LLMService(None),
-            batch_flush_interval_seconds=60,
-        )
-        try:
-            pipeline._max_inflight_extract_jobs = 1
-            await pipeline._extract_queue.put(None)
-
-            claimed_count = await pipeline._claim_pending_projection_jobs(limit=1)
-            stats = await cognition_store.get_projection_backlog_stats()
-
-            assert claimed_count == 0
-            assert stats["pending"] == 1
-            assert stats["claimed"] == 0
-        finally:
-            while not pipeline._extract_queue.empty():
-                pipeline._extract_queue.get_nowait()
-
-
-@pytest.mark.asyncio
-async def test_claim_pending_projection_jobs_respects_remaining_claim_capacity():
-    from magi.memory.l1.event_store import L1EventStore
-    from magi.memory.l2.entity_catalog import L2EntityCatalog
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.pipeline import L2Pipeline
-    from magi.memory.l2.store import L2CognitionStore
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        memory_db = str(Path(temp_dir) / "memory.db")
-        l1_db = str(Path(temp_dir) / "l1.db")
-        cognition_store = L2CognitionStore(db_path=memory_db)
-        await cognition_store.initialize()
-        entity_catalog = L2EntityCatalog(db_path=memory_db)
-        await entity_catalog.initialize()
-        l1_store = L1EventStore(db_path=l1_db)
-        await l1_store.initialize()
-        for index in range(3):
-            event = _make_memory_event(event_id=f"evt-capacity-{index}", session_id=None, user_id=None)
-            await l1_store.store(event)
-            await cognition_store.enqueue_projection_job(
-                event_id=event.event_id,
-                source=event.source,
-                event_type=event.event_type,
-                batch_owner="chrome_history:Default:github.com",
-            )
-        pipeline = L2Pipeline(
-            cognition_store,
-            l1_store=l1_store,
-            entity_catalog=entity_catalog,
-            llm_service=L2LLMService(None),
-            batch_flush_interval_seconds=60,
-        )
-        try:
-            pipeline._max_claimed_projection_events = 2
-
-            claimed_count = await pipeline._claim_pending_projection_jobs(limit=10)
-            stats = await cognition_store.get_projection_backlog_stats()
-
-            assert claimed_count == 1
-            assert stats["claimed"] == 2
-            assert stats["pending"] == 1
-            assert pipeline._extract_queue.qsize() == 1
-            job = pipeline._extract_queue.get_nowait()
-            assert job is not None
-            assert len(job.event_ids) == 2
-        finally:
-            while not pipeline._extract_queue.empty():
-                pipeline._extract_queue.get_nowait()
-
-
-@pytest.mark.asyncio
 async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
     from magi.memory.l2.models import L2PendingBatchBucket
     from magi.memory.l2.pipeline import L2Pipeline
@@ -3306,8 +3208,8 @@ async def test_unified_memory_on_session_end_noop_without_l2():
 
 
 @pytest.mark.asyncio
-async def test_register_structured_entity_hints_creates_catalog_entries():
-    """Sensor-provided entity hints should be registered in the entity catalog."""
+async def test_inject_structured_entity_hints_adds_context_entries():
+    """Sensor-provided entity hints should be injected into existing_entities as context."""
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir)
 
@@ -3328,31 +3230,24 @@ async def test_register_structured_entity_hints_creates_catalog_entries():
         }
 
         existing: list[dict] = []
-        await pipeline._register_structured_entity_hints(event, existing, ["evt-hints-1"])
+        pipeline._inject_structured_entity_hints(event, existing)
 
         assert len(existing) == 2
         types = {e["entity_type"] for e in existing}
         assert "software" in types
         assert "media" in types
+        assert all(e.get("hint_only") is True for e in existing)
 
-        # Verify catalog persistence
+        # Verify catalog is NOT written to
         entities = await pipeline._entity_catalog.list_entities(limit=10)
-        names = {e["canonical_name"] for e in entities}
-        assert "GitHub" in names
-        assert "openai-python" in names
+        assert len(entities) == 0
 
 
 @pytest.mark.asyncio
-async def test_register_structured_entity_hints_skips_duplicates():
-    """Already-registered entities should not be duplicated."""
+async def test_inject_structured_entity_hints_skips_duplicates():
+    """Already-present entities should not be duplicated in existing_entities."""
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-        await pipeline._entity_catalog.upsert_entity(
-            entity_id="software:abc123",
-            canonical_name="GitHub",
-            entity_type="software",
-        )
 
         event = _make_memory_event(event_id="evt-hints-2", content="testing")
         event.metadata_json = {
@@ -3367,23 +3262,22 @@ async def test_register_structured_entity_hints_skips_duplicates():
         }
 
         existing = [{"entity_id": "software:abc123", "canonical_name": "GitHub", "entity_type": "software"}]
-        await pipeline._register_structured_entity_hints(event, existing, ["evt-hints-2"])
+        pipeline._inject_structured_entity_hints(event, existing)
 
         assert len(existing) == 1
 
 
-@pytest.mark.asyncio
-async def test_register_structured_entity_hints_noop_without_metadata():
+def test_inject_structured_entity_hints_noop_without_metadata():
     """Missing or empty hints should be a no-op."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir)
+    from magi.memory.l2.pipeline import L2Pipeline
+    pipeline = L2Pipeline.__new__(L2Pipeline)
 
-        event = _make_memory_event(event_id="evt-nohints", content="no hints")
-        event.metadata_json = {}
+    event = _make_memory_event(event_id="evt-nohints", content="no hints")
+    event.metadata_json = {}
 
-        existing: list[dict] = []
-        await pipeline._register_structured_entity_hints(event, existing, ["evt-nohints"])
-        assert existing == []
+    existing: list[dict] = []
+    pipeline._inject_structured_entity_hints(event, existing)
+    assert existing == []
 
 
 class TestAliasValidation:
@@ -3417,3 +3311,150 @@ class TestAliasValidation:
     def test_allows_reasonable_alias(self, pipeline_cls):
         p = pipeline_cls.__new__(pipeline_cls)
         assert p._is_valid_alias("React.js", "React Framework", "technology") is True
+
+
+class TestTypeMergeability:
+    """Tests for _are_types_mergeable cross-type dedup gate."""
+
+    @pytest.fixture
+    def pipeline_cls(self):
+        from magi.memory.l2.pipeline import L2Pipeline
+        return L2Pipeline
+
+    def test_same_type_always_mergeable(self, pipeline_cls):
+        assert pipeline_cls._are_types_mergeable("software", "software") is True
+
+    def test_software_and_product_mergeable(self, pipeline_cls):
+        assert pipeline_cls._are_types_mergeable("software", "product") is True
+
+    def test_software_and_activity_mergeable(self, pipeline_cls):
+        assert pipeline_cls._are_types_mergeable("software", "activity") is True
+
+    def test_media_and_topic_mergeable(self, pipeline_cls):
+        assert pipeline_cls._are_types_mergeable("media", "topic") is True
+
+    def test_person_and_group_mergeable(self, pipeline_cls):
+        assert pipeline_cls._are_types_mergeable("person", "group") is True
+
+    def test_person_and_software_not_mergeable(self, pipeline_cls):
+        assert pipeline_cls._are_types_mergeable("person", "software") is False
+
+    def test_place_and_media_not_mergeable(self, pipeline_cls):
+        assert pipeline_cls._are_types_mergeable("place", "media") is False
+
+
+class TestExtractionInstructions:
+    """Tests for extraction_instructions wiring into prompt rendering."""
+
+    def test_chrome_profile_has_extraction_instructions(self):
+        from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES
+        profile = DEFAULT_EXTRACTION_PROFILES["timeline.chrome_history"]
+        assert profile.extraction_instructions is not None
+        assert "INTERESTED_IN" in profile.extraction_instructions
+        assert "VIEWED" in profile.extraction_instructions
+
+    def test_chat_profile_has_no_extraction_instructions(self):
+        from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES
+        profile = DEFAULT_EXTRACTION_PROFILES["chat.user_message"]
+        assert profile.extraction_instructions is None
+
+    def test_prompt_includes_extraction_instructions(self):
+        from magi.memory.l2.prompts import render_phase1_extract_prompt
+        from magi.memory.l2.models import L2EventWindow
+
+        prompt = render_phase1_extract_prompt(
+            event_window=L2EventWindow(events=[{"event_id": "e1", "content": "test page", "timestamp": 1.0}]),
+            focal_subject={"subject_ref": "user:test", "subject_type": "user"},
+            extraction_instructions="Use VIEWED for videos and INTERESTED_IN for topics.",
+        )
+        assert "## Source-Specific Instructions" in prompt
+        assert "Use VIEWED for videos" in prompt
+
+    def test_prompt_omits_section_when_no_instructions(self):
+        from magi.memory.l2.prompts import render_phase1_extract_prompt
+        from magi.memory.l2.models import L2EventWindow
+
+        prompt = render_phase1_extract_prompt(
+            event_window=L2EventWindow(events=[{"event_id": "e1", "content": "test page", "timestamp": 1.0}]),
+            focal_subject={"subject_ref": "user:test", "subject_type": "user"},
+            extraction_instructions=None,
+        )
+        assert "## Source-Specific Instructions" not in prompt
+
+    def test_override_replaces_extraction_instructions(self):
+        from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
+        profile = ExtractionProfile(profile_id="test", extraction_instructions="original")
+        overridden = _apply_overrides(profile, {"extraction_instructions": "custom guidance"})
+        assert overridden.extraction_instructions == "custom guidance"
+
+    def test_override_preserves_extraction_instructions_when_absent(self):
+        from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
+        profile = ExtractionProfile(profile_id="test", extraction_instructions="original")
+        overridden = _apply_overrides(profile, {})
+        assert overridden.extraction_instructions == "original"
+
+    def test_chrome_instructions_contain_convergence_guidance(self):
+        from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES
+        profile = DEFAULT_EXTRACTION_PROFILES["timeline.chrome_history"]
+        assert "SELECTIVE" in profile.extraction_instructions
+        assert "MERGE" in profile.extraction_instructions
+        assert "virtual_object" in profile.extraction_instructions
+
+
+class TestEntityTypeFiltering:
+    """Tests for allowed_entity_types filtering in _resolve_phase1_entities."""
+
+    @pytest.mark.asyncio
+    async def test_disallowed_entity_type_is_filtered(self):
+        from magi.memory.l2.models import L2Phase1Result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+            phase1_payload = {
+                "entities": [
+                    {"surface": "GitHub", "entity_type": "software", "confidence": 0.95},
+                    {"surface": "Schema Panel", "entity_type": "virtual_object", "confidence": 0.9},
+                    {"surface": "SQLite", "entity_type": "technology", "confidence": 0.9},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            }
+            phase1_result = L2Phase1Result.from_dict(phase1_payload)
+            event = _make_memory_event(event_id="evt-filter-1", content="test")
+
+            allowed = frozenset({"software", "technology", "media", "person", "topic"})
+            resolved = await pipeline._resolve_phase1_entities(
+                event, phase1_result,
+                evidence_event_ids=["evt-filter-1"],
+                allowed_entity_types=allowed,
+            )
+
+            resolved_types = {m.entity_type for m in resolved}
+            assert "software" in resolved_types
+            assert "technology" in resolved_types
+            assert "virtual_object" not in resolved_types
+
+    @pytest.mark.asyncio
+    async def test_no_filter_when_allowed_types_is_none(self):
+        from magi.memory.l2.models import L2Phase1Result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+            phase1_payload = {
+                "entities": [
+                    {"surface": "anything", "entity_type": "virtual_object", "confidence": 0.9},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            }
+            phase1_result = L2Phase1Result.from_dict(phase1_payload)
+            event = _make_memory_event(event_id="evt-filter-2", content="test")
+
+            resolved = await pipeline._resolve_phase1_entities(
+                event, phase1_result,
+                evidence_event_ids=["evt-filter-2"],
+                allowed_entity_types=None,
+            )
+            assert len(resolved) == 1

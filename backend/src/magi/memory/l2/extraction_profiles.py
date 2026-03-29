@@ -30,6 +30,7 @@ class ExtractionProfile:
     subject_policy: DefaultSubjectPolicy = field(default_factory=DefaultSubjectPolicy)
     allow_graph: bool = True
     allow_assertion: bool = True
+    extraction_instructions: str | None = None
 
 
 DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
@@ -48,6 +49,39 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
         }),
         allowed_assertion_families=frozenset(),
         allow_assertion=False,
+        extraction_instructions=(
+            "These events are browser history page titles, NOT user-authored messages.\n"
+            "Page titles often follow patterns like '{content} - {platform}' or "
+            "'{content} | {platform}'. Treat the platform part (YouTube, 哔哩哔哩, "
+            "GitHub, etc.) as a `software` entity, and the content part as the "
+            "actual subject (media, person, project, topic).\n\n"
+            "Predicate guidance for browsing behavior:\n"
+            "- USES: only for tool/platform usage (e.g., user uses GitHub, ChatGPT)\n"
+            "- INTERESTED_IN: when the user repeatedly browses content on a topic "
+            "(e.g., AI papers, a TV show, a game)\n"
+            "- VIEWED: for individual content consumption (a specific video, article)\n"
+            "- FOLLOWS: when visiting a specific creator or person's page\n"
+            "- WORKS_WITH: for professional tools/technologies seen in work context\n\n"
+            "Entity extraction rules (IMPORTANT):\n"
+            "- Be SELECTIVE: only extract entities that reveal user interests, "
+            "habits, or tool usage. Not every page title deserves an entity.\n"
+            "- SKIP noise: error messages, email addresses, IP addresses, "
+            "UI element names (Home, Inbox, Schema Panel), authentication pages, "
+            "and generic navigation titles are NOT entities.\n"
+            "- MERGE related content: multiple pages about the same game, show, "
+            "or topic should map to ONE entity with a concise canonical name, "
+            "not one entity per page title. E.g., '燕云十六声射覆答案', "
+            "'燕云十六声攻略', '燕云十六声金明池' → single entity '燕云十六声'.\n"
+            "- Keep canonical names SHORT: use the core subject name, not the "
+            "full page title. E.g., 'Joe Pera Talks With You' not "
+            "'Joe Pera Talks With You 豆瓣'.\n"
+            "- Only use allowed entity types: software, product, technology, "
+            "media, person, organization, topic. Do NOT use virtual_object, "
+            "activity, concept, skill, food, health_metric, or other.\n"
+            "- Do NOT use platform names as alias_signals for content entities.\n"
+            "- Keep entity types consistent: a website/app is always `software`, "
+            "not `activity` or `organization`."
+        ),
     ),
     "timeline.calendar": ExtractionProfile(
         profile_id="timeline.calendar",
@@ -80,6 +114,10 @@ def _default_profile_id_for_event(event: MemoryEvent) -> str:
 
 
 def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> ExtractionProfile:
+    extraction_instructions = profile.extraction_instructions
+    override_instructions = overrides.get("extraction_instructions")
+    if isinstance(override_instructions, str) and override_instructions.strip():
+        extraction_instructions = override_instructions.strip()
     return replace(
         profile,
         allowed_entity_types=_coerce_set(overrides.get("allowed_entity_types"), fallback=profile.allowed_entity_types),
@@ -98,6 +136,7 @@ def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> E
         },
         allow_graph=_coerce_bool(overrides.get("allow_graph"), default=profile.allow_graph),
         allow_assertion=_coerce_bool(overrides.get("allow_assertion"), default=profile.allow_assertion),
+        extraction_instructions=extraction_instructions,
     )
 
 

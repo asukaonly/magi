@@ -60,6 +60,7 @@ class L2LLMService:
         focal_subject: dict[str, Any],
         existing_entities: list[dict[str, Any]] | None = None,
         context_messages: list[dict[str, Any]] | None = None,
+        extraction_instructions: str | None = None,
     ) -> L2Phase1Result:
         """Phase 1: extract entities, resolve references, produce fact claims."""
         started_at = time.perf_counter()
@@ -78,6 +79,7 @@ class L2LLMService:
             focal_subject=focal_subject,
             existing_entities=existing_entities,
             context_messages=context_messages,
+            extraction_instructions=extraction_instructions,
         )
         payload = await self._generate_json(
             system_prompt=PHASE1_EXTRACT_SYSTEM_PROMPT,
@@ -294,6 +296,11 @@ class L2LLMService:
     ) -> dict[str, Any]:
         llm_target = self._get_llm_target(scenario=scenario)
         if llm_target is None:
+            logger.warning(
+                "L2 LLM call skipped: no adapter available",
+                request_kind=request_kind,
+                scenario=scenario.value,
+            )
             return {}
         adapter, provider_bridge = llm_target
         provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
@@ -386,11 +393,12 @@ class L2LLMService:
 
     def _get_adapter(self, scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER) -> Optional[Any]:
         if self._scenario_llm_pool is None:
+            logger.warning("L2 LLM adapter unavailable: scenario_llm_pool is None")
             return None
         try:
             return self._scenario_llm_pool.get(scenario)
         except Exception as exc:
-            logger.debug("L2 LLM adapter unavailable", error=str(exc), scenario=scenario.value)
+            logger.warning("L2 LLM adapter unavailable", error=str(exc), scenario=scenario.value)
             return None
 
     def _get_llm_target(self, *, scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER) -> Optional[tuple[Any, LLMProviderBridge]]:
