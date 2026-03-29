@@ -203,6 +203,17 @@ async def test_l1_event_store_logs_query_timing_breakdown(tmp_path, monkeypatch,
         assert "fetch_ms=" in message
         assert "transform_ms=" in message
         assert "total_ms=" in message
+        assert "active_profile_lookup_ms=" in message
+        assert "active_profile_config_ms=" in message
+        assert "active_profile_decision_ms=" in message
+        assert "active_profile_profile_ms=" in message
+        profile_logs = [
+            record.message
+            for record in caplog.records
+            if "memory.l1.query_events_active_profile" in record.message
+        ]
+        assert len(profile_logs) == 1
+        assert "reason=skipped" in profile_logs[0]
     finally:
         await store.shutdown()
 
@@ -233,14 +244,14 @@ async def test_l1_event_store_query_events_resolves_active_profile_once(tmp_path
             await store.store(normalize_runtime_event(event, event_id=f"evt-{index}"))
 
         call_count = 0
-        original_getter = store.get_active_embedding_profile_id
+        original_resolver = store._resolve_active_embedding_profile_id
 
-        def _counted_getter():
+        def _counted_resolver():
             nonlocal call_count
             call_count += 1
-            return original_getter()
+            return original_resolver()
 
-        monkeypatch.setattr(store, "get_active_embedding_profile_id", _counted_getter)
+        monkeypatch.setattr(store, "_resolve_active_embedding_profile_id", _counted_resolver)
 
         queried = await store.query_events(session_id="session-1", limit=10)
 
