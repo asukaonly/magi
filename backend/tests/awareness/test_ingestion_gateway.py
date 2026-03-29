@@ -48,6 +48,13 @@ class _FakeBatchingSensor(_FakeSensor):
     def l2_batch_owner(self, output: SensorOutput) -> str | None:
         return f"{output.source_type}:default"
 
+    def l2_batch_limits(self, output: SensorOutput) -> dict[str, int] | None:
+        _ = output
+        return {
+            "max_events": 20,
+            "max_estimated_tokens": 3200,
+        }
+
 
 def _make_output(**overrides: Any) -> SensorOutput:
     defaults = dict(
@@ -278,3 +285,5 @@ class TestSensorIngestionGateway:
         assert isinstance(call_args, MemoryEvent)
         assert call_args.metadata_json is not None
         assert call_args.metadata_json["l2_batch_owner"] == "fake_source:default"
+        assert call_args.metadata_json["l2_batch_max_events"] == 20
+        assert call_args.metadata_json["l2_batch_max_estimated_tokens"] == 3200

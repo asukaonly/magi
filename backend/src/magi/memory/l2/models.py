@@ -790,6 +790,8 @@ class L2PendingBatchBucket:
     bucket_key: str
     session_id: str | None = None
     user_id: str | None = None
+    max_events: int | None = None
+    max_estimated_tokens: int | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
     estimated_tokens: int = 0
     oldest_event_timestamp: float = 0.0
@@ -802,6 +804,12 @@ class L2PendingBatchBucket:
         self.bucket_key = _non_empty_text(self.bucket_key, field_name="bucket_key")
         self.session_id = _optional_text(self.session_id)
         self.user_id = _optional_text(self.user_id)
+        self.max_events = max(1, int(self.max_events)) if self.max_events is not None else None
+        self.max_estimated_tokens = (
+            max(1, int(self.max_estimated_tokens))
+            if self.max_estimated_tokens is not None
+            else None
+        )
         self.estimated_tokens = max(0, int(self.estimated_tokens))
         self.events = [dict(item) for item in self.events if isinstance(item, dict)]
         if self.events:
@@ -819,6 +827,8 @@ class L2PendingBatchBucket:
         session_id: str | None = None,
         user_id: str | None = None,
         owner_key: str | None = None,
+        max_events: int | None = None,
+        max_estimated_tokens: int | None = None,
     ) -> "L2PendingBatchBucket":
         bucket_key = build_l2_batch_bucket_key(
             session_id=session_id,
@@ -827,9 +837,23 @@ class L2PendingBatchBucket:
         )
         if bucket_key is None:
             raise ValueError("session_id, user_id, or owner_key is required")
-        return cls(bucket_key=bucket_key, session_id=session_id, user_id=user_id)
+        return cls(
+            bucket_key=bucket_key,
+            session_id=session_id,
+            user_id=user_id,
+            max_events=max_events,
+            max_estimated_tokens=max_estimated_tokens,
+        )
 
-    def add_event(self, event: dict[str, Any], *, estimated_tokens: int, queued_at: float | None = None) -> None:
+    def add_event(
+        self,
+        event: dict[str, Any],
+        *,
+        estimated_tokens: int,
+        queued_at: float | None = None,
+        max_events: int | None = None,
+        max_estimated_tokens: int | None = None,
+    ) -> None:
         payload = dict(event)
         event_id = _non_empty_text(str(payload.get("event_id", "")), field_name="event_id")
         timestamp = float(payload.get("timestamp", 0.0) or 0.0)
@@ -837,6 +861,20 @@ class L2PendingBatchBucket:
         payload["event_id"] = event_id
         payload["timestamp"] = timestamp
         self.events.append(payload)
+        if max_events is not None:
+            resolved_max_events = max(1, int(max_events))
+            self.max_events = (
+                resolved_max_events
+                if self.max_events is None
+                else min(self.max_events, resolved_max_events)
+            )
+        if max_estimated_tokens is not None:
+            resolved_max_tokens = max(1, int(max_estimated_tokens))
+            self.max_estimated_tokens = (
+                resolved_max_tokens
+                if self.max_estimated_tokens is None
+                else min(self.max_estimated_tokens, resolved_max_tokens)
+            )
         self.estimated_tokens += max(0, int(estimated_tokens))
         if not self.created_at:
             self.created_at = enqueued_at

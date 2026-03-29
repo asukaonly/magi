@@ -139,6 +139,14 @@ class SensorIngestionGateway:
         l2_batch_owner = sensor.l2_batch_owner(output)
         if l2_batch_owner:
             metadata_json["l2_batch_owner"] = str(l2_batch_owner)
+        l2_batch_limits = sensor.l2_batch_limits(output)
+        if isinstance(l2_batch_limits, dict):
+            max_events = l2_batch_limits.get("max_events")
+            if max_events is not None:
+                metadata_json["l2_batch_max_events"] = int(max_events)
+            max_estimated_tokens = l2_batch_limits.get("max_estimated_tokens")
+            if max_estimated_tokens is not None:
+                metadata_json["l2_batch_max_estimated_tokens"] = int(max_estimated_tokens)
         metadata_json["timeline"] = timeline_event.to_dict()
         if timeline_event.raw_payload_ref:
             metadata_json["raw_payload_ref"] = timeline_event.raw_payload_ref

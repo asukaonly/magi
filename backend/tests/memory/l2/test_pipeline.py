@@ -659,6 +659,40 @@ async def test_enqueue_event_uses_explicit_l2_batch_owner_without_session_or_use
 
 
 @pytest.mark.asyncio
+async def test_enqueue_event_uses_owner_batch_size_hint_for_flush():
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
+        try:
+            first = _make_memory_event(event_id="evt-stage-hint-1", session_id=None, user_id=None)
+            first.metadata_json = {
+                "l2_batch_owner": "chrome_history:Default:github.com",
+                "l2_batch_max_events": 2,
+            }
+            second = _make_memory_event(event_id="evt-stage-hint-2", session_id=None, user_id=None)
+            second.metadata_json = {
+                "l2_batch_owner": "chrome_history:Default:github.com",
+                "l2_batch_max_events": 2,
+            }
+
+            await pipeline.enqueue_event(first)
+            assert "owner:chrome_history:Default:github.com" in pipeline._staging_buckets
+            assert pipeline._extract_queue.qsize() == 0
+
+            await pipeline.enqueue_event(second)
+
+            assert "owner:chrome_history:Default:github.com" not in pipeline._staging_buckets
+            assert pipeline._extract_queue.qsize() == 1
+            job = pipeline._extract_queue.get_nowait()
+            assert job is not None
+            assert job.flush_reason == "max_events"
+            assert job.event_ids == ["evt-stage-hint-1", "evt-stage-hint-2"]
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
     from magi.memory.l2.models import L2PendingBatchBucket
     from magi.memory.l2.pipeline import L2Pipeline

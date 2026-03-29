@@ -56,7 +56,15 @@ class ChromeHistoryTimelineSensor(SensorBase):
 
     def l2_batch_owner(self, output: SensorOutput) -> str | None:
         profile = str(output.provenance.get("profile") or self.profile or "").strip()
-        return f"{self.source_type}:{profile or 'default'}"
+        domain = str(output.provenance.get("domain") or "").strip().lower()
+        parts = [self.source_type, profile or "default"]
+        if domain:
+            parts.append(domain)
+        return ":".join(parts)
+
+    def l2_batch_limits(self, output: SensorOutput) -> dict[str, int] | None:
+        _ = output
+        return {"max_events": 20}
 
     async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
         sensor_settings = (

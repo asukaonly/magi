@@ -209,6 +209,7 @@ class L2Pipeline:
             self._stats.extract_skipped += 1
             return False
 
+        max_events, max_estimated_tokens = self._resolve_batch_limits(event)
         owner_key = None
         if isinstance(event.metadata_json, dict):
             owner_key = event.metadata_json.get("l2_batch_owner")
@@ -239,11 +240,15 @@ class L2Pipeline:
                     session_id=event.session_id,
                     user_id=event.user_id,
                     owner_key=str(owner_key) if owner_key is not None else None,
+                    max_events=max_events,
+                    max_estimated_tokens=max_estimated_tokens,
                 )
                 self._staging_buckets[bucket_key] = bucket
             bucket.add_event(
                 self._serialize_event_for_batch(event),
                 estimated_tokens=self._estimate_event_tokens(event.content),
+                max_events=max_events,
+                max_estimated_tokens=max_estimated_tokens,
             )
             self._refresh_staging_stats_locked()
             flush_reason = self._flush_reason_for_bucket(bucket)
@@ -436,6 +441,7 @@ class L2Pipeline:
                 missing_event_ids.append(event_id)
                 continue
 
+            max_events, max_estimated_tokens = self._resolve_batch_limits(event)
             owner_key = None
             if isinstance(event.metadata_json, dict):
                 owner_key = event.metadata_json.get("l2_batch_owner")
@@ -467,11 +473,15 @@ class L2Pipeline:
                     session_id=event.session_id,
                     user_id=event.user_id,
                     owner_key=normalized_owner_key,
+                    max_events=max_events,
+                    max_estimated_tokens=max_estimated_tokens,
                 )
                 buckets[bucket_key] = bucket
             bucket.add_event(
                 self._serialize_event_for_batch(event),
                 estimated_tokens=self._estimate_event_tokens(event.content),
+                max_events=max_events,
+                max_estimated_tokens=max_estimated_tokens,
             )
             flush_reason = self._flush_reason_for_bucket(bucket)
             if flush_reason is not None:
@@ -522,9 +532,11 @@ class L2Pipeline:
         )
 
     def _flush_reason_for_bucket(self, bucket: L2PendingBatchBucket) -> str | None:
-        if len(bucket.events) >= DEFAULT_L2_MAX_EVENTS_PER_BATCH:
+        max_events = bucket.max_events or DEFAULT_L2_MAX_EVENTS_PER_BATCH
+        max_estimated_tokens = bucket.max_estimated_tokens or DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH
+        if len(bucket.events) >= max_events:
             return "max_events"
-        if bucket.estimated_tokens >= DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH:
+        if bucket.estimated_tokens >= max_estimated_tokens:
             return "token_cap"
         if not bucket.events:
             return None
@@ -550,6 +562,19 @@ class L2Pipeline:
     def _estimate_event_tokens(self, text: str) -> int:
         normalized = str(text or "").strip()
         return max(1, len(normalized) // 4) if normalized else 1
+
+    def _resolve_batch_limits(self, event: MemoryEvent) -> tuple[int | None, int | None]:
+        if not isinstance(event.metadata_json, dict):
+            return (None, None)
+        max_events = event.metadata_json.get("l2_batch_max_events")
+        max_estimated_tokens = event.metadata_json.get("l2_batch_max_estimated_tokens")
+        resolved_max_events = max(1, int(max_events)) if max_events is not None else None
+        resolved_max_tokens = (
+            max(1, int(max_estimated_tokens))
+            if max_estimated_tokens is not None
+            else None
+        )
+        return (resolved_max_events, resolved_max_tokens)
 
     def _rolling_average(self, *, current_average: float, previous_count: int, new_value: float) -> float:
         if previous_count <= 0:

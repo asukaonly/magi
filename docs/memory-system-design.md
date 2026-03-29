@@ -222,6 +222,11 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 4. claim 到的事件在进程内按 batch owner / session / user 聚成执行批次
 5. 抽取成功后把 job 标记为 `completed`，失败则标记为 `failed` 或重新回到 `pending`
 
+其中：
+
+- `batch owner` 可以由插件通过 sensor hook 提供，用来把同源但更语义一致的事件放进同一个桶
+- 插件也可以提供 advisory batch limits（例如 `max_events`），但 `L2` 仍然保留最终 flush 裁决权
+
 这意味着：
 
 - `L2` 的 durable progress 由 projection job state 负责

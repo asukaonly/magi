@@ -193,6 +193,11 @@ class SensorBase(ABC):
         _ = output
         return None
 
+    def l2_batch_limits(self, output: SensorOutput) -> dict[str, int] | None:
+        """Return optional advisory L2 microbatch limits for sensor events."""
+        _ = output
+        return None
+
     def idempotency_key(self, output: SensorOutput) -> str | None:
         """Return an optional business-level idempotency key for sensor events."""
         value = str(output.source_item_id or "").strip()

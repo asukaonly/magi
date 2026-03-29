@@ -194,6 +194,15 @@ Guidelines:
 - keep the sensor contribution visible when the source-level `enabled` setting is false; disabled sources should stay configurable in Settings, with runtime sync gated by the saved setting instead of disappearing from discovery
 - when first enablement needs an OS permission prompt, expose an `activation_flow` and set `authorize_on_confirm=True`; the host will call the sensor authorization endpoint before flipping the source to enabled
 
+Useful `SensorBase` hooks for memory routing:
+
+- `source_item_identity(item)`: producer-side stable item identity
+- `idempotency_key(output)`: business-level idempotency key written to `L1`
+- `l2_batch_owner(output)`: optional stable owner key used by `L2` microbatch grouping
+- `l2_batch_limits(output)`: optional advisory batch limits such as `max_events` or `max_estimated_tokens`
+
+`L2` remains the final owner of batching policy. Plugins may suggest a tighter bucket key or smaller/larger batch shape for their own source, but the runtime still decides how and when jobs flush.
+
 ## Action Plugins
 
 Actions inherit `BaseAction` and return instances from `get_actions()`.
