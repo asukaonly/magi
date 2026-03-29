@@ -339,15 +339,13 @@ async def _synthesize_eval_answer(
     return normalized_answer, answer_trace
 
 
-def _build_l2_pending_breakdown(pipeline_stats: Dict[str, Any]) -> Dict[str, int]:
+def _build_l2_pending_breakdown(
+    pipeline_stats: Dict[str, Any],
+    projection_backlog: Dict[str, Any] | None = None,
+) -> Dict[str, int]:
+    durable_projection = dict(projection_backlog or {})
     return {
-        "extract_pending": max(
-            int(pipeline_stats.get("extract_enqueued", 0))
-            - int(pipeline_stats.get("extract_completed", 0))
-            - int(pipeline_stats.get("extract_failed", 0))
-            - int(pipeline_stats.get("extract_skipped", 0)),
-            0,
-        ),
+        "extract_pending": max(int(durable_projection.get("pending", 0)) + int(durable_projection.get("claimed", 0)), 0),
         "reconcile_pending": max(
             int(pipeline_stats.get("reconcile_enqueued", 0))
             - int(pipeline_stats.get("reconcile_completed", 0))
@@ -360,6 +358,9 @@ def _build_l2_pending_breakdown(pipeline_stats: Dict[str, Any]) -> Dict[str, int
             - int(pipeline_stats.get("snapshot_failed", 0)),
             0,
         ),
+        "projection_pending": max(int(durable_projection.get("pending", 0)), 0),
+        "projection_claimed": max(int(durable_projection.get("claimed", 0)), 0),
+        "projection_failed": max(int(durable_projection.get("failed", 0)), 0),
     }
 
 
@@ -505,12 +506,18 @@ async def get_l2_statistics():
             "assertions_written": 0,
             "extract_by_evidence_class": {},
             "skip_by_reason": {},
+            "projection_backlog": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0},
             "db_path": None,
         }
 
     relations = await unified_memory.l2.get_relationships(limit=10000)
     assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
+    projection_backlog = (
+        await unified_memory.get_l2_projection_backlog()
+        if hasattr(unified_memory, "get_l2_projection_backlog")
+        else {"pending": 0, "claimed": 0, "completed": 0, "failed": 0}
+    )
     return {
         "is_running": bool(pipeline_stats.get("is_running", False)),
         "relation_count": len(relations),
@@ -529,6 +536,7 @@ async def get_l2_statistics():
         "assertions_written": int(pipeline_stats.get("assertions_written", 0)),
         "extract_by_evidence_class": dict(pipeline_stats.get("extract_by_evidence_class", {})),
         "skip_by_reason": dict(pipeline_stats.get("skip_by_reason", {})),
+        "projection_backlog": projection_backlog,
         "db_path": unified_memory.l2.db_path,
     }
 
@@ -543,10 +551,18 @@ async def get_l2_pending():
             "extract_pending": 0,
             "reconcile_pending": 0,
             "snapshot_pending": 0,
+            "projection_pending": 0,
+            "projection_claimed": 0,
+            "projection_failed": 0,
         }
 
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
-    pending = _build_l2_pending_breakdown(pipeline_stats)
+    projection_backlog = (
+        await unified_memory.get_l2_projection_backlog()
+        if hasattr(unified_memory, "get_l2_projection_backlog")
+        else {"pending": 0, "claimed": 0, "completed": 0, "failed": 0}
+    )
+    pending = _build_l2_pending_breakdown(pipeline_stats, projection_backlog)
     return {
         "is_running": bool(pipeline_stats.get("is_running", False)),
         **pending,
@@ -563,6 +579,9 @@ async def get_background_pending():
                 "extract_pending": 0,
                 "reconcile_pending": 0,
                 "snapshot_pending": 0,
+                "projection_pending": 0,
+                "projection_claimed": 0,
+                "projection_failed": 0,
             },
             "l1_embeddings": {"pending": 0, "worker_running": False, "vector_enabled": False, "async_embeddings": False},
             "l3_embeddings": {"pending": 0, "worker_running": False, "vector_enabled": False, "async_embeddings": False},
@@ -571,7 +590,12 @@ async def get_background_pending():
         }
 
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
-    l2_pending = _build_l2_pending_breakdown(pipeline_stats)
+    projection_backlog = (
+        await unified_memory.get_l2_projection_backlog()
+        if hasattr(unified_memory, "get_l2_projection_backlog")
+        else {"pending": 0, "claimed": 0, "completed": 0, "failed": 0}
+    )
+    l2_pending = _build_l2_pending_breakdown(pipeline_stats, projection_backlog)
     l1_pending = _build_embedding_pending(
         unified_memory.l1.get_statistics() if getattr(unified_memory, "l1", None) and hasattr(unified_memory.l1, "get_statistics") else None
     )
@@ -582,7 +606,9 @@ async def get_background_pending():
         unified_memory.l4.get_statistics() if getattr(unified_memory, "l4", None) and hasattr(unified_memory.l4, "get_statistics") else None
     )
     all_idle = (
-        all(value == 0 for value in l2_pending.values())
+        l2_pending["extract_pending"] == 0
+        and l2_pending["reconcile_pending"] == 0
+        and l2_pending["snapshot_pending"] == 0
         and l1_pending["pending"] == 0
         and l3_pending["pending"] == 0
         and l4_pending["pending"] == 0

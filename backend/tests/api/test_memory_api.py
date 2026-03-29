@@ -267,6 +267,14 @@ class _FakeUnifiedMemory:
     async def flush_l2_microbatches(self):
         return 2
 
+    async def get_l2_projection_backlog(self):
+        return {
+            "pending": 5,
+            "claimed": 2,
+            "completed": 9,
+            "failed": 1,
+        }
+
     def get_l2_pipeline_stats(self):
         return {
             "is_running": True,
@@ -1962,6 +1970,8 @@ def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
     assert body["assertions_written"] == 1
     assert body["extract_by_evidence_class"]["assistant_freeform"] == 1
     assert body["skip_by_reason"]["assistant_tool_grounded"] == 1
+    assert body["projection_backlog"]["pending"] == 5
+    assert body["projection_backlog"]["claimed"] == 2
 
 
 def test_memory_l2_pending_api_reports_queue_backlog(monkeypatch):
@@ -1977,9 +1987,12 @@ def test_memory_l2_pending_api_reports_queue_backlog(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["is_running"] is True
-    assert body["extract_pending"] == 0
+    assert body["extract_pending"] == 7
     assert body["reconcile_pending"] == 0
     assert body["snapshot_pending"] == 0
+    assert body["projection_pending"] == 5
+    assert body["projection_claimed"] == 2
+    assert body["projection_failed"] == 1
 
 
 def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
@@ -1994,7 +2007,9 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["l2"]["extract_pending"] == 0
+    assert body["l2"]["extract_pending"] == 7
+    assert body["l2"]["projection_pending"] == 5
+    assert body["l2"]["projection_claimed"] == 2
     assert body["l1_embeddings"]["pending"] == 7
     assert body["l3_embeddings"]["pending"] == 3
     assert body["l4_embeddings"]["pending"] == 0
