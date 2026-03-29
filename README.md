@@ -92,6 +92,8 @@ Magi stores runtime/app data at:
 ./scripts/dev-tauri-hot.sh
 ```
 
+This launcher keeps backend lifecycle ownership inside the Tauri debug app so closing the desktop app also tears down the paired backend processes.
+
 ### Manual Setup
 
 #### Backend
