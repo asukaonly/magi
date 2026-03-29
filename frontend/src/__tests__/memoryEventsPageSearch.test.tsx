@@ -126,4 +126,37 @@ describe('MemoryEventsPage search interactions', () => {
     expect(screen.getByRole('button', { name: 'memory.filters.all' })).toBeInTheDocument();
     expect(queryL1Events).toHaveBeenLastCalledWith(undefined);
   });
+
+  it('shows known source options even when the current result set is narrow', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter>
+        <MemoryEventsPage />
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'memory.filters.all' }));
+
+    expect(screen.getByRole('button', { name: 'chat_projector' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'chrome_history' })).toBeInTheDocument();
+  });
+
+  it('normalizes a single selected date into a one-day query range', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter>
+        <MemoryEventsPage />
+      </MemoryRouter>
+    );
+
+    await user.type(screen.getByLabelText('memory.pages.events.startDateLabel'), '2026-03-28');
+    await user.click(screen.getByRole('button', { name: 'memory.search' }));
+
+    expect(queryL1Events).toHaveBeenCalledWith({
+      start_date: '2026-03-28',
+      end_date: '2026-03-28',
+    });
+  });
 });

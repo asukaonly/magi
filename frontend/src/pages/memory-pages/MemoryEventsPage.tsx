@@ -6,6 +6,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField } from '@/components/config-forms/fields';
 import { L1Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
+import { buildMemorySourceOptions, getMemorySourceLabel } from '@/utils/memory-source-copy';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
@@ -13,13 +14,6 @@ import MemoryPageFrame, {
 } from './MemoryPageFrame';
 
 const SUMMARY_PREVIEW_LIMIT = 6;
-const SOURCE_LABEL_KEYS: Record<string, string> = {
-  chat_projector: 'memory.sources.chat_projector',
-  runtime_action_emitter: 'memory.sources.runtime_action_emitter',
-  timeline_importer: 'memory.sources.timeline_importer',
-  manual_journal: 'memory.sources.manual_journal',
-  l2_lab: 'memory.sources.l2_lab',
-};
 
 const buildSummaryText = (items: Array<[string, number]>, emptyLabel: string) => {
   if (items.length === 0) {
@@ -34,6 +28,27 @@ const buildSummaryText = (items: Array<[string, number]>, emptyLabel: string) =>
 
 const COMPACT_DATE_INPUT_CLASS =
   'h-9 min-w-0 rounded-none border-0 bg-transparent px-0 text-sm text-[hsl(var(--memory-title))] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0';
+
+const normalizeDateRange = (startDate: string, endDate: string) => {
+  const normalizedStartDate = startDate.trim();
+  const normalizedEndDate = endDate.trim();
+
+  if (!normalizedStartDate && !normalizedEndDate) {
+    return { start: undefined, end: undefined };
+  }
+
+  if (normalizedStartDate && !normalizedEndDate) {
+    return { start: normalizedStartDate, end: normalizedStartDate };
+  }
+
+  if (!normalizedStartDate && normalizedEndDate) {
+    return { start: normalizedEndDate, end: normalizedEndDate };
+  }
+
+  return normalizedStartDate > normalizedEndDate
+    ? { start: normalizedEndDate, end: normalizedStartDate }
+    : { start: normalizedStartDate, end: normalizedEndDate };
+};
 
 export const MemoryEventsPage = () => {
   const { t } = useTranslation('app');
@@ -51,14 +66,7 @@ export const MemoryEventsPage = () => {
     [l1Events]
   );
 
-  const formatSourceLabel = (source: string) => {
-    const key = SOURCE_LABEL_KEYS[source];
-    if (!key) {
-      return source;
-    }
-    const translated = t(key);
-    return translated === key ? source : translated;
-  };
+  const formatSourceLabel = (source: string) => getMemorySourceLabel(t, source);
 
   const domainCounts = Array.from(
     l1Events.reduce((map, event) => {
@@ -77,25 +85,15 @@ export const MemoryEventsPage = () => {
   const localizedSourceCounts = sourceCounts.map(([source, count]) => [formatSourceLabel(source), count] as [string, number]);
   const sourceSummary = buildSummaryText(localizedSourceCounts, t('memory.filters.all'));
   const domainSummary = buildSummaryText(domainCounts, t('memory.filters.all'));
-  const sourceOptions = sources.map((source) => ({
-    value: source,
-    label: formatSourceLabel(source),
-  }));
+  const sourceOptions = useMemo(() => buildMemorySourceOptions(t, sources), [sources, t]);
 
   const buildSearchFilters = () => {
-    const normalizedStartDate = startDate.trim();
-    const normalizedEndDate = endDate.trim();
-    const start = normalizedStartDate && normalizedEndDate && normalizedStartDate > normalizedEndDate
-      ? normalizedEndDate
-      : normalizedStartDate;
-    const end = normalizedStartDate && normalizedEndDate && normalizedStartDate > normalizedEndDate
-      ? normalizedStartDate
-      : normalizedEndDate;
+    const { start, end } = normalizeDateRange(startDate, endDate);
     const filters = {
       query: contentQuery.trim() || undefined,
       source: sourceFilter === 'all' ? undefined : sourceFilter,
-      start_date: start || undefined,
-      end_date: end || undefined,
+      start_date: start,
+      end_date: end,
     };
     return Object.values(filters).some(Boolean) ? filters : undefined;
   };
@@ -155,25 +153,41 @@ export const MemoryEventsPage = () => {
               {t('memory.pages.events.dateRangeLabel')}
             </label>
             <div className="grid grid-cols-[minmax(0,1fr)_30px_minmax(0,1fr)] items-center rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3">
-              <Input
-                id="memory-events-start-date"
-                type="date"
-                aria-label={t('memory.pages.events.startDateLabel')}
-                className={COMPACT_DATE_INPUT_CLASS}
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
-              />
+              <div className="group relative">
+                {!startDate ? (
+                  <span className="pointer-events-none absolute inset-0 flex items-center bg-[hsl(var(--memory-input-bg))] text-sm text-[hsl(var(--memory-muted))] group-focus-within:hidden">
+                    {t('memory.pages.events.startDateLabel')}
+                  </span>
+                ) : null}
+                <Input
+                  id="memory-events-start-date"
+                  type="date"
+                  aria-label={t('memory.pages.events.startDateLabel')}
+                  className={COMPACT_DATE_INPUT_CLASS}
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                  autoComplete="off"
+                />
+              </div>
               <span className="flex h-5 items-center justify-center border-x border-[hsl(var(--memory-divider)/0.62)] text-[12px] text-[hsl(var(--memory-muted))]">
                 ~
               </span>
-              <Input
-                id="memory-events-end-date"
-                type="date"
-                aria-label={t('memory.pages.events.endDateLabel')}
-                className={COMPACT_DATE_INPUT_CLASS}
-                value={endDate}
-                onChange={(event) => setEndDate(event.target.value)}
-              />
+              <div className="group relative">
+                {!endDate ? (
+                  <span className="pointer-events-none absolute inset-0 flex items-center bg-[hsl(var(--memory-input-bg))] text-sm text-[hsl(var(--memory-muted))] group-focus-within:hidden">
+                    {t('memory.pages.events.endDateLabel')}
+                  </span>
+                ) : null}
+                <Input
+                  id="memory-events-end-date"
+                  type="date"
+                  aria-label={t('memory.pages.events.endDateLabel')}
+                  className={COMPACT_DATE_INPUT_CLASS}
+                  value={endDate}
+                  onChange={(event) => setEndDate(event.target.value)}
+                  autoComplete="off"
+                />
+              </div>
             </div>
           </div>
           <div className="space-y-1">
