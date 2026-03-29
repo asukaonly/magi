@@ -44,6 +44,7 @@ def test_api_role_omits_background_runtime_modules() -> None:
     assert "runtime_chat_store" in module_by_name["runtime_api_exports"].dependencies
     assert "runtime_message_bus" not in module_by_name["runtime_api_exports"].dependencies
     assert "runtime_personality" not in module_by_name["runtime_api_exports"].dependencies
+    assert all("runtime_message_bus" not in module.dependencies for module in modules)
     assert getattr(module_by_name["runtime_memory"], "start_memory_integration") is False
 
 

@@ -16,7 +16,7 @@ class PluginSystemModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_plugin_system",
-            dependencies=("runtime_message_bus",),
+            dependencies=("runtime_configuration",),
         )
         self._context = context
 

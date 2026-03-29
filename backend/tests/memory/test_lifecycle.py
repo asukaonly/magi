@@ -23,7 +23,12 @@ class _FakeScenarioPool:
 
 
 class _FakeUsageStore:
+    def __init__(self) -> None:
+        self.started = False
+        self.message_bus = None
+
     async def start(self, message_bus) -> None:  # type: ignore[no-untyped-def]
+        self.started = True
         self.message_bus = message_bus
 
     async def stop(self) -> None:
@@ -113,7 +118,6 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
         memory_dir=tmp_path / "memory",
     )
     context.core.db_initializer = _FakeDBInitializer()
-    context.message_bus.message_bus = SimpleNamespace()
     context.llm.scenario_llm_pool = fake_pool
     context.plugins.plugin_manager = SimpleNamespace(build_temporal_summary_features=lambda *args, **kwargs: {})
 
@@ -124,3 +128,5 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     assert captured["l2_batch_flush_interval_seconds"] == 90
     assert captured["enable_l2_conflict_arbitration"] is True
     assert captured["l2_conflict_arbitration_min_confidence"] == 0.85
+    assert usage_store.started is False
+    assert usage_store.message_bus is None

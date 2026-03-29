@@ -22,9 +22,17 @@ class MemoryStoreModule(LifecycleModule):
     """Initialize persistence, memory stores, usage metrics, and memory integration (L6)."""
 
     def __init__(self, context: RuntimeBootstrapContext, *, start_memory_integration: bool = True):
+        dependencies = [
+            "runtime_llm",
+            "runtime_configuration",
+            "runtime_core_dependencies",
+            "runtime_plugin_system",
+        ]
+        if start_memory_integration:
+            dependencies.append("runtime_message_bus")
         super().__init__(
             name="runtime_memory",
-            dependencies=("runtime_llm", "runtime_message_bus", "runtime_configuration", "runtime_core_dependencies", "runtime_plugin_system"),
+            dependencies=tuple(dependencies),
         )
         self._context = context
         self.start_memory_integration = start_memory_integration
@@ -32,23 +40,27 @@ class MemoryStoreModule(LifecycleModule):
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
 
         await self._context.core.db_initializer.insert_default_data(persona_name=self._context.core.current_personality)
 
-        publisher = LLMUsageEventPublisher(message_bus)
-        self._context.llm.llm_usage_event_publisher = publisher
         scenario_llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "scenario llm pool")
-        scenario_llm_pool.add_adapter_configurator(
-            lambda adapter: setattr(adapter, "_llm_usage_event_publisher", publisher)
-        )
-        llm_adapter = self._context.llm.llm_adapter
-        if llm_adapter is not None:
-            setattr(llm_adapter, "_llm_usage_event_publisher", publisher)
-        self._context.llm.llm_usage_store = get_llm_usage_store()
-        await self._context.llm.llm_usage_store.start(message_bus)
-        logger.info("LLM usage store started")
+        message_bus = self._context.message_bus.message_bus
+        if self.start_memory_integration:
+            runtime_message_bus = require_initialized(message_bus, "message bus")
+            publisher = LLMUsageEventPublisher(runtime_message_bus)
+            self._context.llm.llm_usage_event_publisher = publisher
+            scenario_llm_pool.add_adapter_configurator(
+                lambda adapter: setattr(adapter, "_llm_usage_event_publisher", publisher)
+            )
+            llm_adapter = self._context.llm.llm_adapter
+            if llm_adapter is not None:
+                setattr(llm_adapter, "_llm_usage_event_publisher", publisher)
+            self._context.llm.llm_usage_store = get_llm_usage_store()
+            await self._context.llm.llm_usage_store.start(runtime_message_bus)
+            logger.info("LLM usage store started")
+        else:
+            logger.info("LLM usage store subscription skipped for API role")
 
         memory_config = config.agent.memory
         embedding_service = MemoryEmbeddingService(scenario_llm_pool)
@@ -91,6 +103,7 @@ class MemoryStoreModule(LifecycleModule):
         logger.info("HybridRetrievalService initialized")
 
         if self.start_memory_integration:
+            runtime_message_bus = require_initialized(message_bus, "message bus")
             memory_integration_config = MemoryIntegrationConfig(
                 enable_l0=memory_config.l0.enabled,
                 enable_l1=memory_config.l1.enabled,
@@ -101,7 +114,7 @@ class MemoryStoreModule(LifecycleModule):
             )
             self._context.memory.memory_integration = MemoryIntegrationModule(
                 unified_memory=self._context.memory.unified_memory,
-                message_bus=message_bus,
+                message_bus=runtime_message_bus,
                 config=memory_integration_config,
             )
             await self._context.memory.memory_integration.start()
