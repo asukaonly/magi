@@ -5,6 +5,7 @@ mod frontmost_app_monitor;
 use libc::{kill, SIGTERM};
 use serde::Serialize;
 use std::env;
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -410,12 +411,46 @@ fn find_backend_dir() -> Result<PathBuf, String> {
     }
 }
 
+fn dev_backend_log_path() -> Result<PathBuf, String> {
+    if let Ok(configured) = env::var("MAGI_BACKEND_LOG_FILE") {
+        let trimmed = configured.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed));
+        }
+    }
+
+    let home_dir = env::var("HOME")
+        .map(PathBuf::from)
+        .map_err(|_| "HOME is not set for desktop dev backend logging".to_string())?;
+    Ok(home_dir.join(".magi").join("logs").join("backend-dev-hot.log"))
+}
+
+fn open_dev_backend_log_stdio() -> Result<(Stdio, Stdio), String> {
+    let log_path = dev_backend_log_path()?;
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("Failed to create backend log directory: {err}"))?;
+    }
+
+    let stdout_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|err| format!("Failed to open backend log file: {err}"))?;
+    let stderr_file = stdout_file
+        .try_clone()
+        .map_err(|err| format!("Failed to clone backend log file handle: {err}"))?;
+
+    Ok((Stdio::from(stdout_file), Stdio::from(stderr_file)))
+}
+
 fn spawn_dev_backend_role(
     role: &str,
     port: Option<u16>,
     session_token: &str,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let backend_dir = find_backend_dir()?;
+    let (stdout, stderr) = open_dev_backend_log_stdio()?;
 
     let mut command = Command::new("python");
     command
@@ -426,8 +461,8 @@ fn spawn_dev_backend_role(
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .current_dir(backend_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(stdout)
+        .stderr(stderr);
 
     if role == "api" {
         let port_text = port
@@ -624,17 +659,10 @@ fn start_backend(
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, port);
     let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, port);
 
-    let start = match spawn_sidecar_backend(&app, port, &session_token, state.recent_errors.clone())
-    {
-        Ok(result) => result,
-        Err(sidecar_err) => {
-            if cfg!(debug_assertions) {
-                spawn_dev_backend_pair(port, &session_token)
-                    .map_err(|dev_err| format!("{}; fallback failed: {}", sidecar_err, dev_err))?
-            } else {
-                return Err(sidecar_err);
-            }
-        }
+    let start = if cfg!(debug_assertions) {
+        spawn_dev_backend_pair(port, &session_token)?
+    } else {
+        spawn_sidecar_backend(&app, port, &session_token, state.recent_errors.clone())?
     };
 
     if !wait_for_health(BACKEND_HOST, port, STARTUP_TIMEOUT) {
