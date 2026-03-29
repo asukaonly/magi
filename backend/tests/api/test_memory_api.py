@@ -50,6 +50,7 @@ class _FakeL1Store:
         start_time=None,
         end_time=None,
         limit=50,
+        include_metadata_json=True,
     ):
         self.last_query_kwargs = {
             "session_id": session_id,
@@ -62,6 +63,7 @@ class _FakeL1Store:
             "start_time": start_time,
             "end_time": end_time,
             "limit": limit,
+            "include_metadata_json": include_metadata_json,
         }
         return [
             MemoryEvent(
@@ -89,6 +91,7 @@ class _FakeL1Store:
                 importance_score=0.8,
                 level=20,
                 media_path=None,
+                metadata_json={"timeline": {"source_app": "Chrome", "title": "hello"}},
             )
         ]
 
@@ -2041,6 +2044,7 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["events"][0]["retention_class"] == "compressible"
     assert body["events"][0]["id"] == 101
     assert body["events"][0]["idempotency_key"] == "chat:session-1:turn-1"
+    assert "metadata_json" not in body["events"][0]
 
 
 def test_memory_l1_events_api_forwards_search_filters(monkeypatch):

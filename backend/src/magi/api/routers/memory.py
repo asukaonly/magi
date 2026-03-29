@@ -380,6 +380,12 @@ def _serialize_memory_event(event: MemoryEvent | Dict[str, Any]) -> Dict[str, An
     return dict(event)
 
 
+def _serialize_l1_event_list_item(event: MemoryEvent | Dict[str, Any]) -> Dict[str, Any]:
+    payload = _serialize_memory_event(event)
+    payload.pop("metadata_json", None)
+    return payload
+
+
 def _parse_day_boundary(value: str | None, *, end_of_day: bool) -> float | None:
     normalized = str(value or "").strip()
     if not normalized:
@@ -1063,9 +1069,10 @@ async def get_l1_events(
         start_time=start_time,
         end_time=end_time,
         limit=limit,
+        include_metadata_json=False,
     )
     total = await unified_memory.l1.count_events()
-    return {"events": [_serialize_memory_event(event) for event in events], "stats": {"total": total}}
+    return {"events": [_serialize_l1_event_list_item(event) for event in events], "stats": {"total": total}}
 
 
 @memory_router.post("/search")

@@ -429,6 +429,7 @@ class L1EventStore:
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
         limit: int = 100,
+        include_metadata_json: bool = True,
     ) -> List[Dict[str, Any]]:
         """Query events with SQL-level filters."""
         await self.initialize()
@@ -477,7 +478,7 @@ class L1EventStore:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        return [self._row_to_dict(row, include_metadata_json=include_metadata_json) for row in rows]
 
     async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Return a minimal timeline-shaped view from canonical L1 columns."""
@@ -1154,9 +1155,9 @@ class L1EventStore:
             return EMBEDDING_STATUS_STALE
         return normalized_status
 
-    def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
+    def _row_to_dict(self, row: aiosqlite.Row, *, include_metadata_json: bool = True) -> Dict[str, Any]:
         stored_profile_id = row["embedding_profile_id"]
-        metadata_json = row["metadata_json"]
+        metadata_json = row["metadata_json"] if include_metadata_json else None
         return {
             "id": int(row["id"]),
             "event_id": str(row["event_id"]),
