@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.events.sqlite_backend import SQLiteMessageBackend
+from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory import UnifiedMemoryStore
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
@@ -836,11 +836,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         )
         await self.memory.initialize()
 
-        self.bus = SQLiteMessageBackend(
-            db_path=str(base / "message_queue.db"),
-            num_workers=1,
-            retry_delay_seconds=0.05,
-        )
+        self.bus = InMemoryMessageBusBackend(num_workers=1)
         await self.bus.start()
 
         self.integration = MemoryIntegrationModule(
@@ -891,7 +887,8 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         )
 
         async def _events_processed() -> bool:
-            return self.integration.get_statistics()["events_processed"] >= 3
+            stats = self.integration.get_statistics()
+            return stats["events_processed"] >= 3 and stats["l2_assertions_written"] >= 1
 
         await _wait_for_async_condition(
             _events_processed,

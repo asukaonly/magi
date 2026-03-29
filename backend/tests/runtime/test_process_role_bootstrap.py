@@ -39,6 +39,7 @@ def test_api_role_omits_background_runtime_modules() -> None:
     assert "runtime_tools" not in module_names
     assert "runtime_personality" not in module_names
     assert "runtime_sensor_hub" not in module_names
+    assert "runtime_message_bus" not in module_names
     assert "runtime_chat_store" in module_names
     assert "runtime_chat_store" in module_by_name["runtime_api_exports"].dependencies
     assert "runtime_message_bus" not in module_by_name["runtime_api_exports"].dependencies

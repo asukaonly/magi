@@ -59,23 +59,24 @@ The current sequence is:
 
 1. core dependencies
 2. configuration
-3. message bus
-4. plugin system
-5. llm runtime
-6. memory stores
-7. tools
-8. skills
-9. personality
-10. sensors and actions
-11. context assembly
-12. agent runtime
-13. timeline service
-14. scheduler engine
-15. agent schedule registration
-16. action schedule registration
-17. timeline schedule registration
-18. runtime exports
-19. maintenance dependencies
+3. runtime command queue
+4. message bus
+5. plugin system
+6. llm runtime
+7. memory stores
+8. tools
+9. skills
+10. personality
+11. sensors and actions
+12. context assembly
+13. agent runtime
+14. timeline service
+15. scheduler engine
+16. agent schedule registration
+17. action schedule registration
+18. timeline schedule registration
+19. runtime exports
+20. maintenance dependencies
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 
@@ -85,7 +86,8 @@ Important rule: bootstrap order is dependency order, not ownership order. For ex
 flowchart TD
     U["User Message"] --> T["API or WebSocket Transport"]
     T --> D["Shared Message Dispatch Service"]
-    D --> B["Message Bus"]
+    D --> Q["Runtime Command Queue"]
+    Q --> B["Runtime Worker Local Message Bus"]
     B --> R["Router Agent / Sensor Hub"]
     R --> C["ChatTaskAgent"]
 
@@ -111,10 +113,10 @@ flowchart TD
 The current dual-process topology is intentionally split by responsibility:
 
 - API process
-  Accepts user input, writes `chat.db`, enqueues runtime commands, and serves read-side chat and trace APIs
+  Accepts user input, writes `chat.db`, enqueues runtime commands, and serves read-side chat and trace APIs. It does not own the runtime message bus.
 
 - runtime worker
-  Consumes commands and plugin ingress events, updates `chat.db`, writes `runtime_trace.db`, and projects canonical memory facts into `l1_events.db`
+  Consumes commands and plugin ingress events, fans out local runtime events on the in-process message bus, updates `chat.db`, writes `runtime_trace.db`, and projects canonical memory facts into `l1_events.db`
 
 Persistence is separated the same way:
 
@@ -139,6 +141,8 @@ Persistence is separated the same way:
   Current path pattern: `~/.magi/cache/plugins/<plugin_id>/`
 
 Important rule: runtime notifications are best-effort live fan-out of already committed chat state. Transcript recovery and reload must come from `chat.db`, not from notifications or `fact_events`.
+
+Important rule: the runtime message bus is process-local to `runtime_worker`. It is not a durable cross-process broker and it does not own SQLite queue persistence.
 
 ## Agent Runtime
 
@@ -318,9 +322,9 @@ Current rules:
 It owns:
 
 - runtime initialization checks
-- message-bus availability checks
+- runtime command queue availability checks
 - explicit `session_id` validation for incoming messages
-- `USER_MESSAGE` event publication
+- runtime command publication
 - queue-size reporting for callers
 
 This keeps `api/routers/messages.py` and `websocket/handlers.py` transport-thin.
@@ -347,7 +351,7 @@ They are intentionally separated from runtime orchestration, but they still use 
 
 Current rule:
 
-- routers, transport handlers, and shared external-facing services may use runtime bindings
+- routers, transport handlers, and shared external-facing services may use runtime bindings for explicit read-side/runtime-owned services, but API bootstrap does not expose the runtime message bus
 - runtime-domain code should prefer explicit injection from lifecycle assembly or owning managers
 
 ## Scheduler Targets

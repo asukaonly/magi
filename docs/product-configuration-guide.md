@@ -252,7 +252,7 @@ Important behavioral rules:
 Current storage implementation notes:
 
 - `agent.memory.db_path` points at the managed memory data directory shown in Settings.
-- `message_queue.db` is reserved for message bus queue persistence, not long-term L1 memory.
+- `message_queue.db` is reserved for runtime command persistence, not long-term L1 memory.
 - `chat.db` is the product-domain source of truth for chat sessions, turn state, and visible transcript rows.
 - L1 is stored in `data/memory/l1_events.db`.
 - `data/memory/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.

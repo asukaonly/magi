@@ -10,9 +10,9 @@ class MessageBusBackend(ABC):
     """
     Message Bus Backend Abstract Interface
 
-    All message bus backends must implement this interface, supporting different storage implementations:
-    - SQLiteMessageBackend: persistent queue based on aiosqlite
-    - RedisMessageBackend: Distributed queue based on Redis Streams
+    The message bus is an in-process runtime event fan-out primitive. It is not the
+    durable cross-process transport; durable commands and ingress events use dedicated
+    SQLite-backed stores.
     """
 
     @abstractmethod

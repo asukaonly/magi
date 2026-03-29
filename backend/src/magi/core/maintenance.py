@@ -2,8 +2,6 @@
 Maintenance daemon for background cleanup and health tasks.
 
 This module provides a background daemon that performs:
-- Message queue cleanup
-- Stale processing message recovery
 - System health checks
 - Log rotation checks
 """
@@ -38,12 +36,8 @@ class MaintenanceConfig:
 
     enabled: bool = True
     interval_seconds: float = 300.0
-    message_cleanup: bool = True
-    message_retain_hours: int = 24
-    message_cleanup_batch_size: int = 1000
     health_check: bool = True
     log_rotation_check: bool = True
-    stale_processing_timeout_seconds: float = 300.0
 
 
 class MaintenanceDaemon:
@@ -51,11 +45,9 @@ class MaintenanceDaemon:
 
     def __init__(
         self,
-        message_bus=None,
         config: Optional[MaintenanceConfig] = None,
         health_check_callback: Optional[Callable[[], dict[str, Any]]] = None,
     ) -> None:
-        self.message_bus = message_bus
         self.config = config or MaintenanceConfig()
         self.health_check_callback = health_check_callback
         self._running = False
@@ -103,9 +95,6 @@ class MaintenanceDaemon:
         start_time = time.time()
         logger.debug("Starting maintenance run")
         try:
-            if self.config.message_cleanup and self.message_bus:
-                await self._reset_stale_messages()
-                await self._cleanup_old_messages()
             if self.config.health_check:
                 await self._run_health_checks()
             if self.config.log_rotation_check:
@@ -120,32 +109,10 @@ class MaintenanceDaemon:
             self._stats.errors += 1
             raise
 
-    async def _reset_stale_messages(self) -> None:
-        try:
-            count = await self.message_bus.reset_stale_processing_messages(
-                timeout_seconds=self.config.stale_processing_timeout_seconds
-            )
-            if count > 0:
-                self._stats.stale_messages_reset += count
-        except Exception as exc:
-            logger.error("Failed to reset stale messages: %s", exc)
-
-    async def _cleanup_old_messages(self) -> None:
-        try:
-            count = await self.message_bus.cleanup_old_messages(
-                retain_hours=self.config.message_retain_hours,
-                batch_size=self.config.message_cleanup_batch_size,
-            )
-            if count > 0:
-                self._stats.messages_cleaned += count
-        except Exception as exc:
-            logger.error("Failed to cleanup old messages: %s", exc)
-
     async def _run_health_checks(self) -> None:
         try:
             health_status = {
                 "timestamp": time.time(),
-                "message_queue": await self._check_message_queue_health(),
             }
             if self.health_check_callback:
                 custom_health = self.health_check_callback()
@@ -154,8 +121,6 @@ class MaintenanceDaemon:
                 health_status["custom"] = custom_health
 
             issues: list[str] = []
-            if health_status.get("message_queue", {}).get("failed", 0) > 100:
-                issues.append(f"High failed message count: {health_status['message_queue']['failed']}")
 
             if issues:
                 logger.warning("Health check issues: %s", issues)
@@ -165,14 +130,6 @@ class MaintenanceDaemon:
         except Exception as exc:
             logger.error("Health check failed: %s", exc)
             self._stats.health_checks_failed += 1
-
-    async def _check_message_queue_health(self) -> dict[str, Any]:
-        if not self.message_bus:
-            return {"status": "unavailable"}
-        try:
-            return await self.message_bus.get_queue_health()
-        except Exception as exc:
-            return {"status": "error", "error": str(exc)}
 
     async def _check_log_rotation(self) -> None:
         try:

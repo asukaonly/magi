@@ -87,10 +87,10 @@ class DatabaseInitializer:
             logger.info("Database verification completed")
 
     async def _init_message_queue_db(self) -> None:
-        """Initialize message bus database."""
+        """Initialize runtime command queue database."""
         db_path = self.runtime_paths.message_queue_db_path
         async with sqlite_connection_async(str(db_path), use_row_factory=False) as db:
-            # message_queue table is managed by SQLiteMessageBackend.
+            # runtime_commands table is created lazily by SQLiteRuntimeCommandQueue.
             await db.commit()
         logger.debug(f"Initialized message_queue.db at {db_path}")
 

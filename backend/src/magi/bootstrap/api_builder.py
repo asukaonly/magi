@@ -12,7 +12,7 @@ from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
 from ..config.lifecycle import ConfigurationModule
 from ..core.container import get_container
 from ..core.lifecycle import CoreDependenciesModule
-from ..events.lifecycle import MessageBusModule, RuntimeCommandQueueModule
+from ..events.lifecycle import RuntimeCommandQueueModule
 from ..llm.lifecycle import LLMRuntimeModule
 from ..memory.lifecycle import MemoryStoreModule
 from ..plugins.lifecycle import PluginSystemModule
@@ -112,7 +112,6 @@ def build_api_runtime_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         CoreDependenciesModule(context),
         ConfigurationModule(context),
         RuntimeCommandQueueModule(context),
-        MessageBusModule(context),
         ChatStoreModule(context),
         PluginSystemModule(context),
         LLMRuntimeModule(context),

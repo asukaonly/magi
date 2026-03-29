@@ -322,20 +322,14 @@ class MessageBusSettings(BaseModel):
     """Message bus configuration."""
     max_queue_size: int = Field(default=1000, ge=1)
     num_workers: int = Field(default=4, ge=1)
-    db_path: str = Field(default="~/.magi/runtime/message_queue.db")
     broadcast_max_concurrency: int = Field(default=8, ge=1)
     handler_timeout_seconds: float = Field(default=2.0, ge=0.1)
-    max_retries: int = Field(default=3, ge=0, description="Max retry attempts for failed message handling")
-    retry_delay_seconds: float = Field(default=1.0, ge=0.1, description="Delay before retrying failed messages")
 
 
 class MaintenanceSettings(BaseModel):
     """Maintenance daemon configuration."""
     enabled: bool = Field(default=True, description="Enable maintenance daemon")
     interval_seconds: float = Field(default=300.0, ge=10.0, description="Interval between maintenance runs")
-    message_cleanup: bool = Field(default=True, description="Enable message queue cleanup")
-    message_retain_hours: int = Field(default=24, ge=1, description="Retain completed messages for N hours")
-    message_cleanup_batch_size: int = Field(default=1000, ge=100, description="Batch size for message cleanup")
     health_check: bool = Field(default=True, description="Enable health checks")
     log_rotation_check: bool = Field(default=True, description="Enable log rotation checks")
 

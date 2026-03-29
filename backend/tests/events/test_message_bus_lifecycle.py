@@ -7,23 +7,20 @@ import pytest
 
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.events.lifecycle import MessageBusModule
-from magi.events.sqlite_backend import SQLiteMessageBackend
+from magi.events.in_memory_backend import InMemoryMessageBusBackend
 
 
 def _build_message_bus_config() -> SimpleNamespace:
     return SimpleNamespace(
         max_queue_size=128,
         num_workers=1,
-        db_path="~/.magi/runtime/message_queue.db",
         broadcast_max_concurrency=4,
         handler_timeout_seconds=0.5,
-        max_retries=3,
-        retry_delay_seconds=0.05,
     )
 
 
 @pytest.mark.asyncio
-async def test_message_bus_module_initializes_sqlite_backend(tmp_path: Path) -> None:
+async def test_message_bus_module_initializes_in_memory_backend(tmp_path: Path) -> None:
     context = RuntimeBootstrapContext()
     context.core.config = SimpleNamespace(
         agent=SimpleNamespace(
@@ -39,11 +36,10 @@ async def test_message_bus_module_initializes_sqlite_backend(tmp_path: Path) -> 
 
     try:
         backend = context.message_bus.message_bus
-        assert isinstance(backend, SQLiteMessageBackend)
+        assert isinstance(backend, InMemoryMessageBusBackend)
 
-        health = await backend.get_queue_health()
-        assert health["pending"] == 0
-        assert health["processing"] == 0
-        assert health["failed"] == 0
+        stats = await backend.get_stats()
+        assert stats["queue_length"] == 0
+        assert stats["subscriber_count"] == 0
     finally:
         await module.shutdown()

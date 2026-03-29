@@ -140,7 +140,7 @@ async def send_user_message(
             )
 
         logger.info(
-            "Message from %s published to message bus | Queue size: %s",
+            "Message from %s queued for runtime processing | Queue size: %s",
             request.user_id,
             outcome.queue_size if outcome.queue_size is not None else "unknown",
         )
