@@ -165,6 +165,27 @@ class L2CognitionStore:
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS l2_projection_jobs (
+                    event_id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    batch_owner TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    claimed_by TEXT,
+                    claimed_at REAL,
+                    completed_at REAL,
+                    last_error TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_status_created
+                    ON l2_projection_jobs(status, created_at ASC);
+
+                CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_owner_status_created
+                    ON l2_projection_jobs(batch_owner, status, created_at ASC);
                 """
             )
             await self._ensure_tom_assertion_schema(db)
@@ -711,6 +732,149 @@ class L2CognitionStore:
             "db_path": self.db_path,
         }
 
+    async def enqueue_projection_job(
+        self,
+        *,
+        event_id: str,
+        source: str,
+        event_type: str,
+        batch_owner: str | None = None,
+    ) -> bool:
+        """Insert one pending L2 projection job if it does not already exist."""
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                INSERT OR IGNORE INTO l2_projection_jobs(
+                    event_id,
+                    source,
+                    event_type,
+                    batch_owner,
+                    status,
+                    attempt_count,
+                    claimed_by,
+                    claimed_at,
+                    completed_at,
+                    last_error,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, NULL, ?, ?)
+                """,
+                (
+                    event_id,
+                    source,
+                    event_type,
+                    batch_owner,
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+        return bool(cursor.rowcount)
+
+    async def claim_projection_jobs(
+        self,
+        *,
+        consumer_name: str,
+        limit: int,
+    ) -> list[Dict[str, Any]]:
+        """Claim up to *limit* pending projection jobs ordered by creation time."""
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                UPDATE l2_projection_jobs
+                SET status = 'claimed',
+                    claimed_by = ?,
+                    claimed_at = ?,
+                    updated_at = ?
+                WHERE event_id IN (
+                    SELECT event_id
+                    FROM l2_projection_jobs
+                    WHERE status = 'pending'
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                )
+                RETURNING *
+                """,
+                (
+                    consumer_name,
+                    now,
+                    now,
+                    int(limit),
+                ),
+            )
+            rows = await cursor.fetchall()
+            await db.commit()
+        return [self._projection_job_row_to_dict(row) for row in rows]
+
+    async def complete_projection_jobs(self, event_ids: List[str]) -> int:
+        """Mark projection jobs as completed."""
+        return await self._update_projection_jobs_status(
+            event_ids=event_ids,
+            status="completed",
+            clear_claim=True,
+            completed_at=time.time(),
+        )
+
+    async def fail_projection_jobs(
+        self,
+        event_ids: List[str],
+        *,
+        error_text: str | None = None,
+        requeue: bool,
+    ) -> int:
+        """Mark projection jobs as failed or return them to pending."""
+        next_status = "pending" if requeue else "failed"
+        return await self._update_projection_jobs_status(
+            event_ids=event_ids,
+            status=next_status,
+            clear_claim=True,
+            completed_at=None,
+            error_text=error_text,
+            increment_attempt_count=True,
+        )
+
+    async def requeue_stale_projection_jobs(self, *, timeout_seconds: float) -> int:
+        """Return stale claimed jobs back to pending for replay."""
+        await self.initialize()
+        cutoff = time.time() - float(timeout_seconds)
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE l2_projection_jobs
+                SET status = 'pending',
+                    attempt_count = attempt_count + 1,
+                    claimed_by = NULL,
+                    claimed_at = NULL,
+                    updated_at = ?
+                WHERE status = 'claimed'
+                  AND claimed_at IS NOT NULL
+                  AND claimed_at < ?
+                """,
+                (time.time(), cutoff),
+            )
+            await db.commit()
+        return int(cursor.rowcount or 0)
+
+    async def get_projection_backlog_stats(self) -> Dict[str, int]:
+        """Return counts for durable L2 projection jobs by status."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            pending = await self._count_projection_jobs_by_status(db, "pending")
+            claimed = await self._count_projection_jobs_by_status(db, "claimed")
+            completed = await self._count_projection_jobs_by_status(db, "completed")
+            failed = await self._count_projection_jobs_by_status(db, "failed")
+        return {
+            "pending": pending,
+            "claimed": claimed,
+            "completed": completed,
+            "failed": failed,
+        }
+
     async def clear(self) -> int:
         """Delete all cognition artifacts."""
         await self.initialize()
@@ -721,6 +885,7 @@ class L2CognitionStore:
             await db.executescript(
                 """
                 DELETE FROM knowledge_graph;
+                DELETE FROM l2_projection_jobs;
                 DELETE FROM tom_trait_assertions;
                 DELETE FROM tom_snapshots;
                 """
@@ -1463,6 +1628,73 @@ class L2CognitionStore:
         snapshot = await self.get_tom_snapshot(entity_id=entity_id, entity_type=entity_type)
         assert snapshot is not None
         return snapshot
+
+    async def _update_projection_jobs_status(
+        self,
+        *,
+        event_ids: List[str],
+        status: str,
+        clear_claim: bool,
+        completed_at: float | None,
+        error_text: str | None = None,
+        increment_attempt_count: bool = False,
+    ) -> int:
+        if not event_ids:
+            return 0
+        await self.initialize()
+        placeholders = ", ".join("?" for _ in event_ids)
+        now = time.time()
+        attempt_clause = "attempt_count = attempt_count + 1," if increment_attempt_count else ""
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"""
+                UPDATE l2_projection_jobs
+                SET status = ?,
+                    {attempt_clause}
+                    claimed_by = ?,
+                    claimed_at = ?,
+                    completed_at = ?,
+                    last_error = ?,
+                    updated_at = ?
+                WHERE event_id IN ({placeholders})
+                """,
+                (
+                    status,
+                    None if clear_claim else "runtime_worker",
+                    None if clear_claim else now,
+                    completed_at,
+                    error_text,
+                    now,
+                    *event_ids,
+                ),
+            )
+            await db.commit()
+        return int(cursor.rowcount or 0)
+
+    async def _count_projection_jobs_by_status(self, db: aiosqlite.Connection, status: str) -> int:
+        async with db.execute(
+            "SELECT COUNT(*) FROM l2_projection_jobs WHERE status = ?",
+            (status,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    @staticmethod
+    def _projection_job_row_to_dict(row: aiosqlite.Row) -> Dict[str, Any]:
+        return {
+            "event_id": str(row["event_id"]),
+            "source": str(row["source"]),
+            "event_type": str(row["event_type"]),
+            "batch_owner": row["batch_owner"],
+            "status": str(row["status"]),
+            "attempt_count": int(row["attempt_count"] or 0),
+            "claimed_by": row["claimed_by"],
+            "claimed_at": float(row["claimed_at"]) if row["claimed_at"] is not None else None,
+            "completed_at": float(row["completed_at"]) if row["completed_at"] is not None else None,
+            "last_error": row["last_error"],
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+        }
 
     def _build_snapshot_evolution_payload(
         self,

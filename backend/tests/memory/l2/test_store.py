@@ -950,3 +950,100 @@ async def test_snapshot_excludes_user_rejected_assertions(tmp_path):
     # The rejected assertion should not appear in the active snapshot traits
     if snapshot and snapshot.get("core_traits"):
         assert "stress_level" not in snapshot["core_traits"]
+
+
+@pytest.mark.asyncio
+async def test_l2_projection_jobs_support_enqueue_claim_complete_and_stats(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    inserted = await store.enqueue_projection_job(
+        event_id="evt-proj-1",
+        source="chrome_history",
+        event_type="SENSOR_EVENT",
+        batch_owner="owner:chrome_history:default",
+    )
+    duplicate = await store.enqueue_projection_job(
+        event_id="evt-proj-1",
+        source="chrome_history",
+        event_type="SENSOR_EVENT",
+        batch_owner="owner:chrome_history:default",
+    )
+
+    assert inserted is True
+    assert duplicate is False
+
+    claimed = await store.claim_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=8,
+    )
+
+    assert len(claimed) == 1
+    assert claimed[0]["event_id"] == "evt-proj-1"
+    assert claimed[0]["status"] == "claimed"
+    assert claimed[0]["batch_owner"] == "owner:chrome_history:default"
+
+    await store.complete_projection_jobs(["evt-proj-1"])
+    stats = await store.get_projection_backlog_stats()
+
+    assert stats["pending"] == 0
+    assert stats["claimed"] == 0
+    assert stats["completed"] == 1
+    assert stats["failed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_l2_projection_jobs_support_fail_and_stale_requeue(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.enqueue_projection_job(
+        event_id="evt-proj-fail",
+        source="chat",
+        event_type="UserMessage",
+    )
+    claimed = await store.claim_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=1,
+    )
+    assert [item["event_id"] for item in claimed] == ["evt-proj-fail"]
+
+    await store.fail_projection_jobs(["evt-proj-fail"], error_text="phase1 timeout", requeue=False)
+    stats = await store.get_projection_backlog_stats()
+    assert stats["failed"] == 1
+
+    await store.enqueue_projection_job(
+        event_id="evt-proj-stale",
+        source="chat",
+        event_type="UserMessage",
+    )
+    claimed = await store.claim_projection_jobs(
+        consumer_name="runtime_worker",
+        limit=1,
+    )
+    assert [item["event_id"] for item in claimed] == ["evt-proj-stale"]
+
+    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
+        await db.execute(
+            """
+            UPDATE l2_projection_jobs
+            SET claimed_at = ?, updated_at = ?
+            WHERE event_id = ?
+            """,
+            (time.time() - 7200, time.time() - 7200, "evt-proj-stale"),
+        )
+        await db.commit()
+
+    reset_count = await store.requeue_stale_projection_jobs(timeout_seconds=300)
+    assert reset_count == 1
+
+    reclaimed = await store.claim_projection_jobs(
+        consumer_name="runtime_worker_2",
+        limit=1,
+    )
+    assert [item["event_id"] for item in reclaimed] == ["evt-proj-stale"]
+    assert reclaimed[0]["attempt_count"] == 1
