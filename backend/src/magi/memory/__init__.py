@@ -542,7 +542,10 @@ class UnifiedMemoryStore:
                 "event_count": await self.l1.count_events(),
             }
         if self.l2 is not None:
-            stats["l2"] = self.l2.get_statistics()
+            stats["l2"] = {
+                **self.l2.get_statistics(),
+                "projection_backlog": await self.l2.get_projection_backlog_stats(),
+            }
         if self.l2_pipeline is not None:
             stats["l2_pipeline"] = self.l2_pipeline.get_statistics()
         if self.l3 is not None:
@@ -613,6 +616,17 @@ class UnifiedMemoryStore:
                 "skip_by_reason": {},
             }
         return self.l2_pipeline.get_statistics()
+
+    async def get_l2_projection_backlog(self) -> Dict[str, int]:
+        """Return durable L2 projection backlog counts."""
+        if self.l2 is None:
+            return {
+                "pending": 0,
+                "claimed": 0,
+                "completed": 0,
+                "failed": 0,
+            }
+        return await self.l2.get_projection_backlog_stats()
 
     async def upsert_user_graph_edge(
         self,

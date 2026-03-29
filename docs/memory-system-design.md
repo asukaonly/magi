@@ -212,6 +212,24 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 - 带证据引用
 - 带置信度
 - 支持冲突处理和后续修正
+- 默认通过 durable projection job 从 `L1` 异步派生，而不是依赖纯内存队列
+
+`L2` 的默认执行模型是：
+
+1. `L1` 事实先成功写入 durable store
+2. 如果事件 `cognition_eligible=true`，会在 `memory.db` 中写入 `l2_projection_jobs`
+3. `runtime_worker` 中的 `L2Pipeline` 从这张表 claim `pending` job
+4. claim 到的事件在进程内按 batch owner / session / user 聚成执行批次
+5. 抽取成功后把 job 标记为 `completed`，失败则标记为 `failed` 或重新回到 `pending`
+
+这意味着：
+
+- `L2` 的 durable progress 由 projection job state 负责
+- 微批只是执行优化，不是进度真相
+- `runtime_worker` 重启后，未完成的 `L2` 投影可以从 job state 恢复
+- 插件自己的 sync cursor 只负责“同步到 `L1`”，不负责 `L2` 进度
+
+少数没有 `L1` durable 锚点的 runtime-only 事件，可以走进程内即时分发路径，但它们不应被视为 `L2` durable projection 的常规输入。
 
 ### L3 反思与摘要
 
@@ -561,10 +579,10 @@ memory 层负责 recall、检索、排序和跨层证据组织；context 层负�
   `L1` 事实事件存储、检索和向量索引
 
 - [backend/src/magi/memory/l2/pipeline.py](/Users/asuka/code/magi/backend/src/magi/memory/l2/pipeline.py)
-  `L2` 抽取与认知流水线
+  `L2` 抽取与认知流水线，以及 durable projection job claim / batching
 
 - [backend/src/magi/memory/l2/store.py](/Users/asuka/code/magi/backend/src/magi/memory/l2/store.py)
-  `L2` durable cognition store
+  `L2` durable cognition store，包括 `l2_projection_jobs`
 
 - [backend/src/magi/memory/l3/summary_store.py](/Users/asuka/code/magi/backend/src/magi/memory/l3/summary_store.py)
   `L3` 摘要和证据回链

@@ -378,13 +378,16 @@ The current memory write path is:
 2. `MemoryIntegrationModule` normalizes it into a memory event contract
 3. routing decides whether it is `l0_only`, `l0_and_l1`, or `l1_only`
 4. `UnifiedMemoryStore` writes it into the enabled lifecycle stages
-5. retrieval surfaces read from event, cognition, reflection, and procedural memory as needed
+5. `L1`-backed cognition work is recorded as durable `l2_projection_jobs` in `memory.db`
+6. `L2Pipeline` claims those jobs inside `runtime_worker`, batches them locally, and writes derived cognition state
+7. retrieval surfaces read from event, cognition, reflection, and procedural memory as needed
 
 Two rules matter here:
 
 - high-frequency runtime telemetry should not automatically participate in long-term cognition
 - `L1` is the durable source of truth for long-term memory, while `L0` remains execution-scoped
 - `ActionExecuted` stays execution-scoped and does not enter `L1`, even though its outcome may still update `L4` procedural memory
+- `L2` progress is tracked by durable projection jobs, while microbatching remains an in-process execution optimization
 
 ## Runtime Trace Flow
 
