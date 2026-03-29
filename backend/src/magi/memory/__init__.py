@@ -197,6 +197,7 @@ class UnifiedMemoryStore:
         l4_skill_id: Optional[str] = None
         l1_written = False
         stored_event_id = memory_event.event_id
+        l2_job_enqueued = False
 
         async with self._write_lock:
             if self.l0 is not None:
@@ -224,6 +225,18 @@ class UnifiedMemoryStore:
                         memory_event.session_id,
                         memory_event.user_id,
                     )
+                if self.l2 is not None and memory_event.cognition_eligible:
+                    l2_job_enqueued = await self.l2.enqueue_projection_job(
+                        event_id=stored_event_id,
+                        source=memory_event.source,
+                        event_type=memory_event.event_type,
+                        batch_owner=(
+                            str(memory_event.metadata_json.get("l2_batch_owner"))
+                            if isinstance(memory_event.metadata_json, dict)
+                            and memory_event.metadata_json.get("l2_batch_owner") is not None
+                            else None
+                        ),
+                    )
 
         if l1_written and self.l2_pipeline is not None:
             if stored_event_id != memory_event.event_id:
@@ -240,6 +253,7 @@ class UnifiedMemoryStore:
             "event_id": stored_event_id,
             "ingest_target": memory_event.ingest_target.label,
             "l1_written": l1_written,
+            "l2_job_enqueued": l2_job_enqueued,
             "l2_relation_count": int(l2_result["relation_count"]),
             "l2_assertion_count": int(l2_result["assertion_count"]),
             "l4_skill_id": l4_skill_id,

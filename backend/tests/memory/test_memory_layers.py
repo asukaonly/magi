@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import aiosqlite
+
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory import UnifiedMemoryStore
@@ -271,6 +273,95 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(summary)
         self.assertEqual(summary["summary_type"], "temporal")
         self.assertGreaterEqual(len(procedures), 1)
+
+    async def test_l1_ingest_enqueues_durable_l2_projection_job(self):
+        result = await self.store.ingest_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "content": "I have been really stressed about work lately."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-proj-1",
+                metadata={"user_id": "u1"},
+                timestamp=time.time(),
+            )
+        )
+
+        async with aiosqlite.connect(str(self.base / "memory.db")) as db:
+            cursor = await db.execute(
+                """
+                SELECT status, source, event_type
+                FROM l2_projection_jobs
+                WHERE event_id = ?
+                """,
+                (str(result["event_id"]),),
+            )
+            row = await cursor.fetchone()
+
+        self.assertEqual(row, ("pending", "chat", EventTypes.USER_MESSAGE))
+
+    async def test_duplicate_l1_ingest_does_not_duplicate_l2_projection_job(self):
+        now = time.time()
+        first = MemoryEvent(
+            event_id="evt-dup-1",
+            correlation_id="corr-dup",
+            timestamp=now,
+            created_at=now,
+            event_type=EventTypes.USER_MESSAGE,
+            source="chat",
+            source_item_id="chat:dup",
+            memory_domain=MemoryDomain.USER_AUTHORED,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.DEFENSIVE_PSYCHOLOGY,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id="s1",
+            turn_id="t1",
+            user_id="u1",
+            task_id=None,
+            content="I have been really stressed about work lately.",
+            author_type="user",
+            content_type="text",
+            importance_score=0.8,
+            level=EventLevel.INFO.value,
+            metadata_json={},
+            idempotency_key="chat:dup",
+        )
+        second = MemoryEvent(
+            event_id="evt-dup-2",
+            correlation_id="corr-dup",
+            timestamp=now + 1,
+            created_at=now + 1,
+            event_type=EventTypes.USER_MESSAGE,
+            source="chat",
+            source_item_id="chat:dup",
+            memory_domain=MemoryDomain.USER_AUTHORED,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.DEFENSIVE_PSYCHOLOGY,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            session_id="s1",
+            turn_id="t1",
+            user_id="u1",
+            task_id=None,
+            content="I have been really stressed about work lately.",
+            author_type="user",
+            content_type="text",
+            importance_score=0.8,
+            level=EventLevel.INFO.value,
+            metadata_json={},
+            idempotency_key="chat:dup",
+        )
+
+        first_result = await self.store.ingest_event(first)
+        second_result = await self.store.ingest_event(second)
+
+        async with aiosqlite.connect(str(self.base / "memory.db")) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM l2_projection_jobs")
+            count_row = await cursor.fetchone()
+
+        self.assertEqual(first_result["event_id"], second_result["event_id"])
+        self.assertEqual(count_row, (1,))
 
     async def test_action_executed_is_excluded_from_l1_but_still_updates_l4(self):
         now = time.time()
