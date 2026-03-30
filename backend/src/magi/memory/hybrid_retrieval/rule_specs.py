@@ -107,9 +107,26 @@ def extract_answer_object_mentions(query: str) -> list[str]:
     return deduped
 
 
+def _answer_kind_from_mentions(mentions: Sequence[str]) -> str | None:
+    if any(mention in CREATOR_KEYWORDS for mention in mentions):
+        return "creator"
+    if any(mention in PLACE_KEYWORDS for mention in mentions):
+        return "place"
+    if any(mention in TOPIC_KEYWORDS for mention in mentions):
+        return "topic"
+    if any(mention in SOFTWARE_KEYWORDS for mention in mentions):
+        return "software"
+    if any(mention in PERSON_KEYWORDS for mention in mentions):
+        return "person"
+    return None
+
+
 def infer_answer_kind(query_lower: str) -> str:
     """Infer the answer object kind from a normalized query string."""
     query_lower = query_lower.lower()
+    answer_object_kind = _answer_kind_from_mentions(extract_answer_object_mentions(query_lower))
+    if answer_object_kind is not None:
+        return answer_object_kind
     if any(pattern.search(query_lower) for pattern in _TOPIC_PRIMARY_PATTERNS):
         return "topic"
     if any(pattern.search(query_lower) for pattern in _CREATOR_PRIMARY_PATTERNS):

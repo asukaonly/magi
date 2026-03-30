@@ -47,3 +47,7 @@ def test_infer_semantic_constraints_uses_central_pattern_specs() -> None:
 def test_extract_answer_object_mentions_prefers_answer_object_over_context_mentions() -> None:
     mentions = extract_answer_object_mentions("上次我看的主播他说的主题是什么")
     assert mentions == ["主题"]
+
+
+def test_infer_answer_kind_uses_answer_object_mentions_first() -> None:
+    assert infer_answer_kind("上次我看的主播他说的主题是什么") == "topic"
