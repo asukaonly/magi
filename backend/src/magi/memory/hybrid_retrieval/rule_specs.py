@@ -180,59 +180,68 @@ def extract_entities(query: str) -> list[str]:
     return entities
 
 
-def infer_semantic_constraints(query: str, *, answer_kind: str) -> list[SemanticConstraint]:
-    """Infer structured semantic constraints from query text."""
+def extract_platform_constraint(query: str, *, answer_kind: str) -> SemanticConstraint | None:
+    """Extract a platform constraint when the query contains platform hints."""
     query_lower = query.lower()
-    constraints: list[SemanticConstraint] = []
-    interaction_platform_value: str | None = None
-    if answer_kind != "software":
-        if _BILIBILI_USAGE_PATTERN.search(query) or _BILIBILI_TIME_PATTERN.search(query):
-            interaction_platform_value = "b站"
-        elif _YOUTUBE_USAGE_PATTERN.search(query) or _YOUTUBE_TIME_PATTERN.search(query):
-            interaction_platform_value = "youtube"
+    if answer_kind == "software":
+        return None
+    if _BILIBILI_USAGE_PATTERN.search(query) or _BILIBILI_TIME_PATTERN.search(query):
+        return SemanticConstraint(scope="interaction", facet="platform", raw_value="b站")
+    if _YOUTUBE_USAGE_PATTERN.search(query) or _YOUTUBE_TIME_PATTERN.search(query):
+        return SemanticConstraint(scope="interaction", facet="platform", raw_value="youtube")
+    if "b站" in query_lower or "bilibili" in query_lower:
+        return SemanticConstraint(scope="target", facet="platform", raw_value="b站")
+    if "youtube" in query_lower or "油管" in query_lower:
+        return SemanticConstraint(scope="target", facet="platform", raw_value="youtube")
+    return None
 
-    if interaction_platform_value is not None:
-        constraints.append(
-            SemanticConstraint(
-                scope="interaction",
-                facet="platform",
-                raw_value=interaction_platform_value,
-            )
-        )
-    elif answer_kind != "software" and ("b站" in query_lower or "bilibili" in query_lower):
-        constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="b站"))
-    elif answer_kind != "software" and ("youtube" in query_lower or "油管" in query_lower):
-        constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="youtube"))
 
+def extract_location_constraint(query: str) -> SemanticConstraint | None:
+    """Extract a location constraint from the query."""
     interaction_location_match = _INTERACTION_LOCATION_PATTERN.search(query)
     if interaction_location_match:
-        constraints.append(
-            SemanticConstraint(
-                scope="interaction",
-                facet="located_in",
-                raw_value=interaction_location_match.group(1),
-            )
+        return SemanticConstraint(
+            scope="interaction",
+            facet="located_in",
+            raw_value=interaction_location_match.group(1),
         )
-    else:
-        location_match = _TARGET_LOCATION_PATTERN.search(query)
-        if location_match:
-            constraints.append(
-                SemanticConstraint(
-                    scope="target",
-                    facet="located_in",
-                    raw_value=location_match.group(1),
-                )
-            )
 
+    target_location_match = _TARGET_LOCATION_PATTERN.search(query)
+    if target_location_match:
+        return SemanticConstraint(
+            scope="target",
+            facet="located_in",
+            raw_value=target_location_match.group(1),
+        )
+    return None
+
+
+def extract_category_constraint(query: str) -> SemanticConstraint | None:
+    """Extract a category facet constraint from the query."""
     for label, facet_value in CATEGORY_FACET_MAP.items():
         if label in query:
-            constraints.append(
-                SemanticConstraint(
-                    scope="target",
-                    facet="category",
-                    raw_value=label,
-                    resolved_facet_value=facet_value,
-                )
+            return SemanticConstraint(
+                scope="target",
+                facet="category",
+                raw_value=label,
+                resolved_facet_value=facet_value,
             )
-            break
+    return None
+
+
+def infer_semantic_constraints(query: str, *, answer_kind: str) -> list[SemanticConstraint]:
+    """Infer structured semantic constraints from query text."""
+    constraints: list[SemanticConstraint] = []
+    platform_constraint = extract_platform_constraint(query, answer_kind=answer_kind)
+    if platform_constraint is not None:
+        constraints.append(platform_constraint)
+
+    location_constraint = extract_location_constraint(query)
+    if location_constraint is not None:
+        constraints.append(location_constraint)
+
+    category_constraint = extract_category_constraint(query)
+    if category_constraint is not None:
+        constraints.append(category_constraint)
+
     return constraints
