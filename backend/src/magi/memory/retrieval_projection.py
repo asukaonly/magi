@@ -311,6 +311,9 @@ def _humanize_object(object_value: str) -> str:
         if entity_type == "weather_state":
             slug = raw_value.split("-", 1)[0].strip().lower()
             return _WEATHER_LABELS_ZH.get(slug, raw_value.replace("-", " "))
+        if entity_type == "topic":
+            topic_label = raw_value.replace("-", " ").strip()
+            return f"{topic_label}题材" if topic_label else "相关题材"
         return raw_value.replace("-", " ")
     return normalized
 
