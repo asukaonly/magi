@@ -34,6 +34,19 @@ from .models import (
     SemanticConstraint,
     TimeRange,
 )
+from .rule_specs import (
+    L1_SIGNAL_KEYWORDS,
+    L2_SIGNAL_KEYWORDS,
+    L3_SIGNAL_KEYWORDS,
+    L4_SIGNAL_KEYWORDS,
+    SOURCE_DOMAIN_SIGNAL_SPECS,
+    contains_any,
+    extract_entities,
+    infer_answer_kind,
+    infer_answer_shape,
+    infer_polarity,
+    infer_semantic_constraints,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,41 +101,6 @@ _TIME_KEYWORDS: list[tuple[list[str], str]] = [
     (["上个月", "last month"], "last_month"),
     (["这个月", "本月", "this month"], "this_month"),
     (["最近", "recently", "近期"], "recently"),
-]
-
-# ---------------------------------------------------------------------------
-# Layer routing signal keywords
-# ---------------------------------------------------------------------------
-
-_L2_SIGNALS = [
-    "关系", "认识", "谁是", "谁", "人物", "联系人",
-    "偏好", "喜好", "喜欢", "讨厌", "不喜欢", "画像", "倾向",
-    "relationship", "who is", "who", "person", "contact",
-    "preference", "preferences", "profile", "tendency",
-    "like", "likes", "dislike", "dislikes",
-]
-_L3_SIGNALS = [
-    "总结", "回顾", "小结", "概要", "复盘",
-    "summary", "review", "recap", "overview",
-]
-_L4_SIGNALS = [
-    "怎么做", "上次怎么", "经验", "技巧", "最佳实践", "方法", "策略",
-    "how to", "best practice", "experience", "strategy", "technique",
-]
-_L1_SIGNALS = [
-    "浏览", "看了", "聊了", "发了", "搜了", "打开了", "访问了",
-    "browsed", "viewed", "chatted", "searched", "opened", "visited",
-]
-
-# Source / domain signal keywords
-_SOURCE_DOMAIN_SIGNALS: list[tuple[list[str], list[str], list[str]]] = [
-    # (keywords, source_filters, domain_filters)
-    (["浏览", "browsing", "网页", "webpage", "browser"], ["chrome_history"], ["external_activity"]),
-    (["聊天", "对话", "chat", "conversation"], ["chat"], ["user_authored"]),
-    (["终端", "terminal", "git", "命令行", "command"], ["terminal", "git"], ["external_activity"]),
-    (["日记", "笔记", "journal", "note", "diary"], ["journal", "note"], ["user_authored"]),
-    (["日历", "开会", "会议", "calendar", "meeting"], ["calendar"], ["external_activity"]),
-    (["音乐", "听了", "music", "listened"], ["music"], ["external_activity"]),
 ]
 
 # Mode -> layer mapping (for query_mode hint)
@@ -384,25 +362,25 @@ class RuleBasedIntentDecider:
         source_filters, domain_filters = self._infer_source_domain(query_lower, inp)
 
         # 3. Check keyword signals
-        if any(kw in query_lower for kw in _L2_SIGNALS):
+        if contains_any(query_lower, L2_SIGNAL_KEYWORDS):
             return [
                 self._make_plan("L2", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
                 self._make_plan("L1", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
             ]
 
-        if any(kw in query_lower for kw in _L3_SIGNALS):
+        if contains_any(query_lower, L3_SIGNAL_KEYWORDS):
             return [
                 self._make_plan("L3", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
                 self._make_plan("L1", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
             ]
 
-        if any(kw in query_lower for kw in _L4_SIGNALS):
+        if contains_any(query_lower, L4_SIGNAL_KEYWORDS):
             return [
                 self._make_plan("L4", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
                 self._make_plan("L1", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
             ]
 
-        if any(kw in query_lower for kw in _L1_SIGNALS):
+        if contains_any(query_lower, L1_SIGNAL_KEYWORDS):
             return [
                 self._make_plan("L1", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
                 self._make_plan("L3", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
@@ -482,20 +460,15 @@ class RuleBasedIntentDecider:
         if inp.source_filters or inp.domain_filters:
             return inp.source_filters or None, inp.domain_filters or None
 
-        for keywords, sources, domains in _SOURCE_DOMAIN_SIGNALS:
-            if any(kw in query_lower for kw in keywords):
+        for keywords, sources, domains in SOURCE_DOMAIN_SIGNAL_SPECS:
+            if contains_any(query_lower, keywords):
                 return sources, domains
 
         return None, None
 
     def _extract_entities(self, query: str) -> list[str]:
         """Extract high-confidence entity surface forms for common software/platform names."""
-        entities: list[str] = []
-        if "B站" in query or "b站" in query.lower() or "bilibili" in query.lower():
-            entities.append("B站")
-        if "youtube" in query.lower() or "油管" in query:
-            entities.append("YouTube")
-        return entities
+        return extract_entities(query)
 
     def _infer_subject_hint(self, inp: IntentDeciderInput) -> str:
         """Infer whether the query subject is the current user or an explicit entity.
@@ -585,17 +558,7 @@ class RuleBasedIntentDecider:
 
     @staticmethod
     def _infer_answer_kind(query_lower: str) -> str:
-        if any(token in query_lower for token in ("up主", "up", "博主", "youtuber", "主播", "creator", "频道", "channel")):
-            return "creator"
-        if any(token in query_lower for token in ("咖啡馆", "餐厅", "店", "饭馆", "cafe", "restaurant", "shop")):
-            return "place"
-        if any(token in query_lower for token in ("题材", "主题", "topic")):
-            return "topic"
-        if any(token in query_lower for token in ("软件", "网站", "app", "平台", "网站", "b站", "bilibili", "youtube")):
-            return "software"
-        if any(token in query_lower for token in ("谁", "人", "person")):
-            return "person"
-        return "unknown"
+        return infer_answer_kind(query_lower)
 
     @staticmethod
     def _infer_answer_unit(answer_kind: str) -> str:
@@ -609,85 +572,14 @@ class RuleBasedIntentDecider:
 
     @staticmethod
     def _infer_answer_shape(query_lower: str) -> str:
-        if "是否" in query_lower or "是不是" in query_lower:
-            return "boolean"
-        if re.search(r"(吗|么)\s*[?？]?\s*$", query_lower):
-            return "boolean"
-        if any(token in query_lower for token in ("哪些", "什么", "谁", "哪几个", "which", "what")):
-            return "list"
-        return "single"
+        return infer_answer_shape(query_lower)
 
     @staticmethod
     def _infer_polarity(query_lower: str) -> str:
-        if any(token in query_lower for token in ("讨厌", "不喜欢", "dislike", "hate")):
-            return "negative"
-        if any(token in query_lower for token in ("喜欢", "偏好", "关注", "常看", "love", "like", "prefer")):
-            return "positive"
-        return "any"
+        return infer_polarity(query_lower)
 
     def _infer_semantic_constraints(self, query: str, *, answer_kind: str) -> list[SemanticConstraint]:
-        query_lower = query.lower()
-        constraints: list[SemanticConstraint] = []
-        interaction_platform_value: str | None = None
-        if answer_kind != "software":
-            if re.search(r"用\s*(B站|b站|bilibili)\s*(?:的时候)?", query, re.IGNORECASE):
-                interaction_platform_value = "b站"
-            elif re.search(r"在\s*(B站|b站|bilibili)\s*的时候", query, re.IGNORECASE):
-                interaction_platform_value = "b站"
-            elif re.search(r"用\s*(youtube|油管)\s*(?:的时候)?", query, re.IGNORECASE):
-                interaction_platform_value = "youtube"
-            elif re.search(r"(?:在|用)\s*(youtube|油管)\s*的时候", query, re.IGNORECASE):
-                interaction_platform_value = "youtube"
-
-        if interaction_platform_value is not None:
-            constraints.append(
-                SemanticConstraint(
-                    scope="interaction",
-                    facet="platform",
-                    raw_value=interaction_platform_value,
-                )
-            )
-        elif answer_kind != "software" and ("b站" in query_lower or "bilibili" in query_lower):
-            constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="b站"))
-        elif answer_kind != "software" and ("youtube" in query_lower or "油管" in query_lower):
-            constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="youtube"))
-        interaction_location_match = re.search(r"在([\u4e00-\u9fffA-Za-z]{2,12})的时候喜欢去", query)
-        if interaction_location_match:
-            constraints.append(
-                SemanticConstraint(
-                    scope="interaction",
-                    facet="located_in",
-                    raw_value=interaction_location_match.group(1),
-                )
-            )
-        else:
-            location_match = re.search(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去", query)
-            if location_match:
-                constraints.append(
-                    SemanticConstraint(
-                        scope="target",
-                        facet="located_in",
-                        raw_value=location_match.group(1),
-                    )
-                )
-        category_map = {
-            "咖啡馆": "coffee_shop",
-            "咖啡店": "coffee_shop",
-            "餐厅": "restaurant",
-            "饭馆": "restaurant",
-        }
-        for label, facet_value in category_map.items():
-            if label in query:
-                constraints.append(
-                    SemanticConstraint(
-                        scope="target",
-                        facet="category",
-                        raw_value=label,
-                        resolved_facet_value=facet_value,
-                    )
-                )
-                break
-        return constraints
+        return infer_semantic_constraints(query, answer_kind=answer_kind)
 
     # -----------------------------------------------------------------------
     # Helpers
