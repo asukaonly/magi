@@ -15,6 +15,7 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ..chunking import ChunkedText, chunk_text
+from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding_text_builders import build_l4_embedding_text
 from ..embedding_service import MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
@@ -580,54 +581,52 @@ class L4ProceduralMemoryStore:
         skill_category: str,
         optimized_prompt: Optional[str],
     ) -> None:
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+        if not self._vectors_enabled():
+            return
+        pipeline = self._build_embedding_pipeline()
+        if pipeline is None:
             return
         text = self._build_skill_embedding_text(
             skill_name=skill_name,
             skill_category=skill_category,
             optimized_prompt=optimized_prompt,
         )
-        chunks = self._build_skill_embedding_chunks(
-            skill_id=skill_id,
-            text=text,
+        results = await pipeline.upsert_items(
+            [
+                EmbeddingPipelineItem(
+                    parent_id=skill_id,
+                    chunks=self._build_skill_embedding_chunks(
+                        skill_id=skill_id,
+                        text=text,
+                    ),
+                    metadata={
+                        "skill_id": skill_id,
+                        "skill_name": skill_name,
+                        "skill_category": skill_category,
+                    },
+                    payload={
+                        "skill_id": skill_id,
+                    },
+                )
+            ]
         )
-        texts = [chunk.text for chunk in chunks]
-        if hasattr(self._embedding_service, "embed_texts"):
-            embeddings = await self._embedding_service.embed_texts(texts)
-        else:
-            embeddings = [await self._embedding_service.embed_text(chunk_text) for chunk_text in texts]
-        if not embeddings or len(embeddings) != len(chunks) or any(embedding is None for embedding in embeddings):
+        if not results:
             return
-        vector_items = [
-            {
-                "entity_id": chunk.chunk_id,
-                "embedding": embedding,
-                "metadata": {
-                    "skill_id": skill_id,
-                    "skill_name": skill_name,
-                    "skill_category": skill_category,
-                    "chunk_index": chunk.chunk_index,
-                },
-            }
-            for chunk, embedding in zip(chunks, embeddings)
-        ]
-        embedded_at = time.time()
-        try:
-            await self._vector_index.upsert_many(vector_items)
-        except Exception as exc:
-            logger.warning("Failed batch upsert for L4 skill embeddings, falling back to single-row writes: %s", exc)
-            try:
-                for item in vector_items:
-                    await self._vector_index.upsert(
-                        entity_id=str(item["entity_id"]),
-                        embedding=item["embedding"],
-                        metadata=item.get("metadata"),
-                    )
-            except Exception as item_exc:
-                logger.warning("Failed to upsert skill embedding for %s: %s", skill_id, item_exc)
-                return
-        await self._replace_skill_chunks(skill_id=skill_id, chunks=chunks, embedded_at=embedded_at)
-        await self._update_skill_embedding_state(skill_id=skill_id, chunk_count=len(chunks), embedded_at=embedded_at)
+        result = results[0]
+        await self._replace_skill_chunks(skill_id=skill_id, chunks=result.chunks, embedded_at=result.embedded_at)
+        await self._update_skill_embedding_state(
+            skill_id=skill_id,
+            chunk_count=len(result.chunks),
+            embedded_at=result.embedded_at,
+        )
+
+    def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
+        if self._embedding_service is None or self._vector_index is None:
+            return None
+        return MemoryEmbeddingPipeline(
+            embedding_service=self._embedding_service,
+            vector_index=self._vector_index,
+        )
 
     async def _semantic_query_strategies(self, *, query: str, limit: int) -> List[Dict[str, Any]]:
         if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():

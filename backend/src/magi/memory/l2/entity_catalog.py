@@ -12,6 +12,8 @@ import aiosqlite
 
 from ...config.models import EmbeddingBackend
 from ...core.sqlite import sqlite_connection_async
+from ..chunking import ChunkedText
+from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding_text_builders import build_l2_entity_embedding_text
 from ..embedding_service import MemoryEmbeddingService
 from ..sqlite_vec_index import SqliteVecIndex
@@ -511,22 +513,43 @@ class L2EntityCatalog:
             return None
 
     async def _maybe_embed_entity(self, entity_id: str) -> None:
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+        if not self._vectors_enabled():
+            return
+        pipeline = self._build_embedding_pipeline()
+        if pipeline is None:
             return
         try:
             text = await self._build_entity_embedding_text(entity_id)
             if not text:
                 return
-            embedding = await self._embedding_service.embed_text(text)
-            if embedding is None:
-                return
-            await self._vector_index.upsert(
-                entity_id=entity_id,
-                embedding=embedding,
-                metadata={"kind": "entity"},
+            await pipeline.upsert_items(
+                [
+                    EmbeddingPipelineItem(
+                        parent_id=entity_id,
+                        chunks=[
+                            ChunkedText(
+                                chunk_id=entity_id,
+                                text=text,
+                                chunk_index=0,
+                                char_start=0,
+                                char_end=len(text),
+                                token_estimate=max(1, len(text) // 4),
+                            )
+                        ],
+                        metadata={"kind": "entity"},
+                    )
+                ]
             )
         except Exception as exc:
             logger.debug("Failed to embed L2 entity %s: %s", entity_id, exc)
+
+    def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
+        if self._embedding_service is None or self._vector_index is None:
+            return None
+        return MemoryEmbeddingPipeline(
+            embedding_service=self._embedding_service,
+            vector_index=self._vector_index,
+        )
 
     async def _build_entity_embedding_text(self, entity_id: str) -> str:
         entities = await self._list_entities(limit=1, entity_ids=[entity_id])

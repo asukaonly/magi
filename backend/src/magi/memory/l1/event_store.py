@@ -16,6 +16,7 @@ from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
 from ..chunking import ChunkedText, chunk_text
+from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..embedding_text_builders import build_l1_embedding_text
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
@@ -790,7 +791,10 @@ class L1EventStore:
         await self._maybe_upsert_event_embeddings([event])
 
     async def _maybe_upsert_event_embeddings(self, events: list[MemoryEvent]) -> None:
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+        if not self._vectors_enabled():
+            return
+        pipeline = self._build_embedding_pipeline()
+        if pipeline is None:
             return
         eligible_events = [
             event
@@ -799,25 +803,22 @@ class L1EventStore:
         ]
         if not eligible_events:
             return
-        event_chunks: list[tuple[MemoryEvent, list[ChunkedText]]] = [
-            (event, self._build_event_embedding_chunks(event))
-            for event in eligible_events
-        ]
-        texts = [chunk.text for _, chunks in event_chunks for chunk in chunks]
-        if hasattr(self._embedding_service, "embed_texts"):
-            embeddings = await self._embedding_service.embed_texts(texts)
-        else:
-            embeddings = [
-                await self._embedding_service.embed_text(text)
-                for text in texts
+        results = await pipeline.upsert_items(
+            [
+                EmbeddingPipelineItem(
+                    parent_id=event.event_id,
+                    chunks=self._build_event_embedding_chunks(event),
+                    metadata={
+                        "event_id": event.event_id,
+                        "event_type": event.event_type,
+                        "source": event.source,
+                    },
+                    payload=event,
+                )
+                for event in eligible_events
             ]
-        if len(embeddings) != len(texts):
-            logger.warning(
-                "L1 embedding batch returned mismatched result count: expected=%s actual=%s",
-                len(texts),
-                len(embeddings),
-            )
-        if not embeddings:
+        )
+        if not results:
             await self._update_event_embedding_states(
                 [
                     (event.event_id, EMBEDDING_STATUS_FAILED, self._initial_embedding_profile_id(event), 0, None)
@@ -827,63 +828,34 @@ class L1EventStore:
             return
         state_updates: list[tuple[str, str, str | None, int, float | None]] = []
         profiles_by_id: dict[str, EmbeddingProfile] = {}
-        vector_items: list[dict[str, Any]] = []
         successful_events: list[tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]] = []
         failed_events: list[tuple[MemoryEvent, str | None]] = []
-        embedding_index = 0
-        for event, chunks in event_chunks:
-            chunk_embeddings = embeddings[embedding_index: embedding_index + len(chunks)]
-            embedding_index += len(chunks)
-            if len(chunk_embeddings) != len(chunks) or any(embedding is None for embedding in chunk_embeddings):
+        results_by_event_id = {result.parent_id: result for result in results}
+        for event in eligible_events:
+            result = results_by_event_id.get(event.event_id)
+            if result is None:
                 failed_events.append((event, self._initial_embedding_profile_id(event)))
                 continue
-            profile = self._profile_from_embedding_result(chunk_embeddings[0])
+            profile = self._profile_from_embedding_result(result.embeddings[0])
             profiles_by_id[profile.profile_id] = profile
-            successful_events.append((event, chunks, chunk_embeddings, profile))
-            for chunk, embedding in zip(chunks, chunk_embeddings):
-                vector_items.append(
-                    {
-                        "entity_id": self._chunk_id_for_event(event.event_id, chunk.chunk_index),
-                        "embedding": embedding,
-                        "metadata": {
-                            "event_id": event.event_id,
-                            "chunk_index": chunk.chunk_index,
-                            "event_type": event.event_type,
-                            "source": event.source,
-                        },
-                    }
-                )
-        if vector_items:
-            try:
-                await self._vector_index.upsert_many(vector_items)
-                await self._replace_event_chunks(successful_events)
-                embedded_at = time.time()
-                for event, chunks, _, profile in successful_events:
-                    state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id, len(chunks), embedded_at))
-            except Exception as exc:
-                logger.warning("Failed batch upsert for L1 embeddings, falling back to single-row writes: %s", exc)
-                for event, chunks, chunk_embeddings, profile in successful_events:
-                    try:
-                        for chunk, embedding in zip(chunks, chunk_embeddings):
-                            await self._vector_index.upsert(
-                                entity_id=self._chunk_id_for_event(event.event_id, chunk.chunk_index),
-                                embedding=embedding,
-                                metadata={
-                                    "event_id": event.event_id,
-                                    "chunk_index": chunk.chunk_index,
-                                    "event_type": event.event_type,
-                                    "source": event.source,
-                                },
-                            )
-                        await self._replace_event_chunks([(event, chunks, chunk_embeddings, profile)])
-                        state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id, len(chunks), time.time()))
-                    except Exception as item_exc:
-                        logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, item_exc)
-                        state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile.profile_id, 0, None))
+            successful_events.append((event, result.chunks, result.embeddings, profile))
+        if successful_events:
+            await self._replace_event_chunks(successful_events)
+            for event, chunks, _, profile in successful_events:
+                embedded_at = results_by_event_id[event.event_id].embedded_at
+                state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id, len(chunks), embedded_at))
         for event, profile_id in failed_events:
             state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile_id, 0, None))
         if state_updates:
             await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
+
+    def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
+        if self._embedding_service is None or self._vector_index is None:
+            return None
+        return MemoryEmbeddingPipeline(
+            embedding_service=self._embedding_service,
+            vector_index=self._vector_index,
+        )
 
     async def _semantic_search_event_hits(self, *, query: str, limit: int) -> list[VectorSearchHit]:
         if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():

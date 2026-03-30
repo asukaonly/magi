@@ -16,6 +16,7 @@ from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
 from ..chunking import ChunkedText, chunk_text
+from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding_service import MemoryEmbeddingService
 from ..embedding_text_builders import build_l3_embedding_text
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
@@ -798,71 +799,51 @@ class L3SummaryStore:
         await self._maybe_upsert_summary_embeddings([summary])
 
     async def _maybe_upsert_summary_embeddings(self, summaries: List[Dict[str, Any]]) -> None:
-        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+        if not self._vectors_enabled():
             return
-        summary_chunks: list[tuple[Dict[str, Any], list[ChunkedText]]] = [
-            (summary, self._build_summary_embedding_chunks(summary))
-            for summary in summaries
-        ]
-        contents = [chunk.text for _, chunks in summary_chunks for chunk in chunks]
-        if hasattr(self._embedding_service, "embed_texts"):
-            embeddings = await self._embedding_service.embed_texts(contents)
-        else:
-            embeddings = [
-                await self._embedding_service.embed_text(content)
-                for content in contents
-            ]
-        if not embeddings:
+        pipeline = self._build_embedding_pipeline()
+        if pipeline is None:
             return
-        vector_items: list[dict[str, Any]] = []
-        successful_entries: list[tuple[Dict[str, Any], list[ChunkedText]]] = []
-        embedding_index = 0
-        for summary, chunks in summary_chunks:
-            chunk_embeddings = embeddings[embedding_index: embedding_index + len(chunks)]
-            embedding_index += len(chunks)
-            if len(chunk_embeddings) != len(chunks) or any(embedding is None for embedding in chunk_embeddings):
-                continue
-            successful_entries.append((summary, chunks))
-            for chunk, embedding in zip(chunks, chunk_embeddings):
-                vector_items.append(
-                    {
-                        "entity_id": self._chunk_id_for_summary(str(summary["summary_id"]), chunk.chunk_index),
-                        "embedding": embedding,
-                        "metadata": {
-                            "summary_id": str(summary["summary_id"]),
-                            "summary_type": summary.get("summary_type"),
-                            "summary_category": summary.get("summary_category"),
-                            "chunk_index": chunk.chunk_index,
-                        },
-                    }
+        results = await pipeline.upsert_items(
+            [
+                EmbeddingPipelineItem(
+                    parent_id=str(summary["summary_id"]),
+                    chunks=self._build_summary_embedding_chunks(summary),
+                    metadata={
+                        "summary_id": str(summary["summary_id"]),
+                        "summary_type": summary.get("summary_type"),
+                        "summary_category": summary.get("summary_category"),
+                    },
+                    payload=summary,
                 )
-        if not vector_items:
+                for summary in summaries
+            ]
+        )
+        if not results:
             return
-        embedded_at = time.time()
-        try:
-            await self._vector_index.upsert_many(vector_items)
-        except Exception as exc:
-            logger.warning("Failed batch upsert for L3 embeddings, falling back to single-row writes: %s", exc)
-            for item in vector_items:
-                try:
-                    await self._vector_index.upsert(
-                        entity_id=str(item["entity_id"]),
-                        embedding=item["embedding"],
-                        metadata=item.get("metadata"),
-                    )
-                except Exception as item_exc:
-                    logger.warning("Failed to upsert summary embedding chunk %s: %s", item["entity_id"], item_exc)
-                    return
-        await self._replace_summary_chunks(successful_entries, embedded_at=embedded_at)
-        for summary, chunks in successful_entries:
+        embedded_at = results[0].embedded_at
+        await self._replace_summary_chunks(
+            [(result.payload, result.chunks) for result in results],
+            embedded_at=embedded_at,
+        )
+        for result in results:
+            summary = result.payload
             try:
                 await self._update_summary_embedding_state(
-                    summary_id=str(summary["summary_id"]),
-                    chunk_count=len(chunks),
-                    embedded_at=embedded_at,
+                    summary_id=result.parent_id,
+                    chunk_count=len(result.chunks),
+                    embedded_at=result.embedded_at,
                 )
             except Exception as exc:
                 logger.warning("Failed to update summary embedding state for %s: %s", summary.get("summary_id"), exc)
+
+    def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
+        if self._embedding_service is None or self._vector_index is None:
+            return None
+        return MemoryEmbeddingPipeline(
+            embedding_service=self._embedding_service,
+            vector_index=self._vector_index,
+        )
 
     async def _semantic_search_summaries(
         self,

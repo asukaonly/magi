@@ -647,6 +647,8 @@ Natural language
 
 当前 `L4` 向量索引采用 `skill` 为父对象、`chunk` 为检索粒度的方式：较长 procedural prompt 会先切成多个重叠 chunk 建立向量，再在语义检索阶段折叠回父 skill。
 
+`L1` / `L2` / `L3` / `L4` 的向量写入链路现在共用一个共享 embedding pipeline；各层只定义自己的 text builder、chunk 策略、父表状态回写和检索折叠逻辑。
+
 典型例子：
 
 - 常用 workflow 模板
