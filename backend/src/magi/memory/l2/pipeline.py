@@ -65,6 +65,14 @@ _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "place",
 }
 _STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS = {"public_topology", "interaction_evidence", "explicit_fact"}
+_STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES = {"source_explicit", "source_structured"}
+_STRUCTURED_GRAPH_HINT_FOLLOWS_PAGE_KINDS = {
+    "creator_profile",
+    "creator_home",
+    "creator_channel",
+    "subscription",
+    "subscriptions",
+}
 logger = get_logger(__name__)
 DEFAULT_L2_EXTRACT_WORKER_COUNT = 5
 DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS = 60
@@ -1594,6 +1602,9 @@ class L2Pipeline:
             if fact_kind not in _STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS:
                 rejected_count += 1
                 continue
+            if not self._is_structured_graph_hint_directly_admissible(hint=hint, predicate=predicate, fact_kind=fact_kind):
+                rejected_count += 1
+                continue
             if object_type not in profile.allowed_entity_types:
                 rejected_count += 1
                 continue
@@ -1645,6 +1656,35 @@ class L2Pipeline:
                 }
             )
         return prepared, rejected_count
+
+    def _is_structured_graph_hint_directly_admissible(
+        self,
+        *,
+        hint: StructuredGraphHint,
+        predicate: str | None,
+        fact_kind: str,
+    ) -> bool:
+        """Return whether a source-owned graph hint may bypass LLM edge generation."""
+
+        canonical_predicate = self._normalize_predicate(predicate)
+        if canonical_predicate is None:
+            return False
+
+        origin_mode = self._normalize_structured_graph_hint_origin_mode(hint.origin_mode)
+        if origin_mode not in _STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES:
+            return False
+
+        if fact_kind in {"public_topology", "explicit_fact"}:
+            return True
+
+        if fact_kind != "interaction_evidence":
+            return False
+
+        if canonical_predicate != "FOLLOWS":
+            return True
+
+        page_kind = self._normalize_structured_graph_hint_page_kind(hint.attributes)
+        return page_kind in _STRUCTURED_GRAPH_HINT_FOLLOWS_PAGE_KINDS
 
     def _merge_graph_candidates(self, *candidate_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Merge graph candidates by triple identity, preferring structured hints."""
@@ -2593,6 +2633,14 @@ class L2Pipeline:
     def _normalize_predicate(self, raw_value: Any) -> Optional[str]:
         text = self._non_empty_text(raw_value)
         return text.upper() if text else None
+
+    def _normalize_structured_graph_hint_origin_mode(self, raw_value: Any) -> str:
+        return str(self._non_empty_text(raw_value) or "source_structured").casefold()
+
+    def _normalize_structured_graph_hint_page_kind(self, attributes: dict[str, Any] | None) -> str | None:
+        if not isinstance(attributes, dict):
+            return None
+        return str(self._non_empty_text(attributes.get("page_kind")) or "").casefold() or None
 
     def _build_concept_node(self, *, entity_type: str, normalized_surface: str) -> Optional[str]:
         surface = self._non_empty_text(normalized_surface)

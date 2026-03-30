@@ -231,10 +231,24 @@ Recommended `fact_hints` payload fields:
 - `object_ref`
 - `object_type`
 - `fact_kind`
+- optional `origin_mode`
 - `confidence`
 - `observed_at`
 - optional `evidence_text`
 - optional `attributes`
+
+Recommended `origin_mode` values:
+
+- `source_explicit`
+- `source_structured`
+- `heuristic`
+- `llm_inferred`
+
+When a fact depends on page or payload shape, plugins should put the strongest stable discriminator under `attributes`. For browser-style integrations, `attributes.page_kind` is the preferred field for distinguishing:
+
+- creator / profile / channel pages
+- content detail pages
+- subscription or follow list pages
 
 The intent is that plugins provide what they know with high confidence, while runtime layers decide whether that fact becomes:
 
@@ -272,6 +286,8 @@ For passive sources such as browsing history, plugins should prefer:
 - `USES`
 - `VISITED`
 - `FOLLOWS` only when the page or payload clearly represents an account / profile / subscription relationship
+
+Runtime admission may further tighten these facts by combining `fact_kind`, `predicate`, `origin_mode`, and source-specific attributes such as `page_kind`. Plugins should therefore emit the strongest available provenance rather than assuming every `fact_hint` will become a persisted graph edge.
 
 They should not emit `LIKES` or `DISLIKES` unless the upstream source is explicit enough to justify a stable preference fact.
 

@@ -3448,6 +3448,89 @@ async def test_build_structured_graph_candidates_rejects_stable_preference_hints
     assert rejected == 1
 
 
+@pytest.mark.asyncio
+async def test_build_structured_graph_candidates_rejects_heuristic_follows_hints():
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_policy import resolve_l2_policy
+    from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    pipeline = L2Pipeline.__new__(L2Pipeline)
+    event = _make_memory_event(event_id="evt-structured-follows-heuristic", content="creator page")
+    event.source = "chrome_history"
+    event.author_type = "external"
+    event.metadata_json = {
+        "structured_graph_hints": [
+            {
+                "subject_ref": "user:self",
+                "subject_type": "user",
+                "predicate": "FOLLOWS",
+                "object_ref": "person:creator_1",
+                "object_type": "person",
+                "fact_kind": "interaction_evidence",
+                "confidence": 0.94,
+                "origin_mode": "heuristic",
+                "attributes": {"page_kind": "video"},
+            }
+        ]
+    }
+
+    profile = DEFAULT_EXTRACTION_PROFILES["timeline.chrome_history"]
+    policy = resolve_l2_policy(classify_event_evidence(event))
+    candidates, rejected = pipeline._build_structured_graph_candidates(
+        event=event,
+        profile=profile,
+        policy=policy,
+        evidence_event_ids=[event.event_id],
+    )
+
+    assert candidates == []
+    assert rejected == 1
+
+
+@pytest.mark.asyncio
+async def test_build_structured_graph_candidates_accepts_structured_follows_profile_hints():
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_policy import resolve_l2_policy
+    from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    pipeline = L2Pipeline.__new__(L2Pipeline)
+    event = _make_memory_event(event_id="evt-structured-follows-profile", content="creator page")
+    event.source = "chrome_history"
+    event.author_type = "external"
+    event.metadata_json = {
+        "structured_graph_hints": [
+            {
+                "subject_ref": "user:self",
+                "subject_type": "user",
+                "predicate": "FOLLOWS",
+                "object_ref": "person:creator_1",
+                "object_type": "person",
+                "fact_kind": "interaction_evidence",
+                "confidence": 0.94,
+                "origin_mode": "source_structured",
+                "attributes": {"page_kind": "creator_profile"},
+            }
+        ]
+    }
+
+    profile = DEFAULT_EXTRACTION_PROFILES["timeline.chrome_history"]
+    policy = resolve_l2_policy(classify_event_evidence(event))
+    candidates, rejected = pipeline._build_structured_graph_candidates(
+        event=event,
+        profile=profile,
+        policy=policy,
+        evidence_event_ids=[event.event_id],
+    )
+
+    assert rejected == 0
+    assert len(candidates) == 1
+    assert candidates[0]["predicate"] == "FOLLOWS"
+    assert candidates[0]["object_id"] == "person:creator_1"
+    assert candidates[0]["extraction_method"] == "structured_hint"
+
+
 class TestAliasValidation:
     """Tests for _is_valid_alias quality gate."""
 

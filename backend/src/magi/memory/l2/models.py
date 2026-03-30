@@ -1005,6 +1005,8 @@ class StructuredGraphHint:
     fact_kind: Optional[str] = None
     confidence: Optional[float] = None
     evidence_text: Optional[str] = None
+    origin_mode: Optional[str] = None
+    attributes: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "StructuredGraphHint":
@@ -1017,6 +1019,8 @@ class StructuredGraphHint:
             fact_kind=_optional_text(payload.get("fact_kind")),
             confidence=float(payload["confidence"]) if payload.get("confidence") is not None else None,
             evidence_text=_optional_text(payload.get("evidence_text")),
+            origin_mode=_optional_text(payload.get("origin_mode")),
+            attributes=dict(payload.get("attributes", {})) if isinstance(payload.get("attributes"), dict) else {},
         )
 
     def to_dict(self) -> dict[str, Any]:
