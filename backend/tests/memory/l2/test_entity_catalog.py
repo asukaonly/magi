@@ -155,6 +155,9 @@ async def test_list_entities_returns_canonical_names_and_aliases():
                 "entity_id": "place:shanghai",
                 "canonical_name": "Shanghai",
                 "entity_type": "place",
+                "embedding_status": "disabled",
+                "embedding_profile_id": None,
+                "last_embedded_at": None,
                 "aliases": ["上海", "魔都"],
             }
         ]
@@ -207,6 +210,9 @@ async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
                 "entity_id": "food:west-lake-vinegar-fish",
                 "canonical_name": "West Lake Vinegar Fish",
                 "entity_type": "food",
+                "embedding_status": "disabled",
+                "embedding_profile_id": None,
+                "last_embedded_at": None,
                 "aliases": [],
             }
         ]
@@ -256,3 +262,25 @@ async def test_entity_embeddings_use_unified_builder_with_aliases_and_remain_sin
 
         assert catalog._vector_index.upserted_entity_ids == ["organization:openai", "organization:openai"]  # type: ignore[attr-defined]
         assert embedding_service.texts[-1] == "organization\nOpenAI\nOpenAI Labs"
+
+
+@pytest.mark.asyncio
+async def test_entity_catalog_exposes_embedding_status_and_profile_id():
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        embedding_service = _RecordingEmbeddingService()
+        catalog = L2EntityCatalog(db_path=db_path, embedding_service=embedding_service)
+        await catalog.initialize()
+
+        await catalog.upsert_entity(
+            canonical_name="OpenAI",
+            entity_type="organization",
+            entity_id="org:openai",
+        )
+
+        entities = await catalog.list_entities(limit=10)
+
+        assert entities[0]["embedding_status"] == "ready"
+        assert entities[0]["embedding_profile_id"] is not None

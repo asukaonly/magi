@@ -14,12 +14,17 @@ from ...config.models import EmbeddingBackend
 from ...core.sqlite import sqlite_connection_async
 from ..chunking import ChunkedText
 from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+from ..embedding_service import EmbeddingProfile
 from ..embedding_text_builders import build_l2_entity_embedding_text
 from ..embedding_service import MemoryEmbeddingService
 from ..sqlite_vec_index import SqliteVecIndex
 from .ontology import coerce_unknown_entity_type
 
 logger = logging.getLogger(__name__)
+
+EMBEDDING_TEXT_BUILDER_VERSION = "l2_entity_v1"
+EMBEDDING_STATUS_READY = "ready"
+EMBEDDING_STATUS_DISABLED = "disabled"
 
 
 def _normalize_alias(text: str) -> str:
@@ -83,6 +88,9 @@ class L2EntityCatalog:
                     entity_id TEXT PRIMARY KEY,
                     canonical_name TEXT NOT NULL,
                     entity_type TEXT NOT NULL,
+                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
+                    embedding_profile_id TEXT,
+                    last_embedded_at REAL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
@@ -522,7 +530,7 @@ class L2EntityCatalog:
             text = await self._build_entity_embedding_text(entity_id)
             if not text:
                 return
-            await pipeline.upsert_items(
+            results = await pipeline.upsert_items(
                 [
                     EmbeddingPipelineItem(
                         parent_id=entity_id,
@@ -539,6 +547,15 @@ class L2EntityCatalog:
                         metadata={"kind": "entity"},
                     )
                 ]
+            )
+            if not results:
+                return
+            profile = self._profile_from_embedding_result(results[0].embeddings[0])
+            await self._update_entity_embedding_state(
+                entity_id=entity_id,
+                status=EMBEDDING_STATUS_READY,
+                profile_id=profile.profile_id,
+                embedded_at=results[0].embedded_at,
             )
         except Exception as exc:
             logger.debug("Failed to embed L2 entity %s: %s", entity_id, exc)
@@ -561,6 +578,36 @@ class L2EntityCatalog:
             entity_type=str(entity.get("entity_type") or ""),
             aliases=[str(alias) for alias in entity.get("aliases", [])],
         )
+
+    def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
+        getter = getattr(self._embedding_service, "profile_from_result", None)
+        if callable(getter):
+            return getter(result, text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION)
+        return EmbeddingProfile.build(
+            provider_name="unknown",
+            model_name=result.model_name,
+            dimension=result.dimension,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        )
+
+    async def _update_entity_embedding_state(
+        self,
+        *,
+        entity_id: str,
+        status: str,
+        profile_id: str | None,
+        embedded_at: float | None,
+    ) -> None:
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE entity_catalog
+                SET embedding_status = ?, embedding_profile_id = ?, last_embedded_at = ?, updated_at = updated_at
+                WHERE entity_id = ?
+                """,
+                (status, profile_id, embedded_at, entity_id),
+            )
+            await db.commit()
 
     async def search_entities_semantic(
         self,
@@ -601,7 +648,7 @@ class L2EntityCatalog:
         entity_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         query = """
-            SELECT entity_id, canonical_name, entity_type
+            SELECT entity_id, canonical_name, entity_type, embedding_status, embedding_profile_id, last_embedded_at
             FROM entity_catalog
         """
         args: list[Any] = []
@@ -644,6 +691,9 @@ class L2EntityCatalog:
                 "entity_id": str(row["entity_id"]),
                 "canonical_name": str(row["canonical_name"]),
                 "entity_type": str(row["entity_type"]),
+                "embedding_status": str(row["embedding_status"] or EMBEDDING_STATUS_DISABLED),
+                "embedding_profile_id": row["embedding_profile_id"],
+                "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None,
                 "aliases": aliases_by_entity.get(str(row["entity_id"]), []),
             }
             for row in entities

@@ -915,6 +915,49 @@ async def test_l3_batch_embedding_flush_indexes_summary_chunks(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_l3_summary_exposes_embedding_status_and_profile_id(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    try:
+        summary = {
+            "summary_id": "summary-status",
+            "summary_type": "thematic",
+            "summary_category": "topic",
+            "period_start": 1.0,
+            "period_end": 2.0,
+            "content": "career summary with embedding status",
+            "key_topics": ["career"],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+            "source_event_ids": ["evt-1"],
+            "source_event_count": 1,
+            "importance_aggregate": 0.8,
+            "event_type_distribution": {},
+            "generated_by_model": "rule-summary",
+            "generation_prompt": None,
+            "generation_reason": "thematic:topic:career",
+            "created_at": 1.0,
+            "updated_at": 1.0,
+        }
+        await store._store_summary(summary)
+        await store._maybe_upsert_summary_embeddings([summary])
+        results = await store._fetch_summaries_by_ids(["summary-status"], summary_type=None, summary_category=None)
+    finally:
+        await store.shutdown()
+
+    assert results[0]["embedding_status"] == "ready"
+    assert results[0]["embedding_profile_id"] is not None
+
+
+@pytest.mark.asyncio
 async def test_l3_semantic_search_folds_chunk_hits_to_parent_summary(tmp_path):
     from magi.memory.l3.summary_store import L3SummaryStore
     from magi.memory.sqlite_vec_index import VectorSearchHit

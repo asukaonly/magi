@@ -17,7 +17,7 @@ from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
 from ..chunking import ChunkedText, chunk_text
 from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding_service import MemoryEmbeddingService
+from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..embedding_text_builders import build_l3_embedding_text
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..hybrid_retrieval.handlers import rrf_fuse
@@ -34,6 +34,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SUMMARY_CHUNKS_TABLE = "l3_summary_chunks"
+EMBEDDING_TEXT_BUILDER_VERSION = "l3_summary_v1"
+EMBEDDING_STATUS_READY = "ready"
+EMBEDDING_STATUS_DISABLED = "disabled"
 
 
 class L3SummaryStore:
@@ -115,6 +118,8 @@ class L3SummaryStore:
                     generated_by_model TEXT,
                     generation_prompt TEXT,
                     generation_reason TEXT,
+                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
+                    embedding_profile_id TEXT,
                     embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
                     last_embedded_at REAL,
                     created_at REAL NOT NULL,
@@ -772,6 +777,8 @@ class L3SummaryStore:
             "generated_by_model": row["generated_by_model"],
             "generation_prompt": row["generation_prompt"],
             "generation_reason": row["generation_reason"],
+            "embedding_status": str(row["embedding_status"] or EMBEDDING_STATUS_DISABLED),
+            "embedding_profile_id": row["embedding_profile_id"],
             "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
             "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None,
             "created_at": float(row["created_at"]),
@@ -828,9 +835,12 @@ class L3SummaryStore:
         )
         for result in results:
             summary = result.payload
+            profile = self._profile_from_embedding_result(result.embeddings[0])
             try:
                 await self._update_summary_embedding_state(
                     summary_id=result.parent_id,
+                    status=EMBEDDING_STATUS_READY,
+                    profile_id=profile.profile_id,
                     chunk_count=len(result.chunks),
                     embedded_at=result.embedded_at,
                 )
@@ -1025,17 +1035,36 @@ class L3SummaryStore:
                 )
             await db.commit()
 
-    async def _update_summary_embedding_state(self, *, summary_id: str, chunk_count: int, embedded_at: float) -> None:
+    async def _update_summary_embedding_state(
+        self,
+        *,
+        summary_id: str,
+        status: str,
+        profile_id: str | None,
+        chunk_count: int,
+        embedded_at: float,
+    ) -> None:
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE summaries
-                SET embedding_chunk_count = ?, last_embedded_at = ?, updated_at = updated_at
+                SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?, updated_at = updated_at
                 WHERE summary_id = ?
                 """,
-                (int(chunk_count), float(embedded_at), summary_id),
+                (status, profile_id, int(chunk_count), float(embedded_at), summary_id),
             )
             await db.commit()
+
+    def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
+        getter = getattr(self._embedding_service, "profile_from_result", None)
+        if callable(getter):
+            return getter(result, text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION)
+        return EmbeddingProfile.build(
+            provider_name="unknown",
+            model_name=result.model_name,
+            dimension=result.dimension,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        )
 
     async def _fetch_summary_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
         if not chunk_ids:

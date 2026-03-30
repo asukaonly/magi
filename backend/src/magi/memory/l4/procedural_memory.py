@@ -17,7 +17,7 @@ from ...config.models import EmbeddingBackend
 from ..chunking import ChunkedText, chunk_text
 from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding_text_builders import build_l4_embedding_text
-from ..embedding_service import MemoryEmbeddingService
+from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
@@ -25,6 +25,9 @@ from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 logger = logging.getLogger(__name__)
 
 SKILL_CHUNKS_TABLE = "l4_skill_chunks"
+EMBEDDING_TEXT_BUILDER_VERSION = "l4_skill_v1"
+EMBEDDING_STATUS_READY = "ready"
+EMBEDDING_STATUS_DISABLED = "disabled"
 
 
 class L4ProceduralMemoryStore:
@@ -99,6 +102,8 @@ class L4ProceduralMemoryStore:
                     last_used_at REAL,
                     last_success_at REAL,
                     last_failure_at REAL,
+                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
+                    embedding_profile_id TEXT,
                     embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
                     last_embedded_at REAL,
                     created_at REAL NOT NULL,
@@ -567,6 +572,8 @@ class L4ProceduralMemoryStore:
             "last_used_at": float(row["last_used_at"]) if row["last_used_at"] else None,
             "last_success_at": float(row["last_success_at"]) if row["last_success_at"] else None,
             "last_failure_at": float(row["last_failure_at"]) if row["last_failure_at"] else None,
+            "embedding_status": str(row["embedding_status"] or EMBEDDING_STATUS_DISABLED),
+            "embedding_profile_id": row["embedding_profile_id"],
             "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
             "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] else None,
             "created_at": float(row["created_at"]),
@@ -613,9 +620,12 @@ class L4ProceduralMemoryStore:
         if not results:
             return
         result = results[0]
+        profile = self._profile_from_embedding_result(result.embeddings[0])
         await self._replace_skill_chunks(skill_id=skill_id, chunks=result.chunks, embedded_at=result.embedded_at)
         await self._update_skill_embedding_state(
             skill_id=skill_id,
+            status=EMBEDDING_STATUS_READY,
+            profile_id=profile.profile_id,
             chunk_count=len(result.chunks),
             embedded_at=result.embedded_at,
         )
@@ -771,17 +781,36 @@ class L4ProceduralMemoryStore:
             )
             await db.commit()
 
-    async def _update_skill_embedding_state(self, *, skill_id: str, chunk_count: int, embedded_at: float) -> None:
+    async def _update_skill_embedding_state(
+        self,
+        *,
+        skill_id: str,
+        status: str,
+        profile_id: str | None,
+        chunk_count: int,
+        embedded_at: float,
+    ) -> None:
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE procedural_skills
-                SET embedding_chunk_count = ?, last_embedded_at = ?, updated_at = updated_at
+                SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?, updated_at = updated_at
                 WHERE skill_id = ?
                 """,
-                (int(chunk_count), float(embedded_at), skill_id),
+                (status, profile_id, int(chunk_count), float(embedded_at), skill_id),
             )
             await db.commit()
+
+    def _profile_from_embedding_result(self, result) -> EmbeddingProfile:
+        getter = getattr(self._embedding_service, "profile_from_result", None)
+        if callable(getter):
+            return getter(result, text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION)
+        return EmbeddingProfile.build(
+            provider_name="unknown",
+            model_name=result.model_name,
+            dimension=result.dimension,
+            text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+        )
 
     async def _fetch_skill_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
         if not chunk_ids:

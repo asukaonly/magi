@@ -205,6 +205,7 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 - tentative 或 validated 的 trait assertions
 
 当前 `L2` entity catalog 的向量仍然保持单实体单向量，不做 chunking；但 embedding 文本会通过统一 builder 组织 `entity_type`、`canonical_name` 和高价值 alias，以保持与其它层一致的文本构造约定。
+`L2` / `L3` / `L4` 的父表现在也会记录统一的 embedding 观测字段，包括 `embedding_status`、`embedding_profile_id` 和 `last_embedded_at`，便于后续重建和诊断。
 - 当前结构化理解的 snapshots
 
 `L2` 是“有证据的解释层”，不是原始真相层。
