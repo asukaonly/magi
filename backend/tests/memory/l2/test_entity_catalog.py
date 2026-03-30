@@ -284,3 +284,35 @@ async def test_entity_catalog_exposes_embedding_status_and_profile_id():
 
         assert entities[0]["embedding_status"] == "ready"
         assert entities[0]["embedding_profile_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_entity_catalog_rebuild_embeddings_reindexes_disabled_entities():
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        disabled_catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+        await disabled_catalog.initialize()
+        await disabled_catalog.upsert_entity(
+            canonical_name="OpenAI",
+            entity_type="organization",
+            entity_id="org:openai",
+        )
+        await disabled_catalog.close()
+
+        rebuild_catalog = L2EntityCatalog(
+            db_path=db_path,
+            embedding_service=_RecordingEmbeddingService(),
+        )
+        await rebuild_catalog.initialize()
+        try:
+            processed = await rebuild_catalog.rebuild_embeddings(batch_size=10)
+            entities = await rebuild_catalog.list_entities(limit=10)
+        finally:
+            await rebuild_catalog.close()
+
+        assert processed == 1
+        assert entities[0]["embedding_status"] == "ready"
+        assert entities[0]["embedding_profile_id"] is not None
+        assert entities[0]["last_embedded_at"] is not None

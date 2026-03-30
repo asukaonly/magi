@@ -1020,3 +1020,59 @@ async def test_l3_semantic_search_folds_chunk_hits_to_parent_summary(tmp_path):
         "summary-ranked::chunk-1",
         "summary-ranked::chunk-0",
     ]
+
+
+@pytest.mark.asyncio
+async def test_l3_rebuild_embeddings_reindexes_disabled_summaries(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    disabled_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await disabled_store.initialize()
+    try:
+        await disabled_store._store_summary(
+            {
+                "summary_id": "summary-rebuild",
+                "summary_type": "thematic",
+                "summary_category": "topic",
+                "period_start": 1.0,
+                "period_end": 2.0,
+                "content": "career summary that should be rebuilt",
+                "key_topics": ["career"],
+                "key_entities": [],
+                "sentiment_summary": None,
+                "change_and_pattern": None,
+                "source_event_ids": ["evt-1"],
+                "source_event_count": 1,
+                "importance_aggregate": 0.8,
+                "event_type_distribution": {},
+                "generated_by_model": "rule-summary",
+                "generation_prompt": None,
+                "generation_reason": "thematic:topic:career",
+                "created_at": 1.0,
+                "updated_at": 1.0,
+            }
+        )
+    finally:
+        await disabled_store.shutdown()
+
+    rebuild_store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await rebuild_store.initialize()
+    try:
+        processed = await rebuild_store.rebuild_embeddings(batch_size=10)
+        results = await rebuild_store._fetch_summaries_by_ids(
+            ["summary-rebuild"],
+            summary_type=None,
+            summary_category=None,
+        )
+    finally:
+        await rebuild_store.shutdown()
+
+    assert processed == 1
+    assert results[0]["embedding_status"] == "ready"
+    assert results[0]["embedding_profile_id"] is not None
+    assert results[0]["embedding_chunk_count"] > 0
+    assert results[0]["last_embedded_at"] is not None

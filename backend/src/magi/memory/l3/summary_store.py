@@ -469,6 +469,49 @@ class L3SummaryStore:
             await self._vector_index.clear()
         return count
 
+    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+        """Rebuild all persisted L3 summary embeddings from parent rows."""
+        await self.initialize()
+        normalized_batch_size = max(1, int(batch_size))
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+            return 0
+
+        await self._vector_index.clear()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(f"DELETE FROM {SUMMARY_CHUNKS_TABLE}")
+            await db.execute(
+                """
+                UPDATE summaries
+                SET embedding_status = ?, embedding_profile_id = NULL, embedding_chunk_count = 0, last_embedded_at = NULL
+                """
+                ,
+                (EMBEDDING_STATUS_DISABLED,),
+            )
+            await db.commit()
+
+        processed = 0
+        offset = 0
+        while True:
+            async with sqlite_connection_async(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    """
+                    SELECT *
+                    FROM summaries
+                    ORDER BY updated_at DESC, summary_id ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (normalized_batch_size, offset),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            if not rows:
+                break
+            summaries = [self._row_to_dict(row) for row in rows]
+            await self._maybe_upsert_summary_embeddings(summaries)
+            processed += len(summaries)
+            offset += len(rows)
+        return processed
+
     async def upsert_candidate(
         self,
         *,

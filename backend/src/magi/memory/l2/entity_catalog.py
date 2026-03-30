@@ -127,6 +127,11 @@ class L2EntityCatalog:
             await db.commit()
         self._initialized = True
 
+    async def close(self) -> None:
+        if self._vector_index is not None:
+            await self._vector_index.close()
+        self._initialized = False
+
     async def upsert_entity(
         self,
         *,
@@ -495,6 +500,48 @@ class L2EntityCatalog:
             )
             await db.commit()
         return count
+
+    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+        """Rebuild all L2 entity vectors from canonical catalog rows."""
+        await self.initialize()
+        normalized_batch_size = max(1, int(batch_size))
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+            return 0
+
+        await self._vector_index.clear()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE entity_catalog
+                SET embedding_status = ?, embedding_profile_id = NULL, last_embedded_at = NULL
+                """,
+                (EMBEDDING_STATUS_DISABLED,),
+            )
+            await db.commit()
+
+        processed = 0
+        offset = 0
+        while True:
+            async with sqlite_connection_async(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    """
+                    SELECT entity_id
+                    FROM entity_catalog
+                    ORDER BY updated_at DESC, entity_id ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (normalized_batch_size, offset),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            if not rows:
+                break
+            entity_ids = [str(row["entity_id"]) for row in rows]
+            for entity_id in entity_ids:
+                await self._maybe_embed_entity(entity_id)
+            processed += len(entity_ids)
+            offset += len(rows)
+        return processed
 
     # ------------------------------------------------------------------
     # Vector helpers

@@ -257,3 +257,42 @@ async def test_l4_semantic_query_folds_chunk_hits_to_parent_skill(tmp_path):
         f"{skill_id}::chunk-1",
         f"{skill_id}::chunk-0",
     ]
+
+
+@pytest.mark.asyncio
+async def test_l4_rebuild_embeddings_reindexes_disabled_skills(tmp_path):
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+
+    disabled_store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    await disabled_store.initialize()
+    try:
+        await disabled_store.record_memory_event(
+            _task_event(
+                event_id="evt-rebuild",
+                task_id="browser-workflow",
+                success=True,
+                timestamp=1710000000.0,
+                content="browser workflow recovery guidance that should be rebuilt",
+            )
+        )
+    finally:
+        await disabled_store.shutdown()
+
+    rebuild_store = L4ProceduralMemoryStore(
+        db_path=str(tmp_path / "l4.db"),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await rebuild_store.initialize()
+    try:
+        processed = await rebuild_store.rebuild_embeddings(batch_size=10)
+        skill = await rebuild_store.get_skill(skill_name="browser-workflow", skill_category="workflow")
+    finally:
+        await rebuild_store.shutdown()
+
+    assert processed == 1
+    assert skill is not None
+    assert skill["embedding_status"] == "ready"
+    assert skill["embedding_profile_id"] is not None
+    assert skill["embedding_chunk_count"] > 0
+    assert skill["last_embedded_at"] is not None

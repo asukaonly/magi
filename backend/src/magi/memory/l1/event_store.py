@@ -660,6 +660,51 @@ class L1EventStore:
             await self._vector_index.clear()
         return count
 
+    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+        """Rebuild all persisted L1 embeddings from the parent event rows."""
+        await self.initialize()
+        normalized_batch_size = max(1, int(batch_size))
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+            return 0
+
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.execute(f"DELETE FROM {EVENT_CHUNKS_TABLE}")
+            await db.execute(f"DELETE FROM {EMBEDDING_PROFILES_TABLE}")
+            await db.execute(
+                f"""
+                UPDATE {FACT_EVENTS_TABLE}
+                SET embedding_status = ?, embedding_profile_id = NULL, embedding_chunk_count = 0, last_embedded_at = NULL
+                WHERE deleted_at IS NULL
+                """,
+                (EMBEDDING_STATUS_DISABLED,),
+            )
+            await db.commit()
+        await self._vector_index.clear()
+
+        processed = 0
+        offset = 0
+        while True:
+            async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    f"""
+                    SELECT *
+                    FROM {FACT_EVENTS_TABLE}
+                    WHERE deleted_at IS NULL
+                    ORDER BY timestamp ASC, id ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (normalized_batch_size, offset),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            if not rows:
+                break
+            events = [self._row_to_memory_event(row) for row in rows]
+            await self._maybe_upsert_event_embeddings(events)
+            processed += len(events)
+            offset += len(rows)
+        return processed
+
     async def mark_deleted(self, event_id: str, *, deleted_at: Optional[float] = None) -> bool:
         """Soft-delete an event."""
         await self.initialize()

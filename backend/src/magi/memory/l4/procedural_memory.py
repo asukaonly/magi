@@ -416,6 +416,53 @@ class L4ProceduralMemoryStore:
             await self._vector_index.clear()
         return count
 
+    async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
+        """Rebuild all persisted L4 skill embeddings from parent rows."""
+        await self.initialize()
+        normalized_batch_size = max(1, int(batch_size))
+        if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
+            return 0
+
+        await self._vector_index.clear()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(f"DELETE FROM {SKILL_CHUNKS_TABLE}")
+            await db.execute(
+                """
+                UPDATE procedural_skills
+                SET embedding_status = ?, embedding_profile_id = NULL, embedding_chunk_count = 0, last_embedded_at = NULL
+                """,
+                (EMBEDDING_STATUS_DISABLED,),
+            )
+            await db.commit()
+
+        processed = 0
+        offset = 0
+        while True:
+            async with sqlite_connection_async(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    """
+                    SELECT skill_id, skill_name, skill_category, optimized_prompt
+                    FROM procedural_skills
+                    ORDER BY updated_at DESC, skill_id ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (normalized_batch_size, offset),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            if not rows:
+                break
+            for row in rows:
+                await self._maybe_upsert_skill_embedding(
+                    skill_id=str(row["skill_id"]),
+                    skill_name=str(row["skill_name"]),
+                    skill_category=str(row["skill_category"]),
+                    optimized_prompt=row["optimized_prompt"],
+                )
+            processed += len(rows)
+            offset += len(rows)
+        return processed
+
     async def bm25_search(
         self,
         query: str,

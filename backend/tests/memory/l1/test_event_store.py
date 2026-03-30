@@ -1531,3 +1531,54 @@ async def test_l1_event_store_marks_unreturned_batch_embeddings_failed(tmp_path)
     assert first["embedding_status"] == "ready"
     assert second is not None
     assert second["embedding_status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_l1_rebuild_embeddings_reindexes_disabled_events(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    disabled_store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await disabled_store.initialize()
+    try:
+        await disabled_store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "user-1",
+                        "session_id": "session-1",
+                        "turn_id": "turn-1",
+                        "content": "Career planning note that should be rebuilt",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="evt-rebuild",
+                    timestamp=1710000000.0,
+                ),
+                event_id="evt-rebuild",
+            )
+        )
+    finally:
+        await disabled_store.shutdown()
+
+    rebuild_store = L1EventStore(
+        db_path=str(db_path),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await rebuild_store.initialize()
+    try:
+        processed = await rebuild_store.rebuild_embeddings(batch_size=10)
+        rebuilt = await rebuild_store.get_event("evt-rebuild")
+    finally:
+        await rebuild_store.shutdown()
+
+    assert processed == 1
+    assert rebuilt is not None
+    assert rebuilt["embedding_status"] == "ready"
+    assert rebuilt["embedding_profile_id"] is not None
+    assert rebuilt["embedding_chunk_count"] > 0
+    assert rebuilt["last_embedded_at"] is not None
