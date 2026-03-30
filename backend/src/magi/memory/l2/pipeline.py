@@ -1517,10 +1517,10 @@ class L2Pipeline:
         for edge in phase2_edges:
             object_type = self._normalize_entity_type(edge.object_type)
             predicate = self._normalize_predicate(edge.predicate)
-            if object_type not in profile.allowed_entity_types:
+            if object_type not in profile.effective_structured_allowed_entity_types:
                 rejected_count += 1
                 continue
-            if predicate not in profile.allowed_predicates:
+            if predicate not in profile.effective_structured_allowed_predicates:
                 rejected_count += 1
                 continue
             is_valid, _ = validate_graph_candidate(
@@ -1605,10 +1605,10 @@ class L2Pipeline:
             if not self._is_structured_graph_hint_directly_admissible(hint=hint, predicate=predicate, fact_kind=fact_kind):
                 rejected_count += 1
                 continue
-            if object_type not in profile.allowed_entity_types:
+            if object_type not in profile.effective_structured_allowed_entity_types:
                 rejected_count += 1
                 continue
-            if predicate not in profile.allowed_predicates:
+            if predicate not in profile.effective_structured_allowed_predicates:
                 rejected_count += 1
                 continue
             is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})

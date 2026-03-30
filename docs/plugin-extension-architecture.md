@@ -304,6 +304,7 @@ Current target examples:
   - `LOCATED_IN`
 
 Plugins may reference these via structured hints, but the runtime should continue treating them as internal graph semantics rather than free-form LLM-generated ontology.
+In practice this means extraction profiles may allow them for structured hints while keeping them out of the default LLM-facing predicate / entity allowlists.
 
 See also:
 

@@ -358,6 +358,7 @@ Plugin / Sensor / Host integration
 - creator identity 继续落在 `person` / `group` / `organization`
 - venue / 门店 / 城市继续使用 `place`
 - category 暂不作为通用 graph entity type 暴露给 LLM；应先作为 query / topology facet 处理
+- extraction profile 需要区分 LLM-facing allowlist 与 structured-hint allowlist；internal type / predicate 可进入 structured-hint allowlist，但默认不进入 LLM-facing allowlist
 
 #### 推荐的 internal topology predicates
 

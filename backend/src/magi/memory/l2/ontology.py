@@ -30,6 +30,7 @@ ENTITY_TYPE_REGISTRY: frozenset[str] = frozenset(
         "location_state",
         "time_point",
         "session_topic",
+        "presence",
         "other",
     }
 )
@@ -93,6 +94,9 @@ PREDICATE_REGISTRY: frozenset[str] = frozenset(
         "CREATES",
         "PROFICIENT_IN",
         "HAS_METRIC",
+        "ON_PLATFORM",
+        "PRESENCE_OF",
+        "LOCATED_IN",
     }
 )
 
@@ -117,6 +121,9 @@ _PREDICATE_COMPATIBILITY: dict[str, frozenset[str]] = {
     "CREATES": frozenset({"project", "media", "software", "virtual_object", "concept"}),
     "PROFICIENT_IN": frozenset({"skill", "technology"}),
     "HAS_METRIC": frozenset({"health_metric"}),
+    "ON_PLATFORM": frozenset({"software"}),
+    "PRESENCE_OF": frozenset({"person", "organization", "group"}),
+    "LOCATED_IN": frozenset({"place"}),
 }
 
 

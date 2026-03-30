@@ -3531,6 +3531,48 @@ async def test_build_structured_graph_candidates_accepts_structured_follows_prof
     assert candidates[0]["extraction_method"] == "structured_hint"
 
 
+@pytest.mark.asyncio
+async def test_build_structured_graph_candidates_accepts_internal_topology_hints():
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_policy import resolve_l2_policy
+    from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    pipeline = L2Pipeline.__new__(L2Pipeline)
+    event = _make_memory_event(event_id="evt-structured-topology", content="creator profile")
+    event.source = "chrome_history"
+    event.author_type = "external"
+    event.metadata_json = {
+        "structured_graph_hints": [
+            {
+                "subject_ref": "presence:bilibili:creator_1",
+                "subject_type": "presence",
+                "predicate": "ON_PLATFORM",
+                "object_ref": "software:bilibili",
+                "object_type": "software",
+                "fact_kind": "public_topology",
+                "origin_mode": "source_structured",
+                "confidence": 0.99,
+            }
+        ]
+    }
+
+    profile = DEFAULT_EXTRACTION_PROFILES["timeline.chrome_history"]
+    policy = resolve_l2_policy(classify_event_evidence(event))
+    candidates, rejected = pipeline._build_structured_graph_candidates(
+        event=event,
+        profile=profile,
+        policy=policy,
+        evidence_event_ids=[event.event_id],
+    )
+
+    assert rejected == 0
+    assert len(candidates) == 1
+    assert candidates[0]["predicate"] == "ON_PLATFORM"
+    assert candidates[0]["subject_id"] == "presence:bilibili:creator_1"
+    assert candidates[0]["object_id"] == "software:bilibili"
+
+
 class TestAliasValidation:
     """Tests for _is_valid_alias quality gate."""
 
@@ -3650,6 +3692,16 @@ class TestExtractionInstructions:
         assert "SELECTIVE" in profile.extraction_instructions
         assert "MERGE" in profile.extraction_instructions
         assert "virtual_object" in profile.extraction_instructions
+
+    def test_chrome_profile_keeps_internal_topology_out_of_llm_allowlists(self):
+        from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES
+
+        profile = DEFAULT_EXTRACTION_PROFILES["timeline.chrome_history"]
+
+        assert "presence" not in profile.allowed_entity_types
+        assert "ON_PLATFORM" not in profile.allowed_predicates
+        assert "presence" in profile.structured_allowed_entity_types
+        assert "ON_PLATFORM" in profile.structured_allowed_predicates
 
 
 class TestEntityTypeFiltering:

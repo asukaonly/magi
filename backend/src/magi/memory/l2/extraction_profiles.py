@@ -24,6 +24,8 @@ class ExtractionProfile:
     profile_id: str
     allowed_entity_types: frozenset[str] = field(default_factory=lambda: ENTITY_TYPE_REGISTRY)
     allowed_predicates: frozenset[str] = field(default_factory=lambda: PREDICATE_REGISTRY)
+    structured_allowed_entity_types: frozenset[str] | None = None
+    structured_allowed_predicates: frozenset[str] | None = None
     allowed_assertion_families: frozenset[str] = field(default_factory=lambda: ASSERTION_FAMILY_ALLOWLIST)
     entity_type_aliases: dict[str, str] = field(default_factory=lambda: dict(ENTITY_TYPE_ALIASES))
     predicate_aliases: dict[str, str] = field(default_factory=dict)
@@ -31,6 +33,14 @@ class ExtractionProfile:
     allow_graph: bool = True
     allow_assertion: bool = True
     extraction_instructions: str | None = None
+
+    @property
+    def effective_structured_allowed_entity_types(self) -> frozenset[str]:
+        return self.structured_allowed_entity_types or self.allowed_entity_types
+
+    @property
+    def effective_structured_allowed_predicates(self) -> frozenset[str]:
+        return self.structured_allowed_predicates or self.allowed_predicates
 
 
 DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
@@ -46,6 +56,16 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
         allowed_predicates=frozenset({
             "VISITED", "USES", "INTERESTED_IN", "FOLLOWS",
             "VIEWED", "WORKS_WITH",
+        }),
+        structured_allowed_entity_types=frozenset({
+            "presence",
+            "product", "software", "technology", "media",
+            "person", "group", "organization", "topic",
+        }),
+        structured_allowed_predicates=frozenset({
+            "VISITED", "USES", "INTERESTED_IN", "FOLLOWS",
+            "VIEWED", "WORKS_WITH",
+            "ON_PLATFORM", "PRESENCE_OF", "LOCATED_IN",
         }),
         allowed_assertion_families=frozenset(),
         allow_assertion=False,
@@ -122,6 +142,14 @@ def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> E
         profile,
         allowed_entity_types=_coerce_set(overrides.get("allowed_entity_types"), fallback=profile.allowed_entity_types),
         allowed_predicates=_coerce_predicate_set(overrides.get("allowed_predicates"), fallback=profile.allowed_predicates),
+        structured_allowed_entity_types=_coerce_optional_set(
+            overrides.get("structured_allowed_entity_types"),
+            fallback=profile.structured_allowed_entity_types,
+        ),
+        structured_allowed_predicates=_coerce_optional_predicate_set(
+            overrides.get("structured_allowed_predicates"),
+            fallback=profile.structured_allowed_predicates,
+        ),
         allowed_assertion_families=_coerce_assertion_family_set(
             overrides.get("allowed_assertion_families"),
             fallback=profile.allowed_assertion_families,
@@ -154,6 +182,26 @@ def _coerce_predicate_set(value: Any, *, fallback: frozenset[str]) -> frozenset[
     normalized = {str(item).strip().upper() for item in value if str(item).strip()}
     allowed = normalized & PREDICATE_REGISTRY
     return frozenset(allowed) if allowed else fallback
+
+
+def _coerce_optional_set(value: Any, *, fallback: frozenset[str] | None) -> frozenset[str] | None:
+    if value is None:
+        return fallback
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return fallback
+    normalized = {str(item).strip().lower() for item in value if str(item).strip()}
+    allowed = normalized & ENTITY_TYPE_REGISTRY
+    return frozenset(allowed) if allowed else frozenset()
+
+
+def _coerce_optional_predicate_set(value: Any, *, fallback: frozenset[str] | None) -> frozenset[str] | None:
+    if value is None:
+        return fallback
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return fallback
+    normalized = {str(item).strip().upper() for item in value if str(item).strip()}
+    allowed = normalized & PREDICATE_REGISTRY
+    return frozenset(allowed) if allowed else frozenset()
 
 
 def _coerce_assertion_family_set(value: Any, *, fallback: frozenset[str]) -> frozenset[str]:
