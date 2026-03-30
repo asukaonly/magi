@@ -39,6 +39,22 @@ class _BatchTrackingEmbeddingService:
         return EmbeddingResult(model_name="test-embedding", dimension=4, vector=vector)
 
 
+class _RecordingVectorIndex:
+    def __init__(self) -> None:
+        self.upsert_many_calls: list[list[str]] = []
+        self.upsert_calls: list[str] = []
+
+    async def upsert_many(self, items: list[dict[str, object]]) -> None:
+        self.upsert_many_calls.append([str(item["entity_id"]) for item in items])
+
+    async def upsert(self, *, entity_id: str, embedding, metadata=None) -> None:
+        _ = (embedding, metadata)
+        self.upsert_calls.append(entity_id)
+
+    async def close(self) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
@@ -843,3 +859,121 @@ async def test_l3_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
     assert time.monotonic() - started_at >= 0.04
     assert embedding_service.single_calls == []
     assert embedding_service.batch_calls == [["stress summary 0", "stress summary 1"]]
+
+
+@pytest.mark.asyncio
+async def test_l3_batch_embedding_flush_indexes_summary_chunks(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    recording_index = _RecordingVectorIndex()
+    store._vector_index = recording_index  # type: ignore[assignment]
+    store._schedule_summary_embedding = lambda summary: asyncio.sleep(0)  # type: ignore[method-assign]
+
+    summary = {
+        "summary_id": "summary-chunked",
+        "summary_type": "thematic",
+        "summary_category": "topic",
+        "period_start": 1.0,
+        "period_end": 2.0,
+        "content": (
+            "career planning summary block one " * 20
+            + "career planning summary block two " * 20
+            + "career planning summary block three " * 20
+        ),
+        "key_topics": ["career"],
+        "key_entities": [],
+        "sentiment_summary": None,
+        "change_and_pattern": None,
+        "source_event_ids": ["evt-1"],
+        "source_event_count": 1,
+        "importance_aggregate": 0.8,
+        "event_type_distribution": {},
+        "generated_by_model": "rule-summary",
+        "generation_prompt": None,
+        "generation_reason": "thematic:topic:career",
+        "created_at": 1.0,
+        "updated_at": 1.0,
+    }
+
+    try:
+        await store._store_summary(summary)
+        await store._maybe_upsert_summary_embeddings([summary])
+        results = await store._fetch_summaries_by_ids(["summary-chunked"], summary_type=None, summary_category=None)
+    finally:
+        await store.shutdown()
+
+    assert len(recording_index.upsert_many_calls) == 1
+    assert all(chunk_id.startswith("summary-chunked::chunk-") for chunk_id in recording_index.upsert_many_calls[0])
+    assert results[0]["embedding_chunk_count"] > 1
+
+
+@pytest.mark.asyncio
+async def test_l3_semantic_search_folds_chunk_hits_to_parent_summary(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+    from magi.memory.sqlite_vec_index import VectorSearchHit
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    try:
+        summary = {
+            "summary_id": "summary-ranked",
+            "summary_type": "thematic",
+            "summary_category": "topic",
+            "period_start": 1.0,
+            "period_end": 2.0,
+            "content": (
+                "career planning summary block one " * 18
+                + "recovery summary block two " * 18
+            ),
+            "key_topics": ["career"],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+            "source_event_ids": ["evt-1"],
+            "source_event_count": 1,
+            "importance_aggregate": 0.8,
+            "event_type_distribution": {},
+            "generated_by_model": "rule-summary",
+            "generation_prompt": None,
+            "generation_reason": "thematic:topic:career",
+            "created_at": 1.0,
+            "updated_at": 1.0,
+        }
+        await store._store_summary(summary)
+        await store._maybe_upsert_summary_embeddings([summary])
+
+        async def _fake_search(*, embedding, limit: int, max_distance=None):  # type: ignore[no-untyped-def]
+            _ = (embedding, limit, max_distance)
+            return [
+                VectorSearchHit(entity_id="summary-ranked::chunk-1", distance=0.04),
+                VectorSearchHit(entity_id="summary-ranked::chunk-0", distance=0.08),
+            ]
+
+        store._vector_index.search = _fake_search  # type: ignore[method-assign]
+        ranked = await store._semantic_search_summaries(
+            query="career recovery summary",
+            summary_type="thematic",
+            summary_category="topic",
+            limit=5,
+        )
+    finally:
+        await store.shutdown()
+
+    assert [item["summary_id"] for item in ranked] == ["summary-ranked"]
+    assert ranked[0]["distance"] == 0.04
+    assert [chunk["chunk_id"] for chunk in ranked[0]["matched_chunks"]] == [
+        "summary-ranked::chunk-1",
+        "summary-ranked::chunk-0",
+    ]
