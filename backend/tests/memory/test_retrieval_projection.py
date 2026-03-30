@@ -110,6 +110,15 @@ def test_project_historical_recall_summarizes_top_follows_for_list_preference_qu
     payload = RetrievalPayload(
         l2_relationships=[
             {
+                "triple_id": "triple-7",
+                "subject_id": "user:local_user",
+                "predicate": "INTERESTED_IN",
+                "object_id": "person:某个up主",
+                "confidence": 0.99,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+            {
                 "triple_id": "triple-2",
                 "subject_id": "user:local_user",
                 "predicate": "FOLLOWS",
@@ -143,6 +152,8 @@ def test_project_historical_recall_summarizes_top_follows_for_list_preference_qu
 
     assert projected.status == "found"
     assert projected.summary == "你关注永雏塔菲、嘉然。"
+    assert projected.findings[0]["statement"] == "user:local_user FOLLOWS person:永雏塔菲"
+    assert projected.findings[1]["statement"] == "user:local_user FOLLOWS person:嘉然"
 
 
 def test_project_historical_recall_summarizes_uses_for_preference_recall() -> None:

@@ -104,6 +104,8 @@ def _build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[
     if recall_intent in {"preference_recall", "relationship_recall"}:
         findings = _project_relationships(payload.l2_relationships)
         if findings:
+            if recall_intent == "preference_recall":
+                return _sort_preference_relationship_findings(findings, payload=payload, request=request)
             return findings
         findings = _project_assertions(payload.l2_assertions)
         if findings:
@@ -158,6 +160,69 @@ def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return findings
+
+
+def _sort_preference_relationship_findings(
+    findings: list[dict[str, Any]],
+    *,
+    payload: RetrievalPayload,
+    request: RetrievalQuery,
+) -> list[dict[str, Any]]:
+    answer_kind = _infer_answer_kind(payload=payload, request=request)
+    polarity = _infer_query_polarity(request.query)
+
+    def _sort_key(item: dict[str, Any]) -> tuple[int, float, float]:
+        statement = str(item.get("statement") or "").strip()
+        _, predicate, _ = _split_relationship_statement(statement)
+        priority = _predicate_priority(predicate=predicate, answer_kind=answer_kind, polarity=polarity)
+        confidence = float(item.get("confidence") or 0.0)
+        updated_at = float(item.get("updated_at") or 0.0)
+        return (priority, -confidence, -updated_at)
+
+    return sorted(findings, key=_sort_key)
+
+
+def _infer_answer_kind(*, payload: RetrievalPayload, request: RetrievalQuery) -> str:
+    l2_trace = payload.trace.get("l2_query_trace")
+    if isinstance(l2_trace, dict):
+        semantic_frame = l2_trace.get("semantic_frame")
+        if isinstance(semantic_frame, dict):
+            answer_kind = str(semantic_frame.get("answer_kind") or "").strip()
+            if answer_kind:
+                return answer_kind
+
+    query_lower = str(request.query or "").strip().lower()
+    if any(token in query_lower for token in ("up主", "up", "博主", "youtuber", "主播", "creator", "频道", "channel")):
+        return "creator"
+    if any(token in query_lower for token in ("咖啡馆", "餐厅", "店", "饭馆", "cafe", "restaurant", "shop")):
+        return "place"
+    if any(token in query_lower for token in ("题材", "主题", "topic")):
+        return "topic"
+    if any(token in query_lower for token in ("软件", "网站", "app", "平台", "b站", "bilibili", "youtube")):
+        return "software"
+    return "unknown"
+
+
+def _infer_query_polarity(query: str) -> str:
+    query_lower = str(query or "").strip().lower()
+    if any(token in query_lower for token in ("讨厌", "不喜欢", "dislike", "hate")):
+        return "negative"
+    return "positive"
+
+
+def _predicate_priority(*, predicate: str, answer_kind: str, polarity: str) -> int:
+    predicate_upper = str(predicate or "").strip().upper()
+    if polarity == "negative":
+        negative_priority = {"DISLIKES": 0, "LIKES": 1, "INTERESTED_IN": 2, "FOLLOWS": 3, "USES": 4, "VISITED": 4}
+        return negative_priority.get(predicate_upper, 99)
+
+    priority_map = {
+        "creator": {"FOLLOWS": 0, "LIKES": 1, "INTERESTED_IN": 2, "DISLIKES": 3},
+        "place": {"LIKES": 0, "VISITED": 1, "DISLIKES": 2},
+        "topic": {"INTERESTED_IN": 0, "LIKES": 1, "DISLIKES": 2},
+        "software": {"LIKES": 0, "USES": 1, "DISLIKES": 2},
+    }
+    return priority_map.get(answer_kind, {}).get(predicate_upper, 99)
 
 
 def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
