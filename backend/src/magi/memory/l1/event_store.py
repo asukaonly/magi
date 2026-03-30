@@ -15,7 +15,9 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
+from ..chunking import ChunkedText, chunk_text
 from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ..embedding_text_builders import build_l1_embedding_text
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
@@ -23,6 +25,7 @@ from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
 EMBEDDING_PROFILES_TABLE = "embedding_profiles"
+EVENT_CHUNKS_TABLE = "l1_event_chunks"
 EMBEDDING_TEXT_BUILDER_VERSION = "l1_content_v1"
 EMBEDDING_STATUS_PENDING = "pending"
 EMBEDDING_STATUS_READY = "ready"
@@ -64,8 +67,8 @@ class L1EventStore:
         self._vector_index = (
             SqliteVecIndex(
                 db_path=self.db_path,
-                registry_table="l1_event_vectors",
-                entity_column="event_id",
+                registry_table="l1_event_chunk_vectors",
+                entity_column="chunk_id",
                 vec_table_prefix="l1_event_vec",
             )
             if embedding_service is not None or vector_enabled
@@ -118,6 +121,8 @@ class L1EventStore:
                     metadata_json TEXT,
                     embedding_status TEXT NOT NULL DEFAULT 'disabled',
                     embedding_profile_id TEXT,
+                    embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
+                    last_embedded_at REAL,
                     deleted_at REAL
                 );
 
@@ -142,19 +147,19 @@ class L1EventStore:
                     created_at REAL NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS l1_event_vectors (
-                    vec_rowid INTEGER PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS l1_event_chunks (
+                    chunk_id TEXT PRIMARY KEY,
                     event_id TEXT NOT NULL,
-                    embedding_model TEXT NOT NULL,
-                    embedding_dim INTEGER NOT NULL,
-                    vec_table TEXT NOT NULL,
-                    metadata TEXT,
+                    chunk_index INTEGER NOT NULL,
+                    chunk_text TEXT NOT NULL,
+                    char_start INTEGER NOT NULL,
+                    char_end INTEGER NOT NULL,
+                    token_estimate INTEGER NOT NULL,
+                    embedding_profile_id TEXT,
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    UNIQUE(event_id, embedding_model)
+                    updated_at REAL NOT NULL
                 );
-                CREATE INDEX IF NOT EXISTS idx_l1_event_vectors_event ON l1_event_vectors(event_id);
-                CREATE INDEX IF NOT EXISTS idx_l1_event_vectors_model ON l1_event_vectors(embedding_model);
+                CREATE INDEX IF NOT EXISTS idx_l1_event_chunks_event ON l1_event_chunks(event_id, chunk_index);
 
                 CREATE VIRTUAL TABLE IF NOT EXISTS l1_events_fts USING fts5(
                     event_id UNINDEXED,
@@ -317,8 +322,9 @@ class L1EventStore:
                     event_type, source, source_item_id, idempotency_key, memory_domain, ingest_target,
                     cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
                     task_id, content, author_type, content_type, importance_score,
-                    level, media_path, metadata_json, embedding_status, embedding_profile_id, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    level, media_path, metadata_json, embedding_status, embedding_profile_id,
+                    embedding_chunk_count, last_embedded_at, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -347,6 +353,8 @@ class L1EventStore:
                     json.dumps(event.metadata_json) if event.metadata_json is not None else None,
                     self._initial_embedding_status(event),
                     self._initial_embedding_profile_id(event),
+                    0,
+                    None,
                     None,
                 ),
             )
@@ -436,6 +444,10 @@ class L1EventStore:
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single event by id."""
         await self.initialize()
+        try:
+            active_embedding_profile_id, _ = self._resolve_active_embedding_profile_id()
+        except Exception:
+            active_embedding_profile_id = None
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -443,7 +455,11 @@ class L1EventStore:
                 (event_id,),
             ) as cursor:
                 row = await cursor.fetchone()
-        return self._row_to_dict(row) if row else None
+        return (
+            self._row_to_dict(row, active_embedding_profile_id=active_embedding_profile_id)
+            if row
+            else None
+        )
 
     async def get_memory_event(self, event_id: str) -> Optional[MemoryEvent]:
         """Fetch a single event as the canonical MemoryEvent contract."""
@@ -636,6 +652,7 @@ class L1EventStore:
         count = await self.count_events()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(f"DELETE FROM {FACT_EVENTS_TABLE}")
+            await db.execute(f"DELETE FROM {EVENT_CHUNKS_TABLE}")
             await db.execute("DELETE FROM l1_events_fts")
             await db.commit()
         if self._vector_index is not None:
@@ -646,6 +663,7 @@ class L1EventStore:
         """Soft-delete an event."""
         await self.initialize()
         deleted_timestamp = float(deleted_at or time.time())
+        chunk_ids = await self._list_chunk_ids_for_event(event_id)
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             cursor = await db.execute(
                 f"UPDATE {FACT_EVENTS_TABLE} SET deleted_at = ? WHERE event_id = ?",
@@ -656,9 +674,14 @@ class L1EventStore:
                     "DELETE FROM l1_events_fts WHERE event_id = ?",
                     (event_id,),
                 )
+                await db.execute(
+                    f"DELETE FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
+                    (event_id,),
+                )
             await db.commit()
         if cursor.rowcount > 0 and self._vector_index is not None:
-            await self._vector_index.delete_entity(entity_id=event_id)
+            for chunk_id in chunk_ids:
+                await self._vector_index.delete_entity(entity_id=chunk_id)
         return cursor.rowcount > 0
 
     async def bm25_search(
@@ -776,7 +799,11 @@ class L1EventStore:
         ]
         if not eligible_events:
             return
-        texts = [self.get_embedding_text(event) for event in eligible_events]
+        event_chunks: list[tuple[MemoryEvent, list[ChunkedText]]] = [
+            (event, self._build_event_embedding_chunks(event))
+            for event in eligible_events
+        ]
+        texts = [chunk.text for _, chunks in event_chunks for chunk in chunks]
         if hasattr(self._embedding_service, "embed_texts"):
             embeddings = await self._embedding_service.embed_texts(texts)
         else:
@@ -784,68 +811,77 @@ class L1EventStore:
                 await self._embedding_service.embed_text(text)
                 for text in texts
             ]
-        if len(embeddings) != len(eligible_events):
+        if len(embeddings) != len(texts):
             logger.warning(
                 "L1 embedding batch returned mismatched result count: expected=%s actual=%s",
-                len(eligible_events),
+                len(texts),
                 len(embeddings),
             )
         if not embeddings:
             await self._update_event_embedding_states(
                 [
-                    (event.event_id, EMBEDDING_STATUS_FAILED, self._initial_embedding_profile_id(event))
+                    (event.event_id, EMBEDDING_STATUS_FAILED, self._initial_embedding_profile_id(event), 0, None)
                     for event in eligible_events
                 ]
             )
             return
-        state_updates: list[tuple[str, str, str | None]] = []
+        state_updates: list[tuple[str, str, str | None, int, float | None]] = []
         profiles_by_id: dict[str, EmbeddingProfile] = {}
         vector_items: list[dict[str, Any]] = []
-        successful_events: list[tuple[MemoryEvent, Any, EmbeddingProfile]] = []
+        successful_events: list[tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]] = []
         failed_events: list[tuple[MemoryEvent, str | None]] = []
-        for event, embedding in zip(eligible_events, embeddings):
-            if embedding is None:
+        embedding_index = 0
+        for event, chunks in event_chunks:
+            chunk_embeddings = embeddings[embedding_index: embedding_index + len(chunks)]
+            embedding_index += len(chunks)
+            if len(chunk_embeddings) != len(chunks) or any(embedding is None for embedding in chunk_embeddings):
                 failed_events.append((event, self._initial_embedding_profile_id(event)))
                 continue
-            profile = self._profile_from_embedding_result(embedding)
+            profile = self._profile_from_embedding_result(chunk_embeddings[0])
             profiles_by_id[profile.profile_id] = profile
-            successful_events.append((event, embedding, profile))
-            vector_items.append(
-                {
-                    "entity_id": event.event_id,
-                    "embedding": embedding,
-                    "metadata": {"event_type": event.event_type, "source": event.source},
-                }
-            )
+            successful_events.append((event, chunks, chunk_embeddings, profile))
+            for chunk, embedding in zip(chunks, chunk_embeddings):
+                vector_items.append(
+                    {
+                        "entity_id": self._chunk_id_for_event(event.event_id, chunk.chunk_index),
+                        "embedding": embedding,
+                        "metadata": {
+                            "event_id": event.event_id,
+                            "chunk_index": chunk.chunk_index,
+                            "event_type": event.event_type,
+                            "source": event.source,
+                        },
+                    }
+                )
         if vector_items:
             try:
                 await self._vector_index.upsert_many(vector_items)
-                for event, _, profile in successful_events:
-                    state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id))
+                await self._replace_event_chunks(successful_events)
+                embedded_at = time.time()
+                for event, chunks, _, profile in successful_events:
+                    state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id, len(chunks), embedded_at))
             except Exception as exc:
                 logger.warning("Failed batch upsert for L1 embeddings, falling back to single-row writes: %s", exc)
-                for event, embedding, profile in successful_events:
+                for event, chunks, chunk_embeddings, profile in successful_events:
                     try:
-                        await self._vector_index.upsert(
-                            entity_id=event.event_id,
-                            embedding=embedding,
-                            metadata={"event_type": event.event_type, "source": event.source},
-                        )
-                        state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id))
+                        for chunk, embedding in zip(chunks, chunk_embeddings):
+                            await self._vector_index.upsert(
+                                entity_id=self._chunk_id_for_event(event.event_id, chunk.chunk_index),
+                                embedding=embedding,
+                                metadata={
+                                    "event_id": event.event_id,
+                                    "chunk_index": chunk.chunk_index,
+                                    "event_type": event.event_type,
+                                    "source": event.source,
+                                },
+                            )
+                        await self._replace_event_chunks([(event, chunks, chunk_embeddings, profile)])
+                        state_updates.append((event.event_id, EMBEDDING_STATUS_READY, profile.profile_id, len(chunks), time.time()))
                     except Exception as item_exc:
                         logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, item_exc)
-                        state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile.profile_id))
+                        state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile.profile_id, 0, None))
         for event, profile_id in failed_events:
-            state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile_id))
-        if len(embeddings) < len(eligible_events):
-            for event in eligible_events[len(embeddings):]:
-                state_updates.append(
-                    (
-                        event.event_id,
-                        EMBEDDING_STATUS_FAILED,
-                        self._initial_embedding_profile_id(event),
-                    )
-                )
+            state_updates.append((event.event_id, EMBEDDING_STATUS_FAILED, profile_id, 0, None))
         if state_updates:
             await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
 
@@ -915,12 +951,40 @@ class L1EventStore:
     ) -> List[Dict[str, Any]]:
         if not hits:
             return []
-        event_ids = [hit.entity_id for hit in hits]
         query = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
+        chunk_ids = [hit.entity_id for hit in hits]
+        chunk_rows = await self._fetch_chunk_rows_by_ids(chunk_ids)
+        chunk_by_id = {str(row["chunk_id"]): row for row in chunk_rows}
+        event_id_order: list[str] = []
+        chunks_by_event: dict[str, list[dict[str, Any]]] = {}
+        best_distance_by_event: dict[str, float] = {}
+        for hit in hits:
+            row = chunk_by_id.get(hit.entity_id)
+            if row is None:
+                continue
+            event_id = str(row["event_id"])
+            if event_id not in chunks_by_event:
+                event_id_order.append(event_id)
+                chunks_by_event[event_id] = []
+                best_distance_by_event[event_id] = hit.distance
+            best_distance_by_event[event_id] = min(best_distance_by_event[event_id], hit.distance)
+            chunks_by_event[event_id].append(
+                {
+                    "chunk_id": str(row["chunk_id"]),
+                    "chunk_index": int(row["chunk_index"]),
+                    "text": str(row["chunk_text"]),
+                    "char_start": int(row["char_start"]),
+                    "char_end": int(row["char_end"]),
+                    "distance": hit.distance,
+                }
+            )
+        if not event_id_order:
+            return []
+
         args: list[Any] = []
-        placeholders = ", ".join("?" for _ in event_ids)
+        placeholders = ", ".join("?" for _ in event_id_order)
         query += f" AND event_id IN ({placeholders})"
-        args.extend(event_ids)
+        args.extend(event_id_order)
         if session_id:
             query += " AND session_id = ?"
             args.append(session_id)
@@ -949,11 +1013,12 @@ class L1EventStore:
                 rows = await cursor.fetchall()
         events_by_id = {str(row["event_id"]): self._row_to_dict(row) for row in rows}
         ranked: list[Dict[str, Any]] = []
-        for hit in hits:
-            event = events_by_id.get(hit.entity_id)
+        for event_id in event_id_order:
+            event = events_by_id.get(event_id)
             if event is None:
                 continue
-            event["distance"] = hit.distance
+            event["distance"] = best_distance_by_event[event_id]
+            event["matched_chunks"] = chunks_by_event.get(event_id, [])
             ranked.append(event)
             if len(ranked) >= limit:
                 break
@@ -963,7 +1028,7 @@ class L1EventStore:
         return self._compose_search_text(event.content, event.author_type, event.content_type)
 
     def get_embedding_text(self, event: MemoryEvent) -> str:
-        return str(event.content or "").strip()
+        return build_l1_embedding_text(event)
 
     @staticmethod
     def _compose_search_text(content: str, author_type: str, content_type: str) -> str:
@@ -987,6 +1052,14 @@ class L1EventStore:
         if "embedding_profile_id" not in columns:
             await db.execute(
                 f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN embedding_profile_id TEXT"
+            )
+        if "embedding_chunk_count" not in columns:
+            await db.execute(
+                f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN embedding_chunk_count INTEGER NOT NULL DEFAULT 0"
+            )
+        if "last_embedded_at" not in columns:
+            await db.execute(
+                f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN last_embedded_at REAL"
             )
 
     async def _ensure_metadata_json_column(self, db: aiosqlite.Connection) -> None:
@@ -1167,19 +1240,26 @@ class L1EventStore:
 
     async def _update_event_embedding_states(
         self,
-        updates: list[tuple[str, str, str | None]],
+        updates: list[tuple[str, str, str | None, int, float | None]],
         *,
         profiles_by_id: dict[str, EmbeddingProfile] | None = None,
     ) -> None:
         if not updates:
             return
-        profile_ids = {profile_id for _, _, profile_id in updates if profile_id}
+        profile_ids = {profile_id for _, _, profile_id, _, _ in updates if profile_id}
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             if profile_ids:
                 await self._sync_embedding_profiles(db, profile_ids, profiles_by_id=profiles_by_id or {})
             await db.executemany(
-                f"UPDATE {FACT_EVENTS_TABLE} SET embedding_status = ?, embedding_profile_id = ? WHERE event_id = ?",
-                [(status, profile_id, event_id) for event_id, status, profile_id in updates],
+                f"""
+                UPDATE {FACT_EVENTS_TABLE}
+                SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?
+                WHERE event_id = ?
+                """,
+                [
+                    (status, profile_id, int(chunk_count), embedded_at, event_id)
+                    for event_id, status, profile_id, chunk_count, embedded_at in updates
+                ],
             )
             await db.commit()
 
@@ -1268,6 +1348,8 @@ class L1EventStore:
             "level": int(row["level"]),
             "media_path": row["media_path"],
             "metadata_json": json.loads(str(metadata_json)) if metadata_json else None,
+            "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
+            "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None,
             "deleted_at": float(row["deleted_at"]) if row["deleted_at"] is not None else None,
         }
         if include_embedding_fields:
@@ -1311,6 +1393,75 @@ class L1EventStore:
             embedding_status=self._effective_embedding_status(row["embedding_status"], stored_profile_id),
             embedding_profile_id=stored_profile_id,
         )
+
+    def _build_event_embedding_chunks(self, event: MemoryEvent) -> list[ChunkedText]:
+        return chunk_text(self.get_embedding_text(event))
+
+    def _chunk_id_for_event(self, event_id: str, chunk_index: int) -> str:
+        return f"{event_id}::chunk-{chunk_index}"
+
+    async def _replace_event_chunks(
+        self,
+        entries: list[tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]],
+    ) -> None:
+        if not entries:
+            return
+        now = time.time()
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            for event, chunks, _, profile in entries:
+                await db.execute(
+                    f"DELETE FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
+                    (event.event_id,),
+                )
+                await db.executemany(
+                    f"""
+                    INSERT INTO {EVENT_CHUNKS_TABLE}(
+                        chunk_id, event_id, chunk_index, chunk_text, char_start, char_end,
+                        token_estimate, embedding_profile_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            self._chunk_id_for_event(event.event_id, chunk.chunk_index),
+                            event.event_id,
+                            chunk.chunk_index,
+                            chunk.text,
+                            chunk.char_start,
+                            chunk.char_end,
+                            chunk.token_estimate,
+                            profile.profile_id,
+                            now,
+                            now,
+                        )
+                        for chunk in chunks
+                    ],
+                )
+            await db.commit()
+
+    async def _fetch_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]:
+        if not chunk_ids:
+            return []
+        placeholders = ", ".join("?" for _ in chunk_ids)
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT chunk_id, event_id, chunk_index, chunk_text, char_start, char_end
+                FROM {EVENT_CHUNKS_TABLE}
+                WHERE chunk_id IN ({placeholders})
+                """,
+                tuple(chunk_ids),
+            ) as cursor:
+                return await cursor.fetchall()
+
+    async def _list_chunk_ids_for_event(self, event_id: str) -> list[str]:
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            async with db.execute(
+                f"SELECT chunk_id FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
+                (event_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows]
 
     @staticmethod
     def _to_timeline_view(event: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

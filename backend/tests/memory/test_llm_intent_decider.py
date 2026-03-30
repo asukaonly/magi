@@ -143,6 +143,52 @@ class TestLLMParsing:
         assert result.plans[0].conditions.semantic_frame.constraints[0].resolved_entity_id == "software:bilibili"
 
     @pytest.mark.asyncio
+    async def test_l2_with_place_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [
+                {
+                    "layer": "L2",
+                    "is_fallback": False,
+                    "content_query": "杭州 喜欢去的 咖啡馆",
+                    "subject_hint": "self",
+                    "predicate_family": "preference",
+                    "semantic_frame": {
+                        "query_family": "affinity",
+                        "subject_scope": "self",
+                        "answer_kind": "place",
+                        "answer_unit": "place",
+                        "answer_shape": "list",
+                        "polarity": "positive",
+                        "constraints": [
+                            {
+                                "scope": "target",
+                                "facet": "located_in",
+                                "raw_value": "杭州",
+                                "resolved_entity_id": "place:hangzhou",
+                            },
+                            {
+                                "scope": "target",
+                                "facet": "category",
+                                "raw_value": "咖啡馆",
+                                "resolved_facet_value": "coffee_shop",
+                            },
+                        ],
+                    },
+                }
+            ],
+            "reasoning": "place affinity query",
+        })
+
+        result = await decider.evaluate(IntentDeciderInput(query="我在杭州喜欢去哪些咖啡馆"))
+
+        assert result is not None
+        frame = result.plans[0].conditions.semantic_frame
+        assert isinstance(frame, L2SemanticFrame)
+        assert frame.answer_kind == "place"
+        assert frame.constraints[0].resolved_entity_id == "place:hangzhou"
+        assert frame.constraints[1].resolved_facet_value == "coffee_shop"
+
+    @pytest.mark.asyncio
     async def test_l3_layer(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
             "layers": [

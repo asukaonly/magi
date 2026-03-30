@@ -9,6 +9,7 @@ import pytest
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event, MemoryEvent
+from magi.memory.sqlite_vec_index import VectorSearchHit
 
 
 class _BatchTrackingEmbeddingService:
@@ -77,6 +78,17 @@ class _RecordingVectorIndex:
 
     async def close(self) -> None:
         return None
+
+
+class _ChunkRecordingVectorIndex(_RecordingVectorIndex):
+    def __init__(self) -> None:
+        super().__init__()
+        self.metadata_by_id: dict[str, object] = {}
+
+    async def upsert_many(self, items: list[dict[str, object]]) -> None:
+        await super().upsert_many(items)
+        for item in items:
+            self.metadata_by_id[str(item["entity_id"])] = item.get("metadata")
 
 
 class _ShortBatchEmbeddingService(_BatchTrackingEmbeddingService):
@@ -1196,9 +1208,123 @@ async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
 
     await store._maybe_upsert_event_embeddings(events)
 
-    assert recording_index.upsert_many_calls == [["evt-many-0", "evt-many-1", "evt-many-2"]]
+    assert recording_index.upsert_many_calls == [[
+        "evt-many-0::chunk-0",
+        "evt-many-1::chunk-0",
+        "evt-many-2::chunk-0",
+    ]]
     assert recording_index.upsert_calls == []
     await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_batch_embedding_flush_indexes_chunks_and_updates_chunk_count(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    recording_index = _ChunkRecordingVectorIndex()
+    store._vector_index = recording_index  # type: ignore[assignment]
+    store._schedule_event_embedding = lambda event: asyncio.sleep(0)  # type: ignore[method-assign]
+
+    try:
+        long_content = (
+            "career note section one " * 20
+            + "career note section two " * 20
+            + "career note section three " * 20
+        )
+        event = normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": long_content,
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-chunked",
+            ),
+            event_id="evt-chunked",
+        )
+        await store.store(event)
+
+        await store._maybe_upsert_event_embeddings([event])
+        fetched = await store.get_event("evt-chunked")
+    finally:
+        await store.shutdown()
+
+    assert fetched is not None
+    assert fetched["embedding_status"] == "ready"
+    assert fetched["embedding_chunk_count"] > 1
+    assert len(recording_index.upsert_many_calls) == 1
+    assert all(chunk_id.startswith("evt-chunked::chunk-") for chunk_id in recording_index.upsert_many_calls[0])
+
+
+@pytest.mark.asyncio
+async def test_l1_fetch_ranked_events_folds_chunk_hits_to_parent_event(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await store.initialize()
+    try:
+        long_content = (
+            "career planning for next quarter " * 18
+            + "calm breathing practice after work " * 18
+        )
+        event = normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": long_content,
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-ranked",
+            ),
+            event_id="evt-ranked",
+        )
+        await store.store(event)
+        await store._maybe_upsert_event_embeddings([event])
+
+        hits = [
+            VectorSearchHit(entity_id="evt-ranked::chunk-1", distance=0.04),
+            VectorSearchHit(entity_id="evt-ranked::chunk-0", distance=0.09),
+        ]
+        ranked = await store._fetch_ranked_events(
+            hits=hits,
+            session_id="s1",
+            user_id="u1",
+            event_type=None,
+            source_filters=None,
+            domain_filters=None,
+            limit=5,
+        )
+    finally:
+        await store.shutdown()
+
+    assert [item["event_id"] for item in ranked] == ["evt-ranked"]
+    assert ranked[0]["distance"] == 0.04
+    assert [chunk["chunk_id"] for chunk in ranked[0]["matched_chunks"]] == [
+        "evt-ranked::chunk-1",
+        "evt-ranked::chunk-0",
+    ]
 
 
 @pytest.mark.asyncio
@@ -1400,7 +1526,7 @@ async def test_l1_event_store_marks_unreturned_batch_embeddings_failed(tmp_path)
     finally:
         await store.shutdown()
 
-    assert recording_index.upsert_many_calls == [["evt-short-0"]]
+    assert recording_index.upsert_many_calls == [["evt-short-0::chunk-0"]]
     assert first is not None
     assert first["embedding_status"] == "ready"
     assert second is not None

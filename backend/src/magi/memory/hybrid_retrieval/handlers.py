@@ -548,11 +548,35 @@ class L2Handler:
     ) -> list[dict[str, Any]] | None:
         if semantic_frame is None:
             return None
-        if semantic_frame.query_family != "affinity" or semantic_frame.answer_kind != "creator":
+        if semantic_frame.query_family != "affinity":
             return None
         if semantic_frame.subject_scope != "self" or not user_id:
             return None
 
+        if semantic_frame.answer_kind == "creator":
+            return await self._execute_creator_affinity_relationship_plan(
+                conditions=conditions,
+                semantic_frame=semantic_frame,
+                status_filters=status_filters,
+                user_id=user_id,
+            )
+        if semantic_frame.answer_kind == "place":
+            return await self._execute_place_affinity_relationship_plan(
+                conditions=conditions,
+                semantic_frame=semantic_frame,
+                status_filters=status_filters,
+                user_id=user_id,
+            )
+        return None
+
+    async def _execute_creator_affinity_relationship_plan(
+        self,
+        *,
+        conditions: L2Conditions,
+        semantic_frame: L2SemanticFrame,
+        status_filters: list[str] | None,
+        user_id: str,
+    ) -> list[dict[str, Any]] | None:
         platform_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="platform")
         platform_entity_id = platform_constraint.resolved_entity_id if platform_constraint else None
         if not platform_entity_id:
@@ -561,6 +585,43 @@ class L2Handler:
         topology_edges = await self._store.get_relationships(
             predicates=["ON_PLATFORM"],
             object_id=platform_entity_id,
+            status_filters=status_filters,
+            limit=max(conditions.limit * 5, 20),
+        )
+        candidate_ids = self._collect_candidate_subject_ids(topology_edges)
+        if not candidate_ids:
+            return []
+
+        relationships: list[dict[str, Any]] = []
+        predicates = self._predicates_for_semantic_frame(semantic_frame)
+        for candidate_id in candidate_ids:
+            relationships.extend(
+                await self._store.get_relationships(
+                    subject_id=f"user:{user_id}",
+                    object_id=candidate_id,
+                    predicates=predicates,
+                    status_filters=status_filters,
+                    limit=conditions.limit,
+                )
+            )
+        return self._dedupe_relationships(relationships)
+
+    async def _execute_place_affinity_relationship_plan(
+        self,
+        *,
+        conditions: L2Conditions,
+        semantic_frame: L2SemanticFrame,
+        status_filters: list[str] | None,
+        user_id: str,
+    ) -> list[dict[str, Any]] | None:
+        location_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="located_in")
+        location_entity_id = location_constraint.resolved_entity_id if location_constraint else None
+        if not location_entity_id:
+            return None
+
+        topology_edges = await self._store.get_relationships(
+            predicates=["LOCATED_IN"],
+            object_id=location_entity_id,
             status_filters=status_filters,
             limit=max(conditions.limit * 5, 20),
         )
@@ -706,6 +767,8 @@ class L2Handler:
     def _predicates_for_semantic_frame(semantic_frame: L2SemanticFrame) -> list[str]:
         if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "creator":
             return ["FOLLOWS", "LIKES", "DISLIKES", "INTERESTED_IN"]
+        if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "place":
+            return ["VISITED", "LIKES", "DISLIKES"]
         return []
 
     def _infer_status_filters(self, query: str) -> list[str]:
