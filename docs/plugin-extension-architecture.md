@@ -202,6 +202,97 @@ Entity hints are passed through the ingestion gateway as `structured_entity_hint
 
 Relation candidates are persisted as rule-based graph edges (with `extraction_method="rule"`) without LLM involvement.
 
+### Target Semantic Enrichment Contract
+
+The long-term plugin-facing contract should evolve from “entity hints + ad hoc rule edges” into a source-owned semantic enrichment envelope.
+
+Important boundary:
+
+- plugins and sensors should expose structured facts through awareness-layer contracts
+- they should not import or depend directly on `memory.l2` pipeline internals
+- ingestion and `L2` remain the only owners of graph admission, conflict handling, and persistence
+
+The target shape of `SensorOutputMetadata` is:
+
+- `entities`
+  Structured entity hints for canonicalization and resolution
+- `fact_hints`
+  Structured facts supplied by the source integration
+- `tags`
+  Classification labels
+- `relation_candidates`
+  Backward-compatibility field for older plugins; runtime may adapt these into `fact_hints`
+
+Recommended `fact_hints` payload fields:
+
+- `subject_ref`
+- `subject_type`
+- `predicate`
+- `object_ref`
+- `object_type`
+- `fact_kind`
+- `confidence`
+- `observed_at`
+- optional `evidence_text`
+- optional `attributes`
+
+The intent is that plugins provide what they know with high confidence, while runtime layers decide whether that fact becomes:
+
+- a persisted rule-backed graph candidate
+- a structured hint only
+- or a rejected candidate
+
+#### Ownership Model
+
+Deterministic extraction should be owned by the source or modality that best understands the raw payload:
+
+- browser history integrations understand URL, host, page type, and account/profile pages
+- calendar integrations understand organizer, attendees, and meeting locations
+- photo and media integrations understand EXIF, album structure, capture time, and GPS
+- map / POI integrations understand venue identities and normalized location metadata
+
+This avoids pushing source-specific parsing into `L2` itself. `L2` should consume a normalized semantic contract, not a growing collection of source-private parsing rules.
+
+#### Plugin-Facing Constraints
+
+Plugins may emit facts for stable object topology or user interaction evidence, but they should be conservative about preference facts.
+
+Recommended interpretation by `fact_kind`:
+
+- `public_topology`
+  Stable object-side structure such as platform presence or geographic containment
+- `interaction_evidence`
+  User-side evidence such as viewed, visited, used, or followed
+- `stable_preference`
+  Explicit preference only when the source itself is semantically strong enough to justify it
+
+For passive sources such as browsing history, plugins should prefer:
+
+- `VIEWED`
+- `USES`
+- `VISITED`
+- `FOLLOWS` only when the page or payload clearly represents an account / profile / subscription relationship
+
+They should not emit `LIKES` or `DISLIKES` unless the upstream source is explicit enough to justify a stable preference fact.
+
+#### Internal-Only Graph Semantics
+
+Some graph concepts are required for correct retrieval and constraint handling but should remain system-facing rather than LLM-facing.
+
+Current target examples:
+
+- internal type: `presence`
+- internal predicates:
+  - `PRESENCE_OF`
+  - `ON_PLATFORM`
+  - `LOCATED_IN`
+
+Plugins may reference these via structured hints, but the runtime should continue treating them as internal graph semantics rather than free-form LLM-generated ontology.
+
+See also:
+
+- [memory-system-design.md](/Users/asuka/code/magi/docs/memory-system-design.md)
+
 ### L2 Batch Policy
 
 Sensors can influence L2 microbatch grouping by returning an `L2BatchPolicy` from `l2_batch_policy(output)`:

@@ -245,6 +245,157 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 
 少数没有 `L1` durable 锚点的 runtime-only 事件，可以走进程内即时分发路径，但它们不应被视为 `L2` durable projection 的常规输入。
 
+### L2 写入侧语义约定
+
+当前实现已经具备两类与写入侧语义有关的能力：
+
+- source integration 可以通过 `MemoryEvent.metadata_json` 传入 `structured_entity_hints`
+- sensor integration 可以传入 rule-based `relation_candidates`
+
+后续的统一 source-of-truth contract 以“source-owned semantic enrichment”为目标，而不是把所有 source-specific 结构解析堆进 `L2Pipeline` 本身。
+
+核心原则：
+
+- 谁最了解原始数据，谁负责产出高置信结构事实
+- `L2` 负责统一整合、冲突处理、持久化和 residual LLM extraction
+- 插件和传感器不应绕过 `L2` 直接写 `knowledge_graph`
+- 自然语言开放理解和 source-specific 结构解析必须分层
+
+推荐的写入链路为：
+
+```text
+Plugin / Sensor / Host integration
+  -> source-owned semantic enrichment
+  -> MemoryEvent.metadata_json
+  -> Ingestion gateway normalization + admission
+  -> L2 pipeline merge / conflict handling / persistence
+```
+
+#### 语义增强的 ownership
+
+写入前的结构化增强应按 ownership 拆分，而不是由一个“大统一 parser”承担：
+
+- source-owned enrichers
+  适用于浏览历史、日历、地图、照片库、git 活动等明确 source；由最懂原始 payload 的 integration 产出结构化 hints
+- modality-owned enrichers
+  适用于图片、PDF、链接等跨 source 载体；负责提取 EXIF、OCR、标题、host、canonical URL 等稳定结构
+- residual LLM extraction
+  用于自由聊天文本或低结构 source；只在 deterministic / structured hints 无法覆盖时补足剩余语义
+
+`L2` 的角色因此不是“重新理解原始 source 私有格式”，而是消费统一 hint contract 并生成 durable cognition。
+
+#### 写入时区分的事实类型
+
+写入链路必须把“对象结构”和“用户证据”分开表示。统一的 `FactHint` / graph candidate 至少区分以下 `fact_kind`：
+
+- `public_topology`
+  对象本身的稳定结构，例如账号归属平台、地点位于城市中
+- `interaction_evidence`
+  用户和对象发生过的交互，例如访问、观看、关注、使用
+- `stable_preference`
+  用户显式表达或高置信配置导出的偏好
+
+`喜欢` 不应在写入时被简化成一个单一 graph predicate。对多数被动 source 来说，更合理的 durable 写法是先写 interaction evidence，再由查询侧做 affinity 聚合。
+
+#### 插件与 ingestion 的职责分工
+
+插件层对外暴露的 contract 应以“实体 hints + 事实 hints”为核心，而不是直接暴露 `memory.l2` 内部模型。
+
+- source integration 负责产出：
+  - entity hints
+  - fact hints
+  - 可选 tags / batch hints
+- ingestion gateway 负责：
+  - schema 校验
+  - canonical ref / local ref 规范化
+  - 把 hints 写入 `MemoryEvent.metadata_json`
+  - 根据 admission policy 生成 rule-backed graph candidates
+- `L2Pipeline` 负责：
+  - 把 source-owned hints 作为结构锚点
+  - 与 LLM 产出的 residual candidates 合并
+  - 冲突处理、去重、持久化和 snapshot refresh
+
+#### 写入准入规则
+
+是否允许某条 source-owned fact 进入 durable graph，不由插件直接决定，而由 runtime 统一裁决。推荐按以下维度评估：
+
+- `fact_kind`
+- `predicate`
+- `origin_mode`
+  例如 `source_explicit`、`source_structured`、`heuristic`、`llm_inferred`
+
+默认规则：
+
+- `public_topology`
+  仅允许来自 `source_explicit` 或高置信 `source_structured` 的事实直接形成 rule candidate
+- `interaction_evidence`
+  `VISITED`、`VIEWED`、`USES` 等真实事件通常可直接形成 rule candidate
+- `stable_preference`
+  默认不允许由被动 source 直接落图；只有显式自述、配置、收藏/订阅清单等强语义 source 才能直接写入
+
+`FOLLOWS` 应比普通浏览证据更严格：单次内容页访问不足以写入 `FOLLOWS`，账号页、主页、关注列表或显式订阅清单才属于可接受的强信号。
+
+#### LLM-facing 与 system-facing ontology
+
+写入侧 ontology 需要区分“LLM 应该自由生成的类型”与“系统内部图需要表达但不应让 LLM 随意发明的类型”。
+
+推荐约定：
+
+- 继续作为 LLM-facing 的 coarse types：
+  - `person`
+  - `group`
+  - `organization`
+  - `place`
+  - `software`
+  - `media`
+  - `topic`
+- 新增但仅供 system-facing / structured hints 使用的 internal type：
+  - `presence`
+
+几个重要约束：
+
+- 平台继续使用 `software`，不要新增 `platform` 类型
+- creator identity 继续落在 `person` / `group` / `organization`
+- venue / 门店 / 城市继续使用 `place`
+- category 暂不作为通用 graph entity type 暴露给 LLM；应先作为 query / topology facet 处理
+
+#### 推荐的 internal topology predicates
+
+为了表达平台归属和地点约束，写入侧推荐新增以下 internal-only predicates：
+
+- `PRESENCE_OF`
+- `ON_PLATFORM`
+- `LOCATED_IN`
+
+这些 predicate 的目标是承载结构约束，不直接替代现有行为或偏好边。行为与偏好仍继续使用：
+
+- `FOLLOWS`
+- `VISITED`
+- `VIEWED`
+- `USES`
+- `LIKES`
+- `DISLIKES`
+- `INTERESTED_IN`
+
+在这个约定下：
+
+- `FOLLOWS` 优先指向 `presence`
+- `presence -> ON_PLATFORM -> software`
+- `presence -> PRESENCE_OF -> person/group/organization`
+- `place -> LOCATED_IN -> place`
+
+`HAS_CATEGORY` 暂不进入主图；分类值应先在 facet / structured hint 层承载，避免过早把 taxonomy node 体系引入主图。
+
+#### 图存储的持久化要求
+
+当前 `knowledge_graph` 已能保存 predicate、证据、置信度和冲突状态，但如果写入链路要稳定区分 topology、interaction evidence 与 stable preference，持久层必须保留 `fact_kind`。
+
+因此后续实现中：
+
+- `knowledge_graph` 应补充 `fact_kind`
+- rule-backed graph candidates 与 LLM candidates 在入库前必须统一到同一套 schema
+- `fact_kind` 不能只存在于 prompt 或临时 candidate 中，否则查询和冲突处理阶段会丢失语义边界
+
 ### L3 反思与摘要
 
 `L3` 用来保存按时间窗或主题压缩后的反思记忆。
