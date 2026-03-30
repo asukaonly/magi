@@ -131,6 +131,34 @@ async def test_sensor_sync_executor_claims_and_completes_queued_job(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sensor_sync_executor_runs_jobs_on_owner_loop(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    owner_loop = asyncio.get_running_loop()
+    observed_loop_ids: list[int] = []
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        assert job_record["job_id"] == job_id
+        observed_loop_ids.append(id(asyncio.get_running_loop()))
+        return ScheduledExecutionResult(success=True, message="sensor_sync_completed")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    assert observed_loop_ids == [id(owner_loop)]
+
+
+@pytest.mark.asyncio
 async def test_sensor_sync_executor_requeues_stale_running_job_on_startup(tmp_path):
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)

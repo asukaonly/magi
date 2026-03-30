@@ -167,11 +167,11 @@ def _build_client(monkeypatch):
         )
 
     asyncio.run(_seed_state())
-    return TestClient(app), queue
+    return TestClient(app), queue, repository
 
 
 def test_get_sensor_source_status(monkeypatch):
-    client, _ = _build_client(monkeypatch)
+    client, _, _ = _build_client(monkeypatch)
 
     response = client.get("/api/sensors/status")
 
@@ -183,7 +183,7 @@ def test_get_sensor_source_status(monkeypatch):
 
 
 def test_trigger_sensor_source_sync(monkeypatch):
-    client, queue = _build_client(monkeypatch)
+    client, queue, _ = _build_client(monkeypatch)
 
     response = client.post("/api/sensors/screen_time/sync")
 
@@ -193,10 +193,34 @@ def test_trigger_sensor_source_sync(monkeypatch):
 
 
 def test_trigger_sensor_source_state_flush(monkeypatch):
-    client, queue = _build_client(monkeypatch)
+    client, queue, _ = _build_client(monkeypatch)
 
     response = client.post("/api/sensors/screen_time/flush-state")
 
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert len(queue.sensor_state_flush_commands) == 1
+
+
+def test_get_sensor_source_status_sanitizes_internal_runtime_error(monkeypatch):
+    client, _, repository = _build_client(monkeypatch)
+
+    asyncio.run(
+        repository.record_target_failure(
+            ScheduledTargetType.SENSOR_SYNC,
+            "screen-time:screen_time",
+            error=(
+                "<Queue at 0x123 maxsize=2 _queue=[MemoryEvent(event_id='evt-1', "
+                "content='https://auth.openai.com/oauth/authorize?...')] tasks=2> "
+                "is bound to a different event loop"
+            ),
+            next_run_at=1710000500.0,
+            scheduler_job_id="sensor-sync:screen-time:screen_time",
+        )
+    )
+
+    response = client.get("/api/sensors/status")
+
+    assert response.status_code == 200
+    error_text = response.json()["sources"][0]["last_error"]
+    assert error_text == "Sensor sync failed due to an internal runtime loop mismatch."

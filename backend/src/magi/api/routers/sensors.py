@@ -22,6 +22,9 @@ from ...utils.runtime import get_runtime_paths
 
 sensors_router = APIRouter()
 
+_SENSOR_INTERNAL_ERROR_MARKERS = ("<Queue at ", "MemoryEvent(", " is bound to a different event loop")
+_SENSOR_LOOP_MISMATCH_MESSAGE = "Sensor sync failed due to an internal runtime loop mismatch."
+
 
 class SensorSourceAuthorizationRequest(BaseModel):
     field_values: dict[str, Any] = Field(default_factory=dict)
@@ -64,6 +67,19 @@ def _collect_source_setting_defaults(item) -> dict[str, Any]:
     return defaults
 
 
+def _sanitize_sensor_error(error: Any) -> str | None:
+    text = str(error or "").strip()
+    if not text:
+        return None
+    if " is bound to a different event loop" in text:
+        return _SENSOR_LOOP_MISMATCH_MESSAGE
+    if any(marker in text for marker in _SENSOR_INTERNAL_ERROR_MARKERS):
+        return "Sensor sync failed due to an internal runtime error."
+    if len(text) > 280:
+        return f"{text[:277]}..."
+    return text
+
+
 @sensors_router.get("/status")
 async def get_sensor_source_status():
     get_config()
@@ -95,7 +111,11 @@ async def get_sensor_source_status():
         )
         supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
         supports_state_flush = bool(getattr(sensor, "supports_state_flush", False))
-        visible_last_error = state.last_error if (state is not None and supports_pull_sync) else None
+        visible_last_error = (
+            _sanitize_sensor_error(state.last_error)
+            if (state is not None and supports_pull_sync)
+            else None
+        )
         resolved_next_run_at = (
             state.next_run_at
             if (state is not None and state.next_run_at is not None)

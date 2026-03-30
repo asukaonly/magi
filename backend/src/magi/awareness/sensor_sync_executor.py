@@ -38,6 +38,7 @@ class SensorSyncExecutor:
         self._worker_id = worker_id
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._stop_event: asyncio.Event | None = None
         self._execution_lock: asyncio.Lock | None = None
         self._ready = threading.Event()
@@ -45,6 +46,7 @@ class SensorSyncExecutor:
     async def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
+        self._owner_loop = asyncio.get_running_loop()
         self._ready.clear()
         self._thread = threading.Thread(
             target=self._run_thread,
@@ -66,6 +68,7 @@ class SensorSyncExecutor:
             loop.call_soon_threadsafe(stop_event.set)
         await asyncio.to_thread(thread.join, 5.0)
         self._thread = None
+        self._owner_loop = None
 
     def _run_thread(self) -> None:
         loop = asyncio.new_event_loop()
@@ -122,7 +125,7 @@ class SensorSyncExecutor:
         next_run_at = float(scheduler_binding[1]) if scheduler_binding is not None and scheduler_binding[1] is not None else None
 
         try:
-            result = await self._run_with_execution_lock(self._run_job(job))
+            result = await self._run_with_execution_lock(self._run_on_owner_loop(self._run_job(job)))
             if not result.success:
                 raise RuntimeError(result.message or "sensor_sync_failed")
             finished_at = time.time()
@@ -180,7 +183,7 @@ class SensorSyncExecutor:
     async def _flush_sensor_state_on_executor(self, source_name: str) -> dict[str, Any]:
         if self._flush_state is None:
             raise RuntimeError("Sensor sync executor does not support state flush")
-        return await self._run_with_execution_lock(self._flush_state(source_name))
+        return await self._run_with_execution_lock(self._run_on_owner_loop(self._flush_state(source_name)))
 
     async def _run_with_execution_lock(self, coro: Awaitable[Any]) -> Any:
         execution_lock = self._execution_lock
@@ -188,3 +191,10 @@ class SensorSyncExecutor:
             raise RuntimeError("Sensor sync executor execution lock is not initialized")
         async with execution_lock:
             return await coro
+
+    async def _run_on_owner_loop(self, coro: Awaitable[Any]) -> Any:
+        owner_loop = self._owner_loop
+        if owner_loop is None:
+            raise RuntimeError("Sensor sync executor owner loop is not initialized")
+        future = asyncio.run_coroutine_threadsafe(coro, owner_loop)
+        return await asyncio.wrap_future(future)
