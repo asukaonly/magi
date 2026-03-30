@@ -237,6 +237,80 @@ class TestLLMParsing:
         ]
 
     @pytest.mark.asyncio
+    async def test_l2_with_interaction_scoped_creator_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [
+                {
+                    "layer": "L2",
+                    "is_fallback": False,
+                    "content_query": "在B站的时候 喜欢看的 up 主",
+                    "subject_hint": "self",
+                    "predicate_family": "preference",
+                    "semantic_frame": {
+                        "query_family": "affinity",
+                        "subject_scope": "self",
+                        "answer_kind": "creator",
+                        "answer_unit": "identity",
+                        "answer_shape": "list",
+                        "polarity": "positive",
+                        "constraints": [
+                            {
+                                "scope": "interaction",
+                                "facet": "platform",
+                                "raw_value": "B站",
+                                "resolved_entity_id": "software:bilibili",
+                            }
+                        ],
+                    },
+                }
+            ],
+            "reasoning": "interaction-scoped creator affinity query",
+        })
+
+        result = await decider.evaluate(IntentDeciderInput(query="我最近在B站的时候喜欢看哪些up主"))
+
+        assert result is not None
+        frame = result.plans[0].conditions.semantic_frame
+        assert isinstance(frame, L2SemanticFrame)
+        assert frame.answer_kind == "creator"
+        assert [(item.scope, item.facet, item.raw_value) for item in frame.constraints] == [
+            ("interaction", "platform", "B站")
+        ]
+
+    @pytest.mark.asyncio
+    async def test_l2_with_topic_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [
+                {
+                    "layer": "L2",
+                    "is_fallback": False,
+                    "content_query": "喜欢的题材",
+                    "subject_hint": "self",
+                    "predicate_family": "preference",
+                    "semantic_frame": {
+                        "query_family": "affinity",
+                        "subject_scope": "self",
+                        "answer_kind": "topic",
+                        "answer_unit": "topic",
+                        "answer_shape": "list",
+                        "polarity": "positive",
+                        "constraints": [],
+                    },
+                }
+            ],
+            "reasoning": "topic affinity query",
+        })
+
+        result = await decider.evaluate(IntentDeciderInput(query="我喜欢什么题材"))
+
+        assert result is not None
+        frame = result.plans[0].conditions.semantic_frame
+        assert isinstance(frame, L2SemanticFrame)
+        assert frame.answer_kind == "topic"
+        assert frame.answer_unit == "topic"
+        assert frame.answer_shape == "list"
+
+    @pytest.mark.asyncio
     async def test_l3_layer(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
             "layers": [
