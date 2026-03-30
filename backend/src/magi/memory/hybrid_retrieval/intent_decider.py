@@ -609,7 +609,9 @@ class RuleBasedIntentDecider:
 
     @staticmethod
     def _infer_answer_shape(query_lower: str) -> str:
-        if any(token in query_lower for token in ("吗", "是否", "是不是", "么")):
+        if "是否" in query_lower or "是不是" in query_lower:
+            return "boolean"
+        if re.search(r"(吗|么)\s*[?？]?\s*$", query_lower):
             return "boolean"
         if any(token in query_lower for token in ("哪些", "什么", "谁", "哪几个", "which", "what")):
             return "list"

@@ -674,6 +674,46 @@ class TestL2Handler:
         assert results["relationships"][0]["predicate"] == "FOLLOWS"
 
     @pytest.mark.asyncio
+    async def test_topic_affinity_semantic_frame_queries_topic_relationships(self):
+        store = AsyncMock()
+        store.get_relationships.return_value = [
+            {
+                "triple_id": "topic-1",
+                "subject_id": "user:u1",
+                "subject_type": "user",
+                "predicate": "INTERESTED_IN",
+                "object_id": "topic:anime",
+                "object_type": "topic",
+            }
+        ]
+        handler = L2Handler(store, entity_catalog=AsyncMock())
+        conds = L2Conditions(
+            content_query="我喜欢什么题材",
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="topic",
+                answer_unit="topic",
+                answer_shape="list",
+                polarity="positive",
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        _, relationship_kwargs = store.get_relationships.call_args
+        assert relationship_kwargs["subject_id"] == "user:u1"
+        assert relationship_kwargs["object_types"] == ["topic"]
+        assert relationship_kwargs["predicates"] == ["INTERESTED_IN", "LIKES", "DISLIKES"]
+        assert results["relationships"][0]["predicate"] == "INTERESTED_IN"
+        assert results["trace"]["semantic_frame"]["answer_kind"] == "topic"
+
+    @pytest.mark.asyncio
     async def test_place_affinity_semantic_frame_uses_location_topology_then_visit_edges(self):
         store = AsyncMock()
         store.get_relationships.side_effect = [

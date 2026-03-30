@@ -398,6 +398,20 @@ class TestKeywordRouting:
             ("target", "category", "咖啡馆"),
         ]
 
+    def test_l2_topic_affinity_semantic_frame_for_topic_query(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我喜欢什么题材", recall_intent_hint="preference_recall")
+        result = decider.evaluate(inp)
+
+        assert result.plans[0].layer == "L2"
+        conditions = result.plans[0].conditions
+        assert isinstance(conditions, L2Conditions)
+        assert conditions.semantic_frame is not None
+        assert conditions.semantic_frame.query_family == "affinity"
+        assert conditions.semantic_frame.subject_scope == "self"
+        assert conditions.semantic_frame.answer_kind == "topic"
+        assert conditions.semantic_frame.answer_unit == "topic"
+        assert conditions.semantic_frame.answer_shape == "list"
+
     def test_l2_software_affinity_semantic_frame_for_bilibili_boolean_query(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我喜欢B站吗", recall_intent_hint="preference_recall")
         result = decider.evaluate(inp)

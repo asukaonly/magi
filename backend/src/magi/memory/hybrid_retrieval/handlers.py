@@ -577,6 +577,13 @@ class L2Handler:
                 user_id=user_id,
                 resolved_entities=resolved_entities,
             )
+        if semantic_frame.answer_kind == "topic":
+            return await self._execute_topic_affinity_relationship_plan(
+                conditions=conditions,
+                semantic_frame=semantic_frame,
+                status_filters=status_filters,
+                user_id=user_id,
+            )
         return None
 
     async def _execute_creator_affinity_relationship_plan(
@@ -733,6 +740,22 @@ class L2Handler:
             limit=conditions.limit,
         )
 
+    async def _execute_topic_affinity_relationship_plan(
+        self,
+        *,
+        conditions: L2Conditions,
+        semantic_frame: L2SemanticFrame,
+        status_filters: list[str] | None,
+        user_id: str,
+    ) -> list[dict[str, Any]] | None:
+        return await self._store.get_relationships(
+            subject_id=f"user:{user_id}",
+            predicates=self._predicates_for_semantic_frame(semantic_frame),
+            object_types=["topic"],
+            status_filters=status_filters,
+            limit=conditions.limit,
+        )
+
     async def _query_relationships_for_entity(
         self,
         *,
@@ -861,6 +884,8 @@ class L2Handler:
             return ["VISITED", "LIKES", "DISLIKES"]
         if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "software":
             return ["USES", "LIKES", "DISLIKES"]
+        if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "topic":
+            return ["INTERESTED_IN", "LIKES", "DISLIKES"]
         return []
 
     def _infer_status_filters(self, query: str) -> list[str]:
