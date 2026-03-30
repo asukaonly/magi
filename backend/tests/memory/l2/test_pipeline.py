@@ -3318,6 +3318,136 @@ def test_inject_structured_graph_hints_adds_fact_claims():
     assert claim.supporting_event_ids == ["evt-graph-hints"]
 
 
+@pytest.mark.asyncio
+async def test_extract_worker_persists_structured_graph_hints_without_phase2_edges():
+    from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
+
+    responses = [
+        json.dumps(
+            {
+                "entities": [],
+                "fact_claims": [],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "none"},
+            }
+        ),
+        json.dumps(
+            {
+                "graph_edges": [],
+                "refinements": [],
+                "assertion_candidates": [],
+                "contradiction_hints": [],
+            }
+        ),
+    ]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
+        )
+        await store.initialize()
+        try:
+            event = MemoryEvent(
+                event_id="evt-structured-graph-1",
+                correlation_id="evt-structured-graph-1",
+                timestamp=time.time(),
+                created_at=time.time(),
+                event_type="SENSOR_EVENT",
+                source="chrome_history",
+                source_item_id="chrome:item-1",
+                memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+                ingest_target=IngestTarget.L1_ONLY,
+                cognition_eligible=True,
+                tom_depth=TomDepth.TOPOLOGY_ONLY,
+                retention_class=RetentionClass.COMPRESSIBLE,
+                session_id=None,
+                turn_id=None,
+                user_id="u1",
+                task_id=None,
+                content="GitHub profile page",
+                author_type="external",
+                content_type="observation",
+                importance_score=0.6,
+                level=EventLevel.INFO.value,
+                metadata_json={
+                    "structured_graph_hints": [
+                        {
+                            "subject_ref": "user:self",
+                            "subject_type": "user",
+                            "predicate": "USES",
+                            "object_ref": "software:github",
+                            "object_type": "software",
+                            "fact_kind": "interaction_evidence",
+                            "confidence": 0.91,
+                            "evidence_text": "Visited GitHub profile page",
+                        }
+                    ]
+                },
+            )
+
+            await store.ingest_event(event)
+
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+
+            assert any(
+                edge["predicate"] == "USES"
+                and edge["object_id"] == "software:github"
+                and edge["fact_kind"] == "interaction_evidence"
+                and edge["extraction_method"] == "structured_hint"
+                for edge in relationships
+            )
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_build_structured_graph_candidates_rejects_stable_preference_hints():
+    from magi.memory.l2.evidence_policy import resolve_l2_policy
+    from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
+
+    pipeline = L2Pipeline.__new__(L2Pipeline)
+    event = _make_memory_event(event_id="evt-structured-pref", content="sensor hinted preference")
+    event.source = "chrome_history"
+    event.author_type = "external"
+    event.metadata_json = {
+        "structured_graph_hints": [
+            {
+                "subject_ref": "user:self",
+                "subject_type": "user",
+                "predicate": "INTERESTED_IN",
+                "object_ref": "topic:ai",
+                "object_type": "topic",
+                "fact_kind": "stable_preference",
+                "confidence": 0.95,
+            }
+        ]
+    }
+
+    profile = DEFAULT_EXTRACTION_PROFILES["timeline.chrome_history"]
+    policy = resolve_l2_policy(classify_event_evidence(event))
+    candidates, rejected = pipeline._build_structured_graph_candidates(
+        event=event,
+        profile=profile,
+        policy=policy,
+        evidence_event_ids=[event.event_id],
+    )
+
+    assert candidates == []
+    assert rejected == 1
+
+
 class TestAliasValidation:
     """Tests for _is_valid_alias quality gate."""
 

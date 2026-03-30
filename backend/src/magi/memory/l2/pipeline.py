@@ -64,6 +64,7 @@ _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "music",
     "place",
 }
+_STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS = {"public_topology", "interaction_evidence", "explicit_fact"}
 logger = get_logger(__name__)
 DEFAULT_L2_EXTRACT_WORKER_COUNT = 5
 DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS = 60
@@ -1023,6 +1024,18 @@ class L2Pipeline:
             phase2_edges=phase2_result.graph_edges,
             catalog_name_index=catalog_name_index,
         )
+        structured_graph_candidates, rejected_structured_graph_candidate_count = self._build_structured_graph_candidates(
+            event=stored_event,
+            profile=extraction_profile,
+            policy=policy,
+            evidence_event_ids=batch_event_ids,
+            catalog_name_index=catalog_name_index,
+        )
+        graph_candidates = self._merge_graph_candidates(
+            graph_candidates,
+            structured_graph_candidates,
+        )
+        rejected_graph_candidate_count += rejected_structured_graph_candidate_count
 
         assertion_candidates, rejected_assertion_candidate_count = self._validate_phase2_assertions(
             event=stored_event,
@@ -1548,6 +1561,125 @@ class L2Pipeline:
                 }
             )
         return prepared, rejected_count
+
+    def _build_structured_graph_candidates(
+        self,
+        *,
+        event: MemoryEvent,
+        profile: ExtractionProfile,
+        policy: Any,
+        evidence_event_ids: list[str],
+        catalog_name_index: dict[str, str] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Convert source-owned structured graph hints into deterministic graph candidates."""
+        if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
+            return [], 0
+
+        metadata_json = event.metadata_json
+        if not isinstance(metadata_json, dict):
+            return [], 0
+        raw_hints = metadata_json.get("structured_graph_hints")
+        if not isinstance(raw_hints, list) or not raw_hints:
+            return [], 0
+
+        prepared: list[dict[str, Any]] = []
+        rejected_count = 0
+        for raw_hint in raw_hints:
+            if not isinstance(raw_hint, dict):
+                continue
+            hint = StructuredGraphHint.from_dict(raw_hint)
+            object_type = self._normalize_entity_type(hint.object_type)
+            predicate = self._normalize_predicate(hint.predicate)
+            fact_kind = self._non_empty_text(hint.fact_kind) or "explicit_fact"
+            if fact_kind not in _STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS:
+                rejected_count += 1
+                continue
+            if object_type not in profile.allowed_entity_types:
+                rejected_count += 1
+                continue
+            if predicate not in profile.allowed_predicates:
+                rejected_count += 1
+                continue
+            is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})
+            if not is_valid:
+                rejected_count += 1
+                continue
+
+            subject_id = self._resolve_phase2_subject_id(event=event, subject_ref=hint.subject_ref)
+            if not subject_id:
+                rejected_count += 1
+                continue
+            object_id = self._resolve_phase2_object_id(
+                raw_object_ref=hint.object_ref,
+                object_type=object_type,
+                resolved_mentions=[],
+                catalog_name_index=catalog_name_index,
+            )
+            if not object_id:
+                rejected_count += 1
+                continue
+            if self._should_reject_preference_graph_candidate(
+                event=event,
+                subject_id=subject_id,
+                predicate=predicate,
+                object_id=object_id,
+                object_type=object_type,
+                raw_object_ref=hint.object_ref,
+            ):
+                rejected_count += 1
+                continue
+
+            prepared.append(
+                {
+                    "subject_id": subject_id,
+                    "subject_type": self._non_empty_text(hint.subject_type) or "user",
+                    "predicate": predicate,
+                    "object_id": object_id,
+                    "object_type": object_type,
+                    "fact_kind": fact_kind,
+                    "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
+                    "confidence": float(hint.confidence if hint.confidence is not None else 1.0),
+                    "observed_at": event.timestamp,
+                    "source_type": event.source,
+                    "extraction_method": "structured_hint",
+                }
+            )
+        return prepared, rejected_count
+
+    def _merge_graph_candidates(self, *candidate_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Merge graph candidates by triple identity, preferring structured hints."""
+        merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for group in candidate_groups:
+            for candidate in group:
+                key = (
+                    str(candidate.get("subject_id") or ""),
+                    str(candidate.get("predicate") or ""),
+                    str(candidate.get("object_id") or ""),
+                )
+                if not all(key):
+                    continue
+                existing = merged.get(key)
+                if existing is None:
+                    merged[key] = dict(candidate)
+                    continue
+
+                existing_method = str(existing.get("extraction_method") or "")
+                candidate_method = str(candidate.get("extraction_method") or "")
+                preferred = dict(candidate) if candidate_method == "structured_hint" and existing_method != "structured_hint" else dict(existing)
+                preferred["evidence_event_ids"] = sorted(
+                    set(existing.get("evidence_event_ids") or []).union(candidate.get("evidence_event_ids") or [])
+                )
+                preferred["confidence"] = max(
+                    float(existing.get("confidence") or 0.0),
+                    float(candidate.get("confidence") or 0.0),
+                )
+                preferred["fact_kind"] = (
+                    str(candidate.get("fact_kind") or "").strip()
+                    if candidate_method == "structured_hint" and str(candidate.get("fact_kind") or "").strip()
+                    else str(preferred.get("fact_kind") or existing.get("fact_kind") or candidate.get("fact_kind") or "explicit_fact")
+                )
+                merged[key] = preferred
+        return list(merged.values())
 
     def _validate_phase2_assertions(
         self,
