@@ -73,6 +73,10 @@ cleanup_stale_dev_backends() {
   done
 }
 
+cleanup_on_exit() {
+  cleanup_stale_dev_backends
+}
+
 ensure_sidecar_placeholder() {
   mkdir -p "${TAURI_BIN_DIR}"
 
@@ -100,11 +104,12 @@ EOF
 ensure_sidecar_placeholder
 cleanup_stale_dev_backends
 kill_listeners_on_port "${FRONTEND_PORT}"
+trap cleanup_on_exit EXIT INT TERM HUP QUIT
 
 echo "Starting Tauri desktop window (frontend HMR enabled by Vite)..."
 echo "Backend lifecycle is owned by Tauri in debug mode."
 
 cd "${FRONTEND_DIR}"
-exec env \
+env \
   VITE_DEV_SERVER_PORT="${FRONTEND_PORT}" \
   npm run tauri:dev

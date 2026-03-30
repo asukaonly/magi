@@ -14,3 +14,6 @@ def test_dev_tauri_hot_lets_tauri_own_backend_lifecycle() -> None:
     assert 'python run_server.py --role runtime_worker --no-reload\n) >' not in script
     assert 'python run_server.py --role api --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" --no-reload\n) >>' not in script
     assert "npm run tauri:dev" in script
+    assert "trap cleanup_on_exit EXIT INT TERM HUP QUIT" in script
+    assert "cleanup_on_exit()" in script
+    assert "exec env" not in script
