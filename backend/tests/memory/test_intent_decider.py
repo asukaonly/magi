@@ -412,6 +412,17 @@ class TestKeywordRouting:
         assert conditions.semantic_frame.answer_unit == "topic"
         assert conditions.semantic_frame.answer_shape == "list"
 
+    def test_l2_topic_affinity_semantic_frame_for_creator_topic_question(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="上次我看的主播他说的主题是什么", recall_intent_hint="preference_recall")
+        result = decider.evaluate(inp)
+
+        assert result.plans[0].layer == "L2"
+        conditions = result.plans[0].conditions
+        assert isinstance(conditions, L2Conditions)
+        assert conditions.semantic_frame is not None
+        assert conditions.semantic_frame.answer_kind == "topic"
+        assert conditions.semantic_frame.answer_shape == "list"
+
     def test_l2_software_affinity_semantic_frame_for_bilibili_boolean_query(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我喜欢B站吗", recall_intent_hint="preference_recall")
         result = decider.evaluate(inp)

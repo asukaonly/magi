@@ -14,11 +14,13 @@ def test_infer_answer_kind_uses_central_keyword_specs() -> None:
     assert infer_answer_kind("我喜欢哪些频道") == "creator"
     assert infer_answer_kind("我喜欢什么题材") == "topic"
     assert infer_answer_kind("我喜欢B站吗") == "software"
+    assert infer_answer_kind("上次我看的主播他说的主题是什么") == "topic"
 
 
 def test_infer_answer_shape_uses_central_query_specs() -> None:
     assert infer_answer_shape("我喜欢什么题材") == "list"
     assert infer_answer_shape("我喜欢B站吗") == "boolean"
+    assert infer_answer_shape("上次我看的主播他说的主题是什么") == "list"
     assert infer_answer_shape("我最喜欢的up主") == "single"
 
 

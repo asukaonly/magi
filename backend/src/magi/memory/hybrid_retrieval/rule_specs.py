@@ -58,7 +58,22 @@ CATEGORY_FACET_MAP = {
     "饭馆": "restaurant",
 }
 
-_BOOLEAN_TRAILING_PATTERN = re.compile(r"(吗|么)\s*[?？]?\s*$")
+_BOOLEAN_TRAILING_PATTERN = re.compile(r"(?<!什)(吗|么)\s*[?？]?\s*$")
+_TOPIC_PRIMARY_PATTERNS = (
+    re.compile(r"(什么|哪些|哪种|哪类).*(题材|主题|topic)", re.IGNORECASE),
+    re.compile(r"(题材|主题|topic).*(是什么|是啥|有哪些|有哪|是什么样)", re.IGNORECASE),
+)
+_CREATOR_PRIMARY_PATTERNS = (
+    re.compile(r"(哪些|什么|谁|哪几个).*(up主|主播|博主|youtuber|creator|频道|channel)", re.IGNORECASE),
+    re.compile(r"(up主|主播|博主|youtuber|creator|频道|channel).*(是谁|有哪些|有什么)", re.IGNORECASE),
+)
+_PLACE_PRIMARY_PATTERNS = (
+    re.compile(r"(什么|哪些|哪家|哪几个).*(咖啡馆|餐厅|店|饭馆|cafe|restaurant|shop)", re.IGNORECASE),
+    re.compile(r"(咖啡馆|餐厅|店|饭馆|cafe|restaurant|shop).*(是哪|有哪些|有什么)", re.IGNORECASE),
+)
+_SOFTWARE_PRIMARY_PATTERNS = (
+    re.compile(r"(喜欢|常用|用).*(软件|网站|app|平台|b站|bilibili|youtube).*(吗|么|是否|是不是)?", re.IGNORECASE),
+)
 _BILIBILI_USAGE_PATTERN = re.compile(r"用\s*(B站|b站|bilibili)\s*(?:的时候)?", re.IGNORECASE)
 _BILIBILI_TIME_PATTERN = re.compile(r"在\s*(B站|b站|bilibili)\s*的时候", re.IGNORECASE)
 _YOUTUBE_USAGE_PATTERN = re.compile(r"用\s*(youtube|油管)\s*(?:的时候)?", re.IGNORECASE)
@@ -75,6 +90,14 @@ def contains_any(text: str, tokens: Sequence[str]) -> bool:
 def infer_answer_kind(query_lower: str) -> str:
     """Infer the answer object kind from a normalized query string."""
     query_lower = query_lower.lower()
+    if any(pattern.search(query_lower) for pattern in _TOPIC_PRIMARY_PATTERNS):
+        return "topic"
+    if any(pattern.search(query_lower) for pattern in _CREATOR_PRIMARY_PATTERNS):
+        return "creator"
+    if any(pattern.search(query_lower) for pattern in _PLACE_PRIMARY_PATTERNS):
+        return "place"
+    if any(pattern.search(query_lower) for pattern in _SOFTWARE_PRIMARY_PATTERNS):
+        return "software"
     if contains_any(query_lower, CREATOR_KEYWORDS):
         return "creator"
     if contains_any(query_lower, PLACE_KEYWORDS):
