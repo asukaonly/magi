@@ -8,7 +8,7 @@ from typing import Awaitable, Callable, Optional
 from zoneinfo import ZoneInfo
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler, run_in_event_loop
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -36,6 +36,23 @@ async def dispatch_scheduled_job(schedule_id: str) -> None:
     except RuntimeError:
         return
     await service.execute_schedule(schedule_id)
+
+
+class ResilientAsyncIOScheduler(AsyncIOScheduler):
+    """AsyncIOScheduler that retries after transient wakeup failures."""
+
+    @run_in_event_loop
+    def wakeup(self):
+        self._stop_timer()
+        try:
+            wait_seconds = self._process_jobs()
+        except Exception:
+            self._logger.exception(
+                "Scheduler wakeup failed; retrying after %s seconds",
+                self.jobstore_retry_interval,
+            )
+            wait_seconds = max(float(self.jobstore_retry_interval), 0.0)
+        self._start_timer(wait_seconds)
 
 
 class SchedulerService:
@@ -66,7 +83,7 @@ class SchedulerService:
             cursor.execute("PRAGMA busy_timeout = 30000")
             cursor.close()
 
-        self._scheduler = AsyncIOScheduler(
+        self._scheduler = ResilientAsyncIOScheduler(
             jobstores={"default": SQLAlchemyJobStore(engine=self._jobstore_engine)},
             job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 120},
             timezone=ZoneInfo("UTC"),

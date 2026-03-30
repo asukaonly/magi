@@ -235,3 +235,33 @@ async def test_scheduler_service_persists_execution_history_rows(tmp_path):
     assert rows[1][2] is None
     assert rows[1][3] == "planned failure"
     assert rows[1][4] is not None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_service_recovers_from_wakeup_failure(tmp_path, monkeypatch):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    await service.start()
+
+    scheduler = service._scheduler
+    scheduler.jobstore_retry_interval = 0.05
+
+    scheduled_waits: list[float | None] = []
+
+    def record_start_timer(wait_seconds):
+        scheduled_waits.append(wait_seconds)
+
+    def flaky_process_jobs():
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(scheduler, "_start_timer", record_start_timer)
+    monkeypatch.setattr(scheduler, "_process_jobs", flaky_process_jobs)
+
+    scheduler.wakeup()
+    await asyncio.sleep(0)
+
+    await service.stop()
+
+    assert scheduled_waits == [0.05]
