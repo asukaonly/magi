@@ -335,6 +335,41 @@ class L2EntityCatalog:
         await self.initialize()
         return await self._list_entities(limit=limit, entity_type=_normalize_catalog_entity_type(entity_type))
 
+    async def find_by_canonical_name(
+        self,
+        canonical_name: str,
+        *,
+        entity_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return catalog entries matching *canonical_name* (case-insensitive)."""
+        await self.initialize()
+        normalized_name = canonical_name.strip().casefold()
+        if not normalized_name:
+            return []
+        query = """
+            SELECT entity_id, canonical_name, entity_type
+            FROM entity_catalog
+            WHERE LOWER(canonical_name) = ?
+        """
+        args: list[Any] = [normalized_name]
+        if entity_type:
+            normalized_type = _normalize_catalog_entity_type(entity_type)
+            query += " AND entity_type = ?"
+            args.append(normalized_type)
+        query += " ORDER BY updated_at DESC LIMIT 10"
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "entity_id": str(row["entity_id"]),
+                "canonical_name": str(row["canonical_name"]),
+                "entity_type": str(row["entity_type"]),
+            }
+            for row in rows
+        ]
+
     async def resolve_query_entities(
         self,
         query_text: str,

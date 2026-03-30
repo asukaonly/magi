@@ -138,6 +138,31 @@ async def test_list_entities_returns_canonical_names_and_aliases():
 
 
 @pytest.mark.asyncio
+async def test_find_by_canonical_name_matches_case_insensitively_and_filters_type():
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.initialize()
+
+        await catalog.upsert_entity(canonical_name="Shanghai", entity_type="place", entity_id="place:shanghai")
+        await catalog.upsert_entity(canonical_name="Shanghai", entity_type="topic", entity_id="topic:shanghai")
+
+        matches = await catalog.find_by_canonical_name("sHaNgHaI")
+        place_matches = await catalog.find_by_canonical_name("SHANGHAI", entity_type="place")
+
+        assert [item["entity_id"] for item in matches] == ["topic:shanghai", "place:shanghai"]
+        assert place_matches == [
+            {
+                "entity_id": "place:shanghai",
+                "canonical_name": "Shanghai",
+                "entity_type": "place",
+            }
+        ]
+
+
+@pytest.mark.asyncio
 async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
     from magi.memory.l2.entity_catalog import L2EntityCatalog
 
