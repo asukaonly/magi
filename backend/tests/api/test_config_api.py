@@ -49,6 +49,19 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     config = SystemConfigModel()
 
     assert config.memory.db_path == "~/.magi/data/memory"
+    assert config.memory.reranker.enabled is False
+    assert config.memory.reranker.backend == "heuristic"
+    assert config.memory.reranker.mode == "local"
+    assert config.memory.reranker.layers == ["L1", "L3"]
+    assert config.memory.reranker.top_k == 8
+    assert config.memory.reranker.timeout_seconds == 0.8
+    assert config.memory.reranker.candidate_max_chars == 500
+    assert config.memory.reranker.local.model_source == "managed"
+    assert config.memory.reranker.local.managed_model_id is None
+    assert config.memory.reranker.local.model_file_path is None
+    assert config.memory.reranker.local.max_context_tokens == 2048
+    assert config.memory.reranker.remote.provider_id == ""
+    assert config.memory.reranker.remote.model == ""
     assert config.memory.l0.enabled is True
     assert config.memory.l4.enabled is True
     assert config.memory.l0.checkpoint_interval_seconds == 30
@@ -187,6 +200,15 @@ def test_build_update_paths_contains_new_sections():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.memory.db_path = "/Users/asuka/.magi/data/custom-memories"
+    config.memory.reranker.enabled = True
+    config.memory.reranker.backend = "llm"
+    config.memory.reranker.mode = "remote"
+    config.memory.reranker.layers = ["L1", "L4"]
+    config.memory.reranker.top_k = 12
+    config.memory.reranker.timeout_seconds = 1.2
+    config.memory.reranker.candidate_max_chars = 640
+    config.memory.reranker.remote.provider_id = "openai"
+    config.memory.reranker.remote.model = "gpt-4o-mini"
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.preferences.default_chat_workspace_path = "/Users/asuka/code/magi"
     config.memory.l2.batch_flush_interval_seconds = 90
@@ -199,6 +221,15 @@ def test_build_update_paths_contains_new_sections():
     updates = _build_update_paths(config)
 
     assert updates["agent.memory.db_path"] == "/Users/asuka/.magi/data/custom-memories"
+    assert updates["agent.memory.reranker.enabled"] is True
+    assert updates["agent.memory.reranker.backend"] == "llm"
+    assert updates["agent.memory.reranker.mode"] == "remote"
+    assert updates["agent.memory.reranker.layers"] == ["L1", "L4"]
+    assert updates["agent.memory.reranker.top_k"] == 12
+    assert updates["agent.memory.reranker.timeout_seconds"] == 1.2
+    assert updates["agent.memory.reranker.candidate_max_chars"] == 640
+    assert updates["agent.memory.reranker.remote.provider_id"] == "openai"
+    assert updates["agent.memory.reranker.remote.model"] == "gpt-4o-mini"
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90

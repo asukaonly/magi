@@ -39,6 +39,8 @@ class RuntimePaths:
             self.chat_resources_dir,
             self.runtime_dir,
             self.cache_dir,
+            self.models_cache_dir,
+            self.reranker_models_dir,
             self.plugins_cache_dir,
             self.others_dir,
             self.logs_dir,
@@ -113,6 +115,16 @@ class RuntimePaths:
     def plugins_cache_dir(self) -> Path:
         """Plugin-owned cache directory."""
         return self.cache_dir / "plugins"
+
+    @property
+    def models_cache_dir(self) -> Path:
+        """Managed local model cache directory."""
+        return self.cache_dir / "models"
+
+    @property
+    def reranker_models_dir(self) -> Path:
+        """Managed local reranker model cache directory."""
+        return self.models_cache_dir / "rerank"
 
     @property
     def others_dir(self) -> Path:
@@ -200,6 +212,13 @@ class RuntimePaths:
         if not normalized:
             raise ValueError("plugin_id is required")
         return self.plugins_cache_dir / normalized
+
+    def managed_reranker_model_dir(self, model_id: str) -> Path:
+        """Return the managed cache directory for one reranker model."""
+        normalized = str(model_id or "").strip().replace("/", "_").replace("\\", "_")
+        if not normalized:
+            raise ValueError("model_id is required")
+        return self.reranker_models_dir / normalized
 
     def other_file(self, user_id: str) -> Path:
         """

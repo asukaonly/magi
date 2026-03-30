@@ -137,8 +137,33 @@ class MemoryL4ConfigModel(BaseModel):
     skill_extraction_enabled: bool = Field(default=True)
 
 
+class MemoryRerankerLocalConfigModel(BaseModel):
+    model_source: str = Field(default="managed")
+    managed_model_id: Optional[str] = Field(default=None)
+    model_file_path: Optional[str] = Field(default=None)
+    max_context_tokens: int = Field(default=2048, ge=1)
+
+
+class MemoryRerankerRemoteConfigModel(BaseModel):
+    provider_id: str = Field(default="")
+    model: str = Field(default="")
+
+
+class MemoryRerankerConfigModel(BaseModel):
+    enabled: bool = Field(default=False)
+    backend: str = Field(default="heuristic")
+    mode: str = Field(default="local")
+    layers: List[str] = Field(default_factory=lambda: ["L1", "L3"])
+    top_k: int = Field(default=8, ge=1)
+    timeout_seconds: float = Field(default=0.8, ge=0.1)
+    candidate_max_chars: int = Field(default=500, ge=50)
+    local: MemoryRerankerLocalConfigModel = Field(default_factory=MemoryRerankerLocalConfigModel)
+    remote: MemoryRerankerRemoteConfigModel = Field(default_factory=MemoryRerankerRemoteConfigModel)
+
+
 class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default="~/.magi/data/memory")
+    reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
     l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
     l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
     l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)
@@ -385,6 +410,25 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
     memory_cfg = runtime_config.agent.memory
     return MemoryConfigModel(
         db_path=memory_cfg.db_path,
+        reranker=MemoryRerankerConfigModel(
+            enabled=memory_cfg.reranker.enabled,
+            backend=memory_cfg.reranker.backend,
+            mode=memory_cfg.reranker.mode,
+            layers=[layer.value if hasattr(layer, "value") else str(layer) for layer in memory_cfg.reranker.layers],
+            top_k=memory_cfg.reranker.top_k,
+            timeout_seconds=memory_cfg.reranker.timeout_seconds,
+            candidate_max_chars=memory_cfg.reranker.candidate_max_chars,
+            local=MemoryRerankerLocalConfigModel(
+                model_source=memory_cfg.reranker.local.model_source,
+                managed_model_id=memory_cfg.reranker.local.managed_model_id,
+                model_file_path=memory_cfg.reranker.local.model_file_path,
+                max_context_tokens=memory_cfg.reranker.local.max_context_tokens,
+            ),
+            remote=MemoryRerankerRemoteConfigModel(
+                provider_id=memory_cfg.reranker.remote.provider_id,
+                model=memory_cfg.reranker.remote.model,
+            ),
+        ),
         l0=MemoryL0ConfigModel(
             enabled=memory_cfg.l0.enabled,
             checkpoint_interval_seconds=memory_cfg.l0.checkpoint_interval_seconds,
@@ -779,6 +823,19 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
         "agent.memory.db_path": config.memory.db_path,
+        "agent.memory.reranker.enabled": config.memory.reranker.enabled,
+        "agent.memory.reranker.backend": config.memory.reranker.backend,
+        "agent.memory.reranker.mode": config.memory.reranker.mode,
+        "agent.memory.reranker.layers": config.memory.reranker.layers,
+        "agent.memory.reranker.top_k": config.memory.reranker.top_k,
+        "agent.memory.reranker.timeout_seconds": config.memory.reranker.timeout_seconds,
+        "agent.memory.reranker.candidate_max_chars": config.memory.reranker.candidate_max_chars,
+        "agent.memory.reranker.local.model_source": config.memory.reranker.local.model_source,
+        "agent.memory.reranker.local.managed_model_id": config.memory.reranker.local.managed_model_id,
+        "agent.memory.reranker.local.model_file_path": config.memory.reranker.local.model_file_path,
+        "agent.memory.reranker.local.max_context_tokens": config.memory.reranker.local.max_context_tokens,
+        "agent.memory.reranker.remote.provider_id": config.memory.reranker.remote.provider_id,
+        "agent.memory.reranker.remote.model": config.memory.reranker.remote.model,
         "agent.memory.l0.enabled": config.memory.l0.enabled,
         "agent.memory.l0.checkpoint_interval_seconds": config.memory.l0.checkpoint_interval_seconds,
         "agent.memory.l0.runtime_replay_include_l0_only": config.memory.l0.runtime_replay_include_l0_only,

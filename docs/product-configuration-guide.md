@@ -227,6 +227,7 @@ Product expectations:
 - quick onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
 - general memory settings should expose the managed local storage directory used for memory databases
+- general memory settings should also expose retrieval reranker controls, including whether LLM reranking is enabled, whether it runs locally or remotely, and where managed local reranker models are stored
 - vector writes should always stay on the async sqlite path rather than being user-configurable
 - the Knowledge Memory workspace should let operators manually trigger immediate L2 microbatch generation for all currently staged batches
 
@@ -235,6 +236,10 @@ The current settings surface should support at least:
 - enable or disable `L0` through `L4`
 - configure L0 checkpoint interval
 - configure L1 retention window
+- enable or disable memory retrieval reranking
+- choose reranker execution mode (`local` or `remote`)
+- configure reranker candidate count and timeout budget
+- configure local reranker model reference (`managed` cache ID or external file path)
 - enable or disable T1 importance scoring
 - enable or disable L2 LLM extraction
 - enable or disable L3 LLM reflection
@@ -259,6 +264,7 @@ Current storage implementation notes:
 - L0/L2/L3/L4 are consolidated into `data/memory/memory.db` (multi-table layout).
 - Layer vectors are stored per layer (`L1/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
+- Managed local reranker assets belong under `~/.magi/cache/models/rerank/<managed_model_id>/`; externally referenced local reranker files stay in place and are referenced by path only.
 - `scenario_prompts.db` lives under `~/.magi/data/app/`; `llm_usage.db` lives under `~/.magi/runtime/`.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.

@@ -500,7 +500,8 @@
           "pipelineDescription": "This area controls where memory databases and vector indexes are stored on disk.",
           "embeddingModelTitle": "Current embedding model",
           "embeddingModelDescription": "Semantic retrieval in L1 and L3 depends on the embedding model configured here.",
-          "embeddingModelEmpty": "No embedding model is configured yet. Select one first under Model Configuration > Model Selection."
+          "embeddingModelEmpty": "No embedding model is configured yet. Select one first under Model Configuration > Model Selection.",
+          "rerankerDescription": "Optionally add a retrieval reranker stage for higher precision on top candidates. If the LLM configuration is incomplete, runtime can fall back to heuristic reranking."
         },
         "workbench": {
           "description": "Configure short-lived workbench memory retention and recovery cadence so runtime context can be checkpointed and replayed safely."
@@ -532,6 +533,69 @@
           "description": "Set the local directory that stores memory databases and vector indexes. Vector writes always use the async sqlite path.",
           "placeholder": "~/.magi/data/memories",
           "summary_hint": "Includes the L1 event store and the shared memory database."
+        },
+        "reranker_enabled": {
+          "label": "Enable LLM reranking",
+          "description": "Add an optional reranker stage after retrieval fusion so top candidates can be re-evaluated before final ranking."
+        },
+        "reranker_backend": {
+          "label": "Reranker backend"
+        },
+        "reranker_mode": {
+          "label": "Reranker mode"
+        },
+        "reranker_layers": {
+          "label": "Apply reranking to layers",
+          "l1": {
+            "label": "L1 event memory",
+            "description": "Best for long event streams and chunk-folded semantic matches."
+          },
+          "l3": {
+            "label": "L3 reflection memory",
+            "description": "Useful when multiple summaries are semantically close and need another pass."
+          },
+          "l4": {
+            "label": "L4 skill memory",
+            "description": "Enable only when procedural retrieval needs another precision pass."
+          }
+        },
+        "reranker_top_k": {
+          "label": "Rerank top K candidates"
+        },
+        "reranker_timeout_seconds": {
+          "label": "Reranker timeout (seconds)"
+        },
+        "reranker_candidate_max_chars": {
+          "label": "Candidate text limit (chars)"
+        },
+        "reranker_local_model_source": {
+          "label": "Local model source"
+        },
+        "reranker_local_managed_model_id": {
+          "label": "Managed model ID",
+          "placeholder": "for example bge-reranker-v2"
+        },
+        "reranker_local_model_file_path": {
+          "label": "Local model file",
+          "placeholder": "/Users/you/models/reranker/model.gguf"
+        },
+        "reranker_local_max_context_tokens": {
+          "label": "Local model context tokens"
+        },
+        "reranker_local_managed_cache_path": {
+          "label": "Managed local model cache",
+          "description": "Managed local reranker assets are stored under ~/.magi/cache/models/rerank/."
+        },
+        "reranker_local_managed_model_path": {
+          "label": "Resolved managed model path"
+        },
+        "reranker_remote_provider_id": {
+          "label": "Remote provider ID",
+          "placeholder": "for example openai"
+        },
+        "reranker_remote_model": {
+          "label": "Remote model",
+          "placeholder": "for example gpt-4o-mini"
         },
         "enable_l0": {
           "label": "Enable working context",
@@ -606,6 +670,17 @@
           "label": "Enable skill extraction",
           "description": "Promote repeated success or failure patterns into future procedural guidance."
         }
+      },
+      "options": {
+        "reranker_backend": {
+          "heuristic": "Heuristic",
+          "llm": "LLM"
+        },
+        "reranker_local_model_source": {
+          "managed": "Managed cache",
+          "external": "External file"
+        },
+        "reranker_disabled": "Disabled"
       }
     },
     "options": {

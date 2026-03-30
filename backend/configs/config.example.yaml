@@ -17,6 +17,22 @@ agent:
 
   memory:
     db_path: "~/.magi/data/memories"
+    reranker:
+      enabled: false
+      backend: "heuristic"
+      mode: "local"
+      layers: ["L1", "L3"]
+      top_k: 8
+      timeout_seconds: 0.8
+      candidate_max_chars: 500
+      local:
+        model_source: "managed"
+        managed_model_id: null
+        model_file_path: null
+        max_context_tokens: 2048
+      remote:
+        provider_id: ""
+        model: ""
 
     l0:
       enabled: true

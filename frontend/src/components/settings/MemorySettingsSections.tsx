@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { FolderOpen } from 'lucide-react';
 
 import type { SystemConfig } from '@/api/modules/config';
-import { NumberField } from '@/components/settings/form-fields';
+import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -16,6 +16,9 @@ interface MemorySettingsSectionProps {
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
   hasEmbeddingModel: boolean;
 }
+
+const MANAGED_RERANKER_MODELS_PATH = '~/.magi/cache/models/rerank';
+const MEMORY_RERANKER_LAYER_ORDER = ['L1', 'L3', 'L4'] as const;
 
 function MemorySectionShell({
   children,
@@ -112,6 +115,25 @@ export function MemoryGeneralSettingsSection({
   const embeddingSelection = draftConfig.llm?.selections?.embedding;
   const [pickingMemoryStoragePath, setPickingMemoryStoragePath] = useState(false);
   const memoryStoragePath = draftConfig.memory.db_path ?? '';
+  const rerankerConfig = draftConfig.memory.reranker;
+  const managedModelPath = rerankerConfig.local.managed_model_id?.trim()
+    ? `${MANAGED_RERANKER_MODELS_PATH}/${rerankerConfig.local.managed_model_id.trim()}`
+    : `${MANAGED_RERANKER_MODELS_PATH}/<managed_model_id>`;
+
+  const patchReranker = (updater: (draft: SystemConfig['memory']['reranker']) => void) => {
+    patchDraftConfig((draft) => {
+      updater(draft.memory.reranker);
+    });
+  };
+
+  const updateRerankerLayer = (layer: (typeof MEMORY_RERANKER_LAYER_ORDER)[number], enabled: boolean) => {
+    patchReranker((reranker) => {
+      const nextLayers = enabled
+        ? [...reranker.layers, layer]
+        : reranker.layers.filter((item) => item !== layer);
+      reranker.layers = MEMORY_RERANKER_LAYER_ORDER.filter((item) => nextLayers.includes(item));
+    });
+  };
 
   const handlePickMemoryStoragePath = async () => {
     setPickingMemoryStoragePath(true);
@@ -165,6 +187,224 @@ export function MemoryGeneralSettingsSection({
         </MemoryGroup>
 
         <MemoryGroup>
+          <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+            <MemorySwitchRow
+              label={t('settings.memory.fields.reranker_enabled.label')}
+              description={t('settings.memory.fields.reranker_enabled.description')}
+              checked={rerankerConfig.enabled}
+              onCheckedChange={(checked) => patchReranker((reranker) => {
+                reranker.enabled = checked;
+              })}
+            />
+
+            {rerankerConfig.enabled ? (
+              <div className="grid gap-6 py-4 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <LabeledSelectField
+                    label={t('settings.memory.fields.reranker_backend.label')}
+                    ariaLabel={t('settings.memory.fields.reranker_backend.label')}
+                    value={rerankerConfig.backend}
+                    options={[
+                      {
+                        label: t('settings.memory.options.reranker_backend.heuristic'),
+                        value: 'heuristic',
+                      },
+                      {
+                        label: t('settings.memory.options.reranker_backend.llm'),
+                        value: 'llm',
+                      },
+                    ]}
+                    onChange={(value) => patchReranker((reranker) => {
+                      reranker.backend = value as typeof reranker.backend;
+                    })}
+                  />
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <NumberField
+                      label={t('settings.memory.fields.reranker_top_k.label')}
+                      value={rerankerConfig.top_k}
+                      min={1}
+                      onChange={(value) => patchReranker((reranker) => {
+                        reranker.top_k = value;
+                      })}
+                    />
+                    <NumberField
+                      label={t('settings.memory.fields.reranker_timeout_seconds.label')}
+                      value={rerankerConfig.timeout_seconds}
+                      min={0.1}
+                      step={0.1}
+                      onChange={(value) => patchReranker((reranker) => {
+                        reranker.timeout_seconds = value;
+                      })}
+                    />
+                  </div>
+
+                  <NumberField
+                    label={t('settings.memory.fields.reranker_candidate_max_chars.label')}
+                    value={rerankerConfig.candidate_max_chars}
+                    min={50}
+                    onChange={(value) => patchReranker((reranker) => {
+                      reranker.candidate_max_chars = value;
+                    })}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-md border border-[hsl(var(--settings-subnav-border)/0.6)] px-4 py-3">
+                    <div className="text-sm font-medium text-foreground">
+                      {t('settings.memory.fields.reranker_layers.label')}
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      <MemorySwitchRow
+                        label={t('settings.memory.fields.reranker_layers.l1.label')}
+                        description={t('settings.memory.fields.reranker_layers.l1.description')}
+                        checked={rerankerConfig.layers.includes('L1')}
+                        onCheckedChange={(checked) => updateRerankerLayer('L1', checked)}
+                      />
+                      <MemorySwitchRow
+                        label={t('settings.memory.fields.reranker_layers.l3.label')}
+                        description={t('settings.memory.fields.reranker_layers.l3.description')}
+                        checked={rerankerConfig.layers.includes('L3')}
+                        onCheckedChange={(checked) => updateRerankerLayer('L3', checked)}
+                      />
+                      <MemorySwitchRow
+                        label={t('settings.memory.fields.reranker_layers.l4.label')}
+                        description={t('settings.memory.fields.reranker_layers.l4.description')}
+                        checked={rerankerConfig.layers.includes('L4')}
+                        onCheckedChange={(checked) => updateRerankerLayer('L4', checked)}
+                      />
+                    </div>
+                  </div>
+
+                  {rerankerConfig.backend === 'llm' ? (
+                    <LabeledSelectField
+                      label={t('settings.memory.fields.reranker_mode.label')}
+                      ariaLabel={t('settings.memory.fields.reranker_mode.label')}
+                      value={rerankerConfig.mode}
+                      options={[
+                        { label: t('settings.options.local'), value: 'local' },
+                        { label: t('settings.options.remote'), value: 'remote' },
+                      ]}
+                      onChange={(value) => patchReranker((reranker) => {
+                        reranker.mode = value as typeof reranker.mode;
+                      })}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {rerankerConfig.enabled && rerankerConfig.backend === 'llm' && rerankerConfig.mode === 'local' ? (
+              <div className="grid gap-6 border-t border-[hsl(var(--settings-subnav-border)/0.6)] py-4 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <LabeledSelectField
+                    label={t('settings.memory.fields.reranker_local_model_source.label')}
+                    ariaLabel={t('settings.memory.fields.reranker_local_model_source.label')}
+                    value={rerankerConfig.local.model_source}
+                    options={[
+                      {
+                        label: t('settings.memory.options.reranker_local_model_source.managed'),
+                        value: 'managed',
+                      },
+                      {
+                        label: t('settings.memory.options.reranker_local_model_source.external'),
+                        value: 'external',
+                      },
+                    ]}
+                    onChange={(value) => patchReranker((reranker) => {
+                      reranker.local.model_source = value as typeof reranker.local.model_source;
+                    })}
+                  />
+
+                  {rerankerConfig.local.model_source === 'managed' ? (
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium text-foreground">
+                        {t('settings.memory.fields.reranker_local_managed_model_id.label')}
+                      </span>
+                      <Input
+                        aria-label={t('settings.memory.fields.reranker_local_managed_model_id.label')}
+                        value={rerankerConfig.local.managed_model_id ?? ''}
+                        onChange={(event) => patchReranker((reranker) => {
+                          reranker.local.managed_model_id = event.target.value || null;
+                        })}
+                        placeholder={t('settings.memory.fields.reranker_local_managed_model_id.placeholder')}
+                      />
+                    </label>
+                  ) : (
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium text-foreground">
+                        {t('settings.memory.fields.reranker_local_model_file_path.label')}
+                      </span>
+                      <Input
+                        aria-label={t('settings.memory.fields.reranker_local_model_file_path.label')}
+                        value={rerankerConfig.local.model_file_path ?? ''}
+                        onChange={(event) => patchReranker((reranker) => {
+                          reranker.local.model_file_path = event.target.value || null;
+                        })}
+                        placeholder={t('settings.memory.fields.reranker_local_model_file_path.placeholder')}
+                      />
+                    </label>
+                  )}
+
+                  <NumberField
+                    label={t('settings.memory.fields.reranker_local_max_context_tokens.label')}
+                    value={rerankerConfig.local.max_context_tokens}
+                    min={1}
+                    onChange={(value) => patchReranker((reranker) => {
+                      reranker.local.max_context_tokens = value;
+                    })}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <MemoryMetricRow
+                    label={t('settings.memory.fields.reranker_local_managed_cache_path.label')}
+                    value={MANAGED_RERANKER_MODELS_PATH}
+                    hint={t('settings.memory.fields.reranker_local_managed_cache_path.description')}
+                  />
+                  {rerankerConfig.local.model_source === 'managed' ? (
+                    <MemoryMetricRow
+                      label={t('settings.memory.fields.reranker_local_managed_model_path.label')}
+                      value={managedModelPath}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {rerankerConfig.enabled && rerankerConfig.backend === 'llm' && rerankerConfig.mode === 'remote' ? (
+              <div className="grid gap-6 border-t border-[hsl(var(--settings-subnav-border)/0.6)] py-4 lg:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-foreground">
+                    {t('settings.memory.fields.reranker_remote_provider_id.label')}
+                  </span>
+                  <Input
+                    aria-label={t('settings.memory.fields.reranker_remote_provider_id.label')}
+                    value={rerankerConfig.remote.provider_id}
+                    onChange={(event) => patchReranker((reranker) => {
+                      reranker.remote.provider_id = event.target.value;
+                    })}
+                    placeholder={t('settings.memory.fields.reranker_remote_provider_id.placeholder')}
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-foreground">
+                    {t('settings.memory.fields.reranker_remote_model.label')}
+                  </span>
+                  <Input
+                    aria-label={t('settings.memory.fields.reranker_remote_model.label')}
+                    value={rerankerConfig.remote.model}
+                    onChange={(event) => patchReranker((reranker) => {
+                      reranker.remote.model = event.target.value;
+                    })}
+                    placeholder={t('settings.memory.fields.reranker_remote_model.placeholder')}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
+
           {hasEmbeddingModel ? (
             <div>
               <MemoryMetricRow
@@ -179,6 +419,19 @@ export function MemoryGeneralSettingsSection({
                 label={t('settings.memory.fields.db_path.label')}
                 value={memoryStoragePath || '-'}
                 hint={t('settings.memory.fields.db_path.summary_hint')}
+              />
+              <MemoryMetricRow
+                label={t('settings.memory.fields.reranker_enabled.label')}
+                value={
+                  rerankerConfig.enabled
+                    ? t(`settings.memory.options.reranker_backend.${rerankerConfig.backend}`)
+                    : t('settings.memory.options.reranker_disabled')
+                }
+                hint={t('settings.memory.fields.reranker_local_managed_cache_path.description')}
+              />
+              <MemoryMetricRow
+                label={t('settings.memory.fields.reranker_local_managed_cache_path.label')}
+                value={MANAGED_RERANKER_MODELS_PATH}
               />
             </div>
           ) : (

@@ -309,8 +309,38 @@ export interface MemoryL4Config {
   skill_extraction_enabled: boolean;
 }
 
+export type MemoryRerankerBackend = 'heuristic' | 'llm';
+export type MemoryRerankerMode = 'local' | 'remote';
+export type MemoryRerankerLayer = 'L1' | 'L3' | 'L4';
+export type MemoryRerankerLocalModelSource = 'managed' | 'external';
+
+export interface MemoryRerankerLocalConfig {
+  model_source: MemoryRerankerLocalModelSource;
+  managed_model_id: string | null;
+  model_file_path: string | null;
+  max_context_tokens: number;
+}
+
+export interface MemoryRerankerRemoteConfig {
+  provider_id: string;
+  model: string;
+}
+
+export interface MemoryRerankerConfig {
+  enabled: boolean;
+  backend: MemoryRerankerBackend;
+  mode: MemoryRerankerMode;
+  layers: MemoryRerankerLayer[];
+  top_k: number;
+  timeout_seconds: number;
+  candidate_max_chars: number;
+  local: MemoryRerankerLocalConfig;
+  remote: MemoryRerankerRemoteConfig;
+}
+
 export interface MemoryConfig {
   db_path?: string;
+  reranker: MemoryRerankerConfig;
   l0: MemoryL0Config;
   l1: MemoryL1Config;
   l2: MemoryL2Config;
@@ -442,6 +472,25 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
   memory: {
     db_path: '~/.magi/data/memories',
+    reranker: {
+      enabled: false,
+      backend: 'heuristic',
+      mode: 'local',
+      layers: ['L1', 'L3'],
+      top_k: 8,
+      timeout_seconds: 0.8,
+      candidate_max_chars: 500,
+      local: {
+        model_source: 'managed',
+        managed_model_id: null,
+        model_file_path: null,
+        max_context_tokens: 2048,
+      },
+      remote: {
+        provider_id: '',
+        model: '',
+      },
+    },
     l0: {
       enabled: true,
       checkpoint_interval_seconds: 30,

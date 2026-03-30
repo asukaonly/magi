@@ -101,6 +101,35 @@ class EmbeddingBackend(str, Enum):
     OPENAI = "openai"
 
 
+class MemoryRerankerBackend(str, Enum):
+    """Retrieval reranker backend."""
+
+    HEURISTIC = "heuristic"
+    LLM = "llm"
+
+
+class MemoryRerankerMode(str, Enum):
+    """Retrieval reranker execution mode."""
+
+    LOCAL = "local"
+    REMOTE = "remote"
+
+
+class MemoryRerankerLayer(str, Enum):
+    """Memory layers that can participate in reranking."""
+
+    L1 = "L1"
+    L3 = "L3"
+    L4 = "L4"
+
+
+class MemoryRerankerLocalModelSource(str, Enum):
+    """How a local reranker model is referenced."""
+
+    MANAGED = "managed"
+    EXTERNAL = "external"
+
+
 class TimelineSyncMode(str, Enum):
     """Timeline source sync mode."""
 
@@ -306,11 +335,44 @@ class MemoryL4Settings(BaseModel):
     skill_extraction_enabled: bool = Field(default=True)
 
 
+class MemoryRerankerLocalSettings(BaseModel):
+    """Local reranker model settings."""
+
+    model_source: MemoryRerankerLocalModelSource = Field(default=MemoryRerankerLocalModelSource.MANAGED)
+    managed_model_id: Optional[str] = Field(default=None)
+    model_file_path: Optional[str] = Field(default=None)
+    max_context_tokens: int = Field(default=2048, ge=1)
+
+
+class MemoryRerankerRemoteSettings(BaseModel):
+    """Remote reranker model settings."""
+
+    provider_id: str = Field(default="")
+    model: str = Field(default="")
+
+
+class MemoryRerankerSettings(BaseModel):
+    """Shared retrieval reranker settings."""
+
+    enabled: bool = Field(default=False)
+    backend: MemoryRerankerBackend = Field(default=MemoryRerankerBackend.HEURISTIC)
+    mode: MemoryRerankerMode = Field(default=MemoryRerankerMode.LOCAL)
+    layers: List[MemoryRerankerLayer] = Field(
+        default_factory=lambda: [MemoryRerankerLayer.L1, MemoryRerankerLayer.L3]
+    )
+    top_k: int = Field(default=8, ge=1)
+    timeout_seconds: float = Field(default=0.8, ge=0.1)
+    candidate_max_chars: int = Field(default=500, ge=50)
+    local: MemoryRerankerLocalSettings = Field(default_factory=MemoryRerankerLocalSettings)
+    remote: MemoryRerankerRemoteSettings = Field(default_factory=MemoryRerankerRemoteSettings)
+
+
 class MemorySettings(BaseModel):
     """Memory configuration."""
     db_path: str = Field(default="~/.magi/data/memory")
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
     l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)
     l2: MemoryL2Settings = Field(default_factory=MemoryL2Settings)
