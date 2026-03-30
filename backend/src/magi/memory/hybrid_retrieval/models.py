@@ -207,6 +207,10 @@ class RetrievalConfig:
     rrf_weight_bm25: float = 1.0
     rrf_weight_vector: float = 1.0
     rrf_weight_keyword: float = 0.5
+    reranker_enabled: bool = True
+    reranker_backend: Literal["noop", "heuristic"] = "heuristic"
+    reranker_top_k: int = 15
+    reranker_layers: tuple[str, ...] = ("L1", "L3", "L4")
 
     # ResultFusion
     default_max_tokens: int = 8192

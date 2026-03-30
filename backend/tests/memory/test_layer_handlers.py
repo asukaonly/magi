@@ -1030,6 +1030,45 @@ class TestL3Handler:
         assert results == []
         store.bm25_search.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_reranks_specific_summary_above_generic_summary(self, store, monkeypatch):
+        handler = L3Handler(store)
+        conds = L3Conditions(content_query="career gps issue", limit=2)
+
+        async def _bm25_path(_query, _summary_type, _summary_category, _limit):
+            return ["summary-generic", "summary-specific"]
+
+        async def _vector_path(_query, _summary_type, _summary_category, _limit):
+            return []
+
+        async def _keyword_path(_query, _summary_type, _summary_category, _limit):
+            return ["summary-generic", "summary-specific"]
+
+        async def _fetch_by_ids(_summary_ids, _summary_type, _summary_category):
+            return [
+                {
+                    "summary_id": "summary-generic",
+                    "content": "general weekly summary with broad advice",
+                    "updated_at": 2000.0,
+                },
+                {
+                    "summary_id": "summary-specific",
+                    "content": "career gps issue summary with concrete recall details",
+                    "updated_at": 1900.0,
+                    "matched_chunks": [{"chunk_id": "summary-specific::chunk-0", "distance": 0.03}],
+                },
+            ]
+
+        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
+        monkeypatch.setattr(handler, "_vector_path", _vector_path)
+        monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
+        monkeypatch.setattr(handler, "_fetch_by_ids", _fetch_by_ids)
+
+        results = await handler.execute(conds)
+
+        assert [item["summary_id"] for item in results] == ["summary-specific", "summary-generic"]
+        assert "retrieval_trace" in results[0]
+
 
 # -----------------------------------------------------------------------
 # L4Handler
@@ -1054,6 +1093,49 @@ class TestL4Handler:
         store.bm25_search.assert_not_called()
         results = await handler.execute(conds)
         assert results == []
+
+    @pytest.mark.asyncio
+    async def test_reranks_specific_skill_above_generic_skill(self, store, monkeypatch):
+        handler = L4Handler(store)
+        conds = L4Conditions(content_query="browser recovery workflow", limit=2)
+
+        async def _bm25_path(_query, _limit):
+            return ["skill-generic", "skill-specific"]
+
+        async def _vector_path(_query, _limit):
+            return []
+
+        async def _keyword_path(_query, _limit):
+            return ["skill-generic", "skill-specific"]
+
+        async def _fetch_by_ids(_skill_ids):
+            return [
+                {
+                    "skill_id": "skill-generic",
+                    "skill_name": "workflow",
+                    "skill_category": "workflow",
+                    "optimized_prompt": "general workflow helper",
+                    "updated_at": 2000.0,
+                },
+                {
+                    "skill_id": "skill-specific",
+                    "skill_name": "browser-workflow",
+                    "skill_category": "workflow",
+                    "optimized_prompt": "browser recovery workflow with concrete recovery checklist",
+                    "updated_at": 1900.0,
+                    "matched_chunks": [{"chunk_id": "skill-specific::chunk-0", "distance": 0.02}],
+                },
+            ]
+
+        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
+        monkeypatch.setattr(handler, "_vector_path", _vector_path)
+        monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
+        monkeypatch.setattr(handler, "_fetch_by_ids", _fetch_by_ids)
+
+        results = await handler.execute(conds)
+
+        assert [item["skill_id"] for item in results] == ["skill-specific", "skill-generic"]
+        assert "retrieval_trace" in results[0]
 
 
 # -----------------------------------------------------------------------

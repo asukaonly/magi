@@ -179,6 +179,7 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 - 支持向量检索和关键词检索
 - 保留 source-side identity 和 business idempotency
 - 当前向量索引以 `event` 为父对象、以 `chunk` 为检索粒度：长文本会先切成多个重叠 chunk 建立向量，再在检索阶段折叠回父事件
+- 当前 `L1` / `L3` / `L4` 的 hybrid retrieval 在 `RRF` 之后还会经过统一 reranker 阶段；第一版使用共享 heuristic reranker，对 query overlap、命中 chunk 和更接近事实回答的记录做层内精排
 
 典型例子：
 

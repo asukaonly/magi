@@ -8,18 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ...core.sqlite import sqlite_connection_async
 from .answerability import (
-    extract_query_phrases,
     extract_query_tokens,
     extract_quoted_spans,
-    score_eventness,
-    score_generic_guidance_penalty,
-    score_temporal_anchor,
 )
 from .models import (
     L1Conditions,
@@ -32,6 +27,7 @@ from .models import (
     SemanticConstraint,
     TimeRange,
 )
+from .reranker import build_retrieval_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +63,7 @@ class L1Handler:
     def __init__(self, l1_store: Any, config: Optional[RetrievalConfig] = None) -> None:
         self._store = l1_store
         self._config = config or RetrievalConfig()
+        self._reranker = build_retrieval_reranker(self._config)
 
     async def execute(
         self,
@@ -122,7 +119,8 @@ class L1Handler:
             user_id=user_id,
         )
 
-        reranked = self._rerank_results(
+        reranked = self._reranker.rerank(
+            layer="L1",
             results=results,
             query=conditions.content_query,
             fused_scores=dict(fused),
@@ -272,113 +270,6 @@ class L1Handler:
                 continue
             filtered.append(r)
         return filtered
-
-    def _rerank_results(
-        self,
-        *,
-        results: List[Dict[str, Any]],
-        query: str,
-        fused_scores: Dict[str, float],
-    ) -> List[Dict[str, Any]]:
-        """Apply answerability-aware reranking to hydrated L1 events."""
-        if not results:
-            return []
-
-        query_tokens = extract_query_tokens(query)
-        query_phrases = extract_query_phrases(query_tokens)
-        quoted_phrases = extract_quoted_spans(query)
-
-        scored: List[tuple[float, Dict[str, Any]]] = []
-        for event in results:
-            score, trace = self._score_event(
-                event=event,
-                query_tokens=query_tokens,
-                query_phrases=query_phrases,
-                quoted_phrases=quoted_phrases,
-                base_rrf_score=float(fused_scores.get(str(event.get("event_id") or ""), 0.0)),
-            )
-            enriched = dict(event)
-            enriched["retrieval_score"] = score
-            enriched["retrieval_trace"] = trace
-            scored.append((score, enriched))
-
-        scored.sort(
-            key=lambda item: (
-                item[0],
-                float(item[1].get("timestamp") or 0.0),
-            ),
-            reverse=True,
-        )
-        return [item for _, item in scored]
-
-    def _score_event(
-        self,
-        *,
-        event: Dict[str, Any],
-        query_tokens: List[str],
-        query_phrases: List[str],
-        quoted_phrases: List[str],
-        base_rrf_score: float,
-    ) -> tuple[float, Dict[str, Any]]:
-        """Score a single hydrated event for answerability-oriented ranking."""
-        content = str(event.get("content") or "")
-        lowered = content.lower()
-        content_tokens = set(extract_query_tokens(content))
-        matched_tokens = [token for token in query_tokens if token in content_tokens]
-        phrase_hits = [phrase for phrase in query_phrases if phrase and phrase in lowered]
-        quoted_phrase_hits = [phrase for phrase in quoted_phrases if phrase and phrase in lowered]
-
-        author_type = str(event.get("author_type") or "").strip().lower()
-        role_bias = 0.0
-        if author_type == "user":
-            role_bias = 0.35
-        elif author_type == "assistant":
-            role_bias = -0.1
-
-        token_overlap = (len(matched_tokens) / len(query_tokens)) if query_tokens else 0.0
-        phrase_score = min(len(phrase_hits), 3) * 0.25
-        quoted_phrase_weight = 0.45 if author_type == "user" else 0.15
-        quoted_phrase_score = min(len(quoted_phrase_hits), 2) * quoted_phrase_weight
-        fact_density = 0.0
-        if re.search(r"\b\d{1,2}[/-]\d{1,2}\b", content) or re.search(r"\b\d{1,2}:\d{2}\b", content):
-            fact_density += 0.15
-        if re.search(r"\bgps\b", lowered):
-            fact_density += 0.1
-        eventness_score = score_eventness(content, author_type=author_type)
-        temporal_anchor_score = score_temporal_anchor(content)
-
-        verbosity_penalty = 0.0
-        if author_type == "assistant" and len(content) > 240:
-            verbosity_penalty = min((len(content) - 240) / 600.0, 0.25)
-        guidance_penalty = score_generic_guidance_penalty(content, author_type=author_type)
-
-        final_score = (
-            base_rrf_score
-            + role_bias
-            + token_overlap
-            + phrase_score
-            + quoted_phrase_score
-            + fact_density
-            + eventness_score
-            + temporal_anchor_score
-            - verbosity_penalty
-            - guidance_penalty
-        )
-        trace = {
-            "base_rrf_score": round(base_rrf_score, 6),
-            "role_bias": role_bias,
-            "token_overlap": round(token_overlap, 6),
-            "phrase_hits": phrase_hits,
-            "quoted_phrase_hits": quoted_phrase_hits,
-            "fact_density": fact_density,
-            "eventness_score": eventness_score,
-            "temporal_anchor_score": temporal_anchor_score,
-            "verbosity_penalty": round(verbosity_penalty, 6),
-            "generic_guidance_penalty": round(guidance_penalty, 6),
-            "matched_tokens": matched_tokens,
-        }
-        return final_score, trace
-
 
 class L2Handler:
     """Execute L2 knowledge graph queries from structured conditions."""
@@ -1194,6 +1085,7 @@ class L3Handler:
     def __init__(self, l3_store: Any, config: Optional[RetrievalConfig] = None) -> None:
         self._store = l3_store
         self._config = config or RetrievalConfig()
+        self._reranker = build_retrieval_reranker(self._config)
 
     async def execute(
         self,
@@ -1245,7 +1137,13 @@ class L3Handler:
         results = await self._fetch_by_ids(top_ids, summary_type, summary_category)
         if time_range and results:
             results = self._filter_by_time(results, time_range)
-        return results[:conditions.limit]
+        reranked = self._reranker.rerank(
+            layer="L3",
+            results=results,
+            query=conditions.content_query,
+            fused_scores=dict(fused),
+        )
+        return reranked[:conditions.limit]
 
     async def _bm25_path(
         self,
@@ -1357,6 +1255,7 @@ class L4Handler:
     def __init__(self, l4_store: Any, config: Optional[RetrievalConfig] = None) -> None:
         self._store = l4_store
         self._config = config or RetrievalConfig()
+        self._reranker = build_retrieval_reranker(self._config)
 
     async def execute(
         self,
@@ -1398,7 +1297,13 @@ class L4Handler:
             return []
 
         results = await self._fetch_by_ids(top_ids)
-        return results[:conditions.limit]
+        reranked = self._reranker.rerank(
+            layer="L4",
+            results=results,
+            query=conditions.content_query,
+            fused_scores=dict(fused),
+        )
+        return reranked[:conditions.limit]
 
     async def _bm25_path(self, query: str, limit: int) -> List[str]:
         try:
