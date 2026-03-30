@@ -191,6 +191,10 @@ def _infer_answer_kind(*, payload: RetrievalPayload, request: RetrievalQuery) ->
             if answer_kind:
                 return answer_kind
 
+    findings_answer_kind = _infer_answer_kind_from_relationships(payload.l2_relationships)
+    if findings_answer_kind is not None:
+        return findings_answer_kind
+
     query_lower = str(request.query or "").strip().lower()
     if any(token in query_lower for token in ("up主", "up", "博主", "youtuber", "主播", "creator", "频道", "channel")):
         return "creator"
@@ -201,6 +205,37 @@ def _infer_answer_kind(*, payload: RetrievalPayload, request: RetrievalQuery) ->
     if any(token in query_lower for token in ("软件", "网站", "app", "平台", "b站", "bilibili", "youtube")):
         return "software"
     return "unknown"
+
+
+def _infer_answer_kind_from_relationships(items: list[dict[str, Any]]) -> str | None:
+    kind_by_entity_type = {
+        "topic": "topic",
+        "software": "software",
+        "place": "place",
+        "person": "creator",
+        "group": "creator",
+        "organization": "creator",
+        "presence": "creator",
+    }
+    inferred_kinds: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        object_value = str(item.get("object") or item.get("object_id") or "").strip()
+        if ":" not in object_value:
+            continue
+        entity_type, _, _ = object_value.partition(":")
+        answer_kind = kind_by_entity_type.get(entity_type)
+        if answer_kind:
+            inferred_kinds.append(answer_kind)
+
+    if not inferred_kinds:
+        return None
+
+    unique_kinds = list(dict.fromkeys(inferred_kinds))
+    if len(unique_kinds) == 1:
+        return unique_kinds[0]
+    return None
 
 
 def _infer_query_polarity(query: str) -> str:

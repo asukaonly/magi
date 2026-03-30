@@ -253,3 +253,89 @@ def test_project_historical_recall_summarizes_top_topics_for_list_preference_que
 
     assert projected.status == "found"
     assert projected.summary == "你对anime题材、mystery题材感兴趣。"
+
+
+def test_project_historical_recall_prefers_semantic_frame_over_misleading_query_tokens() -> None:
+    payload = RetrievalPayload(
+        l2_relationships=[
+            {
+                "triple_id": "triple-8",
+                "subject_id": "user:local_user",
+                "predicate": "LIKES",
+                "object_id": "topic:anime",
+                "confidence": 0.95,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+            {
+                "triple_id": "triple-9",
+                "subject_id": "user:local_user",
+                "predicate": "INTERESTED_IN",
+                "object_id": "topic:mystery",
+                "confidence": 0.80,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+        ],
+        trace={
+            "primary_count": 2,
+            "l2_query_trace": {
+                "semantic_frame": {
+                    "answer_kind": "topic",
+                }
+            },
+        },
+    )
+    request = RetrievalQuery(
+        query="上次我看的主播他说的主题是什么",
+        user_id="local_user",
+        session_id="session-1",
+        time_range={},
+        recall_intent="preference_recall",
+        query_mode="detail",
+    )
+
+    projected = project_historical_recall(payload=payload, request=request)
+
+    assert projected.summary == "你对mystery题材感兴趣。"
+    assert projected.findings[0]["statement"] == "user:local_user INTERESTED_IN topic:mystery"
+    assert projected.findings[1]["statement"] == "user:local_user LIKES topic:anime"
+
+
+def test_project_historical_recall_infers_answer_kind_from_findings_before_query_tokens() -> None:
+    payload = RetrievalPayload(
+        l2_relationships=[
+            {
+                "triple_id": "triple-10",
+                "subject_id": "user:local_user",
+                "predicate": "LIKES",
+                "object_id": "topic:anime",
+                "confidence": 0.95,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+            {
+                "triple_id": "triple-11",
+                "subject_id": "user:local_user",
+                "predicate": "INTERESTED_IN",
+                "object_id": "topic:mystery",
+                "confidence": 0.80,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+        ],
+        trace={"primary_count": 2},
+    )
+    request = RetrievalQuery(
+        query="上次我看的主播他说的主题是什么",
+        user_id="local_user",
+        session_id="session-1",
+        time_range={},
+        recall_intent="preference_recall",
+        query_mode="detail",
+    )
+
+    projected = project_historical_recall(payload=payload, request=request)
+
+    assert projected.summary == "你对mystery题材感兴趣。"
+    assert projected.findings[0]["statement"] == "user:local_user INTERESTED_IN topic:mystery"
