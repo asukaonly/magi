@@ -10,10 +10,14 @@ from magi.memory.l0.contracts import L0ExecutionSummary, L0PromptWorkbenchProjec
 from magi.memory.hybrid_retrieval.models import (
     IntentDecision,
     L1Conditions,
+    L2Conditions,
+    L2SemanticFrame,
     LayerQueryPlan,
     RetrievalConfig,
     RetrievalPayload,
     RetrievalQuery,
+    SemanticConstraint,
+    TimeRange,
 )
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 
@@ -408,6 +412,73 @@ class TestServiceLayerRouting:
         assert result.trace["l2_entity_card_count"] == 0
         assert result.trace["l2_relationship_count"] == 1
         assert result.trace["l2_assertion_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_interaction_scoped_place_affinity_with_time_range_adds_l1_primary_plan(self):
+        mem = _make_memory(l1=_make_l1_store([]), l2=AsyncMock())
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        semantic_frame = L2SemanticFrame(
+            query_family="affinity",
+            subject_scope="self",
+            answer_kind="place",
+            answer_unit="place",
+            answer_shape="list",
+            polarity="positive",
+            constraints=[
+                SemanticConstraint(
+                    scope="interaction",
+                    facet="located_in",
+                    raw_value="杭州",
+                    resolved_entity_id="place:hangzhou",
+                ),
+                SemanticConstraint(
+                    scope="target",
+                    facet="category",
+                    raw_value="咖啡馆",
+                    resolved_facet_value="coffee_shop",
+                ),
+            ],
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[
+                    LayerQueryPlan(
+                        layer="L2",
+                        conditions=L2Conditions(
+                            content_query="最近在杭州的时候喜欢去哪些咖啡馆",
+                            subject_hint="self",
+                            predicate_family="preference",
+                            semantic_frame=semantic_frame,
+                        ),
+                        time_range=TimeRange(start=100.0, end=200.0),
+                        is_fallback=False,
+                    )
+                ],
+                time_range=TimeRange(start=100.0, end=200.0),
+                source="rule_fallback",
+                reasoning="test",
+            )
+        )
+
+        execute_plan_mock = AsyncMock(
+            side_effect=[
+                {"entity_cards": [], "relationships": [{"triple_id": "rel-1", "predicate": "VISITED"}], "assertions": []},
+                [{"event_id": "evt-1", "content": "Went to a cafe in Hangzhou", "timestamp": 150.0, "session_id": "s1"}],
+            ]
+        )
+        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=execute_plan_mock):
+            result = await svc.query(_make_request(query="最近在杭州的时候喜欢去哪些咖啡馆"))
+
+        assert [call.args[0].layer for call in execute_plan_mock.await_args_list[:2]] == ["L2", "L1"]
+        l1_plan = execute_plan_mock.await_args_list[1].args[0]
+        assert isinstance(l1_plan.conditions, L1Conditions)
+        assert l1_plan.time_range is not None
+        assert l1_plan.time_range.start == 100.0
+        assert l1_plan.time_range.end == 200.0
+        assert result.l2_relationships == [{"triple_id": "rel-1", "predicate": "VISITED"}]
+        assert result.l1_events == [
+            {"event_id": "evt-1", "content": "Went to a cafe in Hangzhou", "timestamp": 150.0, "session_id": "s1"}
+        ]
 
 
     @pytest.mark.asyncio

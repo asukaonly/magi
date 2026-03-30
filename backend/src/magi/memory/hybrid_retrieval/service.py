@@ -19,6 +19,7 @@ from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDeci
 from .models import (
     IntentDeciderInput,
     L1Conditions,
+    L2Conditions,
     LayerQueryPlan,
     RetrievalConfig,
     RetrievalPayload,
@@ -103,7 +104,11 @@ class HybridRetrievalService:
         payload.trace["intent_reasoning"] = decision.reasoning
 
         # 3. Execute primary plans in parallel
-        primary_plans = [p for p in decision.plans if not p.is_fallback]
+        primary_plans = self._augment_primary_plans(
+            [p for p in decision.plans if not p.is_fallback],
+            request=request,
+            payload=payload,
+        )
         if primary_plans:
             primary_results = await asyncio.gather(
                 *[
@@ -297,6 +302,66 @@ class HybridRetrievalService:
         )
         self._l3 = L3Handler(self._memory.l3, self._config) if getattr(self._memory, "l3", None) else None
         self._l4 = L4Handler(self._memory.l4, self._config) if getattr(self._memory, "l4", None) else None
+
+    def _augment_primary_plans(
+        self,
+        primary_plans: list[LayerQueryPlan],
+        *,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+    ) -> list[LayerQueryPlan]:
+        """Add service-level evidence plans for semantic affinity queries when needed."""
+        seen_signatures = {self._plan_signature(plan) for plan in primary_plans}
+        augmented_plans = list(primary_plans)
+        added_joint_l1_plan = False
+
+        for plan in primary_plans:
+            joint_l1_plan = self._build_joint_l1_evidence_plan(plan, request=request)
+            if joint_l1_plan is None:
+                continue
+            signature = self._plan_signature(joint_l1_plan)
+            if signature in seen_signatures:
+                continue
+            augmented_plans.append(joint_l1_plan)
+            seen_signatures.add(signature)
+            added_joint_l1_plan = True
+
+        if added_joint_l1_plan:
+            payload.trace["joint_l1_affinity_evidence"] = True
+
+        return augmented_plans
+
+    @staticmethod
+    def _build_joint_l1_evidence_plan(
+        plan: LayerQueryPlan,
+        *,
+        request: RetrievalQuery,
+    ) -> LayerQueryPlan | None:
+        """Build an auxiliary L1 evidence plan for time-bounded interaction affinity queries."""
+        if plan.layer != "L2" or not isinstance(plan.conditions, L2Conditions):
+            return None
+
+        semantic_frame = plan.conditions.semantic_frame
+        if semantic_frame is None:
+            return None
+        if semantic_frame.query_family != "affinity" or semantic_frame.answer_kind != "place":
+            return None
+        if not any(constraint.scope == "interaction" for constraint in semantic_frame.constraints):
+            return None
+        if plan.time_range is None or (plan.time_range.start is None and plan.time_range.end is None):
+            return None
+
+        return LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(
+                content_query=request.query,
+                source_filters=request.source_filters or None,
+                domain_filters=request.domain_filters or None,
+                limit=request.limit,
+            ),
+            time_range=plan.time_range,
+            is_fallback=False,
+        )
 
     async def _load_l0(self, session_id: str) -> List[Dict[str, Any]]:
         """Load L0 workbench data."""
