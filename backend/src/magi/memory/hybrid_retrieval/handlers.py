@@ -627,14 +627,58 @@ class L2Handler:
         status_filters: list[str] | None,
         user_id: str,
     ) -> list[dict[str, Any]] | None:
-        location_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="located_in")
-        location_entity_id = location_constraint.resolved_entity_id if location_constraint else None
-        if not location_entity_id:
+        target_location_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="located_in")
+        interaction_location_constraint = self._find_constraint(
+            semantic_frame.constraints,
+            scope="interaction",
+            facet="located_in",
+        )
+        target_location_entity_id = target_location_constraint.resolved_entity_id if target_location_constraint else None
+        interaction_location_entity_id = (
+            interaction_location_constraint.resolved_entity_id if interaction_location_constraint else None
+        )
+
+        if interaction_location_entity_id:
+            evidence_relationships = await self._store.get_relationships(
+                subject_id=f"user:{user_id}",
+                predicates=self._predicates_for_semantic_frame(semantic_frame),
+                object_types=["place"],
+                status_filters=status_filters,
+                limit=max(conditions.limit * 5, 20),
+            )
+            candidate_ids = self._collect_candidate_object_ids(evidence_relationships)
+            topology_edges = await self._store.get_relationships(
+                predicates=["LOCATED_IN"],
+                object_id=interaction_location_entity_id,
+                status_filters=status_filters,
+                limit=max(conditions.limit * 5, 20),
+            )
+            location_ids = set(self._collect_candidate_subject_ids(topology_edges))
+            candidate_ids = [candidate_id for candidate_id in candidate_ids if candidate_id in location_ids]
+            category_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="category")
+            category_value = category_constraint.resolved_facet_value if category_constraint else None
+            if candidate_ids and category_value:
+                candidate_ids = await self._store.filter_entity_ids_by_facet(
+                    entity_ids=candidate_ids,
+                    facet_name="category",
+                    facet_values=[category_value],
+                )
+            if not candidate_ids:
+                return []
+            return self._dedupe_relationships(
+                [
+                    relationship
+                    for relationship in evidence_relationships
+                    if str(relationship.get("object_id") or "").strip() in set(candidate_ids)
+                ]
+            )
+
+        if not target_location_entity_id:
             return None
 
         topology_edges = await self._store.get_relationships(
             predicates=["LOCATED_IN"],
-            object_id=location_entity_id,
+            object_id=target_location_entity_id,
             status_filters=status_filters,
             limit=max(conditions.limit * 5, 20),
         )
@@ -1033,6 +1077,17 @@ class L2Handler:
             if subject_id and subject_id not in seen:
                 seen.add(subject_id)
                 candidates.append(subject_id)
+        return candidates
+
+    @staticmethod
+    def _collect_candidate_object_ids(relationships: list[dict[str, Any]]) -> list[str]:
+        seen: set[str] = set()
+        candidates: list[str] = []
+        for relationship in relationships:
+            object_id = str(relationship.get("object_id") or "").strip()
+            if object_id and object_id not in seen:
+                seen.add(object_id)
+                candidates.append(object_id)
         return candidates
 
     @staticmethod

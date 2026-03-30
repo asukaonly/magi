@@ -630,15 +630,25 @@ class RuleBasedIntentDecider:
             constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="b站"))
         elif answer_kind != "software" and ("youtube" in query_lower or "油管" in query_lower):
             constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="youtube"))
-        location_match = re.search(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去", query)
-        if location_match:
+        interaction_location_match = re.search(r"在([\u4e00-\u9fffA-Za-z]{2,12})的时候喜欢去", query)
+        if interaction_location_match:
             constraints.append(
                 SemanticConstraint(
-                    scope="target",
+                    scope="interaction",
                     facet="located_in",
-                    raw_value=location_match.group(1),
+                    raw_value=interaction_location_match.group(1),
                 )
             )
+        else:
+            location_match = re.search(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去", query)
+            if location_match:
+                constraints.append(
+                    SemanticConstraint(
+                        scope="target",
+                        facet="located_in",
+                        raw_value=location_match.group(1),
+                    )
+                )
         category_map = {
             "咖啡馆": "coffee_shop",
             "咖啡店": "coffee_shop",
