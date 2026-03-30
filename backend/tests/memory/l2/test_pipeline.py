@@ -3411,6 +3411,104 @@ async def test_extract_worker_persists_structured_graph_hints_without_phase2_edg
 
 
 @pytest.mark.asyncio
+async def test_extract_worker_persists_category_facets_from_structured_graph_hints():
+    from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
+
+    responses = [
+        json.dumps(
+            {
+                "entities": [],
+                "fact_claims": [],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "none"},
+            }
+        ),
+        json.dumps(
+            {
+                "graph_edges": [],
+                "refinements": [],
+                "assertion_candidates": [],
+                "contradiction_hints": [],
+            }
+        ),
+    ]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
+        )
+        await store.initialize()
+        try:
+            event = MemoryEvent(
+                event_id="evt-structured-facet-1",
+                correlation_id="evt-structured-facet-1",
+                timestamp=time.time(),
+                created_at=time.time(),
+                event_type="SENSOR_EVENT",
+                source="chrome_history",
+                source_item_id="chrome:item-2",
+                memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+                ingest_target=IngestTarget.L1_ONLY,
+                cognition_eligible=True,
+                tom_depth=TomDepth.TOPOLOGY_ONLY,
+                retention_class=RetentionClass.COMPRESSIBLE,
+                session_id=None,
+                turn_id=None,
+                user_id="u1",
+                task_id=None,
+                content="Manner cafe page",
+                author_type="external",
+                content_type="observation",
+                importance_score=0.6,
+                level=EventLevel.INFO.value,
+                metadata_json={
+                    "structured_graph_hints": [
+                        {
+                            "subject_ref": "place:manner-xihu",
+                            "subject_type": "place",
+                            "predicate": "LOCATED_IN",
+                            "object_ref": "place:hangzhou",
+                            "object_type": "place",
+                            "fact_kind": "public_topology",
+                            "origin_mode": "source_structured",
+                            "confidence": 0.98,
+                            "attributes": {"category": "coffee_shop"},
+                        }
+                    ]
+                },
+            )
+
+            await store.ingest_event(event)
+
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            facets = await store.l2.list_entity_facets(entity_id="place:manner-xihu", facet_name="category") if store.l2 is not None else []
+
+            assert facets == [
+                {
+                    "entity_id": "place:manner-xihu",
+                    "entity_type": "place",
+                    "facet_name": "category",
+                    "facet_value": "coffee_shop",
+                    "confidence": 0.98,
+                    "evidence_event_ids": ["evt-structured-facet-1"],
+                    "source_type": "chrome_history",
+                    "extraction_method": "structured_hint",
+                }
+            ]
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_build_structured_graph_candidates_rejects_stable_preference_hints():
     from magi.memory.l2.evidence_policy import resolve_l2_policy
     from magi.memory.l2.extraction_profiles import DEFAULT_EXTRACTION_PROFILES

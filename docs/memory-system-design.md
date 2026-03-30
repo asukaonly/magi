@@ -460,6 +460,8 @@ Plugin / Sensor / Host integration
 - facet-backed constraint
   先不进入主图、由 facet registry / structured hint 承载，例如 `咖啡馆 -> coffee_shop`
 
+当前实现中，这类 facet 通过 `entity_facets` sidecar 持久化，写入来源优先是 source-owned `structured_graph_hints.attributes`，而不是主图中的 taxonomy node。
+
 默认规则：
 
 - 直接修饰回答对象的限定词优先解释为 `target`

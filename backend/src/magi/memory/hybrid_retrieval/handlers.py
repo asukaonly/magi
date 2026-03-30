@@ -639,6 +639,14 @@ class L2Handler:
             limit=max(conditions.limit * 5, 20),
         )
         candidate_ids = self._collect_candidate_subject_ids(topology_edges)
+        category_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="category")
+        category_value = category_constraint.resolved_facet_value if category_constraint else None
+        if candidate_ids and category_value:
+            candidate_ids = await self._store.filter_entity_ids_by_facet(
+                entity_ids=candidate_ids,
+                facet_name="category",
+                facet_values=[category_value],
+            )
         if not candidate_ids:
             return []
 

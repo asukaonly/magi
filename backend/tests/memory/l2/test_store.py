@@ -456,6 +456,58 @@ async def test_upsert_knowledge_edge_normalizes_alias_object_type(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upsert_entity_facet_persists_and_filters_by_value(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.upsert_entity_facet(
+        entity_id="place:manner-xihu",
+        entity_type="place",
+        facet_name="category",
+        facet_value="coffee_shop",
+        evidence_event_ids=["evt-1"],
+        confidence=0.93,
+        observed_at=1710000000.0,
+        source_type="chrome_history",
+        extraction_method="structured_hint",
+    )
+    await store.upsert_entity_facet(
+        entity_id="place:grandma-home",
+        entity_type="place",
+        facet_name="category",
+        facet_value="restaurant",
+        evidence_event_ids=["evt-2"],
+        confidence=0.9,
+        observed_at=1710000001.0,
+        source_type="chrome_history",
+        extraction_method="structured_hint",
+    )
+
+    facets = await store.list_entity_facets(entity_id="place:manner-xihu", facet_name="category")
+    matches = await store.filter_entity_ids_by_facet(
+        entity_ids=["place:manner-xihu", "place:grandma-home"],
+        facet_name="category",
+        facet_values=["coffee_shop"],
+    )
+
+    assert facets == [
+        {
+            "entity_id": "place:manner-xihu",
+            "entity_type": "place",
+            "facet_name": "category",
+            "facet_value": "coffee_shop",
+            "confidence": 0.93,
+            "evidence_event_ids": ["evt-1"],
+            "source_type": "chrome_history",
+            "extraction_method": "structured_hint",
+        }
+    ]
+    assert matches == ["place:manner-xihu"]
+
+
+@pytest.mark.asyncio
 async def test_upsert_assertion_normalizes_unknown_entity_type_to_other(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 

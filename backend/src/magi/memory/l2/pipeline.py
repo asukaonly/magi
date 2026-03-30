@@ -1039,6 +1039,10 @@ class L2Pipeline:
             evidence_event_ids=batch_event_ids,
             catalog_name_index=catalog_name_index,
         )
+        facet_candidates = self._build_structured_facet_candidates(
+            event=stored_event,
+            evidence_event_ids=batch_event_ids,
+        )
         graph_candidates = self._merge_graph_candidates(
             graph_candidates,
             structured_graph_candidates,
@@ -1099,10 +1103,15 @@ class L2Pipeline:
                 )
 
         relation_count = 0
+        facet_count = 0
         assertion_count = 0
         for candidate in graph_candidates:
             await self._cognition_store.upsert_knowledge_edge(**candidate)
             relation_count += 1
+
+        for candidate in facet_candidates:
+            await self._cognition_store.upsert_entity_facet(**candidate)
+            facet_count += 1
 
         for candidate in assertion_candidates:
             await self._cognition_store.upsert_assertion_candidate(candidate)
@@ -1116,6 +1125,7 @@ class L2Pipeline:
             event_id=stored_event.event_id,
             profile_id=extraction_profile.profile_id,
             relation_count=relation_count,
+            facet_count=facet_count,
             assertion_count=assertion_count,
             contradiction_hint_count=len(contradiction_hints),
             conflict_arbitration_decision=conflict_arbitration.decision if conflict_arbitration is not None else None,
@@ -1656,6 +1666,53 @@ class L2Pipeline:
                 }
             )
         return prepared, rejected_count
+
+    def _build_structured_facet_candidates(
+        self,
+        *,
+        event: MemoryEvent,
+        evidence_event_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        """Convert source-owned structured graph hint attributes into sidecar entity facets."""
+        metadata_json = event.metadata_json
+        if not isinstance(metadata_json, dict):
+            return []
+        raw_hints = metadata_json.get("structured_graph_hints")
+        if not isinstance(raw_hints, list) or not raw_hints:
+            return []
+
+        prepared: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for raw_hint in raw_hints:
+            if not isinstance(raw_hint, dict):
+                continue
+            hint = StructuredGraphHint.from_dict(raw_hint)
+            origin_mode = self._normalize_structured_graph_hint_origin_mode(hint.origin_mode)
+            if origin_mode not in _STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES:
+                continue
+            subject_id = self._resolve_phase2_subject_id(event=event, subject_ref=hint.subject_ref)
+            subject_type = self._normalize_entity_type(hint.subject_type)
+            if not subject_id or not subject_type:
+                continue
+            for facet_name, facet_value in self._extract_structured_graph_hint_facets(hint.attributes):
+                key = (subject_id, facet_name, facet_value)
+                if key in seen:
+                    continue
+                seen.add(key)
+                prepared.append(
+                    {
+                        "entity_id": subject_id,
+                        "entity_type": subject_type,
+                        "facet_name": facet_name,
+                        "facet_value": facet_value,
+                        "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
+                        "confidence": float(hint.confidence if hint.confidence is not None else 1.0),
+                        "observed_at": event.timestamp,
+                        "source_type": event.source,
+                        "extraction_method": "structured_hint",
+                    }
+                )
+        return prepared
 
     def _is_structured_graph_hint_directly_admissible(
         self,
@@ -2641,6 +2698,31 @@ class L2Pipeline:
         if not isinstance(attributes, dict):
             return None
         return str(self._non_empty_text(attributes.get("page_kind")) or "").casefold() or None
+
+    def _extract_structured_graph_hint_facets(
+        self,
+        attributes: dict[str, Any] | None,
+    ) -> list[tuple[str, str]]:
+        if not isinstance(attributes, dict):
+            return []
+
+        raw_values: list[str] = []
+        direct_value = self._non_empty_text(attributes.get("category"))
+        if direct_value:
+            raw_values.append(direct_value)
+        raw_categories = attributes.get("categories")
+        if isinstance(raw_categories, list):
+            raw_values.extend(str(item).strip() for item in raw_categories if str(item).strip())
+
+        facets: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for raw_value in raw_values:
+            normalized = str(raw_value).strip().casefold()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            facets.append(("category", normalized))
+        return facets
 
     def _build_concept_node(self, *, entity_type: str, normalized_surface: str) -> Optional[str]:
         surface = self._non_empty_text(normalized_surface)

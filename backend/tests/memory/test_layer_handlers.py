@@ -636,6 +636,7 @@ class TestL2Handler:
                 }
             ],
         ]
+        store.filter_entity_ids_by_facet.return_value = ["place:manner-xihu"]
         entity_catalog = AsyncMock()
 
         handler = L2Handler(store, entity_catalog=entity_catalog)
@@ -681,6 +682,85 @@ class TestL2Handler:
         assert "VISITED" in evidence_kwargs["predicates"]
         assert results["relationships"][0]["predicate"] == "VISITED"
         assert results["trace"]["semantic_frame"]["answer_kind"] == "place"
+
+    @pytest.mark.asyncio
+    async def test_place_affinity_semantic_frame_filters_candidates_by_category_facet(self):
+        store = AsyncMock()
+        store.get_relationships.side_effect = [
+            [
+                {
+                    "triple_id": "topology-2",
+                    "subject_id": "place:manner-xihu",
+                    "subject_type": "place",
+                    "predicate": "LOCATED_IN",
+                    "object_id": "place:hangzhou",
+                    "object_type": "place",
+                },
+                {
+                    "triple_id": "topology-3",
+                    "subject_id": "place:grandma-home",
+                    "subject_type": "place",
+                    "predicate": "LOCATED_IN",
+                    "object_id": "place:hangzhou",
+                    "object_type": "place",
+                },
+            ],
+            [
+                {
+                    "triple_id": "visit-1",
+                    "subject_id": "user:u1",
+                    "subject_type": "user",
+                    "predicate": "VISITED",
+                    "object_id": "place:manner-xihu",
+                    "object_type": "place",
+                }
+            ],
+        ]
+        store.filter_entity_ids_by_facet.return_value = ["place:manner-xihu"]
+        entity_catalog = AsyncMock()
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="我在杭州喜欢去哪些咖啡馆",
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="place",
+                answer_unit="place",
+                answer_shape="list",
+                polarity="positive",
+                constraints=[
+                    SemanticConstraint(
+                        scope="target",
+                        facet="located_in",
+                        raw_value="杭州",
+                        resolved_entity_id="place:hangzhou",
+                    ),
+                    SemanticConstraint(
+                        scope="target",
+                        facet="category",
+                        raw_value="咖啡馆",
+                        resolved_facet_value="coffee_shop",
+                    ),
+                ],
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        store.filter_entity_ids_by_facet.assert_awaited_once_with(
+            entity_ids=["place:manner-xihu", "place:grandma-home"],
+            facet_name="category",
+            facet_values=["coffee_shop"],
+        )
+        evidence_kwargs = store.get_relationships.await_args_list[1].kwargs
+        assert evidence_kwargs["object_id"] == "place:manner-xihu"
+        assert results["relationships"][0]["object_id"] == "place:manner-xihu"
 
     @pytest.mark.asyncio
     async def test_software_affinity_semantic_frame_uses_exact_target_relationships(self):

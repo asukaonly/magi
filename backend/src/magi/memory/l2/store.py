@@ -106,6 +106,27 @@ class L2CognitionStore:
                     UNIQUE(subject_id, predicate, object_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS entity_facets (
+                    facet_id TEXT PRIMARY KEY,
+                    entity_id TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    facet_name TEXT NOT NULL,
+                    facet_value TEXT NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 0.5,
+                    evidence_event_ids TEXT NOT NULL,
+                    first_observed_at REAL NOT NULL,
+                    last_observed_at REAL NOT NULL,
+                    source_type TEXT,
+                    extraction_method TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(entity_id, facet_name, facet_value)
+                );
+                CREATE INDEX IF NOT EXISTS idx_entity_facets_entity_name
+                    ON entity_facets(entity_id, facet_name);
+                CREATE INDEX IF NOT EXISTS idx_entity_facets_name_value
+                    ON entity_facets(facet_name, facet_value);
+
                 CREATE TABLE IF NOT EXISTS tom_trait_assertions (
                     assertion_id TEXT PRIMARY KEY,
                     entity_id TEXT NOT NULL,
@@ -546,6 +567,150 @@ class L2CognitionStore:
             extraction_method=extraction_method,
         )
         return triple_id
+
+    async def upsert_entity_facet(
+        self,
+        *,
+        entity_id: str,
+        entity_type: str,
+        facet_name: str,
+        facet_value: str,
+        evidence_event_ids: List[str],
+        confidence: float,
+        observed_at: float,
+        source_type: str,
+        extraction_method: str = "structured_hint",
+    ) -> str:
+        """Insert or refresh a sidecar facet for one entity."""
+        await self.initialize()
+        normalized_entity_type = _normalize_store_entity_type(entity_type) or entity_type
+        normalized_entity_id = _normalize_store_entity_ref(entity_id, normalized_entity_type) or entity_id
+        normalized_facet_name = str(facet_name or "").strip().casefold()
+        normalized_facet_value = str(facet_value or "").strip().casefold()
+        now = time.time()
+        facet_id = f"facet_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{normalized_entity_id}:{normalized_facet_name}:{normalized_facet_value}')}"
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT confidence, evidence_event_ids, first_observed_at FROM entity_facets WHERE facet_id = ?",
+                (facet_id,),
+            ) as cursor:
+                existing = await cursor.fetchone()
+
+            if existing:
+                merged_evidence = sorted(set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids))
+                accumulated_confidence = _accumulate_confidence(float(existing["confidence"]), float(confidence))
+                await db.execute(
+                    """
+                    UPDATE entity_facets
+                    SET confidence = ?, evidence_event_ids = ?, last_observed_at = ?,
+                        source_type = ?, extraction_method = ?, updated_at = ?
+                    WHERE facet_id = ?
+                    """,
+                    (
+                        accumulated_confidence,
+                        json.dumps(merged_evidence, ensure_ascii=False),
+                        float(observed_at),
+                        source_type,
+                        extraction_method,
+                        now,
+                        facet_id,
+                    ),
+                )
+            else:
+                await db.execute(
+                    """
+                    INSERT INTO entity_facets(
+                        facet_id, entity_id, entity_type, facet_name, facet_value,
+                        confidence, evidence_event_ids, first_observed_at, last_observed_at,
+                        source_type, extraction_method, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        facet_id,
+                        normalized_entity_id,
+                        normalized_entity_type,
+                        normalized_facet_name,
+                        normalized_facet_value,
+                        float(confidence),
+                        json.dumps(sorted(set(evidence_event_ids)), ensure_ascii=False),
+                        float(observed_at),
+                        float(observed_at),
+                        source_type,
+                        extraction_method,
+                        now,
+                        now,
+                    ),
+                )
+            await db.commit()
+        return facet_id
+
+    async def list_entity_facets(
+        self,
+        *,
+        entity_id: str | None = None,
+        facet_name: str | None = None,
+        facet_values: List[str] | None = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """List persisted entity facets."""
+        await self.initialize()
+        sql = "SELECT * FROM entity_facets WHERE 1=1"
+        args: list[Any] = []
+        if entity_id:
+            sql += " AND entity_id = ?"
+            args.append(entity_id)
+        if facet_name:
+            sql += " AND facet_name = ?"
+            args.append(str(facet_name).strip().casefold())
+        normalized_values = [str(item).strip().casefold() for item in (facet_values or []) if str(item).strip()]
+        if normalized_values:
+            placeholders = ", ".join("?" for _ in normalized_values)
+            sql += f" AND facet_value IN ({placeholders})"
+            args.extend(normalized_values)
+        sql += " ORDER BY updated_at DESC LIMIT ?"
+        args.append(max(1, int(limit)))
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._facet_row_to_dict(row) for row in rows]
+
+    async def filter_entity_ids_by_facet(
+        self,
+        *,
+        entity_ids: List[str],
+        facet_name: str,
+        facet_values: List[str],
+    ) -> List[str]:
+        """Filter candidate entity IDs by matching sidecar facets."""
+        await self.initialize()
+        normalized_entity_ids = [str(item).strip() for item in entity_ids if str(item).strip()]
+        normalized_values = [str(item).strip().casefold() for item in facet_values if str(item).strip()]
+        normalized_facet_name = str(facet_name or "").strip().casefold()
+        if not normalized_entity_ids or not normalized_facet_name or not normalized_values:
+            return []
+
+        placeholders_entity = ", ".join("?" for _ in normalized_entity_ids)
+        placeholders_value = ", ".join("?" for _ in normalized_values)
+        sql = f"""
+            SELECT entity_id
+            FROM entity_facets
+            WHERE entity_id IN ({placeholders_entity})
+              AND facet_name = ?
+              AND facet_value IN ({placeholders_value})
+            GROUP BY entity_id
+        """
+        args: list[Any] = [*normalized_entity_ids, normalized_facet_name, *normalized_values]
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+
+        matched = {str(row["entity_id"]) for row in rows}
+        return [entity_id for entity_id in normalized_entity_ids if entity_id in matched]
 
     async def list_tom_assertions(
         self,
@@ -1200,6 +1365,7 @@ class L2CognitionStore:
             await db.executescript(
                 """
                 DELETE FROM knowledge_graph;
+                DELETE FROM entity_facets;
                 DELETE FROM l2_projection_jobs;
                 DELETE FROM tom_trait_assertions;
                 DELETE FROM tom_snapshots;
@@ -2606,6 +2772,18 @@ class L2CognitionStore:
             "deprecated_at": float(row["deprecated_at"]) if row["deprecated_at"] else None,
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
+        }
+
+    def _facet_row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
+        return {
+            "entity_id": str(row["entity_id"]),
+            "entity_type": str(row["entity_type"]),
+            "facet_name": str(row["facet_name"]),
+            "facet_value": str(row["facet_value"]),
+            "confidence": float(row["confidence"]),
+            "evidence_event_ids": json.loads(row["evidence_event_ids"] or "[]"),
+            "source_type": row["source_type"],
+            "extraction_method": row["extraction_method"],
         }
 
     async def _ensure_knowledge_graph_columns(self, db: aiosqlite.Connection) -> None:
