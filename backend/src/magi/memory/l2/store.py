@@ -89,6 +89,7 @@ class L2CognitionStore:
                     predicate TEXT NOT NULL,
                     object_id TEXT NOT NULL,
                     object_type TEXT NOT NULL,
+                    fact_kind TEXT NOT NULL DEFAULT 'explicit_fact',
                     confidence REAL NOT NULL DEFAULT 0.5,
                     evidence_event_ids TEXT NOT NULL,
                     observation_count INTEGER NOT NULL DEFAULT 1,
@@ -196,6 +197,7 @@ class L2CognitionStore:
 
                 """
             )
+            await self._ensure_knowledge_graph_columns(db)
             await self._ensure_tom_assertion_schema(db)
             await self._ensure_tom_snapshot_schema(db)
             await self._ensure_projection_job_schema(db)
@@ -439,6 +441,7 @@ class L2CognitionStore:
         predicate: str,
         object_id: str,
         object_type: str,
+        fact_kind: str | None = None,
         evidence_event_ids: List[str],
         confidence: float,
         observed_at: float,
@@ -450,13 +453,14 @@ class L2CognitionStore:
         normalized_subject_type = _normalize_store_entity_type(subject_type) or subject_type
         normalized_object_type = _normalize_store_entity_type(object_type) or object_type
         normalized_object_id = _normalize_store_entity_ref(object_id, normalized_object_type) or object_id
+        normalized_fact_kind = str(fact_kind).strip() if fact_kind is not None else ""
         now = time.time()
         triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{subject_id}:{predicate}:{normalized_object_id}')}"
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at FROM knowledge_graph WHERE triple_id = ?",
+                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, fact_kind FROM knowledge_graph WHERE triple_id = ?",
                 (triple_id,),
             ) as cursor:
                 existing = await cursor.fetchone()
@@ -469,15 +473,17 @@ class L2CognitionStore:
                 first_observed_at = float(existing["first_observed_at"])
                 old_confidence = float(existing["confidence"])
                 accumulated_confidence = _accumulate_confidence(old_confidence, float(confidence))
+                effective_fact_kind = normalized_fact_kind or str(existing["fact_kind"] or "").strip() or "explicit_fact"
                 await db.execute(
                     """
                     UPDATE knowledge_graph
-                    SET confidence = ?, evidence_event_ids = ?, observation_count = ?,
+                    SET fact_kind = ?, confidence = ?, evidence_event_ids = ?, observation_count = ?,
                         last_observed_at = ?, last_confirmed_at = ?, source_type = ?,
                         extraction_method = ?, updated_at = ?
                     WHERE triple_id = ?
                     """,
                     (
+                        effective_fact_kind,
                         accumulated_confidence,
                         json.dumps(merged_evidence, ensure_ascii=False),
                         observation_count,
@@ -494,10 +500,10 @@ class L2CognitionStore:
                     """
                     INSERT INTO knowledge_graph(
                         triple_id, subject_id, subject_type, predicate, object_id, object_type,
-                        confidence, evidence_event_ids, observation_count, first_observed_at,
+                        fact_kind, confidence, evidence_event_ids, observation_count, first_observed_at,
                         last_observed_at, last_confirmed_at, source_type, extraction_method,
                         status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
                     """,
                     (
                         triple_id,
@@ -506,6 +512,7 @@ class L2CognitionStore:
                         predicate,
                         normalized_object_id,
                         normalized_object_type,
+                        normalized_fact_kind or "explicit_fact",
                         float(confidence),
                         json.dumps(sorted(set(evidence_event_ids)), ensure_ascii=False),
                         1,
@@ -2585,6 +2592,7 @@ class L2CognitionStore:
             "predicate": str(row["predicate"]),
             "object_id": str(row["object_id"]),
             "object_type": str(row["object_type"]),
+            "fact_kind": str(row["fact_kind"]),
             "confidence": float(row["confidence"]),
             "evidence_event_ids": json.loads(row["evidence_event_ids"] or "[]"),
             "observation_count": int(row["observation_count"]),
@@ -2599,6 +2607,17 @@ class L2CognitionStore:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
+
+    async def _ensure_knowledge_graph_columns(self, db: aiosqlite.Connection) -> None:
+        """Backfill additive columns for older knowledge_graph schemas."""
+        db.row_factory = aiosqlite.Row
+        async with db.execute("PRAGMA table_info(knowledge_graph)") as cursor:
+            rows = await cursor.fetchall()
+        columns = {str(row["name"]) for row in rows}
+        if "fact_kind" not in columns:
+            await db.execute(
+                "ALTER TABLE knowledge_graph ADD COLUMN fact_kind TEXT NOT NULL DEFAULT 'explicit_fact'"
+            )
 
 
 __all__ = ["L2CognitionStore"]

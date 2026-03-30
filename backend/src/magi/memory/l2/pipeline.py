@@ -1539,6 +1539,7 @@ class L2Pipeline:
                     "predicate": predicate,
                     "object_id": object_id,
                     "object_type": object_type,
+                    "fact_kind": self._non_empty_text(edge.fact_kind) or "explicit_fact",
                     "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
                     "confidence": edge.confidence,
                     "observed_at": event.timestamp,

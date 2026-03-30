@@ -267,6 +267,7 @@ class SensorIngestionGateway:
                 predicate=predicate,
                 object_id=object_id,
                 object_type=object_type,
+                fact_kind=str(candidate.get("fact_kind", "")).strip() or None,
                 evidence_event_ids=[event_id],
                 confidence=confidence,
                 observed_at=observed_at,

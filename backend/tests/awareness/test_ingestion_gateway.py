@@ -175,6 +175,7 @@ class TestSensorIngestionGateway:
                     "predicate": "LIKES",
                     "object_id": "topic:test",
                     "confidence": 0.9,
+                    "fact_kind": "interaction_evidence",
                 },
             ],
         )
@@ -185,6 +186,7 @@ class TestSensorIngestionGateway:
         )
         assert result.stats["relation_count"] == 1
         memory.upsert_user_graph_edge.assert_awaited_once()
+        assert memory.upsert_user_graph_edge.await_args.kwargs["fact_kind"] == "interaction_evidence"
 
     @pytest.mark.asyncio
     async def test_ingest_skips_disallowed_relations(self):

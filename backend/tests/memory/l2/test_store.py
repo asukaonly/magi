@@ -305,6 +305,91 @@ async def test_upsert_knowledge_edge_accumulates_confidence_on_repeat(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_initialize_adds_fact_kind_column_for_existing_db(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    db_path = tmp_path / "l2.db"
+    async with aiosqlite.connect(db_path) as db:
+        await db.executescript(
+            """
+            CREATE TABLE knowledge_graph (
+                triple_id TEXT PRIMARY KEY,
+                subject_id TEXT NOT NULL,
+                subject_type TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                object_type TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0.5,
+                evidence_event_ids TEXT NOT NULL,
+                observation_count INTEGER NOT NULL DEFAULT 1,
+                first_observed_at REAL NOT NULL,
+                last_observed_at REAL NOT NULL,
+                last_confirmed_at REAL,
+                source_type TEXT,
+                extraction_method TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                deprecated_by TEXT,
+                deprecated_at REAL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(subject_id, predicate, object_id)
+            );
+            """
+        )
+        await db.commit()
+
+    store = L2CognitionStore(db_path=str(db_path))
+    await store.initialize()
+
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("PRAGMA table_info(knowledge_graph)") as cursor:
+            columns = {str(row[1]) for row in await cursor.fetchall()}
+
+    assert "fact_kind" in columns
+
+
+@pytest.mark.asyncio
+async def test_upsert_knowledge_edge_persists_fact_kind(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    triple_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="USES",
+        object_id="software:github",
+        object_type="software",
+        evidence_event_ids=["evt-1"],
+        confidence=0.7,
+        observed_at=1710000000.0,
+        source_type="sensor",
+        fact_kind="interaction_evidence",
+    )
+    edge = await store.get_relationship(triple_id=triple_id)
+
+    assert edge is not None
+    assert edge["fact_kind"] == "interaction_evidence"
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="USES",
+        object_id="software:github",
+        object_type="software",
+        evidence_event_ids=["evt-2"],
+        confidence=0.4,
+        observed_at=1710010000.0,
+        source_type="sensor",
+    )
+    edge = await store.get_relationship(triple_id=triple_id)
+
+    assert edge is not None
+    assert edge["fact_kind"] == "interaction_evidence"
+
+
+@pytest.mark.asyncio
 async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
