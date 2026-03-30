@@ -12,6 +12,7 @@ from .sensor_state import SqliteSensorStateStore
 from .sensor_hub import SensorHub
 from .action_emitter import ActionEmitter
 from .scheduler_contrib import SensorSchedulerContrib
+from .sensor_sync_executor import SensorSyncExecutor
 
 logger = get_logger(__name__)
 
@@ -97,3 +98,36 @@ class SensorScheduleRegistrationModule(LifecycleModule):
         if self._contrib is None:
             raise RuntimeError("sensor scheduler contributor is not initialized")
         return await self._contrib.queue_manual_sync(source_type)
+
+
+class SensorSyncExecutorModule(LifecycleModule):
+    """Run queued sensor sync work on a dedicated thread."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_sensor_sync_executor",
+            dependencies=("runtime_sensor_scheduler",),
+        )
+        self._context = context
+        self._executor: SensorSyncExecutor | None = None
+
+    async def init(self) -> None:
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        contrib = require_initialized(
+            self._context.agent_runtime.sensor_scheduler_contrib,
+            "sensor scheduler contributor",
+        )
+        self._executor = SensorSyncExecutor(
+            repository=scheduler_service.repository,
+            run_job=contrib.execute_sensor_sync_job,
+            flush_state=contrib.flush_sensor_state,
+        )
+        await self._executor.start()
+        self._context.agent_runtime.sensor_sync_executor = self._executor
+        logger.info("Sensor sync executor initialized (L9)")
+
+    async def shutdown(self) -> None:
+        if self._executor is not None:
+            await self._executor.stop()
+        self._context.agent_runtime.sensor_sync_executor = None
+        self._executor = None

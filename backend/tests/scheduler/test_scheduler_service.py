@@ -21,38 +21,38 @@ async def test_scheduler_service_persists_and_restores_interval_jobs(tmp_path):
         return ScheduledExecutionResult(success=True, message="ok")
 
     service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
-    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
     await service.start()
 
     await service.schedule_interval(
-        schedule_id="sensor-sync-1",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
-        target_key="test-plugin:test-source",
+        schedule_id="l2-maintenance-1",
+        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        target_key="global",
         seconds=300.0,
-        target_payload={"source_type": "test-source"},
+        target_payload={},
     )
-    await service.trigger_now("sensor-sync-1")
+    await service.trigger_now("l2-maintenance-1")
 
-    schedule = await service.repository.get_schedule("sensor-sync-1")
-    state = await service.get_target_state(ScheduledTargetType.SENSOR_SYNC, "test-plugin:test-source")
+    schedule = await service.repository.get_schedule("l2-maintenance-1")
+    state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global")
 
     assert schedule is not None
     assert schedule.trigger.trigger_type.value == "interval"
-    assert schedule.job_id == "sensor-sync-1"
-    assert handled == ["sensor-sync-1"]
+    assert schedule.job_id == "l2-maintenance-1"
+    assert handled == ["l2-maintenance-1"]
     assert state.last_success_at is not None
     assert state.next_run_at is not None
 
     await service.stop()
 
     restored = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
-    restored.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    restored.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
     await restored.start()
 
-    restored_schedule = await restored.repository.get_schedule("sensor-sync-1")
+    restored_schedule = await restored.repository.get_schedule("l2-maintenance-1")
 
     assert restored_schedule is not None
-    assert restored._scheduler.get_job("sensor-sync-1") is not None
+    assert restored._scheduler.get_job("l2-maintenance-1") is not None
 
     await restored.stop()
 
@@ -67,33 +67,33 @@ async def test_scheduler_service_supports_once_and_cron_and_replaces_existing_sc
     async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
         return ScheduledExecutionResult(success=True, message=context.schedule.schedule_id)
 
-    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
     await service.start()
 
     await service.schedule_once(
-        schedule_id="sensor-once",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
-        target_key="test-plugin:test-once",
+        schedule_id="maintenance-once",
+        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        target_key="global",
         run_at=time.time() + 60.0,
-        target_payload={"source_type": "test-once"},
+        target_payload={},
     )
     await service.schedule_cron(
-        schedule_id="sensor-cron",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
-        target_key="test-plugin:test-cron",
+        schedule_id="maintenance-cron",
+        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        target_key="global",
         cron={"minute": "15", "hour": "8"},
-        target_payload={"source_type": "test-cron"},
+        target_payload={},
     )
     await service.schedule_interval(
-        schedule_id="sensor-cron",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
-        target_key="test-plugin:test-cron",
+        schedule_id="maintenance-cron",
+        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        target_key="global",
         seconds=120.0,
-        target_payload={"source_type": "test-cron"},
+        target_payload={},
     )
 
-    once_schedule = await service.repository.get_schedule("sensor-once")
-    replaced_schedule = await service.repository.get_schedule("sensor-cron")
+    once_schedule = await service.repository.get_schedule("maintenance-once")
+    replaced_schedule = await service.repository.get_schedule("maintenance-cron")
 
     assert once_schedule is not None
     assert once_schedule.trigger.trigger_type.value == "once"
@@ -114,25 +114,25 @@ async def test_unschedule_clears_stale_target_errors(tmp_path):
     async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
         raise RuntimeError("boom")
 
-    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
     await service.start()
 
     await service.schedule_interval(
-        schedule_id="sensor-sync-error",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
-        target_key="test-plugin:error",
+        schedule_id="maintenance-error",
+        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        target_key="global",
         seconds=300.0,
-        target_payload={"source_type": "error"},
+        target_payload={},
     )
 
     with pytest.raises(RuntimeError):
-        await service.trigger_now("sensor-sync-error")
+        await service.trigger_now("maintenance-error")
 
-    failed_state = await service.get_target_state(ScheduledTargetType.SENSOR_SYNC, "test-plugin:error")
+    failed_state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global")
     assert failed_state.last_error == "boom"
 
-    await service.unschedule("sensor-sync-error")
-    cleared_state = await service.get_target_state(ScheduledTargetType.SENSOR_SYNC, "test-plugin:error")
+    await service.unschedule("maintenance-error")
+    cleared_state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global")
 
     assert cleared_state.last_error is None
     assert cleared_state.scheduler_job_id is None
@@ -151,27 +151,27 @@ async def test_scheduler_service_serializes_concurrent_schedule_updates(tmp_path
     async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
         return ScheduledExecutionResult(success=True, message=context.schedule.schedule_id)
 
-    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
     await service.start()
 
     await asyncio.gather(
         *[
             service.schedule_interval(
-                schedule_id="sensor-sync-shared",
-                target_type=ScheduledTargetType.SENSOR_SYNC,
-                target_key="test-plugin:shared",
+                schedule_id="maintenance-shared",
+                target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+                target_key="global",
                 seconds=120.0,
-                target_payload={"source_type": "shared"},
+                target_payload={},
             )
             for _ in range(4)
         ]
     )
 
-    schedule = await service.repository.get_schedule("sensor-sync-shared")
+    schedule = await service.repository.get_schedule("maintenance-shared")
 
     assert schedule is not None
-    assert schedule.job_id == "sensor-sync-shared"
-    assert service._scheduler.get_job("sensor-sync-shared") is not None
+    assert schedule.job_id == "maintenance-shared"
+    assert service._scheduler.get_job("maintenance-shared") is not None
 
     await service.stop()
 
@@ -184,31 +184,31 @@ async def test_scheduler_service_persists_execution_history_rows(tmp_path):
     service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
 
     async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
-        if context.schedule.target_key == "test-plugin:failed":
+        if context.schedule.target_key == "failed":
             raise RuntimeError("planned failure")
         return ScheduledExecutionResult(success=True, message="ok", stats={"runs": 1})
 
-    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
     await service.start()
 
     await service.schedule_interval(
-        schedule_id="sensor-sync-success",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
-        target_key="test-plugin:ok",
+        schedule_id="maintenance-success",
+        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        target_key="ok",
         seconds=300.0,
-        target_payload={"source_type": "ok"},
+        target_payload={},
     )
     await service.schedule_interval(
-        schedule_id="sensor-sync-failed",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
-        target_key="test-plugin:failed",
+        schedule_id="maintenance-failed",
+        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        target_key="failed",
         seconds=300.0,
-        target_payload={"source_type": "failed"},
+        target_payload={},
     )
 
-    await service.trigger_now("sensor-sync-success")
+    await service.trigger_now("maintenance-success")
     with pytest.raises(RuntimeError):
-        await service.trigger_now("sensor-sync-failed")
+        await service.trigger_now("maintenance-failed")
 
     await service.stop()
 
@@ -225,16 +225,90 @@ async def test_scheduler_service_persists_execution_history_rows(tmp_path):
     conn.close()
 
     assert len(rows) == 2
-    assert rows[0][0] == "sensor-sync-success"
+    assert rows[0][0] == "maintenance-success"
     assert rows[0][1] == "success"
     assert rows[0][2] == "ok"
     assert rows[0][3] is None
     assert rows[0][4] is not None
-    assert rows[1][0] == "sensor-sync-failed"
+    assert rows[1][0] == "maintenance-failed"
     assert rows[1][1] == "failed"
     assert rows[1][2] is None
     assert rows[1][3] == "planned failure"
     assert rows[1][4] is not None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_service_enqueues_sensor_sync_jobs_without_running_handler(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    handled: list[str] = []
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        handled.append(context.schedule.schedule_id)
+        return ScheduledExecutionResult(success=True, message="unexpected_inline_run")
+
+    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    await service.start()
+
+    await service.schedule_interval(
+        schedule_id="sensor-sync-enqueue",
+        target_type=ScheduledTargetType.SENSOR_SYNC,
+        target_key="test-plugin:test-source",
+        seconds=60.0,
+        target_payload={"plugin_id": "test-plugin", "source_type": "test-source"},
+    )
+
+    result = await service.execute_schedule("sensor-sync-enqueue")
+    outstanding = await service.repository.get_outstanding_sensor_sync_job(
+        ScheduledTargetType.SENSOR_SYNC,
+        "test-plugin:test-source",
+    )
+
+    await service.stop()
+
+    assert result.success is True
+    assert result.message == "sensor_sync_enqueued"
+    assert handled == []
+    assert outstanding is not None
+    assert outstanding["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_scheduler_service_coalesces_sensor_sync_when_outstanding_job_exists(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message="unexpected_inline_run")
+
+    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    await service.start()
+
+    await service.schedule_interval(
+        schedule_id="sensor-sync-coalesce",
+        target_type=ScheduledTargetType.SENSOR_SYNC,
+        target_key="test-plugin:test-source",
+        seconds=60.0,
+        target_payload={"plugin_id": "test-plugin", "source_type": "test-source"},
+    )
+
+    first = await service.execute_schedule("sensor-sync-coalesce")
+    second = await service.execute_schedule("sensor-sync-coalesce")
+    outstanding = await service.repository.get_outstanding_sensor_sync_job(
+        ScheduledTargetType.SENSOR_SYNC,
+        "test-plugin:test-source",
+    )
+
+    await service.stop()
+
+    assert first.message == "sensor_sync_enqueued"
+    assert second.message == "target_busy"
+    assert outstanding is not None
+    assert outstanding["status"] == "queued"
 
 
 @pytest.mark.asyncio

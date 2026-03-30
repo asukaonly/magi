@@ -142,6 +142,7 @@ class AgentRuntimeBootstrapState:
     sensor_hub: SensorHub | None = None
     action_emitter: ActionEmitter | None = None
     sensor_scheduler_contrib: SensorSchedulerContrib | None = None
+    sensor_sync_executor: Any = None
     agent_runtime: AgentRuntime | None = None
     task_agent_manager: TaskAgentManager | None = None
 

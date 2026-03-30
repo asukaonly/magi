@@ -11,6 +11,7 @@ from ..agent.lifecycle import AgentRuntimeModule
 from ..awareness.lifecycle import (
     SensorsAndActionsModule,
     SensorScheduleRegistrationModule,
+    SensorSyncExecutorModule,
 )
 from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
 from ..config.lifecycle import ConfigurationModule
@@ -58,6 +59,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         TimelineModule(context),
         SchedulerModule(context),
         SensorScheduleRegistrationModule(context),
+        SensorSyncExecutorModule(context),
         RuntimeExportsModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
         OtherDependenciesModule(context),

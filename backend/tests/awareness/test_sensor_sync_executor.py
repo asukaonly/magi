@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+import asyncio
+import sqlite3
+import time
+
+import pytest
+
+from magi.awareness.sensor_sync_executor import SensorSyncExecutor
+from magi.scheduler import (
+    ScheduleDefinition,
+    ScheduledExecutionResult,
+    ScheduledTargetType,
+    TriggerDefinition,
+    TriggerType,
+)
+from magi.scheduler.repository import ScheduleRepository
+
+
+def _build_sensor_schedule() -> ScheduleDefinition:
+    return ScheduleDefinition(
+        schedule_id="sensor-sync:test-plugin:test-source",
+        target_type=ScheduledTargetType.SENSOR_SYNC,
+        target_key="test-plugin:test-source",
+        trigger=TriggerDefinition(
+            trigger_type=TriggerType.INTERVAL,
+            config={"seconds": 300.0},
+        ),
+        target_payload={
+            "plugin_id": "test-plugin",
+            "source_type": "test-source",
+            "manual": False,
+        },
+        metadata={"plugin_id": "test-plugin", "source_type": "test-source"},
+    )
+
+
+async def _enqueue_job(repository: ScheduleRepository, schedule: ScheduleDefinition) -> str:
+    await repository.upsert_schedule(schedule)
+    acquired = await repository.acquire_target_lock(schedule.target_type, schedule.target_key)
+    assert acquired is True
+    execution_id = await repository.create_execution_record(
+        schedule_id=schedule.schedule_id,
+        target_type=schedule.target_type,
+        target_key=schedule.target_key,
+        manual=False,
+        started_at=time.time(),
+    )
+    job_id = await repository.enqueue_sensor_sync_job(
+        schedule=schedule,
+        execution_id=execution_id,
+        manual=False,
+    )
+    assert job_id is not None
+    return job_id
+
+
+async def _wait_for_job_status(
+    repository: ScheduleRepository,
+    job_id: str,
+    expected_status: str,
+    *,
+    timeout_seconds: float = 2.0,
+) -> dict[str, object]:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        job = await repository.get_sensor_sync_job(job_id)
+        if job is not None and job["status"] == expected_status:
+            return job
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"Timed out waiting for sensor sync job {job_id} to reach {expected_status}")
+
+
+def _load_execution_status(db_path, execution_id: str) -> tuple[str, str | None]:
+    connection = sqlite3.connect(str(db_path))
+    row = connection.execute(
+        """
+        SELECT status, result_message
+        FROM schedule_executions
+        WHERE execution_id = ?
+        """,
+        (execution_id,),
+    ).fetchone()
+    connection.close()
+    assert row is not None
+    return str(row[0]), str(row[1]) if row[1] is not None else None
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_executor_claims_and_completes_queued_job(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    job = await repository.get_sensor_sync_job(job_id)
+    assert job is not None
+    execution_id = str(job["execution_id"])
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        assert job_record["job_id"] == job_id
+        return ScheduledExecutionResult(
+            success=True,
+            message="sensor_sync_completed",
+            next_cursor="cursor-2",
+            watermark_ts=321.0,
+            stats={"items": 1},
+        )
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    completed_job = await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    target_state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+    execution_status, execution_message = _load_execution_status(db_path, execution_id)
+
+    assert completed_job["result_message"] == "sensor_sync_completed"
+    assert completed_job["next_cursor"] == "cursor-2"
+    assert completed_job["watermark_ts"] == 321.0
+    assert target_state.running is False
+    assert target_state.last_cursor == "cursor-2"
+    assert target_state.watermark_ts == 321.0
+    assert execution_status == "success"
+    assert execution_message == "sensor_sync_completed"
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_executor_requeues_stale_running_job_on_startup(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    claimed = await repository.claim_next_sensor_sync_job(claimed_by="stale-executor")
+    assert claimed is not None
+
+    connection = sqlite3.connect(str(db_path))
+    connection.execute(
+        """
+        UPDATE sensor_sync_jobs
+        SET started_at = ?, claimed_at = ?
+        WHERE job_id = ?
+        """,
+        (time.time() - 3600.0, time.time() - 3600.0, job_id),
+    )
+    connection.commit()
+    connection.close()
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(
+            success=True,
+            message="recovered",
+            stats={"items": 1},
+        )
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=0.01,
+    )
+    await executor.start()
+    completed_job = await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    assert completed_job["result_message"] == "recovered"

@@ -227,6 +227,13 @@ class SchedulerService:
         schedule = await self._repository.get_schedule(schedule_id)
         if schedule is None:
             return ScheduledExecutionResult(success=False, message="schedule_not_found")
+        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
+            outstanding = await self._repository.get_outstanding_sensor_sync_job(
+                schedule.target_type,
+                schedule.target_key,
+            )
+            if outstanding is not None:
+                return ScheduledExecutionResult(success=False, message="target_busy")
         started_at = time.time()
         acquired = await self._repository.acquire_target_lock(schedule.target_type, schedule.target_key)
         if not acquired:
@@ -238,6 +245,21 @@ class SchedulerService:
             manual=manual or bool(schedule.metadata.get("manual", False)),
             started_at=started_at,
         )
+        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
+            job_id = await self._repository.enqueue_sensor_sync_job(
+                schedule=schedule,
+                execution_id=execution_id,
+                manual=manual or bool(schedule.metadata.get("manual", False)),
+            )
+            if job_id is None:
+                return ScheduledExecutionResult(success=False, message="target_busy")
+            if schedule.trigger.trigger_type == TriggerType.ONCE:
+                await self._repository.delete_schedule(schedule.schedule_id)
+            return ScheduledExecutionResult(
+                success=True,
+                message="sensor_sync_enqueued",
+                stats={"job_id": job_id},
+            )
         state = await self._repository.get_target_state(schedule.target_type, schedule.target_key)
         handler = self._handlers.get(schedule.target_type)
         try:
