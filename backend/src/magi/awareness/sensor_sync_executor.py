@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from ..core.logger import get_logger
 from ..scheduler.contracts import ScheduledExecutionResult, ScheduledTargetType
@@ -14,6 +14,7 @@ from ..scheduler.repository import ScheduleRepository
 logger = get_logger(__name__)
 
 SensorSyncJobRunner = Callable[[dict[str, object]], Awaitable[ScheduledExecutionResult]]
+SensorStateFlushRunner = Callable[[str], Awaitable[dict[str, Any]]]
 
 
 class SensorSyncExecutor:
@@ -24,18 +25,21 @@ class SensorSyncExecutor:
         *,
         repository: ScheduleRepository,
         run_job: SensorSyncJobRunner,
+        flush_state: SensorStateFlushRunner | None = None,
         poll_interval_seconds: float = 0.1,
         running_timeout_seconds: float = 1800.0,
         worker_id: str = "sensor-sync-executor",
     ) -> None:
         self._repository = repository
         self._run_job = run_job
+        self._flush_state = flush_state
         self._poll_interval_seconds = poll_interval_seconds
         self._running_timeout_seconds = running_timeout_seconds
         self._worker_id = worker_id
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop_event: asyncio.Event | None = None
+        self._execution_lock: asyncio.Lock | None = None
         self._ready = threading.Event()
 
     async def start(self) -> None:
@@ -68,6 +72,7 @@ class SensorSyncExecutor:
         asyncio.set_event_loop(loop)
         self._loop = loop
         self._stop_event = asyncio.Event()
+        self._execution_lock = asyncio.Lock()
         self._ready.set()
         try:
             loop.run_until_complete(self._run_loop())
@@ -78,6 +83,7 @@ class SensorSyncExecutor:
                 loop.close()
                 self._loop = None
                 self._stop_event = None
+                self._execution_lock = None
 
     async def _run_loop(self) -> None:
         await self._repository.requeue_stale_sensor_sync_jobs(
@@ -116,7 +122,7 @@ class SensorSyncExecutor:
         next_run_at = float(scheduler_binding[1]) if scheduler_binding is not None and scheduler_binding[1] is not None else None
 
         try:
-            result = await self._run_job(job)
+            result = await self._run_with_execution_lock(self._run_job(job))
             if not result.success:
                 raise RuntimeError(result.message or "sensor_sync_failed")
             finished_at = time.time()
@@ -158,3 +164,27 @@ class SensorSyncExecutor:
                 scheduler_job_id=scheduler_job_id,
                 finished_at=finished_at,
             )
+
+    async def flush_sensor_state(self, source_name: str) -> dict[str, Any]:
+        if self._flush_state is None:
+            raise RuntimeError("Sensor sync executor does not support state flush")
+        loop = self._loop
+        if loop is None:
+            raise RuntimeError("Sensor sync executor loop is not running")
+        future = asyncio.run_coroutine_threadsafe(
+            self._flush_sensor_state_on_executor(source_name),
+            loop,
+        )
+        return await asyncio.wrap_future(future)
+
+    async def _flush_sensor_state_on_executor(self, source_name: str) -> dict[str, Any]:
+        if self._flush_state is None:
+            raise RuntimeError("Sensor sync executor does not support state flush")
+        return await self._run_with_execution_lock(self._flush_state(source_name))
+
+    async def _run_with_execution_lock(self, coro: Awaitable[Any]) -> Any:
+        execution_lock = self._execution_lock
+        if execution_lock is None:
+            raise RuntimeError("Sensor sync executor execution lock is not initialized")
+        async with execution_lock:
+            return await coro

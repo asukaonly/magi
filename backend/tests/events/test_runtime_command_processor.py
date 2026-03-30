@@ -233,37 +233,21 @@ async def test_runtime_command_processor_flushes_sensor_state(tmp_path: Path) ->
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
 
-    class _FakeSensor:
-        supports_state_flush = True
-
+    class _FakeSensorSyncExecutor:
         def __init__(self) -> None:
-            self.calls: list[tuple[object, dict[str, object]]] = []
+            self.calls: list[str] = []
 
-        async def flush_runtime_state(self, *, runtime_paths, plugin_settings):
-            self.calls.append((runtime_paths, plugin_settings))
+        async def flush_sensor_state(self, source_name: str):
+            self.calls.append(source_name)
             return {"bucket_count": 1}
 
-    sensor = _FakeSensor()
+    executor = _FakeSensorSyncExecutor()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
     context.message_bus.message_bus = message_bus
     context.agent_runtime.agent_runtime = object()
-    context.core.runtime_paths = type(
-        "Paths",
-        (),
-        {"plugin_cache_dir": lambda self, plugin_id: tmp_path / "cache" / plugin_id},
-    )()
-    context.plugins.sensor_registry = type(
-        "Registry",
-        (),
-        {"resolve_source_sensor": lambda self, source_name: ("screen-time", "timeline.screen_time", sensor, object()) if source_name == "screen_time" else None},
-    )()
-    context.plugins.plugin_manager = type(
-        "Manager",
-        (),
-        {"get_package": lambda self, plugin_id: type("Package", (), {"current_settings": {"sensors": {"screen_time": {"enabled": True}}}})() if plugin_id == "screen-time" else None},
-    )()
+    context.agent_runtime.sensor_sync_executor = executor
 
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
     await processor.init()
@@ -284,8 +268,7 @@ async def test_runtime_command_processor_flushes_sensor_state(tmp_path: Path) ->
 
         stats = await queue.get_stats()
         assert stats["completed_count"] == 1
-        assert len(sensor.calls) == 1
-        assert sensor.calls[0][1] == {"sensors": {"screen_time": {"enabled": True}}}
+        assert executor.calls == ["screen_time"]
     finally:
         await processor.shutdown()
         await message_bus.stop()

@@ -179,6 +179,18 @@ class SensorSchedulerContrib:
             target_state=target_state,
         )
 
+    async def flush_sensor_state(self, source_type: str) -> dict[str, Any]:
+        resolved = self._sensor_registry.resolve_source_sensor(source_type)
+        if resolved is None:
+            raise RuntimeError(f"Sensor source not found: {source_type}")
+        plugin_id, _, sensor, _ = resolved
+        flush_state = getattr(sensor, "flush_runtime_state", None)
+        if not callable(flush_state):
+            raise RuntimeError(f"Sensor source does not support state flush: {source_type}")
+        package_state = self._plugin_manager.get_package(plugin_id)
+        package_settings = package_state.current_settings if package_state is not None else {}
+        return await flush_state(runtime_paths=self._runtime_paths, plugin_settings=package_settings)
+
     async def _run_sensor_sync(
         self,
         *,

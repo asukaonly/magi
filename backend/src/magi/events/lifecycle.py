@@ -199,19 +199,11 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                     published = True
                 elif command.command_type is RuntimeCommandType.SENSOR_STATE_FLUSH:
                     sensor_flush = command.as_sensor_state_flush()
-                    sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
-                    plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
-                    runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-                    resolved = sensor_registry.resolve_source_sensor(sensor_flush.source_name)
-                    if resolved is None:
-                        raise RuntimeError(f"Sensor source not found: {sensor_flush.source_name}")
-                    plugin_id, _, sensor, _ = resolved
-                    flush_state = getattr(sensor, "flush_runtime_state", None)
-                    if not callable(flush_state):
-                        raise RuntimeError(f"Sensor source does not support state flush: {sensor_flush.source_name}")
-                    package_state = plugin_manager.get_package(plugin_id)
-                    package_settings = package_state.current_settings if package_state is not None else {}
-                    await flush_state(runtime_paths=runtime_paths, plugin_settings=package_settings)
+                    sensor_sync_executor = require_initialized(
+                        self._context.agent_runtime.sensor_sync_executor,
+                        "sensor sync executor",
+                    )
+                    await sensor_sync_executor.flush_sensor_state(sensor_flush.source_name)
                     published = True
                 else:
                     raise RuntimeError(f"Unsupported runtime command type: {command.command_type}")

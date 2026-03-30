@@ -120,6 +120,7 @@ class SensorSyncExecutorModule(LifecycleModule):
         self._executor = SensorSyncExecutor(
             repository=scheduler_service.repository,
             run_job=contrib.execute_sensor_sync_job,
+            flush_state=contrib.flush_sensor_state,
         )
         await self._executor.start()
         self._context.agent_runtime.sensor_sync_executor = self._executor
