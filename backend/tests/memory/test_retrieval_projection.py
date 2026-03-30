@@ -104,3 +104,33 @@ def test_project_historical_recall_summarizes_follows_for_preference_recall() ->
 
     assert projected.status == "found"
     assert projected.summary == "你关注永雏塔菲。"
+
+
+def test_project_historical_recall_summarizes_uses_for_preference_recall() -> None:
+    payload = RetrievalPayload(
+        l2_relationships=[
+            {
+                "triple_id": "triple-3",
+                "subject_id": "user:local_user",
+                "predicate": "USES",
+                "object_id": "software:bilibili",
+                "confidence": 0.89,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            }
+        ],
+        trace={"primary_count": 1},
+    )
+    request = RetrievalQuery(
+        query="我喜欢B站吗",
+        user_id="local_user",
+        session_id="session-1",
+        time_range={},
+        recall_intent="preference_recall",
+        query_mode="detail",
+    )
+
+    projected = project_historical_recall(payload=payload, request=request)
+
+    assert projected.status == "found"
+    assert projected.summary == "你有使用bilibili的记录。"

@@ -489,10 +489,13 @@ class RuleBasedIntentDecider:
         return None, None
 
     def _extract_entities(self, query: str) -> list[str]:
-        """Basic entity extraction from query (placeholder)."""
-        # This is a simplified implementation. In production, could use NER.
-        # For now, we return an empty list -- the L2Handler will do full lookups.
-        return []
+        """Extract high-confidence entity surface forms for common software/platform names."""
+        entities: list[str] = []
+        if "B站" in query or "b站" in query.lower() or "bilibili" in query.lower():
+            entities.append("B站")
+        if "youtube" in query.lower() or "油管" in query:
+            entities.append("YouTube")
+        return entities
 
     def _infer_subject_hint(self, inp: IntentDeciderInput) -> str:
         """Infer whether the query subject is the current user or an explicit entity.
@@ -555,7 +558,7 @@ class RuleBasedIntentDecider:
         if query_family == "lookup" and answer_kind == "unknown":
             return None
 
-        constraints = self._infer_semantic_constraints(query)
+        constraints = self._infer_semantic_constraints(query, answer_kind=answer_kind)
         return L2SemanticFrame(
             query_family=query_family,
             subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
@@ -620,12 +623,12 @@ class RuleBasedIntentDecider:
             return "positive"
         return "any"
 
-    def _infer_semantic_constraints(self, query: str) -> list[SemanticConstraint]:
+    def _infer_semantic_constraints(self, query: str, *, answer_kind: str) -> list[SemanticConstraint]:
         query_lower = query.lower()
         constraints: list[SemanticConstraint] = []
-        if "b站" in query_lower or "bilibili" in query_lower:
+        if answer_kind != "software" and ("b站" in query_lower or "bilibili" in query_lower):
             constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="b站"))
-        elif "youtube" in query_lower or "油管" in query_lower:
+        elif answer_kind != "software" and ("youtube" in query_lower or "油管" in query_lower):
             constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="youtube"))
         location_match = re.search(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去", query)
         if location_match:

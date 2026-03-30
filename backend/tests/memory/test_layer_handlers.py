@@ -609,6 +609,58 @@ class TestL2Handler:
         assert results["relationships"][0]["predicate"] == "VISITED"
         assert results["trace"]["semantic_frame"]["answer_kind"] == "place"
 
+    @pytest.mark.asyncio
+    async def test_software_affinity_semantic_frame_uses_exact_target_relationships(self):
+        store = AsyncMock()
+        store.get_relationships.return_value = [
+            {
+                "triple_id": "software-1",
+                "subject_id": "user:u1",
+                "subject_type": "user",
+                "predicate": "USES",
+                "object_id": "software:bilibili",
+                "object_type": "software",
+            }
+        ]
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "software:bilibili",
+                "entity_type": "software",
+                "canonical_name": "Bilibili",
+                "match_source": "alias",
+            }
+        ]
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="我喜欢B站吗",
+            entities=["B站"],
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="software",
+                answer_unit="mixed",
+                answer_shape="boolean",
+                polarity="positive",
+                entity_mentions=["B站"],
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        _, relationship_kwargs = store.get_relationships.call_args
+        assert relationship_kwargs["subject_id"] == "user:u1"
+        assert relationship_kwargs["object_id"] == "software:bilibili"
+        assert relationship_kwargs["predicates"] == ["USES", "LIKES", "DISLIKES"]
+        assert results["relationships"][0]["predicate"] == "USES"
+        assert results["trace"]["semantic_frame"]["answer_kind"] == "software"
+
 
 # -----------------------------------------------------------------------
 # L3Handler

@@ -342,6 +342,21 @@ class TestKeywordRouting:
         assert [c.facet for c in conditions.semantic_frame.constraints] == ["located_in", "category"]
         assert [c.raw_value for c in conditions.semantic_frame.constraints] == ["杭州", "咖啡馆"]
 
+    def test_l2_software_affinity_semantic_frame_for_bilibili_boolean_query(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我喜欢B站吗", recall_intent_hint="preference_recall")
+        result = decider.evaluate(inp)
+
+        assert result.plans[0].layer == "L2"
+        conditions = result.plans[0].conditions
+        assert isinstance(conditions, L2Conditions)
+        assert conditions.entities == ["B站"]
+        assert conditions.semantic_frame is not None
+        assert conditions.semantic_frame.query_family == "affinity"
+        assert conditions.semantic_frame.subject_scope == "self"
+        assert conditions.semantic_frame.answer_kind == "software"
+        assert conditions.semantic_frame.answer_shape == "boolean"
+        assert conditions.semantic_frame.constraints == []
+
     def test_l2_who_en(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="who is John")
         result = decider.evaluate(inp)

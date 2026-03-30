@@ -456,6 +456,7 @@ class L2Handler:
                 semantic_frame=semantic_frame,
                 status_filters=status_filters,
                 user_id=user_id,
+                resolved_entities=resolved_entities,
             )
             if semantic_relationships is not None:
                 results["relationships"] = semantic_relationships
@@ -545,6 +546,7 @@ class L2Handler:
         semantic_frame: L2SemanticFrame | None,
         status_filters: list[str] | None,
         user_id: Optional[str],
+        resolved_entities: list[dict[str, str]],
     ) -> list[dict[str, Any]] | None:
         if semantic_frame is None:
             return None
@@ -566,6 +568,14 @@ class L2Handler:
                 semantic_frame=semantic_frame,
                 status_filters=status_filters,
                 user_id=user_id,
+            )
+        if semantic_frame.answer_kind == "software":
+            return await self._execute_software_affinity_relationship_plan(
+                conditions=conditions,
+                semantic_frame=semantic_frame,
+                status_filters=status_filters,
+                user_id=user_id,
+                resolved_entities=resolved_entities,
             )
         return None
 
@@ -642,6 +652,29 @@ class L2Handler:
                 )
             )
         return self._dedupe_relationships(relationships)
+
+    async def _execute_software_affinity_relationship_plan(
+        self,
+        *,
+        conditions: L2Conditions,
+        semantic_frame: L2SemanticFrame,
+        status_filters: list[str] | None,
+        user_id: str,
+        resolved_entities: list[dict[str, str]],
+    ) -> list[dict[str, Any]] | None:
+        target_entity_id = self._select_semantic_target_entity_id(
+            semantic_frame=semantic_frame,
+            resolved_entities=resolved_entities,
+        )
+        if not target_entity_id:
+            return None
+        return await self._store.get_relationships(
+            subject_id=f"user:{user_id}",
+            object_id=target_entity_id,
+            predicates=self._predicates_for_semantic_frame(semantic_frame),
+            status_filters=status_filters,
+            limit=conditions.limit,
+        )
 
     async def _query_relationships_for_entity(
         self,
@@ -769,6 +802,8 @@ class L2Handler:
             return ["FOLLOWS", "LIKES", "DISLIKES", "INTERESTED_IN"]
         if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "place":
             return ["VISITED", "LIKES", "DISLIKES"]
+        if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "software":
+            return ["USES", "LIKES", "DISLIKES"]
         return []
 
     def _infer_status_filters(self, query: str) -> list[str]:
@@ -1005,6 +1040,24 @@ class L2Handler:
             seen.add(key)
             deduped.append(relationship)
         return deduped
+
+    @staticmethod
+    def _select_semantic_target_entity_id(
+        *,
+        semantic_frame: L2SemanticFrame,
+        resolved_entities: list[dict[str, str]],
+    ) -> str | None:
+        expected_type = semantic_frame.answer_kind
+        for entity in resolved_entities:
+            entity_type = str(entity.get("entity_type") or "").strip()
+            if entity_type != expected_type:
+                continue
+            if str(entity.get("match_source") or "") == "vector":
+                continue
+            entity_id = str(entity.get("entity_id") or "").strip()
+            if entity_id:
+                return entity_id
+        return None
 
 
 class L3Handler:

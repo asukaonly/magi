@@ -277,6 +277,8 @@ def _build_summary(*, findings: list[dict[str, Any]], recall_intent: str | None,
                 return f"你对{object_label}感兴趣。"
             if predicate == "FOLLOWS":
                 return f"你关注{object_label}。"
+            if predicate == "USES":
+                return f"你有使用{object_label}的记录。"
         if subject and predicate and object_value:
             return f"{subject} {predicate} {object_value}"
 

@@ -14,8 +14,6 @@ class ScheduledTargetType(str, Enum):
     """Supported scheduler target families."""
 
     SENSOR_SYNC = "sensor_sync"
-    AGENT_TASK = "agent_task"
-    ACTION_DISPATCH = "action_dispatch"
     MEMORY_L2_MAINTENANCE = "memory_l2_maintenance"
 
 

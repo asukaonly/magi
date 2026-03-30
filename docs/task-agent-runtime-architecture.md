@@ -72,11 +72,10 @@ The current sequence is:
 13. agent runtime
 14. timeline service
 15. scheduler engine
-16. agent schedule registration
-17. action schedule registration
-18. timeline schedule registration
-19. runtime exports
-20. maintenance dependencies
+16. sensor schedule registration
+17. runtime exports
+18. L2 maintenance schedule registration
+19. maintenance dependencies
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 
@@ -356,17 +355,15 @@ Current rule:
 
 ## Scheduler Targets
 
-The scheduler runtime currently supports three target families:
+The scheduler runtime currently supports two active target families:
 
 - `sensor_sync`
-- `agent_task`
-- `action_dispatch`
+- `memory_l2_maintenance`
 
 The scheduler engine lives in `scheduler/service.py`. Layer-owned schedule registration is performed by:
 
-- `AgentScheduleRegistrationModule`
-- `ActionScheduleRegistrationModule`
 - `SensorScheduleRegistrationModule`
+- `L2MaintenanceScheduleRegistrationModule`
 
 This keeps scheduling policy with the owning layers instead of centralizing it in one runtime module.
 

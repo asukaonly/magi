@@ -7,10 +7,9 @@ from .exports import RuntimeExportsModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule
 
-from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
+from ..agent.lifecycle import AgentRuntimeModule
 from ..awareness.lifecycle import (
     SensorsAndActionsModule,
-    ActionScheduleRegistrationModule,
     SensorScheduleRegistrationModule,
 )
 from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
@@ -58,8 +57,6 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         PluginIngressProcessorModule(context),
         TimelineModule(context),
         SchedulerModule(context),
-        AgentScheduleRegistrationModule(context),
-        ActionScheduleRegistrationModule(context),
         SensorScheduleRegistrationModule(context),
         RuntimeExportsModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
