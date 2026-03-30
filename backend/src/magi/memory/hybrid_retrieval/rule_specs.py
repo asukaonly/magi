@@ -180,6 +180,15 @@ def extract_entities(query: str) -> list[str]:
     return entities
 
 
+def infer_source_domain_filters(query: str) -> tuple[list[str] | None, list[str] | None]:
+    """Infer source and domain filters from query text."""
+    query_lower = query.lower()
+    for keywords, sources, domains in SOURCE_DOMAIN_SIGNAL_SPECS:
+        if contains_any(query_lower, keywords):
+            return sources, domains
+    return None, None
+
+
 def extract_platform_constraint(query: str, *, answer_kind: str) -> SemanticConstraint | None:
     """Extract a platform constraint when the query contains platform hints."""
     query_lower = query.lower()

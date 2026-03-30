@@ -39,13 +39,13 @@ from .rule_specs import (
     L2_SIGNAL_KEYWORDS,
     L3_SIGNAL_KEYWORDS,
     L4_SIGNAL_KEYWORDS,
-    SOURCE_DOMAIN_SIGNAL_SPECS,
     contains_any,
     extract_entities,
     infer_answer_kind,
     infer_answer_shape,
     infer_polarity,
     infer_semantic_constraints,
+    infer_source_domain_filters,
 )
 
 logger = logging.getLogger(__name__)
@@ -460,11 +460,7 @@ class RuleBasedIntentDecider:
         if inp.source_filters or inp.domain_filters:
             return inp.source_filters or None, inp.domain_filters or None
 
-        for keywords, sources, domains in SOURCE_DOMAIN_SIGNAL_SPECS:
-            if contains_any(query_lower, keywords):
-                return sources, domains
-
-        return None, None
+        return infer_source_domain_filters(query_lower)
 
     def _extract_entities(self, query: str) -> list[str]:
         """Extract high-confidence entity surface forms for common software/platform names."""

@@ -7,6 +7,7 @@ from magi.memory.hybrid_retrieval.rule_specs import (
     extract_category_constraint,
     extract_location_constraint,
     extract_platform_constraint,
+    infer_source_domain_filters,
     infer_answer_kind,
     infer_answer_shape,
     infer_polarity,
@@ -83,3 +84,8 @@ def test_extract_category_constraint_maps_known_place_categories() -> None:
     assert constraint.facet == "category"
     assert constraint.raw_value == "咖啡馆"
     assert constraint.resolved_facet_value == "coffee_shop"
+
+
+def test_infer_source_domain_filters_uses_central_specs() -> None:
+    assert infer_source_domain_filters("我浏览了什么网页") == (["chrome_history"], ["external_activity"])
+    assert infer_source_domain_filters("我们刚才聊天聊了什么") == (["chat"], ["user_authored"])
