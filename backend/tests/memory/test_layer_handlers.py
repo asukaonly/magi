@@ -612,6 +612,68 @@ class TestL2Handler:
         assert results["relationships"][0]["object_type"] == "person"
 
     @pytest.mark.asyncio
+    async def test_creator_affinity_semantic_frame_uses_interaction_platform_constraint(self):
+        store = AsyncMock()
+        store.get_relationships.side_effect = [
+            [
+                {
+                    "triple_id": "topology-1",
+                    "subject_id": "presence:bilibili:creator_1",
+                    "subject_type": "presence",
+                    "predicate": "ON_PLATFORM",
+                    "object_id": "software:bilibili",
+                    "object_type": "software",
+                }
+            ],
+            [
+                {
+                    "triple_id": "follow-1",
+                    "subject_id": "user:u1",
+                    "subject_type": "user",
+                    "predicate": "FOLLOWS",
+                    "object_id": "presence:bilibili:creator_1",
+                    "object_type": "presence",
+                }
+            ],
+            [],
+        ]
+        handler = L2Handler(store, entity_catalog=AsyncMock())
+        conds = L2Conditions(
+            content_query="我最近在B站的时候喜欢看哪些up主",
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="creator",
+                answer_unit="identity",
+                answer_shape="list",
+                polarity="positive",
+                constraints=[
+                    SemanticConstraint(
+                        scope="interaction",
+                        facet="platform",
+                        raw_value="B站",
+                        resolved_entity_id="software:bilibili",
+                    )
+                ],
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        topology_kwargs = store.get_relationships.await_args_list[0].kwargs
+        evidence_kwargs = store.get_relationships.await_args_list[1].kwargs
+        assert topology_kwargs["predicates"] == ["ON_PLATFORM"]
+        assert topology_kwargs["object_id"] == "software:bilibili"
+        assert evidence_kwargs["subject_id"] == "user:u1"
+        assert evidence_kwargs["object_id"] == "presence:bilibili:creator_1"
+        assert results["relationships"][0]["predicate"] == "FOLLOWS"
+
+    @pytest.mark.asyncio
     async def test_place_affinity_semantic_frame_uses_location_topology_then_visit_edges(self):
         store = AsyncMock()
         store.get_relationships.side_effect = [

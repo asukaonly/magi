@@ -626,7 +626,22 @@ class RuleBasedIntentDecider:
     def _infer_semantic_constraints(self, query: str, *, answer_kind: str) -> list[SemanticConstraint]:
         query_lower = query.lower()
         constraints: list[SemanticConstraint] = []
-        if answer_kind != "software" and ("b站" in query_lower or "bilibili" in query_lower):
+        interaction_platform_value: str | None = None
+        if answer_kind != "software":
+            if re.search(r"(?:在|用)\s*(B站|b站|bilibili)\s*的时候", query, re.IGNORECASE):
+                interaction_platform_value = "b站"
+            elif re.search(r"(?:在|用)\s*(youtube|油管)\s*的时候", query, re.IGNORECASE):
+                interaction_platform_value = "youtube"
+
+        if interaction_platform_value is not None:
+            constraints.append(
+                SemanticConstraint(
+                    scope="interaction",
+                    facet="platform",
+                    raw_value=interaction_platform_value,
+                )
+            )
+        elif answer_kind != "software" and ("b站" in query_lower or "bilibili" in query_lower):
             constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="b站"))
         elif answer_kind != "software" and ("youtube" in query_lower or "油管" in query_lower):
             constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="youtube"))

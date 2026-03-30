@@ -480,6 +480,67 @@ class TestServiceLayerRouting:
             {"event_id": "evt-1", "content": "Went to a cafe in Hangzhou", "timestamp": 150.0, "session_id": "s1"}
         ]
 
+    @pytest.mark.asyncio
+    async def test_interaction_scoped_creator_affinity_with_time_range_adds_l1_primary_plan(self):
+        mem = _make_memory(l1=_make_l1_store([]), l2=AsyncMock())
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        semantic_frame = L2SemanticFrame(
+            query_family="affinity",
+            subject_scope="self",
+            answer_kind="creator",
+            answer_unit="identity",
+            answer_shape="list",
+            polarity="positive",
+            constraints=[
+                SemanticConstraint(
+                    scope="interaction",
+                    facet="platform",
+                    raw_value="B站",
+                    resolved_entity_id="software:bilibili",
+                )
+            ],
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[
+                    LayerQueryPlan(
+                        layer="L2",
+                        conditions=L2Conditions(
+                            content_query="最近在B站的时候喜欢看哪些up主",
+                            subject_hint="self",
+                            predicate_family="preference",
+                            semantic_frame=semantic_frame,
+                        ),
+                        time_range=TimeRange(start=100.0, end=200.0),
+                        is_fallback=False,
+                    )
+                ],
+                time_range=TimeRange(start=100.0, end=200.0),
+                source="rule_fallback",
+                reasoning="test",
+            )
+        )
+
+        execute_plan_mock = AsyncMock(
+            side_effect=[
+                {"entity_cards": [], "relationships": [{"triple_id": "rel-creator-1", "predicate": "FOLLOWS"}], "assertions": []},
+                [{"event_id": "evt-creator-1", "content": "Watched a Bilibili creator", "timestamp": 150.0, "session_id": "s1"}],
+            ]
+        )
+        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=execute_plan_mock):
+            result = await svc.query(_make_request(query="最近在B站的时候喜欢看哪些up主"))
+
+        assert [call.args[0].layer for call in execute_plan_mock.await_args_list[:2]] == ["L2", "L1"]
+        l1_plan = execute_plan_mock.await_args_list[1].args[0]
+        assert isinstance(l1_plan.conditions, L1Conditions)
+        assert l1_plan.time_range is not None
+        assert l1_plan.time_range.start == 100.0
+        assert l1_plan.time_range.end == 200.0
+        assert result.l2_relationships == [{"triple_id": "rel-creator-1", "predicate": "FOLLOWS"}]
+        assert result.l1_events == [
+            {"event_id": "evt-creator-1", "content": "Watched a Bilibili creator", "timestamp": 150.0, "session_id": "s1"}
+        ]
+
 
     @pytest.mark.asyncio
     async def test_graph_mode_self_hint_binds_user_even_without_pronoun(self):

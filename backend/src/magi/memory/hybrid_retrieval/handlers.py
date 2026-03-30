@@ -588,6 +588,8 @@ class L2Handler:
         user_id: str,
     ) -> list[dict[str, Any]] | None:
         platform_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="platform")
+        if platform_constraint is None:
+            platform_constraint = self._find_constraint(semantic_frame.constraints, scope="interaction", facet="platform")
         platform_entity_id = platform_constraint.resolved_entity_id if platform_constraint else None
         if not platform_entity_id:
             return None

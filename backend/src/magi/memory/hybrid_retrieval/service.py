@@ -344,7 +344,7 @@ class HybridRetrievalService:
         semantic_frame = plan.conditions.semantic_frame
         if semantic_frame is None:
             return None
-        if semantic_frame.query_family != "affinity" or semantic_frame.answer_kind != "place":
+        if semantic_frame.query_family != "affinity":
             return None
         if not any(constraint.scope == "interaction" for constraint in semantic_frame.constraints):
             return None
