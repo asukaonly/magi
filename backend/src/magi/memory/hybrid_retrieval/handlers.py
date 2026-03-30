@@ -614,7 +614,10 @@ class L2Handler:
                     limit=conditions.limit,
                 )
             )
-        return self._dedupe_relationships(relationships)
+        deduped = self._dedupe_relationships(relationships)
+        if semantic_frame.answer_unit == "identity":
+            return await self._lift_creator_presence_relationships(deduped)
+        return deduped
 
     async def _execute_place_affinity_relationship_plan(
         self,
@@ -1040,6 +1043,41 @@ class L2Handler:
             seen.add(key)
             deduped.append(relationship)
         return deduped
+
+    async def _lift_creator_presence_relationships(
+        self,
+        relationships: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        lifted: list[dict[str, Any]] = []
+        presence_cache: dict[str, dict[str, Any] | None] = {}
+
+        for relationship in relationships:
+            object_id = str(relationship.get("object_id") or "").strip()
+            object_type = str(relationship.get("object_type") or "").strip()
+            if object_type != "presence" or not object_id:
+                lifted.append(relationship)
+                continue
+
+            if object_id not in presence_cache:
+                presence_edges = await self._store.get_relationships(
+                    subject_id=object_id,
+                    predicates=["PRESENCE_OF"],
+                    limit=1,
+                )
+                presence_cache[object_id] = presence_edges[0] if presence_edges else None
+
+            presence_edge = presence_cache[object_id]
+            if not presence_edge:
+                lifted.append(relationship)
+                continue
+
+            lifted_relationship = dict(relationship)
+            lifted_relationship["object_id"] = presence_edge.get("object_id")
+            lifted_relationship["object_type"] = presence_edge.get("object_type")
+            lifted_relationship["object"] = presence_edge.get("object_id")
+            lifted.append(lifted_relationship)
+
+        return lifted
 
     @staticmethod
     def _select_semantic_target_entity_id(

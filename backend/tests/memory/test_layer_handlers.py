@@ -497,6 +497,7 @@ class TestL2Handler:
                     "object_type": "presence",
                 }
             ],
+            [],
         ]
         entity_catalog = AsyncMock()
 
@@ -537,6 +538,78 @@ class TestL2Handler:
         assert "FOLLOWS" in evidence_kwargs["predicates"]
         assert results["relationships"][0]["predicate"] == "FOLLOWS"
         assert results["trace"]["semantic_frame"]["answer_kind"] == "creator"
+
+    @pytest.mark.asyncio
+    async def test_creator_affinity_semantic_frame_lifts_presence_to_identity(self):
+        store = AsyncMock()
+        store.get_relationships.side_effect = [
+            [
+                {
+                    "triple_id": "topology-1",
+                    "subject_id": "presence:bilibili:creator_1",
+                    "subject_type": "presence",
+                    "predicate": "ON_PLATFORM",
+                    "object_id": "software:bilibili",
+                    "object_type": "software",
+                }
+            ],
+            [
+                {
+                    "triple_id": "follow-1",
+                    "subject_id": "user:u1",
+                    "subject_type": "user",
+                    "predicate": "FOLLOWS",
+                    "object_id": "presence:bilibili:creator_1",
+                    "object_type": "presence",
+                }
+            ],
+            [
+                {
+                    "triple_id": "presence-of-1",
+                    "subject_id": "presence:bilibili:creator_1",
+                    "subject_type": "presence",
+                    "predicate": "PRESENCE_OF",
+                    "object_id": "person:永雏塔菲",
+                    "object_type": "person",
+                }
+            ],
+        ]
+        entity_catalog = AsyncMock()
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="我B站喜欢哪些up主",
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="creator",
+                answer_unit="identity",
+                answer_shape="list",
+                polarity="positive",
+                constraints=[
+                    SemanticConstraint(
+                        scope="target",
+                        facet="platform",
+                        raw_value="B站",
+                        resolved_entity_id="software:bilibili",
+                    )
+                ],
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        lift_kwargs = store.get_relationships.await_args_list[2].kwargs
+        assert lift_kwargs["subject_id"] == "presence:bilibili:creator_1"
+        assert lift_kwargs["predicates"] == ["PRESENCE_OF"]
+        assert results["relationships"][0]["predicate"] == "FOLLOWS"
+        assert results["relationships"][0]["object_id"] == "person:永雏塔菲"
+        assert results["relationships"][0]["object_type"] == "person"
 
     @pytest.mark.asyncio
     async def test_place_affinity_semantic_frame_uses_location_topology_then_visit_edges(self):
