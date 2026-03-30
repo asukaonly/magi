@@ -17,6 +17,19 @@ def build_l3_embedding_text(summary: dict[str, Any]) -> str:
     return str(summary.get("content") or "").strip()
 
 
+def build_l2_entity_embedding_text(
+    *,
+    canonical_name: str,
+    entity_type: str,
+    aliases: list[str] | None = None,
+) -> str:
+    """Return the canonical L2 text used for embedding."""
+    parts = [str(entity_type).strip(), str(canonical_name).strip()]
+    alias_texts = [str(alias).strip() for alias in aliases or [] if str(alias).strip()]
+    parts.extend(alias_texts)
+    return "\n".join(part for part in parts if part)
+
+
 def build_l4_embedding_text(
     *,
     skill_name: str,
@@ -30,5 +43,9 @@ def build_l4_embedding_text(
         parts.append(prompt)
     return "\n".join(part for part in parts if part)
 
-
-__all__ = ["build_l1_embedding_text", "build_l3_embedding_text", "build_l4_embedding_text"]
+__all__ = [
+    "build_l1_embedding_text",
+    "build_l2_entity_embedding_text",
+    "build_l3_embedding_text",
+    "build_l4_embedding_text",
+]

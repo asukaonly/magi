@@ -6,6 +6,29 @@ from pathlib import Path
 import pytest
 
 
+class _RecordingEmbeddingService:
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    async def embed_text(self, text: str):
+        self.texts.append(text)
+        from magi.memory.embedding_service import EmbeddingResult
+
+        return EmbeddingResult(model_name="test-embedding", dimension=4, vector=[1.0, 0.0, 0.0, 0.0])
+
+
+class _RecordingVectorIndex:
+    def __init__(self) -> None:
+        self.upserted_entity_ids: list[str] = []
+
+    async def upsert(self, *, entity_id: str, embedding, metadata=None) -> None:
+        _ = (embedding, metadata)
+        self.upserted_entity_ids.append(entity_id)
+
+    async def close(self) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_exact_alias_mapping_resolves_shanghai_and_modu_to_same_entity():
     from magi.memory.l2.entity_catalog import L2EntityCatalog
@@ -211,3 +234,25 @@ async def test_record_mention_normalizes_unknown_entity_type_to_other():
         mention = await catalog.get_mention(mention_id)
 
         assert mention["entity_type"] == "other"
+
+
+@pytest.mark.asyncio
+async def test_entity_embeddings_use_unified_builder_with_aliases_and_remain_single_chunk():
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        embedding_service = _RecordingEmbeddingService()
+        catalog = L2EntityCatalog(db_path=db_path, embedding_service=embedding_service)
+        await catalog.initialize()
+        catalog._vector_index = _RecordingVectorIndex()  # type: ignore[assignment]
+
+        entity_id = await catalog.upsert_entity(
+            canonical_name="OpenAI",
+            entity_type="organization",
+            entity_id="org:openai",
+        )
+        await catalog.add_alias(entity_id=entity_id, alias_text="OpenAI Labs", confidence=0.95)
+
+        assert catalog._vector_index.upserted_entity_ids == ["organization:openai", "organization:openai"]  # type: ignore[attr-defined]
+        assert embedding_service.texts[-1] == "organization\nOpenAI\nOpenAI Labs"

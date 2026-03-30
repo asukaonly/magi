@@ -12,6 +12,7 @@ import aiosqlite
 
 from ...config.models import EmbeddingBackend
 from ...core.sqlite import sqlite_connection_async
+from ..embedding_text_builders import build_l2_entity_embedding_text
 from ..embedding_service import MemoryEmbeddingService
 from ..sqlite_vec_index import SqliteVecIndex
 from .ontology import coerce_unknown_entity_type
@@ -140,7 +141,7 @@ class L2EntityCatalog:
                 (normalized_entity_id, canonical_name, normalized_entity_type, now, now),
             )
             await db.commit()
-        await self._maybe_embed_entity(normalized_entity_id, f"{normalized_entity_type}: {canonical_name}")
+        await self._maybe_embed_entity(normalized_entity_id)
         return normalized_entity_id
 
     async def add_alias(self, *, entity_id: str, alias_text: str, confidence: float = 1.0) -> None:
@@ -160,6 +161,7 @@ class L2EntityCatalog:
                 (entity_id, alias_text, normalized_alias, float(confidence), now, now),
             )
             await db.commit()
+        await self._maybe_embed_entity(entity_id)
 
     async def resolve_alias(
         self,
@@ -508,10 +510,13 @@ class L2EntityCatalog:
         except Exception:
             return None
 
-    async def _maybe_embed_entity(self, entity_id: str, text: str) -> None:
+    async def _maybe_embed_entity(self, entity_id: str) -> None:
         if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None:
             return
         try:
+            text = await self._build_entity_embedding_text(entity_id)
+            if not text:
+                return
             embedding = await self._embedding_service.embed_text(text)
             if embedding is None:
                 return
@@ -522,6 +527,17 @@ class L2EntityCatalog:
             )
         except Exception as exc:
             logger.debug("Failed to embed L2 entity %s: %s", entity_id, exc)
+
+    async def _build_entity_embedding_text(self, entity_id: str) -> str:
+        entities = await self._list_entities(limit=1, entity_ids=[entity_id])
+        if not entities:
+            return ""
+        entity = entities[0]
+        return build_l2_entity_embedding_text(
+            canonical_name=str(entity.get("canonical_name") or ""),
+            entity_type=str(entity.get("entity_type") or ""),
+            aliases=[str(alias) for alias in entity.get("aliases", [])],
+        )
 
     async def search_entities_semantic(
         self,
