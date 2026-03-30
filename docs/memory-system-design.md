@@ -641,6 +641,8 @@ Natural language
 
 `L4` 不是在复述历史事实，而是在沉淀未来执行准则。
 
+当前 `L4` 向量索引采用 `skill` 为父对象、`chunk` 为检索粒度的方式：较长 procedural prompt 会先切成多个重叠 chunk 建立向量，再在语义检索阶段折叠回父 skill。
+
 典型例子：
 
 - 常用 workflow 模板
