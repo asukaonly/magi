@@ -51,6 +51,7 @@ def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalCo
         reranker_local_model_source=str(getattr(reranker.local.model_source, "value", reranker.local.model_source)),
         reranker_local_managed_model_id=reranker.local.managed_model_id,
         reranker_local_model_file_path=reranker.local.model_file_path,
+        reranker_local_max_context_tokens=reranker.local.max_context_tokens,
     )
 
 

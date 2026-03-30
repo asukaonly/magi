@@ -219,6 +219,7 @@ class RetrievalConfig:
     reranker_local_model_source: Literal["managed", "external"] = "managed"
     reranker_local_managed_model_id: str | None = None
     reranker_local_model_file_path: str | None = None
+    reranker_local_max_context_tokens: int = 2048
     reranker_llm_weight: float = 0.55
 
     # ResultFusion

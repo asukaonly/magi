@@ -265,7 +265,9 @@ Current storage implementation notes:
 - Layer vectors are stored per layer (`L1/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
 - Managed local reranker assets belong under `~/.magi/cache/models/rerank/<managed_model_id>/`; externally referenced local reranker files stay in place and are referenced by path only.
-- Current `local` reranker execution expects a configured `llm.providers.local` entry that points to a local OpenAI-compatible service; when that service or model is unavailable, retrieval falls back to heuristic reranking.
+- Current `local` reranker execution first tries a configured `llm.providers.local` entry that points to a local OpenAI-compatible service.
+- If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.
+- If neither the local provider path nor the local CLI path is available, retrieval falls back to heuristic reranking.
 - `scenario_prompts.db` lives under `~/.magi/data/app/`; `llm_usage.db` lives under `~/.magi/runtime/`.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.

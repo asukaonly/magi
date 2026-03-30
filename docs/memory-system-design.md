@@ -180,8 +180,9 @@ Magi 明确把聊天真相、运行时观测和持久记忆拆成不同存储。
 - 保留 source-side identity 和 business idempotency
 - 当前向量索引以 `event` 为父对象、以 `chunk` 为检索粒度：长文本会先切成多个重叠 chunk 建立向量，再在检索阶段折叠回父事件
 - 当前 `L1` / `L3` / `L4` 的 hybrid retrieval 在 `RRF` 之后还会经过统一 reranker 阶段；当前支持共享 heuristic reranker，以及一个可选的 LLM reranker
-- `LLM reranker` 由 `agent.memory.reranker` 驱动：`remote` 模式使用显式 provider/model，`local` 模式复用全局 `llm.providers.local` 指向的本地 OpenAI-compatible 服务
-- 如果 LLM reranker 的 provider、model 或本地服务不可用，检索链路会自动回退到 heuristic reranker，不会中断主检索
+- `LLM reranker` 由 `agent.memory.reranker` 驱动：`remote` 模式使用显式 provider/model，`local` 模式优先复用全局 `llm.providers.local` 指向的本地 OpenAI-compatible 服务
+- 当 `local` 模式配置了 managed / external 模型文件且本地 provider 不可用时，检索链路会退到 `llama-cli` 直接执行本地模型文件；managed 模型目录位于 `~/.magi/cache/models/rerank/<managed_model_id>/`
+- 如果 LLM reranker 的 provider、model、本地服务或本地 CLI 执行条件都不可用，检索链路会自动回退到 heuristic reranker，不会中断主检索
 
 典型例子：
 
