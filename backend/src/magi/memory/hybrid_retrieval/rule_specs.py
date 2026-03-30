@@ -87,6 +87,26 @@ def contains_any(text: str, tokens: Sequence[str]) -> bool:
     return any(token in text for token in tokens)
 
 
+def extract_answer_object_mentions(query: str) -> list[str]:
+    """Extract explicit mentions that likely denote the answer object itself."""
+    query_lower = query.lower()
+    mentions: list[str] = []
+    if any(pattern.search(query_lower) for pattern in _TOPIC_PRIMARY_PATTERNS):
+        mentions.extend([token for token in TOPIC_KEYWORDS if token in query_lower or token in query])
+    elif any(pattern.search(query_lower) for pattern in _CREATOR_PRIMARY_PATTERNS):
+        mentions.extend([token for token in CREATOR_KEYWORDS if token in query_lower or token in query])
+    elif any(pattern.search(query_lower) for pattern in _PLACE_PRIMARY_PATTERNS):
+        mentions.extend([token for token in PLACE_KEYWORDS if token in query_lower or token in query])
+    elif any(pattern.search(query_lower) for pattern in _SOFTWARE_PRIMARY_PATTERNS):
+        mentions.extend([token for token in SOFTWARE_KEYWORDS if token in query_lower or token in query])
+
+    deduped: list[str] = []
+    for mention in mentions:
+        if mention not in deduped:
+            deduped.append(mention)
+    return deduped
+
+
 def infer_answer_kind(query_lower: str) -> str:
     """Infer the answer object kind from a normalized query string."""
     query_lower = query_lower.lower()

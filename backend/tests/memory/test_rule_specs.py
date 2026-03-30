@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from magi.memory.hybrid_retrieval.rule_specs import (
+    extract_answer_object_mentions,
     infer_answer_kind,
     infer_answer_shape,
     infer_polarity,
@@ -41,3 +42,8 @@ def test_infer_semantic_constraints_uses_central_pattern_specs() -> None:
         ("interaction", "located_in", "杭州"),
         ("target", "category", "咖啡馆"),
     ]
+
+
+def test_extract_answer_object_mentions_prefers_answer_object_over_context_mentions() -> None:
+    mentions = extract_answer_object_mentions("上次我看的主播他说的主题是什么")
+    assert mentions == ["主题"]
