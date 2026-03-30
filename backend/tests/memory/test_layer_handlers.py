@@ -16,9 +16,11 @@ from magi.memory.hybrid_retrieval.handlers import (
 from magi.memory.hybrid_retrieval.models import (
     L1Conditions,
     L2Conditions,
+    L2SemanticFrame,
     L3Conditions,
     L4Conditions,
     LayerQueryPlan,
+    SemanticConstraint,
     TimeRange,
 )
 
@@ -470,6 +472,71 @@ class TestL2Handler:
         assert relationship_kwargs.get("object_id") is None
         assert results["trace"]["query_frame"]["chosen_target_entity_id"] == "weather_state:weather-state"
         assert results["trace"]["query_frame"]["target_entity_id_exact"] is None
+
+    @pytest.mark.asyncio
+    async def test_creator_affinity_semantic_frame_uses_platform_topology_then_follows_edges(self):
+        store = AsyncMock()
+        store.get_relationships.side_effect = [
+            [
+                {
+                    "triple_id": "topology-1",
+                    "subject_id": "presence:bilibili:creator_1",
+                    "subject_type": "presence",
+                    "predicate": "ON_PLATFORM",
+                    "object_id": "software:bilibili",
+                    "object_type": "software",
+                }
+            ],
+            [
+                {
+                    "triple_id": "follow-1",
+                    "subject_id": "user:u1",
+                    "subject_type": "user",
+                    "predicate": "FOLLOWS",
+                    "object_id": "presence:bilibili:creator_1",
+                    "object_type": "presence",
+                }
+            ],
+        ]
+        entity_catalog = AsyncMock()
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="我B站喜欢哪些up主",
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="creator",
+                answer_unit="identity",
+                answer_shape="list",
+                polarity="positive",
+                constraints=[
+                    SemanticConstraint(
+                        scope="target",
+                        facet="platform",
+                        raw_value="B站",
+                        resolved_entity_id="software:bilibili",
+                    )
+                ],
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        topology_kwargs = store.get_relationships.await_args_list[0].kwargs
+        evidence_kwargs = store.get_relationships.await_args_list[1].kwargs
+        assert topology_kwargs["predicates"] == ["ON_PLATFORM"]
+        assert topology_kwargs["object_id"] == "software:bilibili"
+        assert evidence_kwargs["subject_id"] == "user:u1"
+        assert evidence_kwargs["object_id"] == "presence:bilibili:creator_1"
+        assert "FOLLOWS" in evidence_kwargs["predicates"]
+        assert results["relationships"][0]["predicate"] == "FOLLOWS"
+        assert results["trace"]["semantic_frame"]["answer_kind"] == "creator"
 
 
 # -----------------------------------------------------------------------

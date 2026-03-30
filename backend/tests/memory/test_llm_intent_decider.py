@@ -12,6 +12,7 @@ from magi.memory.hybrid_retrieval.models import (
     IntentDeciderInput,
     L1Conditions,
     L2Conditions,
+    L2SemanticFrame,
     L3Conditions,
     L4Conditions,
 )
@@ -100,6 +101,46 @@ class TestLLMParsing:
         assert result.plans[0].conditions.entities == ["Alice", "Bob"]
         assert result.plans[0].conditions.subject_hint == "explicit"
         assert result.plans[0].conditions.predicate_family == "relationship"
+
+    @pytest.mark.asyncio
+    async def test_l2_with_semantic_frame(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [
+                {
+                    "layer": "L2",
+                    "is_fallback": False,
+                    "content_query": "B站 喜欢的 up 主",
+                    "entities": ["B站"],
+                    "subject_hint": "self",
+                    "predicate_family": "preference",
+                    "semantic_frame": {
+                        "query_family": "affinity",
+                        "subject_scope": "self",
+                        "answer_kind": "creator",
+                        "answer_unit": "identity",
+                        "answer_shape": "list",
+                        "polarity": "positive",
+                        "constraints": [
+                            {
+                                "scope": "target",
+                                "facet": "platform",
+                                "raw_value": "B站",
+                                "resolved_entity_id": "software:bilibili",
+                            }
+                        ],
+                    },
+                }
+            ],
+            "reasoning": "creator affinity query",
+        })
+
+        result = await decider.evaluate(IntentDeciderInput(query="我B站喜欢哪些up主"))
+
+        assert result is not None
+        assert isinstance(result.plans[0].conditions, L2Conditions)
+        assert isinstance(result.plans[0].conditions.semantic_frame, L2SemanticFrame)
+        assert result.plans[0].conditions.semantic_frame.answer_kind == "creator"
+        assert result.plans[0].conditions.semantic_frame.constraints[0].resolved_entity_id == "software:bilibili"
 
     @pytest.mark.asyncio
     async def test_l3_layer(self, decider: LLMIntentDecider, mock_bridge):
@@ -321,3 +362,5 @@ class TestLLMCallParams:
         system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
         assert 'set subject_hint to "self"' in system_prompt
         assert "Allowed predicate_family values" in system_prompt
+        assert '"semantic_frame"' in system_prompt
+        assert '"answer_kind"' in system_prompt

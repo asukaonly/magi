@@ -112,7 +112,34 @@ class L2Conditions:
     relation_direction: Optional[str] = None
     hop_count: int = 1
     status_filter: Optional[List[str]] = None
+    semantic_frame: Optional["L2SemanticFrame"] = None
     limit: int = 20
+
+
+@dataclass
+class SemanticConstraint:
+    """Structured query constraint for L2 semantic planning."""
+
+    scope: Literal["target", "interaction"]
+    facet: Literal["platform", "located_in", "category"]
+    raw_value: str
+    resolved_entity_id: Optional[str] = None
+    resolved_facet_value: Optional[str] = None
+
+
+@dataclass
+class L2SemanticFrame:
+    """Structured semantic frame used for L2 query planning."""
+
+    query_family: Literal["affinity", "relationship", "profile", "activity", "lookup"]
+    subject_scope: Literal["self", "explicit", "none"]
+    answer_kind: Literal["creator", "place", "topic", "person", "software", "unknown"]
+    answer_unit: Literal["identity", "presence", "place", "topic", "mixed"]
+    answer_shape: Literal["list", "single", "boolean"]
+    polarity: Literal["positive", "negative", "neutral", "any"]
+    entity_mentions: List[str] = field(default_factory=list)
+    constraints: List[SemanticConstraint] = field(default_factory=list)
+    ranking_mode: Literal["affinity", "confidence", "recency"] = "affinity"
 
 
 @dataclass

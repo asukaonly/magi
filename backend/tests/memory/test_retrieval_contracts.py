@@ -9,6 +9,7 @@ from magi.memory.hybrid_retrieval.models import (
     IntentDecision,
     L1Conditions,
     L2Conditions,
+    L2SemanticFrame,
     L3Conditions,
     L4Conditions,
     LayerQueryPlan,
@@ -46,6 +47,22 @@ class TestLayerConditions:
         c = L2Conditions()
         assert c.include_tom_snapshot is True
         assert c.include_relationships is True
+        assert c.semantic_frame is None
+
+    def test_l2_semantic_frame_serialization(self):
+        c = L2Conditions(
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="creator",
+                answer_unit="identity",
+                answer_shape="list",
+                polarity="positive",
+            )
+        )
+        payload = asdict(c)
+        assert payload["semantic_frame"]["query_family"] == "affinity"
+        assert payload["semantic_frame"]["answer_kind"] == "creator"
 
     def test_l3_defaults(self):
         c = L3Conditions(content_query="summary")

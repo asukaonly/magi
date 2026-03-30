@@ -27,9 +27,11 @@ from .models import (
     IntentDecision,
     L1Conditions,
     L2Conditions,
+    L2SemanticFrame,
     L3Conditions,
     L4Conditions,
     LayerQueryPlan,
+    SemanticConstraint,
     TimeRange,
 )
 
@@ -142,6 +144,13 @@ _RECALL_INTENT_LAYER_MAP: Dict[str, tuple[str, str]] = {
 
 _VALID_SUBJECT_HINTS = {"self", "explicit", "none"}
 _VALID_PREDICATE_FAMILIES = {"preference", "relationship", "profile_fact", "activity", "unknown"}
+_VALID_QUERY_FAMILIES = {"affinity", "relationship", "profile", "activity", "lookup"}
+_VALID_ANSWER_KINDS = {"creator", "place", "topic", "person", "software", "unknown"}
+_VALID_ANSWER_UNITS = {"identity", "presence", "place", "topic", "mixed"}
+_VALID_ANSWER_SHAPES = {"list", "single", "boolean"}
+_VALID_POLARITIES = {"positive", "negative", "neutral", "any"}
+_VALID_CONSTRAINT_SCOPES = {"target", "interaction"}
+_VALID_CONSTRAINT_FACETS = {"platform", "located_in", "category"}
 
 
 # ---------------------------------------------------------------------------
@@ -428,11 +437,18 @@ class RuleBasedIntentDecider:
             )
         elif layer == "L2":
             entities = self._extract_entities(inp.query)
+            subject_hint = self._infer_subject_hint(inp)
+            predicate_family = self._infer_predicate_family(inp)
             conditions = L2Conditions(
                 content_query=inp.query,
                 entities=entities if entities else None,
-                subject_hint=self._infer_subject_hint(inp),
-                predicate_family=self._infer_predicate_family(inp),
+                subject_hint=subject_hint,
+                predicate_family=predicate_family,
+                semantic_frame=self._infer_semantic_frame(
+                    query=inp.query,
+                    subject_hint=subject_hint,
+                    predicate_family=predicate_family,
+                ),
                 include_tom_snapshot=True,
                 include_relationships=True,
                 include_assertions=True,
@@ -526,6 +542,93 @@ class RuleBasedIntentDecider:
             return "activity"
         return "unknown"
 
+    def _infer_semantic_frame(
+        self,
+        *,
+        query: str,
+        subject_hint: str,
+        predicate_family: str,
+    ) -> L2SemanticFrame | None:
+        query_lower = query.lower()
+        query_family = self._infer_query_family(predicate_family=predicate_family)
+        answer_kind = self._infer_answer_kind(query_lower)
+        if query_family == "lookup" and answer_kind == "unknown":
+            return None
+
+        constraints = self._infer_semantic_constraints(query)
+        return L2SemanticFrame(
+            query_family=query_family,
+            subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
+            answer_kind=answer_kind,
+            answer_unit=self._infer_answer_unit(answer_kind),
+            answer_shape=self._infer_answer_shape(query_lower),
+            polarity=self._infer_polarity(query_lower),
+            entity_mentions=self._extract_entities(query),
+            constraints=constraints,
+            ranking_mode="affinity" if query_family == "affinity" else "confidence",
+        )
+
+    @staticmethod
+    def _infer_query_family(*, predicate_family: str) -> str:
+        if predicate_family == "preference":
+            return "affinity"
+        if predicate_family == "relationship":
+            return "relationship"
+        if predicate_family == "profile_fact":
+            return "profile"
+        if predicate_family == "activity":
+            return "activity"
+        return "lookup"
+
+    @staticmethod
+    def _infer_answer_kind(query_lower: str) -> str:
+        if any(token in query_lower for token in ("up主", "up", "博主", "youtuber", "主播", "creator", "频道", "channel")):
+            return "creator"
+        if any(token in query_lower for token in ("咖啡馆", "餐厅", "店", "饭馆", "cafe", "restaurant", "shop")):
+            return "place"
+        if any(token in query_lower for token in ("题材", "主题", "topic")):
+            return "topic"
+        if any(token in query_lower for token in ("软件", "网站", "app", "平台", "网站", "b站", "bilibili", "youtube")):
+            return "software"
+        if any(token in query_lower for token in ("谁", "人", "person")):
+            return "person"
+        return "unknown"
+
+    @staticmethod
+    def _infer_answer_unit(answer_kind: str) -> str:
+        if answer_kind == "creator":
+            return "identity"
+        if answer_kind == "place":
+            return "place"
+        if answer_kind == "topic":
+            return "topic"
+        return "mixed"
+
+    @staticmethod
+    def _infer_answer_shape(query_lower: str) -> str:
+        if any(token in query_lower for token in ("吗", "是否", "是不是", "么")):
+            return "boolean"
+        if any(token in query_lower for token in ("哪些", "什么", "谁", "哪几个", "which", "what")):
+            return "list"
+        return "single"
+
+    @staticmethod
+    def _infer_polarity(query_lower: str) -> str:
+        if any(token in query_lower for token in ("讨厌", "不喜欢", "dislike", "hate")):
+            return "negative"
+        if any(token in query_lower for token in ("喜欢", "偏好", "关注", "常看", "love", "like", "prefer")):
+            return "positive"
+        return "any"
+
+    def _infer_semantic_constraints(self, query: str) -> list[SemanticConstraint]:
+        query_lower = query.lower()
+        constraints: list[SemanticConstraint] = []
+        if "b站" in query_lower or "bilibili" in query_lower:
+            constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="b站"))
+        elif "youtube" in query_lower or "油管" in query_lower:
+            constraints.append(SemanticConstraint(scope="target", facet="platform", raw_value="youtube"))
+        return constraints
+
     # -----------------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------------
@@ -596,6 +699,9 @@ Layer-specific rules:
   - Otherwise set subject_hint to "none".
   - Use predicate_family instead of guessing one exact graph edge when the intent is broad.
   - Allowed predicate_family values: "preference", "relationship", "profile_fact", "activity", "unknown".
+  - When the query semantics are clearer than predicate_family alone, populate semantic_frame.
+  - semantic_frame should describe query_family, subject_scope, answer_kind, answer_unit, answer_shape, polarity, and constraints.
+  - Use target platform constraints for phrases like "B站上的 up 主" instead of turning the platform into an exact relationship object_id.
 
 Routing guidance:
 - Questions about preferences, profile facts, relationships, or long-lived personal attributes should prefer L2.
@@ -623,6 +729,25 @@ Return JSON only:
       "entities": ["string"],
       "subject_hint": "self" | "explicit" | "none",
       "predicate_family": "preference" | "relationship" | "profile_fact" | "activity" | "unknown",
+      "semantic_frame": {
+        "query_family": "affinity" | "relationship" | "profile" | "activity" | "lookup",
+        "subject_scope": "self" | "explicit" | "none",
+        "answer_kind": "creator" | "place" | "topic" | "person" | "software" | "unknown",
+        "answer_unit": "identity" | "presence" | "place" | "topic" | "mixed",
+        "answer_shape": "list" | "single" | "boolean",
+        "polarity": "positive" | "negative" | "neutral" | "any",
+        "entity_mentions": ["string"],
+        "constraints": [
+          {
+            "scope": "target" | "interaction",
+            "facet": "platform" | "located_in" | "category",
+            "raw_value": "string",
+            "resolved_entity_id": "optional entity id",
+            "resolved_facet_value": "optional normalized value"
+          }
+        ],
+        "ranking_mode": "affinity" | "confidence" | "recency"
+      },
       "source_filters": ["chat", "chrome_history", "profile", "terminal", "git"],
       "domain_filters": ["user_authored", "external_activity", "system_generated"]
     }
@@ -642,7 +767,7 @@ class LLMIntentDecider:
 
     async def evaluate(self, inp: IntentDeciderInput) -> IntentDecision | None:
         """Call LLM for intent analysis. Returns None on any failure."""
-        prompt_lines = [f"用户查询：{inp.query}"]
+        prompt_lines = [f"user query: {inp.query}"]
         if inp.recall_intent_hint:
             prompt_lines.append(f"recall_intent_hint: {inp.recall_intent_hint}")
         if inp.query_mode_hint:
@@ -699,6 +824,7 @@ class LLMIntentDecider:
                 subject_hint = "none"
             if predicate_family not in _VALID_PREDICATE_FAMILIES:
                 predicate_family = "unknown"
+            semantic_frame = self._parse_semantic_frame(item.get("semantic_frame"))
 
             if layer == "L1":
                 conditions = L1Conditions(
@@ -712,6 +838,7 @@ class LLMIntentDecider:
                     entities=entities if entities else None,
                     subject_hint=subject_hint,
                     predicate_family=predicate_family,
+                    semantic_frame=semantic_frame,
                     include_tom_snapshot=True,
                     include_relationships=True,
                     include_assertions=True,
@@ -741,6 +868,63 @@ class LLMIntentDecider:
                 content_query=plan.conditions.content_query,
             )
         return decision
+
+    def _parse_semantic_frame(self, payload: Any) -> L2SemanticFrame | None:
+        if not isinstance(payload, dict):
+            return None
+        query_family = str(payload.get("query_family") or "lookup").strip().lower()
+        subject_scope = str(payload.get("subject_scope") or "none").strip().lower()
+        answer_kind = str(payload.get("answer_kind") or "unknown").strip().lower()
+        answer_unit = str(payload.get("answer_unit") or "mixed").strip().lower()
+        answer_shape = str(payload.get("answer_shape") or "list").strip().lower()
+        polarity = str(payload.get("polarity") or "any").strip().lower()
+        ranking_mode = str(payload.get("ranking_mode") or "affinity").strip().lower()
+        if query_family not in _VALID_QUERY_FAMILIES:
+            query_family = "lookup"
+        if subject_scope not in _VALID_SUBJECT_HINTS:
+            subject_scope = "none"
+        if answer_kind not in _VALID_ANSWER_KINDS:
+            answer_kind = "unknown"
+        if answer_unit not in _VALID_ANSWER_UNITS:
+            answer_unit = "mixed"
+        if answer_shape not in _VALID_ANSWER_SHAPES:
+            answer_shape = "list"
+        if polarity not in _VALID_POLARITIES:
+            polarity = "any"
+        if ranking_mode not in {"affinity", "confidence", "recency"}:
+            ranking_mode = "affinity"
+
+        constraints: list[SemanticConstraint] = []
+        for item in payload.get("constraints") or []:
+            if not isinstance(item, dict):
+                continue
+            scope = str(item.get("scope") or "target").strip().lower()
+            facet = str(item.get("facet") or "").strip().lower()
+            raw_value = str(item.get("raw_value") or "").strip()
+            if scope not in _VALID_CONSTRAINT_SCOPES or facet not in _VALID_CONSTRAINT_FACETS or not raw_value:
+                continue
+            constraints.append(
+                SemanticConstraint(
+                    scope=scope,
+                    facet=facet,
+                    raw_value=raw_value,
+                    resolved_entity_id=str(item.get("resolved_entity_id") or "").strip() or None,
+                    resolved_facet_value=str(item.get("resolved_facet_value") or "").strip() or None,
+                )
+            )
+
+        entity_mentions = [str(item).strip() for item in payload.get("entity_mentions") or [] if str(item).strip()]
+        return L2SemanticFrame(
+            query_family=query_family,
+            subject_scope=subject_scope,
+            answer_kind=answer_kind,
+            answer_unit=answer_unit,
+            answer_shape=answer_shape,
+            polarity=polarity,
+            entity_mentions=entity_mentions,
+            constraints=constraints,
+            ranking_mode=ranking_mode,
+        )
 
     @staticmethod
     def _validate_l1_content_query(*, original_query: str, content_query: str) -> str:

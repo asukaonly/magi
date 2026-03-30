@@ -309,6 +309,23 @@ class TestKeywordRouting:
         assert result.plans[0].layer == "L2"
         assert isinstance(result.plans[0].conditions, L2Conditions)
 
+    def test_l2_creator_affinity_semantic_frame_for_bilibili_query(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我B站喜欢哪些up主", recall_intent_hint="preference_recall")
+        result = decider.evaluate(inp)
+
+        assert result.plans[0].layer == "L2"
+        conditions = result.plans[0].conditions
+        assert isinstance(conditions, L2Conditions)
+        assert conditions.semantic_frame is not None
+        assert conditions.semantic_frame.query_family == "affinity"
+        assert conditions.semantic_frame.subject_scope == "self"
+        assert conditions.semantic_frame.answer_kind == "creator"
+        assert conditions.semantic_frame.answer_unit == "identity"
+        assert conditions.semantic_frame.answer_shape == "list"
+        assert conditions.semantic_frame.constraints[0].scope == "target"
+        assert conditions.semantic_frame.constraints[0].facet == "platform"
+        assert conditions.semantic_frame.constraints[0].raw_value == "b站"
+
     def test_l2_who_en(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="who is John")
         result = decider.evaluate(inp)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ...core.sqlite import sqlite_connection_async
@@ -23,10 +24,12 @@ from .answerability import (
 from .models import (
     L1Conditions,
     L2Conditions,
+    L2SemanticFrame,
     L3Conditions,
     L4Conditions,
     LayerQueryPlan,
     RetrievalConfig,
+    SemanticConstraint,
     TimeRange,
 )
 
@@ -399,6 +402,7 @@ class L2Handler:
         predicates = conditions.predicates or self._predicates_for_family(predicate_family)
         status_filters = conditions.status_filter or self._infer_status_filters(conditions.content_query)
         relation_direction = conditions.relation_direction or self._infer_relation_direction(conditions.content_query)
+        semantic_frame = conditions.semantic_frame
         query_frame = self._build_query_frame(
             conditions=conditions,
             resolved_entities=resolved_entities,
@@ -447,28 +451,39 @@ class L2Handler:
                 )
 
         if conditions.include_relationships:
-            relationship_entities = query_frame["relationship_entities"] or resolved_entities
-            if relationship_entities:
-                for entity in relationship_entities:
-                    results["relationships"].extend(
-                        await self._query_relationships_for_entity(
-                            entity_id=entity["entity_id"],
-                            entity_type=entity["entity_type"],
-                            direction=relation_direction,
-                            predicates=predicates,
-                            status_filters=status_filters,
-                            object_id=query_frame["relationship_object_id"],
-                            object_types=query_frame["relationship_object_types"],
-                            limit=conditions.limit,
-                        )
-                    )
+            semantic_relationships = await self._execute_semantic_relationship_plan(
+                conditions=conditions,
+                semantic_frame=semantic_frame,
+                status_filters=status_filters,
+                user_id=user_id,
+            )
+            if semantic_relationships is not None:
+                results["relationships"] = semantic_relationships
+                if semantic_frame is not None:
+                    predicates = self._predicates_for_semantic_frame(semantic_frame)
             else:
-                rels = await self._store.get_relationships(
-                    predicates=predicates,
-                    status_filters=status_filters,
-                    limit=conditions.limit,
-                )
-                results["relationships"] = rels
+                relationship_entities = query_frame["relationship_entities"] or resolved_entities
+                if relationship_entities:
+                    for entity in relationship_entities:
+                        results["relationships"].extend(
+                            await self._query_relationships_for_entity(
+                                entity_id=entity["entity_id"],
+                                entity_type=entity["entity_type"],
+                                direction=relation_direction,
+                                predicates=predicates,
+                                status_filters=status_filters,
+                                object_id=query_frame["relationship_object_id"],
+                                object_types=query_frame["relationship_object_types"],
+                                limit=conditions.limit,
+                            )
+                        )
+                else:
+                    rels = await self._store.get_relationships(
+                        predicates=predicates,
+                        status_filters=status_filters,
+                        limit=conditions.limit,
+                    )
+                    results["relationships"] = rels
 
         results["trace"] = {
             "content_query": conditions.content_query,
@@ -479,6 +494,7 @@ class L2Handler:
             "predicate_family": predicate_family,
             "requested_entity_types": list(conditions.entity_types or []),
             "trait_families": list(conditions.trait_families or []),
+            "semantic_frame": asdict(semantic_frame) if semantic_frame is not None else None,
             "include_tom_snapshot": conditions.include_tom_snapshot,
             "include_relationships": conditions.include_relationships,
             "include_assertions": conditions.include_assertions,
@@ -521,6 +537,50 @@ class L2Handler:
             len(results["assertions"]),
         )
         return results
+
+    async def _execute_semantic_relationship_plan(
+        self,
+        *,
+        conditions: L2Conditions,
+        semantic_frame: L2SemanticFrame | None,
+        status_filters: list[str] | None,
+        user_id: Optional[str],
+    ) -> list[dict[str, Any]] | None:
+        if semantic_frame is None:
+            return None
+        if semantic_frame.query_family != "affinity" or semantic_frame.answer_kind != "creator":
+            return None
+        if semantic_frame.subject_scope != "self" or not user_id:
+            return None
+
+        platform_constraint = self._find_constraint(semantic_frame.constraints, scope="target", facet="platform")
+        platform_entity_id = platform_constraint.resolved_entity_id if platform_constraint else None
+        if not platform_entity_id:
+            return None
+
+        topology_edges = await self._store.get_relationships(
+            predicates=["ON_PLATFORM"],
+            object_id=platform_entity_id,
+            status_filters=status_filters,
+            limit=max(conditions.limit * 5, 20),
+        )
+        candidate_ids = self._collect_candidate_subject_ids(topology_edges)
+        if not candidate_ids:
+            return []
+
+        relationships: list[dict[str, Any]] = []
+        predicates = self._predicates_for_semantic_frame(semantic_frame)
+        for candidate_id in candidate_ids:
+            relationships.extend(
+                await self._store.get_relationships(
+                    subject_id=f"user:{user_id}",
+                    object_id=candidate_id,
+                    predicates=predicates,
+                    status_filters=status_filters,
+                    limit=conditions.limit,
+                )
+            )
+        return self._dedupe_relationships(relationships)
 
     async def _query_relationships_for_entity(
         self,
@@ -641,6 +701,12 @@ class L2Handler:
     def _predicates_for_family(cls, family: str) -> list[str] | None:
         """Derive predicate list from predicate_family set by the intent decider."""
         return list(cls._FAMILY_PREDICATES[family]) if family in cls._FAMILY_PREDICATES else None
+
+    @staticmethod
+    def _predicates_for_semantic_frame(semantic_frame: L2SemanticFrame) -> list[str]:
+        if semantic_frame.query_family == "affinity" and semantic_frame.answer_kind == "creator":
+            return ["FOLLOWS", "LIKES", "DISLIKES", "INTERESTED_IN"]
+        return []
 
     def _infer_status_filters(self, query: str) -> list[str]:
         query_lower = query.lower()
@@ -836,6 +902,46 @@ class L2Handler:
     @staticmethod
     def _allows_object_type_filter(*, entity_type: str, direction: str) -> bool:
         return direction == "outgoing" and entity_type == "user"
+
+    @staticmethod
+    def _find_constraint(
+        constraints: list[SemanticConstraint],
+        *,
+        scope: str,
+        facet: str,
+    ) -> SemanticConstraint | None:
+        for constraint in constraints:
+            if constraint.scope == scope and constraint.facet == facet:
+                return constraint
+        return None
+
+    @staticmethod
+    def _collect_candidate_subject_ids(relationships: list[dict[str, Any]]) -> list[str]:
+        seen: set[str] = set()
+        candidates: list[str] = []
+        for relationship in relationships:
+            subject_id = str(relationship.get("subject_id") or "").strip()
+            if subject_id and subject_id not in seen:
+                seen.add(subject_id)
+                candidates.append(subject_id)
+        return candidates
+
+    @staticmethod
+    def _dedupe_relationships(relationships: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        deduped: list[dict[str, Any]] = []
+        for relationship in relationships:
+            triple_id = str(relationship.get("triple_id") or "").strip()
+            key = triple_id or (
+                f"{relationship.get('subject_id')}:"
+                f"{relationship.get('predicate')}:"
+                f"{relationship.get('object_id')}"
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(relationship)
+        return deduped
 
 
 class L3Handler:
