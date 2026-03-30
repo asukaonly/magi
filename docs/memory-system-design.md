@@ -396,6 +396,213 @@ Plugin / Sensor / Host integration
 - rule-backed graph candidates 与 LLM candidates 在入库前必须统一到同一套 schema
 - `fact_kind` 不能只存在于 prompt 或临时 candidate 中，否则查询和冲突处理阶段会丢失语义边界
 
+### L2 查询侧语义约定
+
+`L2` 查询不应继续围绕粗粒度 `predicate_family -> predicates` 做规划。对自然语言回忆问题来说，真正稳定的结构不是“查哪条边”，而是：
+
+- 回答对象是什么
+- 约束作用在回答对象本身还是交互上下文
+- 需要列出对象、判断单对象，还是回答 yes/no
+- “喜欢”这类语义应由哪些证据聚合而成
+
+因此 `L2` 检索的核心 contract 应升级为语义查询帧，而不是只传入 `predicate_family`。
+
+#### 查询帧
+
+推荐的 `L2` 查询帧至少应表达以下槽位：
+
+- `query_family`
+  例如 `affinity`、`relationship`、`profile`、`activity`、`lookup`
+- `subject_scope`
+  `self`、`explicit`、`none`
+- `answer_kind`
+  例如 `creator`、`place`、`topic`、`person`、`software`
+- `answer_unit`
+  例如 `identity`、`presence`、`place`、`mixed`
+- `answer_shape`
+  例如 `list`、`single`、`boolean`
+- `polarity`
+  `positive`、`negative`、`neutral`、`any`
+- `entity_mentions`
+  供后续解析和候选绑定使用的显式 mention
+- `constraints`
+  受控的约束列表，而不是任意自由图查询
+
+其中：
+
+- `喜欢`、`讨厌`、`偏好` 不应直接绑定到某个单一 predicate，而应落在 `query_family=affinity`
+- `answer_kind` 决定候选对象的类型
+- `answer_shape` 决定结果投影方式，不能推迟到最终回答阶段再猜
+
+#### 约束与作用域
+
+查询约束必须带作用域。当前推荐先支持两类作用域：
+
+- `target`
+  修饰回答对象本身，例如“B 站上的 UP 主”“杭州的咖啡馆”
+- `interaction`
+  修饰交互发生时的上下文，例如“我在杭州的时候常去哪些店”“我用 B 站的时候常看谁”
+
+受控 facet 建议先收敛到：
+
+- `platform`
+- `located_in`
+- `category`
+
+解析后约束分两类：
+
+- entity-backed constraint
+  可解析成图实体，例如 `B站 -> software:bilibili`、`杭州 -> place:hangzhou`
+- facet-backed constraint
+  先不进入主图、由 facet registry / structured hint 承载，例如 `咖啡馆 -> coffee_shop`
+
+默认规则：
+
+- 直接修饰回答对象的限定词优先解释为 `target`
+- 表示“在某时/某地/某平台使用过程中”的状语优先解释为 `interaction`
+- 模糊时优先 `target`
+
+#### 查询执行流水线
+
+推荐把 `L2` 查询执行固定为以下四步：
+
+```text
+Natural language
+  -> SemanticFrame
+  -> ResolvedFrame
+  -> CandidateSet + EvidenceSet
+  -> RankedAnswer
+```
+
+每一层职责如下：
+
+- `SemanticFrame`
+  从自然语言中提取稳定语义槽位，不直接决定底层 graph predicate
+- `ResolvedFrame`
+  把平台、地点、类别、显式对象等约束解析成可执行约束
+- `CandidateSet`
+  先根据 topology / facet 约束找“有资格成为答案”的对象集合
+- `EvidenceSet`
+  收集用户和候选之间的 direct / lifted evidence
+- `RankedAnswer`
+  对候选按查询语义聚合和排序，生成列表、单对象结果或布尔判断
+
+#### 候选优先，再做证据聚合
+
+`affinity` 查询默认采用“先找候选，再算喜欢程度”的模式，而不是直接从一条偏好边反推对象。
+
+这意味着：
+
+- 平台、地点、类别等约束先用于筛候选对象
+- 用户与候选之间的边用于计算 affinity
+- 回答对象的资格和强度由两层不同的机制决定
+
+例如：
+
+- “我 B 站喜欢哪些 UP 主”
+  先找 `presence -> ON_PLATFORM -> software:bilibili` 的候选，再看 `user -> candidate` 的 evidence
+- “我在杭州喜欢去哪些咖啡馆”
+  先找 `place -> LOCATED_IN -> place:hangzhou` 且 `category=coffee_shop` 的候选，再看 `VISITED` / `LIKES`
+
+#### Affinity 是读时聚合，不是单一 predicate
+
+`affinity` 不应被实现成对 `LIKES` 的单条边查询。对不同回答对象，强证据可以不同：
+
+- creator
+  `FOLLOWS`、显式 `LIKES`、`INTERESTED_IN`、重复消费内容证据
+- place
+  显式 `LIKES`、重复 `VISITED`
+- software
+  `USES`、显式 `LIKES` / `DISLIKES`
+- topic
+  `INTERESTED_IN`、显式 `LIKES`、重复消费相关内容
+
+因此 `affinity` 应是读时 evidence aggregation。写入侧负责保留结构事实和交互证据，查询侧负责按 `answer_kind` 聚合为“喜欢/讨厌/偏好”。
+
+推荐的分数模型：
+
+- 正向证据和负向证据分别聚合
+- direct evidence 权重大于 lifted evidence
+- 多条弱证据应采用饱和聚合，而不是简单线性叠加
+- yes/no 判断应基于正负证据分别建模，而不是只看单一总分
+
+#### 策略注册表，而不是 query if/else
+
+查询执行模板不应按具体问法硬编码，而应围绕稳定的语义组合注册策略。推荐按：
+
+- `query_family`
+- `answer_kind`
+
+选择执行策略。
+
+例如：
+
+- `("affinity", "creator")`
+- `("affinity", "place")`
+- `("affinity", "software")`
+- `("affinity", "topic")`
+
+每个策略应由可组合原语构成，而不是一整段 query-specific 分支逻辑：
+
+- candidate provider
+- constraint handlers
+- evidence collectors
+- grouper
+- scorer
+- projector
+
+扩展规则：
+
+- 新说法只改查询帧生成规则
+- 新约束只加 facet / constraint resolver
+- 新证据只加 evidence collector
+- 只有出现新的回答对象类型时，才新增策略注册项
+
+#### `presence` 在查询侧的角色
+
+查询侧不应把 creator identity 和 platform presence 混为一谈。
+
+推荐约定：
+
+- creator affinity 的候选优先基于 `presence`
+- `presence -> ON_PLATFORM -> software`
+- `presence -> PRESENCE_OF -> person/group/organization`
+- 默认回答按 identity 聚合输出
+- 只有当用户明确问账号、频道、主页时，才按 `presence` 输出
+
+这样平台约束、账号级行为证据和最终面向用户的 creator 回答可以同时成立，而不需要误用 `WORKS_AT` 之类不精确 predicate。
+
+#### L1 与 L2 的协同
+
+不是所有带有“喜欢”字样的问题都应完全交给 `L2`。推荐的层协同规则：
+
+- `L2` 负责稳定结构约束和长期 affinity
+- `L1` 负责强时间窗口、单次经历、顺序、次数等事件性证据
+
+因此：
+
+- “我喜欢哪些 UP 主” 应优先走 `L2`
+- “我最近三天都看了谁” 应优先走 `L1`
+- “我最近在杭州喜欢去哪些咖啡馆” 这类同时包含稳定对象约束和时间窗口的问题，应允许 `L2` 提供候选对象、`L1` 提供时间切片证据，再在 affinity 层聚合
+
+#### 查询侧的可观测性要求
+
+为了避免再次退化成“只有一个模糊 predicate family”的黑盒查询，执行 trace 至少应包含：
+
+- 生成的 `SemanticFrame`
+- 解析后的 `ResolvedFrame`
+- 选中的 strategy key
+- 生效的 candidate provider / evidence collectors
+- 命中的 constraints
+- 对最终结果贡献最大的证据项
+
+调试时必须能回答：
+
+- 这次回答对象为什么是这类实体
+- 哪个约束起效了，哪个没有起效
+- 为什么这次结果是 `FOLLOWS` 驱动，而不是 `LIKES` 驱动
+- 为什么最终走了 `L2`、`L1` 或两者协同
+
 ### L3 反思与摘要
 
 `L3` 用来保存按时间窗或主题压缩后的反思记忆。
