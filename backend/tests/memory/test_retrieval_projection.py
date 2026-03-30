@@ -106,6 +106,45 @@ def test_project_historical_recall_summarizes_follows_for_preference_recall() ->
     assert projected.summary == "你关注永雏塔菲。"
 
 
+def test_project_historical_recall_summarizes_top_follows_for_list_preference_query() -> None:
+    payload = RetrievalPayload(
+        l2_relationships=[
+            {
+                "triple_id": "triple-2",
+                "subject_id": "user:local_user",
+                "predicate": "FOLLOWS",
+                "object_id": "person:永雏塔菲",
+                "confidence": 0.92,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+            {
+                "triple_id": "triple-5",
+                "subject_id": "user:local_user",
+                "predicate": "FOLLOWS",
+                "object_id": "person:嘉然",
+                "confidence": 0.89,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+        ],
+        trace={"primary_count": 2},
+    )
+    request = RetrievalQuery(
+        query="我B站喜欢哪些up主",
+        user_id="local_user",
+        session_id="session-1",
+        time_range={},
+        recall_intent="preference_recall",
+        query_mode="detail",
+    )
+
+    projected = project_historical_recall(payload=payload, request=request)
+
+    assert projected.status == "found"
+    assert projected.summary == "你关注永雏塔菲、嘉然。"
+
+
 def test_project_historical_recall_summarizes_uses_for_preference_recall() -> None:
     payload = RetrievalPayload(
         l2_relationships=[
@@ -164,3 +203,42 @@ def test_project_historical_recall_summarizes_topic_affinity_for_preference_reca
 
     assert projected.status == "found"
     assert projected.summary == "你对anime题材感兴趣。"
+
+
+def test_project_historical_recall_summarizes_top_topics_for_list_preference_query() -> None:
+    payload = RetrievalPayload(
+        l2_relationships=[
+            {
+                "triple_id": "triple-4",
+                "subject_id": "user:local_user",
+                "predicate": "INTERESTED_IN",
+                "object_id": "topic:anime",
+                "confidence": 0.91,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+            {
+                "triple_id": "triple-6",
+                "subject_id": "user:local_user",
+                "predicate": "INTERESTED_IN",
+                "object_id": "topic:mystery",
+                "confidence": 0.87,
+                "status": "active",
+                "updated_at": 1774499528.09,
+            },
+        ],
+        trace={"primary_count": 2},
+    )
+    request = RetrievalQuery(
+        query="我喜欢什么题材",
+        user_id="local_user",
+        session_id="session-1",
+        time_range={},
+        recall_intent="preference_recall",
+        query_mode="detail",
+    )
+
+    projected = project_historical_recall(payload=payload, request=request)
+
+    assert projected.status == "found"
+    assert projected.summary == "你对anime题材、mystery题材感兴趣。"

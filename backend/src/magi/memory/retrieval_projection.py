@@ -36,6 +36,7 @@ def project_historical_recall(
     status = _derive_status(findings)
     summary = _build_summary(
         findings=findings,
+        query=normalized_request.query,
         recall_intent=normalized_request.recall_intent,
         status=status,
     )
@@ -259,9 +260,20 @@ def _project_procedures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return findings
 
 
-def _build_summary(*, findings: list[dict[str, Any]], recall_intent: str | None, status: str) -> str:
+def _build_summary(
+    *,
+    findings: list[dict[str, Any]],
+    query: str,
+    recall_intent: str | None,
+    status: str,
+) -> str:
     if status == "not_found":
         return "未检索到可确认的历史记忆。"
+
+    if recall_intent == "preference_recall" and _is_list_like_query(query):
+        grouped_summary = _build_grouped_preference_summary(findings)
+        if grouped_summary:
+            return grouped_summary
 
     primary = findings[0] if findings else {}
     if primary.get("kind") == "relationship":
@@ -284,6 +296,55 @@ def _build_summary(*, findings: list[dict[str, Any]], recall_intent: str | None,
 
     statement = str(primary.get("statement") or "").strip()
     return statement or "已检索到相关历史记忆。"
+
+
+def _build_grouped_preference_summary(findings: list[dict[str, Any]]) -> str | None:
+    relationship_findings = [
+        item for item in findings
+        if str(item.get("kind") or "").strip() == "relationship"
+    ]
+    if len(relationship_findings) < 2:
+        return None
+
+    subject, predicate, object_value = _split_relationship_statement(
+        str(relationship_findings[0].get("statement") or "").strip()
+    )
+    if not subject or not predicate or not object_value:
+        return None
+
+    labels: list[str] = []
+    for item in relationship_findings:
+        item_subject, item_predicate, item_object_value = _split_relationship_statement(
+            str(item.get("statement") or "").strip()
+        )
+        if item_subject != subject or item_predicate != predicate or not item_object_value:
+            break
+        label = _humanize_object(item_object_value)
+        if label and label not in labels:
+            labels.append(label)
+        if len(labels) >= 3:
+            break
+
+    if len(labels) < 2:
+        return None
+
+    joined_labels = "、".join(labels)
+    if predicate == "LIKES":
+        return f"你喜欢{joined_labels}。"
+    if predicate == "DISLIKES":
+        return f"你讨厌{joined_labels}。"
+    if predicate == "INTERESTED_IN":
+        return f"你对{joined_labels}感兴趣。"
+    if predicate == "FOLLOWS":
+        return f"你关注{joined_labels}。"
+    if predicate == "USES":
+        return f"你有使用{joined_labels}的记录。"
+    return None
+
+
+def _is_list_like_query(query: str) -> bool:
+    query_lower = str(query or "").strip().lower()
+    return any(token in query_lower for token in ("哪些", "什么", "谁", "哪几个", "which", "what"))
 
 
 def _derive_status(findings: list[dict[str, Any]]) -> str:
