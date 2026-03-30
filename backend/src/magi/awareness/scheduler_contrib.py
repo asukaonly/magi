@@ -158,6 +158,36 @@ class SensorSchedulerContrib:
         context: ScheduledExecutionContext,
     ) -> ScheduledExecutionResult:
         source_type = str(context.schedule.target_payload.get("source_type") or "")
+        return await self._run_sensor_sync(
+            schedule_id=context.schedule.schedule_id,
+            target_key=context.schedule.target_key,
+            source_type=source_type,
+            manual=context.manual,
+            target_state=context.target_state,
+        )
+
+    async def execute_sensor_sync_job(self, job: dict[str, object]) -> ScheduledExecutionResult:
+        target_state = await self._scheduler_service.get_target_state(
+            ScheduledTargetType(str(job["target_type"])),
+            str(job["target_key"]),
+        )
+        return await self._run_sensor_sync(
+            schedule_id=str(job["schedule_id"]),
+            target_key=str(job["target_key"]),
+            source_type=str(job["source_type"]),
+            manual=bool(job["manual"]),
+            target_state=target_state,
+        )
+
+    async def _run_sensor_sync(
+        self,
+        *,
+        schedule_id: str,
+        target_key: str,
+        source_type: str,
+        manual: bool,
+        target_state: Any,
+    ) -> ScheduledExecutionResult:
         resolved = self._sensor_registry.resolve_source_sensor(source_type)
         if resolved is None:
             raise RuntimeError(f"Sensor source not found: {source_type}")
@@ -169,9 +199,9 @@ class SensorSchedulerContrib:
         source_settings = dict(package_settings.get("sensors", {}).get(source_type, {}))
         pull_context = SensorSyncContext(
             source_type=source_type,
-            manual=context.manual,
-            last_cursor=context.target_state.last_cursor,
-            last_success_at=context.target_state.last_success_at,
+            manual=manual,
+            last_cursor=target_state.last_cursor,
+            last_success_at=target_state.last_success_at,
             limit=int(source_settings.get("max_items_per_sync", 200)),
             runtime_paths=self._runtime_paths,
             plugin_settings=package_settings,
@@ -194,9 +224,9 @@ class SensorSchedulerContrib:
             metadata = await sensor.extract_metadata(fetched)
             output.provenance.update(
                 {
-                    "scheduler_schedule_id": context.schedule.schedule_id,
-                    "scheduler_target_key": context.schedule.target_key,
-                    "sensor_sync_mode": "manual" if context.manual else "scheduled",
+                    "scheduler_schedule_id": schedule_id,
+                    "scheduler_target_key": target_key,
+                    "sensor_sync_mode": "manual" if manual else "scheduled",
                 }
             )
             await self._ingestion_gateway.ingest(
