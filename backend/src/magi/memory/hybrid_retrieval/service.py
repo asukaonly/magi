@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
+from ...config import AppConfig
 from .answerability import (
     extract_comparison_spans,
     extract_query_tokens,
@@ -31,6 +32,28 @@ from .timeline_condense import build_timeline_summary
 logger = logging.getLogger(__name__)
 
 
+def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalConfig:
+    """Build retrieval config from the runtime app config."""
+    reranker = app_config.agent.memory.reranker
+    return RetrievalConfig(
+        reranker_enabled=reranker.enabled,
+        reranker_backend=str(getattr(reranker.backend, "value", reranker.backend)),
+        reranker_mode=str(getattr(reranker.mode, "value", reranker.mode)),
+        reranker_top_k=reranker.top_k,
+        reranker_layers=tuple(
+            str(getattr(layer, "value", layer))
+            for layer in reranker.layers
+        ),
+        reranker_timeout_seconds=reranker.timeout_seconds,
+        reranker_candidate_max_chars=reranker.candidate_max_chars,
+        reranker_remote_provider_id=reranker.remote.provider_id,
+        reranker_remote_model=reranker.remote.model,
+        reranker_local_model_source=str(getattr(reranker.local.model_source, "value", reranker.local.model_source)),
+        reranker_local_managed_model_id=reranker.local.managed_model_id,
+        reranker_local_model_file_path=reranker.local.model_file_path,
+    )
+
+
 class HybridRetrievalService:
     """Intent-driven hybrid retrieval across L0-L4 memory layers."""
 
@@ -39,10 +62,13 @@ class HybridRetrievalService:
         unified_memory: Any,
         *,
         config: Optional[RetrievalConfig] = None,
+        config_getter: Callable[[], RetrievalConfig] | None = None,
         llm_provider_bridge: Any = None,
     ) -> None:
         self._memory = unified_memory
         self._config = config or RetrievalConfig()
+        self._config_getter = config_getter
+        self._llm_provider_bridge = llm_provider_bridge
         self._result_fusion = ResultFusion(self._config)
 
         # Build handlers from available stores
@@ -73,6 +99,7 @@ class HybridRetrievalService:
 
     async def query(self, request: RetrievalQuery) -> RetrievalPayload:
         """Execute a layer-aware retrieval query."""
+        self._refresh_runtime_config()
         self._refresh_handlers()
         payload = RetrievalPayload(
             trace={
@@ -302,6 +329,16 @@ class HybridRetrievalService:
         )
         self._l3 = L3Handler(self._memory.l3, self._config) if getattr(self._memory, "l3", None) else None
         self._l4 = L4Handler(self._memory.l4, self._config) if getattr(self._memory, "l4", None) else None
+
+    def _refresh_runtime_config(self) -> None:
+        """Refresh retrieval config from the runtime getter if one is available."""
+        if self._config_getter is None:
+            return
+        next_config = self._config_getter()
+        if next_config == self._config:
+            return
+        self._config = next_config
+        self._result_fusion = ResultFusion(self._config)
 
     def _augment_primary_plans(
         self,

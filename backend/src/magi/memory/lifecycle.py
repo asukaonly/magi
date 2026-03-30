@@ -15,6 +15,7 @@ from ..llm.provider_bridge import LLMProviderBridge
 from . import UnifiedMemoryStore
 from .embedding_service import MemoryEmbeddingService
 from .hybrid_retrieval import HybridRetrievalService
+from .hybrid_retrieval.service import build_retrieval_config_from_app_config
 from .integration import MemoryIntegrationConfig, MemoryIntegrationModule
 
 logger = get_logger(__name__)
@@ -98,6 +99,7 @@ class MemoryStoreModule(LifecycleModule):
 
         self._context.memory.hybrid_retrieval_service = HybridRetrievalService(
             self._context.memory.unified_memory,
+            config_getter=lambda: build_retrieval_config_from_app_config(get_config()),
             llm_provider_bridge=LLMProviderBridge(
                 scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
             ),

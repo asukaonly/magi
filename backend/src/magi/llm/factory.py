@@ -36,7 +36,7 @@ def create_llm_adapter(
             timeout=timeout,
         )
 
-    if provider in {"openai", "glm", "gemini", "deepseek", "kimi", "minimax"}:
+    if provider in {"openai", "glm", "gemini", "deepseek", "kimi", "minimax", "local"}:
         return OpenAIAdapter(
             api_key=api_key,
             model=model,

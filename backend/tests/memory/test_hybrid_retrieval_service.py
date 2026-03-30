@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from magi.config.models import AppConfig
 from magi.memory.l0.contracts import L0ExecutionSummary, L0PromptWorkbenchProjection
 from magi.memory.hybrid_retrieval.models import (
     IntentDecision,
@@ -19,7 +20,7 @@ from magi.memory.hybrid_retrieval.models import (
     SemanticConstraint,
     TimeRange,
 )
-from magi.memory.hybrid_retrieval.service import HybridRetrievalService
+from magi.memory.hybrid_retrieval.service import HybridRetrievalService, build_retrieval_config_from_app_config
 
 
 def _make_memory(**stores):
@@ -138,6 +139,31 @@ def _make_request(**kwargs):
     }
     defaults.update(kwargs)
     return RetrievalQuery(**defaults)
+
+
+def test_build_retrieval_config_reads_memory_reranker_settings():
+    config = AppConfig()
+    config.agent.memory.reranker.enabled = True
+    config.agent.memory.reranker.backend = "llm"
+    config.agent.memory.reranker.mode = "remote"
+    config.agent.memory.reranker.layers = ["L1", "L4"]
+    config.agent.memory.reranker.top_k = 9
+    config.agent.memory.reranker.timeout_seconds = 1.4
+    config.agent.memory.reranker.candidate_max_chars = 720
+    config.agent.memory.reranker.remote.provider_id = "openai"
+    config.agent.memory.reranker.remote.model = "gpt-4o-mini"
+
+    retrieval_config = build_retrieval_config_from_app_config(config)
+
+    assert retrieval_config.reranker_enabled is True
+    assert retrieval_config.reranker_backend == "llm"
+    assert retrieval_config.reranker_mode == "remote"
+    assert retrieval_config.reranker_layers == ("L1", "L4")
+    assert retrieval_config.reranker_top_k == 9
+    assert retrieval_config.reranker_timeout_seconds == 1.4
+    assert retrieval_config.reranker_candidate_max_chars == 720
+    assert retrieval_config.reranker_remote_provider_id == "openai"
+    assert retrieval_config.reranker_remote_model == "gpt-4o-mini"
 
 
 class TestServiceBasicFlow:

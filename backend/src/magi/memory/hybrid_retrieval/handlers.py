@@ -119,7 +119,7 @@ class L1Handler:
             user_id=user_id,
         )
 
-        reranked = self._reranker.rerank(
+        reranked = await self._reranker.rerank(
             layer="L1",
             results=results,
             query=conditions.content_query,
@@ -1137,7 +1137,7 @@ class L3Handler:
         results = await self._fetch_by_ids(top_ids, summary_type, summary_category)
         if time_range and results:
             results = self._filter_by_time(results, time_range)
-        reranked = self._reranker.rerank(
+        reranked = await self._reranker.rerank(
             layer="L3",
             results=results,
             query=conditions.content_query,
@@ -1297,7 +1297,7 @@ class L4Handler:
             return []
 
         results = await self._fetch_by_ids(top_ids)
-        reranked = self._reranker.rerank(
+        reranked = await self._reranker.rerank(
             layer="L4",
             results=results,
             query=conditions.content_query,

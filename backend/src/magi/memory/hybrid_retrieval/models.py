@@ -208,9 +208,18 @@ class RetrievalConfig:
     rrf_weight_vector: float = 1.0
     rrf_weight_keyword: float = 0.5
     reranker_enabled: bool = True
-    reranker_backend: Literal["noop", "heuristic"] = "heuristic"
+    reranker_backend: Literal["noop", "heuristic", "llm"] = "heuristic"
+    reranker_mode: Literal["local", "remote"] = "local"
     reranker_top_k: int = 15
     reranker_layers: tuple[str, ...] = ("L1", "L3", "L4")
+    reranker_timeout_seconds: float = 0.8
+    reranker_candidate_max_chars: int = 500
+    reranker_remote_provider_id: str = ""
+    reranker_remote_model: str = ""
+    reranker_local_model_source: Literal["managed", "external"] = "managed"
+    reranker_local_managed_model_id: str | None = None
+    reranker_local_model_file_path: str | None = None
+    reranker_llm_weight: float = 0.55
 
     # ResultFusion
     default_max_tokens: int = 8192

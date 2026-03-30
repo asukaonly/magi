@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Callable, Dict, List
 
+from ...api.llm_draft import build_adapter_from_provider
+from ...config import get_config
+from ...llm import LLMProviderBridge
 from .answerability import (
     extract_query_phrases,
     extract_query_tokens,
@@ -16,12 +22,17 @@ from .answerability import (
 from .models import RetrievalConfig
 
 
+DEFAULT_LOCAL_RERANKER_PROVIDER_ID = "local"
+
+
 def build_retrieval_reranker(config: RetrievalConfig) -> "BaseRetrievalReranker":
     """Create the configured reranker backend."""
     if not config.reranker_enabled:
         return NoopRetrievalReranker(config)
     if config.reranker_backend == "noop":
         return NoopRetrievalReranker(config)
+    if config.reranker_backend == "llm":
+        return LLMRetrievalReranker(config)
     return HeuristicRetrievalReranker(config)
 
 
@@ -31,7 +42,7 @@ class BaseRetrievalReranker:
     def __init__(self, config: RetrievalConfig) -> None:
         self._config = config
 
-    def rerank(
+    async def rerank(
         self,
         *,
         layer: str,
@@ -48,7 +59,7 @@ class BaseRetrievalReranker:
 class NoopRetrievalReranker(BaseRetrievalReranker):
     """Pass-through reranker that only annotates base retrieval metadata."""
 
-    def rerank(
+    async def rerank(
         self,
         *,
         layer: str,
@@ -61,13 +72,15 @@ class NoopRetrievalReranker(BaseRetrievalReranker):
         annotated: List[Dict[str, Any]] = []
         for result in results:
             item_id = str(result.get(identifier_key) or "")
-            base_score = float(fused_scores.get(item_id, 0.0))
+            base_score = float(fused_scores.get(item_id, result.get("retrieval_score", 0.0) or 0.0))
             enriched = dict(result)
             enriched["retrieval_score"] = base_score
             enriched["retrieval_trace"] = {
                 "backend": "noop",
                 "base_rrf_score": round(base_score, 6),
             }
+            enriched["reranker_backend"] = "noop"
+            enriched["reranker_score"] = base_score
             annotated.append(enriched)
         return annotated
 
@@ -75,7 +88,7 @@ class NoopRetrievalReranker(BaseRetrievalReranker):
 class HeuristicRetrievalReranker(BaseRetrievalReranker):
     """Rule-based reranker shared across memory layers."""
 
-    def rerank(
+    async def rerank(
         self,
         *,
         layer: str,
@@ -86,7 +99,7 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
         if not results:
             return []
         if not self._enabled_for_layer(layer):
-            return NoopRetrievalReranker(self._config).rerank(
+            return await NoopRetrievalReranker(self._config).rerank(
                 layer=layer,
                 results=results,
                 query=query,
@@ -108,12 +121,13 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             reverse=True,
         )
         reranked = [item for _, item in scored]
-        return reranked + NoopRetrievalReranker(self._config).rerank(
+        remainder_annotated = await NoopRetrievalReranker(self._config).rerank(
             layer=layer,
             results=remainder,
             query=query,
             fused_scores=fused_scores,
         )
+        return reranked + remainder_annotated
 
     def _score_item(
         self,
@@ -198,6 +212,8 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
         enriched = dict(item)
         enriched["retrieval_score"] = final_score
         enriched["retrieval_trace"] = trace
+        enriched["reranker_backend"] = "heuristic"
+        enriched["reranker_score"] = final_score
         return final_score, enriched
 
     def _score_l3_item(
@@ -319,6 +335,157 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
         enriched = dict(item)
         enriched["retrieval_score"] = final_score
         enriched["retrieval_trace"] = trace
+        enriched["reranker_backend"] = "heuristic"
+        enriched["reranker_score"] = final_score
+        return final_score, enriched
+
+
+class LLMRetrievalReranker(BaseRetrievalReranker):
+    """LLM-assisted reranker that refines heuristic ordering for top candidates."""
+
+    def __init__(
+        self,
+        config: RetrievalConfig,
+        *,
+        bridge_builder: Callable[[RetrievalConfig], LLMProviderBridge | None] | None = None,
+    ) -> None:
+        super().__init__(config)
+        self._fallback = HeuristicRetrievalReranker(config)
+        self._bridge_builder = bridge_builder or _build_runtime_reranker_bridge
+        self._bridge_cache_key: tuple[Any, ...] | None = None
+        self._bridge_cache_value: LLMProviderBridge | None = None
+
+    async def rerank(
+        self,
+        *,
+        layer: str,
+        results: List[Dict[str, Any]],
+        query: str,
+        fused_scores: Dict[str, float],
+    ) -> List[Dict[str, Any]]:
+        base_results = await self._fallback.rerank(
+            layer=layer,
+            results=results,
+            query=query,
+            fused_scores=fused_scores,
+        )
+        if not base_results or not self._enabled_for_layer(layer):
+            return base_results
+
+        bridge = self._resolve_bridge()
+        if bridge is None:
+            return _annotate_llm_fallback(base_results, reason="bridge_unavailable")
+
+        top_k = max(1, int(self._config.reranker_top_k))
+        rerank_slice = list(base_results[:top_k])
+        remainder = list(base_results[top_k:])
+        llm_results = await asyncio.gather(
+            *[
+                self._score_item_with_llm(
+                    bridge=bridge,
+                    layer=layer,
+                    item=item,
+                    query=query,
+                )
+                for item in rerank_slice
+            ],
+            return_exceptions=True,
+        )
+
+        rescored: list[tuple[float, Dict[str, Any]]] = []
+        for item, llm_result in zip(rerank_slice, llm_results):
+            if isinstance(llm_result, Exception):
+                rescored.append(
+                    (
+                        float(item.get("retrieval_score", 0.0) or 0.0),
+                        _annotate_llm_item_fallback(item, reason=str(llm_result)),
+                    )
+                )
+                continue
+            rescored.append(llm_result)
+
+        rescored.sort(
+            key=lambda pair: (
+                pair[0],
+                _secondary_timestamp(pair[1]),
+            ),
+            reverse=True,
+        )
+        reranked = [item for _, item in rescored]
+        return reranked + remainder
+
+    def _resolve_bridge(self) -> LLMProviderBridge | None:
+        cache_key = (
+            self._config.reranker_mode,
+            self._config.reranker_remote_provider_id,
+            self._config.reranker_remote_model,
+            self._config.reranker_local_model_source,
+            self._config.reranker_local_managed_model_id,
+            self._config.reranker_local_model_file_path,
+        )
+        if cache_key != self._bridge_cache_key:
+            self._bridge_cache_value = self._bridge_builder(self._config)
+            self._bridge_cache_key = cache_key
+        return self._bridge_cache_value
+
+    async def _score_item_with_llm(
+        self,
+        *,
+        bridge: LLMProviderBridge,
+        layer: str,
+        item: Dict[str, Any],
+        query: str,
+    ) -> tuple[float, Dict[str, Any]]:
+        base_score = float(item.get("retrieval_score", 0.0) or 0.0)
+        candidate_text = _candidate_text_for_item(
+            layer=layer,
+            item=item,
+            max_chars=self._config.reranker_candidate_max_chars,
+        )
+        prompt = (
+            "Score how well this memory candidate answers the query.\n"
+            "Return JSON only with a numeric score between 0 and 1.\n\n"
+            f"Layer: {layer}\n"
+            f"Query: {query}\n\n"
+            f"Candidate:\n{candidate_text}\n"
+        )
+        response = await bridge.chat_response(
+            system_prompt=(
+                "You are a retrieval reranker. "
+                "Return strict JSON in the form {\"score\": 0.0}. "
+                "The score must reflect answer relevance only."
+            ),
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+            temperature=0.0,
+            json_mode=True,
+            timeout_seconds=self._config.reranker_timeout_seconds,
+            event_context={
+                "request_kind": "memory_reranker",
+                "layer": layer,
+                "provider_mode": self._config.reranker_mode,
+            },
+        )
+        payload = json.loads(str(response.content or "{}"))
+        llm_score = max(0.0, min(1.0, float(payload.get("score", 0.0) or 0.0)))
+        llm_weight = max(0.0, min(1.0, float(self._config.reranker_llm_weight)))
+        final_score = (base_score * (1.0 - llm_weight)) + (llm_score * llm_weight)
+        trace = dict(item.get("retrieval_trace") or {})
+        prior_backend = str(trace.get("backend") or "heuristic")
+        trace.update(
+            {
+                "backend": "llm",
+                "base_backend": prior_backend,
+                "base_retrieval_score": round(base_score, 6),
+                "llm_score": round(llm_score, 6),
+                "reranker_mode": self._config.reranker_mode,
+            }
+        )
+        enriched = dict(item)
+        enriched["retrieval_score"] = final_score
+        enriched["retrieval_trace"] = trace
+        enriched["reranker_backend"] = "llm"
+        enriched["reranker_score"] = llm_score
         return final_score, enriched
 
 
@@ -348,3 +515,85 @@ def _best_distance(item: Dict[str, Any], matched_chunks: List[Dict[str, Any]]) -
         if distance is not None:
             return float(distance)
     return None
+
+
+def _build_runtime_reranker_bridge(config: RetrievalConfig) -> LLMProviderBridge | None:
+    runtime_config = get_config()
+    provider_id: str = ""
+    model_name: str = ""
+
+    if config.reranker_mode == "remote":
+        provider_id = str(config.reranker_remote_provider_id or "").strip()
+        model_name = str(config.reranker_remote_model or "").strip()
+    else:
+        provider_id = DEFAULT_LOCAL_RERANKER_PROVIDER_ID
+        if config.reranker_local_model_source == "managed":
+            model_name = str(config.reranker_local_managed_model_id or "").strip()
+        else:
+            model_name = str(config.reranker_local_model_file_path or "").strip()
+
+    if not provider_id or not model_name:
+        return None
+
+    provider = runtime_config.llm.providers.get(provider_id)
+    if provider is None or not provider.enabled:
+        return None
+    if not str(getattr(provider, "api_key", "") or "").strip():
+        return None
+
+    try:
+        adapter = build_adapter_from_provider(
+            provider,
+            model=model_name,
+            timeout=runtime_config.llm.timeout,
+        )
+    except Exception:
+        return None
+    return LLMProviderBridge(adapter)
+
+
+def _candidate_text_for_item(*, layer: str, item: Dict[str, Any], max_chars: int) -> str:
+    matched_chunks = item.get("matched_chunks") if isinstance(item.get("matched_chunks"), list) else []
+    best_chunk_text = ""
+    if matched_chunks:
+        best_chunk_text = str(matched_chunks[0].get("chunk_text") or matched_chunks[0].get("text") or "").strip()
+
+    if layer == "L1":
+        parts = [
+            f"author_type: {item.get('author_type') or ''}",
+            f"source: {item.get('source') or ''}",
+            f"timestamp: {item.get('timestamp') or ''}",
+            best_chunk_text or str(item.get("content") or ""),
+        ]
+    elif layer == "L3":
+        parts = [
+            f"summary_type: {item.get('summary_type') or ''}",
+            f"summary_category: {item.get('summary_category') or ''}",
+            best_chunk_text or str(item.get("content") or ""),
+        ]
+    elif layer == "L4":
+        parts = [
+            f"skill_name: {item.get('skill_name') or ''}",
+            f"skill_category: {item.get('skill_category') or ''}",
+            best_chunk_text or str(item.get("optimized_prompt") or item.get("content") or ""),
+        ]
+    else:
+        parts = [best_chunk_text or str(item.get("content") or "")]
+
+    text = "\n".join(part for part in parts if part and str(part).strip())
+    return text[:max_chars]
+
+
+def _annotate_llm_fallback(results: List[Dict[str, Any]], *, reason: str) -> List[Dict[str, Any]]:
+    annotated: List[Dict[str, Any]] = []
+    for item in results:
+        annotated.append(_annotate_llm_item_fallback(item, reason=reason))
+    return annotated
+
+
+def _annotate_llm_item_fallback(item: Dict[str, Any], *, reason: str) -> Dict[str, Any]:
+    enriched = dict(item)
+    trace = dict(enriched.get("retrieval_trace") or {})
+    trace["llm_fallback_reason"] = reason
+    enriched["retrieval_trace"] = trace
+    return enriched
