@@ -3280,6 +3280,44 @@ def test_inject_structured_entity_hints_noop_without_metadata():
     assert existing == []
 
 
+def test_inject_structured_graph_hints_adds_fact_claims():
+    """Sensor-provided graph hints should be injected as deterministic Phase 1 fact claims."""
+    from magi.memory.l2.models import L2Phase1Result
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    pipeline = L2Pipeline.__new__(L2Pipeline)
+    event = _make_memory_event(event_id="evt-graph-hints", content="sensor supplied graph hints")
+    event.metadata_json = {
+        "structured_graph_hints": [
+            {
+                "subject_ref": "user:self",
+                "subject_type": "user",
+                "predicate": "USES",
+                "object_ref": "software:github",
+                "object_type": "software",
+                "fact_kind": "interaction_evidence",
+                "confidence": 0.88,
+                "evidence_text": "opened GitHub repeatedly",
+            }
+        ]
+    }
+
+    phase1_result = L2Phase1Result()
+    pipeline._inject_structured_graph_hints(event, phase1_result)
+
+    assert len(phase1_result.fact_claims) == 1
+    claim = phase1_result.fact_claims[0]
+    assert claim.subject_ref == "user:self"
+    assert claim.subject_type == "user"
+    assert claim.predicate == "USES"
+    assert claim.object_ref == "software:github"
+    assert claim.object_type == "software"
+    assert claim.fact_kind == "interaction_evidence"
+    assert claim.confidence == 0.88
+    assert claim.evidence_text == "opened GitHub repeatedly"
+    assert claim.supporting_event_ids == ["evt-graph-hints"]
+
+
 class TestAliasValidation:
     """Tests for _is_valid_alias quality gate."""
 
@@ -3458,3 +3496,262 @@ class TestEntityTypeFiltering:
                 allowed_entity_types=None,
             )
             assert len(resolved) == 1
+
+
+class TestEntityNameQuality:
+    """Tests for _is_quality_entity_name noise filter."""
+
+    @pytest.fixture
+    def pipeline_cls(self):
+        from magi.memory.l2.pipeline import L2Pipeline
+        return L2Pipeline
+
+    def test_accepts_short_name(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("Claude") is True
+
+    def test_accepts_cjk_short(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("哔哩哔哩") is True
+
+    def test_rejects_empty(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("") is False
+
+    def test_rejects_wide_cjk_name(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("好好好最喜欢的一集以前从来没看过这么好的节目真是太棒了") is False
+
+    def test_rejects_cjk_sentence(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("好好好！最喜欢的一集！") is False
+
+    def test_rejects_email(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("user@example.com") is False
+
+    def test_rejects_ip_address(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("192.168.1.1") is False
+
+    def test_rejects_ui_label(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("Sign in") is False
+
+    def test_accepts_product_name_with_version(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("IntelliJ IDEA 2026.1") is True
+
+    def test_rejects_only_punctuation(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("!!!???") is False
+
+    def test_accepts_name_at_width_boundary(self, pipeline_cls):
+        name = "A" * 50  # 50 display-width units (ASCII)
+        assert pipeline_cls._is_quality_entity_name(name) is True
+        assert pipeline_cls._is_quality_entity_name(name + "B") is False
+
+    def test_accepts_ori_long_english_title(self, pipeline_cls):
+        assert pipeline_cls._is_quality_entity_name("Ori and the Will of the Wisps") is True
+
+
+class TestSameNameEntityDedup:
+    """Tests for same-name entity dedup in _resolve_entity_id."""
+
+    @pytest.mark.asyncio
+    async def test_reuses_existing_entity_with_same_name(self):
+        from magi.memory.l2.models import L2Phase1Result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+            phase1_first = L2Phase1Result.from_dict({
+                "entities": [
+                    {"surface": "Claude", "entity_type": "software", "confidence": 0.95,
+                     "normalized_name": "Claude"},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            })
+            event1 = _make_memory_event(event_id="evt-dedup-1", content="test Claude software")
+            resolved1 = await pipeline._resolve_phase1_entities(
+                event1, phase1_first,
+                evidence_event_ids=["evt-dedup-1"],
+            )
+            assert len(resolved1) == 1
+            first_entity_id = resolved1[0].resolved_entity_id
+
+            # Phase 1 with same canonical name but different type (technology)
+            phase1_second = L2Phase1Result.from_dict({
+                "entities": [
+                    {"surface": "Claude AI", "entity_type": "technology", "confidence": 0.92,
+                     "normalized_name": "Claude"},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            })
+            event2 = _make_memory_event(event_id="evt-dedup-2", content="test Claude technology")
+            resolved2 = await pipeline._resolve_phase1_entities(
+                event2, phase1_second,
+                evidence_event_ids=["evt-dedup-2"],
+            )
+            assert len(resolved2) == 1
+            # Should reuse the same entity_id (deduped by name + mergeable type)
+            assert resolved2[0].resolved_entity_id == first_entity_id
+
+    @pytest.mark.asyncio
+    async def test_does_not_dedup_incompatible_types(self):
+        from magi.memory.l2.models import L2Phase1Result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+            phase1_first = L2Phase1Result.from_dict({
+                "entities": [
+                    {"surface": "Claude", "entity_type": "person", "confidence": 0.95,
+                     "normalized_name": "Claude"},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            })
+            event1 = _make_memory_event(event_id="evt-dedup-3", content="test")
+            resolved1 = await pipeline._resolve_phase1_entities(
+                event1, phase1_first,
+                evidence_event_ids=["evt-dedup-3"],
+            )
+            first_id = resolved1[0].resolved_entity_id
+
+            phase1_second = L2Phase1Result.from_dict({
+                "entities": [
+                    {"surface": "Claude", "entity_type": "software", "confidence": 0.92,
+                     "normalized_name": "Claude"},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            })
+            event2 = _make_memory_event(event_id="evt-dedup-4", content="test")
+            resolved2 = await pipeline._resolve_phase1_entities(
+                event2, phase1_second,
+                evidence_event_ids=["evt-dedup-4"],
+            )
+            # person and software are NOT mergeable -> different entity_id
+            assert resolved2[0].resolved_entity_id != first_id
+
+
+class TestPhase2CatalogNameIndex:
+    """Tests for Phase 2 object resolution using catalog name index."""
+
+    @pytest.fixture
+    def pipeline_cls(self):
+        from magi.memory.l2.pipeline import L2Pipeline
+        return L2Pipeline
+
+    def test_catalog_index_hit(self, pipeline_cls):
+        p = pipeline_cls.__new__(pipeline_cls)
+        p._entity_catalog = None
+        index = {"bilibili": "software:bilibili-hash"}
+        result = p._resolve_phase2_object_id(
+            raw_object_ref="bilibili",
+            object_type="software",
+            resolved_mentions=[],
+            catalog_name_index=index,
+        )
+        assert result == "software:bilibili-hash"
+
+    def test_catalog_index_miss_falls_back(self, pipeline_cls):
+        p = pipeline_cls.__new__(pipeline_cls)
+        p._entity_catalog = None
+        index = {"something_else": "software:other"}
+        result = p._resolve_phase2_object_id(
+            raw_object_ref="bilibili",
+            object_type="software",
+            resolved_mentions=[],
+            catalog_name_index=index,
+        )
+        # Falls back to _build_concept_node
+        assert result is not None
+        assert result != "software:other"
+
+    def test_resolved_mentions_take_precedence(self, pipeline_cls):
+        from magi.memory.l2.pipeline import ResolvedEntityMention
+        p = pipeline_cls.__new__(pipeline_cls)
+        p._entity_catalog = None
+        mention = ResolvedEntityMention(
+            mention_text="bilibili",
+            normalized_surface="bilibili",
+            entity_type="software",
+            resolved_entity_id="software:mention-resolved",
+            confidence=0.95,
+        )
+        index = {"bilibili": "software:catalog-entity"}
+        result = p._resolve_phase2_object_id(
+            raw_object_ref="bilibili",
+            object_type="software",
+            resolved_mentions=[mention],
+            catalog_name_index=index,
+        )
+        assert result == "software:mention-resolved"
+
+
+class TestCatalogFindByCanonicalName:
+    """Tests for L2EntityCatalog.find_by_canonical_name."""
+
+    @pytest.mark.asyncio
+    async def test_find_existing_entity_by_name(self):
+        from magi.memory.l2.entity_catalog import L2EntityCatalog
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "test.db")
+            catalog = L2EntityCatalog(db_path=db_path)
+            await catalog.initialize()
+            await catalog.upsert_entity(
+                entity_id="software:claude",
+                canonical_name="Claude",
+                entity_type="software",
+            )
+            results = await catalog.find_by_canonical_name("Claude")
+            assert len(results) == 1
+            assert results[0]["entity_id"] == "software:claude"
+            assert results[0]["entity_type"] == "software"
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive_match(self):
+        from magi.memory.l2.entity_catalog import L2EntityCatalog
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "test.db")
+            catalog = L2EntityCatalog(db_path=db_path)
+            await catalog.initialize()
+            await catalog.upsert_entity(
+                entity_id="software:claude",
+                canonical_name="Claude",
+                entity_type="software",
+            )
+            results = await catalog.find_by_canonical_name("claude")
+            assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_filter_by_type(self):
+        from magi.memory.l2.entity_catalog import L2EntityCatalog
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "test.db")
+            catalog = L2EntityCatalog(db_path=db_path)
+            await catalog.initialize()
+            await catalog.upsert_entity(
+                entity_id="software:claude",
+                canonical_name="Claude",
+                entity_type="software",
+            )
+            await catalog.upsert_entity(
+                entity_id="person:claude",
+                canonical_name="Claude",
+                entity_type="person",
+            )
+            results_all = await catalog.find_by_canonical_name("Claude")
+            assert len(results_all) == 2
+
+            results_person = await catalog.find_by_canonical_name("Claude", entity_type="person")
+            assert len(results_person) == 1
+            assert results_person[0]["entity_id"] == "person:claude"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_for_nonexistent(self):
+        from magi.memory.l2.entity_catalog import L2EntityCatalog
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "test.db")
+            catalog = L2EntityCatalog(db_path=db_path)
+            await catalog.initialize()
+            results = await catalog.find_by_canonical_name("NonExistent")
+            assert results == []

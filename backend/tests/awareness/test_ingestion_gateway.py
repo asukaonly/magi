@@ -270,6 +270,36 @@ class TestSensorIngestionGateway:
         assert call_args.metadata_json["processing_status"] == {"stored": True, "analyzed": False}
 
     @pytest.mark.asyncio
+    async def test_ingest_copies_structured_graph_hints_to_memory_metadata(self):
+        memory = MagicMock()
+        memory.ingest_event = AsyncMock()
+        gateway = SensorIngestionGateway(unified_memory=memory)
+        sensor = _FakeSensor()
+        output = _make_output()
+        metadata = SensorOutputMetadata(
+            fact_hints=[
+                {
+                    "subject_ref": "user:self",
+                    "subject_type": "user",
+                    "predicate": "USES",
+                    "object_ref": "software:github",
+                    "object_type": "software",
+                    "fact_kind": "interaction_evidence",
+                    "confidence": 0.88,
+                    "evidence_text": "opened GitHub repeatedly",
+                }
+            ]
+        )
+
+        await gateway.ingest(sensor, output, metadata)
+
+        call_args = memory.ingest_event.call_args[0][0]
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.metadata_json is not None
+        assert call_args.metadata_json["structured_graph_hints"] == metadata.fact_hints
+        assert call_args.metadata_json["processing_status"] == {"stored": True, "analyzed": True}
+
+    @pytest.mark.asyncio
     async def test_ingest_adds_sensor_l2_batch_owner_to_memory_metadata(self):
         memory = MagicMock()
         memory.ingest_event = AsyncMock()

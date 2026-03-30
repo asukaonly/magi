@@ -1002,7 +1002,22 @@ class StructuredGraphHint:
     object_ref: str
     object_type: str
     subject_type: Optional[str] = None
+    fact_kind: Optional[str] = None
+    confidence: Optional[float] = None
     evidence_text: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "StructuredGraphHint":
+        return cls(
+            subject_ref=str(payload.get("subject_ref", "")),
+            predicate=str(payload.get("predicate", "")),
+            object_ref=str(payload.get("object_ref", "")),
+            object_type=str(payload.get("object_type", "")),
+            subject_type=_optional_text(payload.get("subject_type")),
+            fact_kind=_optional_text(payload.get("fact_kind")),
+            confidence=float(payload["confidence"]) if payload.get("confidence") is not None else None,
+            evidence_text=_optional_text(payload.get("evidence_text")),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

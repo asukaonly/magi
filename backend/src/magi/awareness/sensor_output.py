@@ -99,4 +99,5 @@ class SensorOutputMetadata:
 
     entities: list[dict[str, Any]] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
+    fact_hints: list[dict[str, Any]] = field(default_factory=list)
     relation_candidates: list[dict[str, Any]] = field(default_factory=list)

@@ -189,7 +189,7 @@ class SensorBase(ABC):
         """Convert a source item into a domain-neutral sensor output."""
 
     async def extract_metadata(self, item: dict[str, Any]) -> SensorOutputMetadata:
-        """Extract entities, tags, and relation candidates from a source item."""
+        """Extract entities, tags, fact hints, and relation candidates from a source item."""
         return SensorOutputMetadata()
 
     async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:

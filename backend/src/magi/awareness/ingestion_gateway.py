@@ -159,6 +159,9 @@ class SensorIngestionGateway:
         entity_hints = metadata.entities if metadata and metadata.entities else []
         if entity_hints:
             metadata_json["structured_entity_hints"] = entity_hints
+        graph_hints = metadata.fact_hints if metadata and metadata.fact_hints else []
+        if graph_hints:
+            metadata_json["structured_graph_hints"] = graph_hints
 
         return MemoryEvent(
             event_id=event_id,
@@ -219,7 +222,7 @@ class SensorIngestionGateway:
             privacy_labels=output.domain_payload.get("privacy_labels", []),
             processing_status={
                 "stored": True,
-                "analyzed": bool(metadata and metadata.relation_candidates),
+                "analyzed": bool(metadata and (metadata.relation_candidates or metadata.fact_hints)),
             },
             provenance=output.provenance,
         )

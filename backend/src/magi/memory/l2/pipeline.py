@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 import time
+import unicodedata
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Awaitable, Callable, Optional
@@ -29,6 +30,7 @@ from .models import (
     L2FocalEntityRef,
     L2GraphCandidate,
     L2HistoryContext,
+    L2Phase1FactClaim,
     L2Phase1Result,
     L2Phase2ContradictionHint,
     L2Phase2GraphEdge,
@@ -37,6 +39,7 @@ from .models import (
     L2SourceEvent,
     ReconciledTraitOutcome,
     ResolvedEntityMention,
+    StructuredGraphHint,
     build_l2_batch_bucket_key,
 )
 from .store import L2CognitionStore
@@ -610,12 +613,12 @@ class L2Pipeline:
                     event_ids=job.event_ids,
                     flush_reason=job.flush_reason,
                     queue_size=self._extract_queue.qsize(),
+                )
                 if job.event_ids:
                     await self._cognition_store.mark_projection_jobs_running(
                         job.event_ids,
                         consumer_name=self._projection_consumer_name,
                     )
-                )
                 result = await self._extract_and_persist(job)
                 if job.event_ids:
                     await self._cognition_store.complete_projection_jobs(job.event_ids)
@@ -940,6 +943,7 @@ class L2Pipeline:
             context_messages=context_messages,
             extraction_instructions=extraction_profile.extraction_instructions,
         )
+        self._inject_structured_graph_hints(stored_event, phase1_result)
 
         # Register Phase 1 entities in the entity catalog
         resolved_mentions: list[ResolvedEntityMention] = []
@@ -1009,6 +1013,7 @@ class L2Pipeline:
         )
 
         # ── Validate and prepare Phase 2 outputs ──
+        catalog_name_index = await self._build_catalog_name_index()
         graph_candidates, rejected_graph_candidate_count = self._validate_phase2_graph_edges(
             event=stored_event,
             profile=extraction_profile,
@@ -1016,6 +1021,7 @@ class L2Pipeline:
             resolved_mentions=resolved_mentions,
             evidence_event_ids=batch_event_ids,
             phase2_edges=phase2_result.graph_edges,
+            catalog_name_index=catalog_name_index,
         )
 
         assertion_candidates, rejected_assertion_candidate_count = self._validate_phase2_assertions(
@@ -1284,6 +1290,72 @@ class L2Pipeline:
                 injected_count=injected_count,
             )
 
+    def _inject_structured_graph_hints(
+        self,
+        event: MemoryEvent,
+        phase1_result: L2Phase1Result,
+    ) -> None:
+        """Inject structured graph hints as deterministic Phase 1 fact claims."""
+        metadata_json = event.metadata_json
+        if not isinstance(metadata_json, dict):
+            return
+        hints = metadata_json.get("structured_graph_hints")
+        if not hints or not isinstance(hints, list):
+            return
+
+        existing_keys = {
+            (
+                self._non_empty_text(claim.subject_ref) or "",
+                self._normalize_predicate(claim.predicate) or "",
+                self._non_empty_text(claim.object_ref) or "",
+                self._normalize_entity_type(claim.object_type) or "",
+            )
+            for claim in phase1_result.fact_claims
+        }
+
+        injected_count = 0
+        for raw_hint in hints:
+            if not isinstance(raw_hint, dict):
+                continue
+            hint = StructuredGraphHint.from_dict(raw_hint)
+            subject_ref = self._non_empty_text(hint.subject_ref)
+            predicate = self._normalize_predicate(hint.predicate)
+            object_ref = self._non_empty_text(hint.object_ref)
+            object_type = self._normalize_entity_type(hint.object_type)
+            subject_type = self._non_empty_text(hint.subject_type) or "user"
+            if not subject_ref or not predicate or not object_ref or not object_type:
+                continue
+
+            hint_key = (subject_ref, predicate, object_ref, object_type)
+            if hint_key in existing_keys:
+                continue
+
+            phase1_result.fact_claims.append(
+                L2Phase1FactClaim(
+                    subject_ref=subject_ref,
+                    subject_type=subject_type,
+                    predicate=predicate,
+                    object_ref=object_ref,
+                    object_type=object_type,
+                    fact_kind=self._non_empty_text(hint.fact_kind) or "explicit_fact",
+                    polarity="positive",
+                    specificity="concrete",
+                    evidence_text=self._non_empty_text(hint.evidence_text) or "",
+                    confidence=float(hint.confidence if hint.confidence is not None else 1.0),
+                    supporting_event_ids=[event.event_id],
+                )
+            )
+            existing_keys.add(hint_key)
+            injected_count += 1
+
+        if injected_count:
+            logger.debug(
+                "L2 structured graph hints injected as fact claims",
+                event_id=event.event_id,
+                hint_count=len(hints),
+                injected_count=injected_count,
+            )
+
     async def _resolve_phase1_entities(
         self,
         event: MemoryEvent,
@@ -1306,6 +1378,14 @@ class L2Pipeline:
             if allowed_entity_types and entity_type not in allowed_entity_types:
                 logger.debug(
                     "L2 Phase 1 entity filtered by profile",
+                    mention_text=mention_text,
+                    entity_type=entity_type,
+                    event_id=event.event_id,
+                )
+                continue
+            if not self._is_quality_entity_name(normalized_surface):
+                logger.debug(
+                    "L2 Phase 1 entity filtered by name quality",
                     mention_text=mention_text,
                     entity_type=entity_type,
                     event_id=event.event_id,
@@ -1405,6 +1485,7 @@ class L2Pipeline:
         resolved_mentions: list[ResolvedEntityMention],
         evidence_event_ids: list[str],
         phase2_edges: list[L2Phase2GraphEdge],
+        catalog_name_index: dict[str, str] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Validate Phase 2 graph edges against ontology and profile constraints."""
         if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
@@ -1436,6 +1517,7 @@ class L2Pipeline:
                 raw_object_ref=edge.object_ref,
                 object_type=object_type,
                 resolved_mentions=resolved_mentions,
+                catalog_name_index=catalog_name_index,
             )
             if not object_id:
                 rejected_count += 1
@@ -1582,6 +1664,7 @@ class L2Pipeline:
         raw_object_ref: Any,
         object_type: str,
         resolved_mentions: list[ResolvedEntityMention],
+        catalog_name_index: dict[str, str] | None = None,
     ) -> str | None:
         object_ref = self._non_empty_text(raw_object_ref)
         if not object_ref:
@@ -1597,6 +1680,10 @@ class L2Pipeline:
             resolved_entity_id = self._non_empty_text(mention.resolved_entity_id)
             if object_ref_casefold in surfaces and resolved_entity_id:
                 return resolved_entity_id
+        if catalog_name_index:
+            catalog_hit = catalog_name_index.get(object_ref_casefold)
+            if catalog_hit:
+                return catalog_hit
         return self._build_concept_node(entity_type=object_type, normalized_surface=object_ref)
 
     def _derive_assertion_decay_from_family(
@@ -1811,6 +1898,28 @@ class L2Pipeline:
         if not entity_type or mention_confidence < 0.9:
             return (None, mention_confidence if mention_confidence > 0.0 else None)
 
+        # 4. Same-name catalog dedup: reuse existing entity if name already registered
+        existing_by_name = await self._entity_catalog.find_by_canonical_name(canonical_name)
+        if existing_by_name:
+            for existing in existing_by_name:
+                existing_type = str(existing.get("entity_type", ""))
+                if existing_type == entity_type or self._are_types_mergeable(entity_type, existing_type):
+                    matched_id = str(existing["entity_id"])
+                    logger.debug(
+                        "L2 entity dedup: reusing existing same-name entity",
+                        mention_text=mention_text,
+                        canonical_name=canonical_name,
+                        requested_type=entity_type,
+                        existing_type=existing_type,
+                        entity_id=matched_id,
+                    )
+                    await self._entity_catalog.add_alias(
+                        entity_id=matched_id,
+                        alias_text=mention_text,
+                        confidence=min(max(mention_confidence, 0.9), 0.99),
+                    )
+                    return (matched_id, mention_confidence)
+
         entity_id = self._build_canonical_entity_id(entity_type=entity_type, canonical_name=canonical_name)
         await self._entity_catalog.upsert_entity(
             entity_id=entity_id,
@@ -1874,6 +1983,52 @@ class L2Pipeline:
         if len(canonical_cf) > 8 and len(alias_cf) <= 3:
             return False
         return True
+
+    _NAME_NOISE_PATTERNS: re.Pattern = re.compile(
+        r"[\w.+-]+@[\w.-]+\.\w{2,}"  # email
+        r"|(\d{1,3}\.){3}\d{1,3}"     # IPv4
+        r"|^(Home|Inbox|Schema Panel|Import Panel|Verification Code|"
+        r"Sign in|Log in|Welcome|Error|404|Loading)$",
+        re.IGNORECASE,
+    )
+    _SENTENCE_PUNCT: re.Pattern = re.compile(r"[！？。，、；]")
+    _MAX_ENTITY_NAME_WIDTH = 50
+
+    @classmethod
+    def _display_width(cls, text: str) -> int:
+        """East-Asian-aware display width (CJK chars count as 2)."""
+        return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in text)
+
+    @classmethod
+    def _is_quality_entity_name(cls, name: str) -> bool:
+        """Return False for names that look like noise (page titles, UI labels, etc.)."""
+        text = name.strip()
+        if not text or len(text) < 2:
+            return False
+        if cls._NAME_NOISE_PATTERNS.search(text):
+            return False
+        if cls._display_width(text) > cls._MAX_ENTITY_NAME_WIDTH:
+            return False
+        alpha_count = sum(1 for c in text if c.isalpha())
+        if alpha_count == 0:
+            return False
+        # Reject names that look like CJK sentences (2+ sentence-ending punctuation)
+        if len(cls._SENTENCE_PUNCT.findall(text)) >= 2:
+            return False
+        return True
+
+    async def _build_catalog_name_index(self) -> dict[str, str]:
+        """Build a casefold(canonical_name) → entity_id lookup from the catalog."""
+        if self._entity_catalog is None:
+            return {}
+        entities = await self._entity_catalog.list_entities(limit=1000)
+        index: dict[str, str] = {}
+        for entity in entities:
+            name = str(entity.get("canonical_name", "")).strip().casefold()
+            entity_id = str(entity.get("entity_id", ""))
+            if name and entity_id and name not in index:
+                index[name] = entity_id
+        return index
 
     _MERGEABLE_TYPE_GROUPS: list[frozenset[str]] = [
         frozenset({"software", "product", "technology", "organization", "activity"}),
@@ -2070,6 +2225,7 @@ class L2Pipeline:
         object_type: str,
         resolved_mentions: list[ResolvedEntityMention],
         resolved_context_refs: list[ResolvedContextRef],
+        catalog_name_index: dict[str, str] | None = None,
     ) -> str | None:
         object_ref = self._non_empty_text(raw_object_ref)
         if not object_ref:
@@ -2088,6 +2244,10 @@ class L2Pipeline:
             resolved_entity_id = self._non_empty_text(mention.resolved_entity_id)
             if object_ref_casefold in surfaces and resolved_entity_id:
                 return resolved_entity_id
+        if catalog_name_index:
+            catalog_hit = catalog_name_index.get(object_ref_casefold)
+            if catalog_hit:
+                return catalog_hit
         return self._build_concept_node(entity_type=object_type, normalized_surface=object_ref)
 
     def _normalize_assertion_candidate(
