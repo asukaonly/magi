@@ -36,6 +36,10 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/memory/identity/links" in paths
     assert "/api/memory/clear" in paths
     assert "/api/memory/l2/microbatch-flush" in paths
+    assert "/api/memory/eval/replay" in paths
+    assert "/api/memory/eval/query" in paths
+    assert "/api/memory/eval/finalize-replay" in paths
+    assert "/api/memory/background/pending" in paths
 
 
 def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None:
@@ -61,8 +65,3 @@ def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None
 
     assert "/api/config/reset" not in paths
     assert "/api/config/llm-providers" not in paths
-
-    assert "/api/memory/eval/query" not in paths
-    assert "/api/memory/eval/replay" not in paths
-    assert "/api/memory/eval/finalize-replay" not in paths
-    assert "/api/memory/background/pending" not in paths
