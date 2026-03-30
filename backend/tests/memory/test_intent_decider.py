@@ -346,6 +346,25 @@ class TestKeywordRouting:
         assert platform_constraints[0].scope == "interaction"
         assert platform_constraints[0].raw_value == "b站"
 
+    def test_l2_creator_affinity_semantic_frame_uses_interaction_platform_for_bilibili_usage_query(
+        self, decider: RuleBasedIntentDecider
+    ):
+        inp = IntentDeciderInput(query="我用B站喜欢看哪些up主", recall_intent_hint="preference_recall")
+        result = decider.evaluate(inp)
+
+        assert result.plans[0].layer == "L2"
+        conditions = result.plans[0].conditions
+        assert isinstance(conditions, L2Conditions)
+        assert conditions.semantic_frame is not None
+        platform_constraints = [
+            constraint
+            for constraint in conditions.semantic_frame.constraints
+            if constraint.facet == "platform"
+        ]
+        assert len(platform_constraints) == 1
+        assert platform_constraints[0].scope == "interaction"
+        assert platform_constraints[0].raw_value == "b站"
+
     def test_l2_place_affinity_semantic_frame_for_hangzhou_coffee_query(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我在杭州喜欢去哪些咖啡馆", recall_intent_hint="preference_recall")
         result = decider.evaluate(inp)

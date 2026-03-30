@@ -628,8 +628,12 @@ class RuleBasedIntentDecider:
         constraints: list[SemanticConstraint] = []
         interaction_platform_value: str | None = None
         if answer_kind != "software":
-            if re.search(r"(?:在|用)\s*(B站|b站|bilibili)\s*的时候", query, re.IGNORECASE):
+            if re.search(r"用\s*(B站|b站|bilibili)\s*(?:的时候)?", query, re.IGNORECASE):
                 interaction_platform_value = "b站"
+            elif re.search(r"在\s*(B站|b站|bilibili)\s*的时候", query, re.IGNORECASE):
+                interaction_platform_value = "b站"
+            elif re.search(r"用\s*(youtube|油管)\s*(?:的时候)?", query, re.IGNORECASE):
+                interaction_platform_value = "youtube"
             elif re.search(r"(?:在|用)\s*(youtube|油管)\s*的时候", query, re.IGNORECASE):
                 interaction_platform_value = "youtube"
 
