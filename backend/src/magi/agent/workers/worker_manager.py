@@ -105,6 +105,7 @@ class WorkerAgentManager(Tool):
 
     def __init__(self) -> None:
         self._llm_adapter = None
+        self._scenario_llm_pool = None
         self._tool_registry: ToolRegistry = tool_registry
         self._task_agent_manager = None
         self._message_bus = None
@@ -292,6 +293,7 @@ class WorkerAgentManager(Tool):
         task_agent_manager=None,
         message_bus=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
+        scenario_llm_pool=None,
     ) -> None:
         """Inject runtime dependencies after bootstrap."""
         self._llm_adapter = llm_adapter
@@ -303,6 +305,8 @@ class WorkerAgentManager(Tool):
             self._message_bus = message_bus
         if runtime_trace_store is not None:
             self._runtime_trace_store = runtime_trace_store
+        if scenario_llm_pool is not None:
+            self._scenario_llm_pool = scenario_llm_pool
 
     async def validate_parameters(
         self,
@@ -599,6 +603,7 @@ class WorkerAgentManager(Tool):
                 tool_result_callback=lambda payload: self._handle_tool_result(run_state, payload),
                 loop_event_callback=lambda payload: self._handle_worker_loop_event(run_state, payload),
                 runtime_trace_store=self._runtime_trace_store,
+                scenario_llm_pool=self._scenario_llm_pool,
             )
             outcome = await executor.execute_with_tools(
                 user_message=run_state.prompt,

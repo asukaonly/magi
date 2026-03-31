@@ -102,6 +102,7 @@ class AgentRuntimeModule(LifecycleModule):
                 task_agent_manager=task_agent_manager,
                 message_bus=require_initialized(self._context.message_bus.message_bus, "message bus"),
                 runtime_trace_store=runtime_trace_store,
+                scenario_llm_pool=llm_pool,
             )
         await self._context.agent_runtime.agent_runtime.start()
         logger.info("AgentRuntime started (L11)")

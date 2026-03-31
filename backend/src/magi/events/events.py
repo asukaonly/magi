@@ -137,3 +137,7 @@ class EventTypes:
     USER_MESSAGE = "UserMessage"
     AI_RESPONSE = "AIResponse"
     LLM_CALL_COMPLETED = "LLMCallCompleted"
+
+    # Context compaction events
+    CONTEXT_COMPACTING = "ContextCompacting"
+    CONTEXT_COMPACTED = "ContextCompacted"

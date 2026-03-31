@@ -24,6 +24,7 @@ from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
 from ..message_utils import append_latest_user_message
 from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
+from .context_compactor import ContextCompactor
 from .function_calling_postprocessor import FunctionCallingPostprocessor
 from .function_calling_step_executor import (
     FunctionCallingStepExecutor,
@@ -139,6 +140,8 @@ class FunctionCallingOrchestrator:
         tool_result_callback=None,
         loop_event_callback=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
+        scenario_llm_pool=None,
+        context_window: int | None = None,
     ):
         """
         initialize the executor
@@ -147,6 +150,8 @@ class FunctionCallingOrchestrator:
             llm_adapter: LLM adapter
             tool_registry: Tool registry
             skill_runner: Optional skill runner for skill-based tools
+            scenario_llm_pool: ScenarioLLMPool for context compaction summariser
+            context_window: Context window size of the active model (tokens)
         """
         self.llm = llm_adapter
         self._llm_pool = llm_pool
@@ -158,6 +163,11 @@ class FunctionCallingOrchestrator:
         self.loop_event_callback = loop_event_callback
         self.runtime_trace_store = runtime_trace_store
         self.step_executor = FunctionCallingStepExecutor(self)
+        self._context_compactor = ContextCompactor(
+            scenario_llm_pool=scenario_llm_pool,
+            context_window=context_window,
+            on_event=loop_event_callback,
+        )
 
     def build_step_state(
         self,
@@ -248,6 +258,8 @@ class FunctionCallingOrchestrator:
                 llm_timeout_seconds=llm_timeout_seconds,
             )
             if step_outcome.status == "continue":
+                # --- context compaction check after each tool-use round ---
+                await self._try_compact(state, system_prompt)
                 continue
             if step_outcome.status == "completed":
                 return ExecutionOutcome(
@@ -279,6 +291,18 @@ class FunctionCallingOrchestrator:
             llm_timeout_seconds=llm_timeout_seconds,
             final_response_json_mode=final_response_json_mode,
         )
+
+    async def _try_compact(
+        self,
+        state: FunctionCallingStepState,
+        system_prompt: str,
+    ) -> None:
+        """Check token usage and compact the message history if needed."""
+        if not self._context_compactor.should_compact(state.messages):
+            return
+        result = await self._context_compactor.compact(state.messages, system_prompt)
+        if result.compacted:
+            state.messages[:] = result.messages
 
     async def _execute_fallback_final_response(
         self,
@@ -909,6 +933,9 @@ class FunctionCallingOrchestrator:
                 model_name=model_name,
                 provider_name=llm.provider_name,
             )
+            self._context_compactor.record_input_tokens(
+                int(result["llm_trace"].get("input_tokens") or 0)
+            )
             if provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message
             if provider_response.tool_calls:
@@ -1011,6 +1038,9 @@ class FunctionCallingOrchestrator:
                 duration_ms=duration_ms,
                 model_name=model_name,
                 provider_name=llm.provider_name,
+            )
+            self._context_compactor.record_input_tokens(
+                int(result["llm_trace"].get("input_tokens") or 0)
             )
             if provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message

@@ -176,6 +176,7 @@ class ThinkingDepth(str, Enum):
 class LLMScenario(str, Enum):
     """Supported runtime LLM scenarios."""
 
+    CONTEXT_COMPACT = "context_compact"
     CONTEXT_DECIDER = "context_decider"
     CORE = "core"
     EMBEDDING = "embedding"
