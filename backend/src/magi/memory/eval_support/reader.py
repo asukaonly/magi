@@ -61,11 +61,20 @@ class EvalMemoryReader:
         if query.mode == "l1_only":
             return await self._query_l1_only(query)
 
+        # Benchmark data uses fictional timestamps that don't align with the
+        # current wall-clock time.  Supply an explicit wide time_range so the
+        # intent-decider's rule engine does NOT parse temporal keywords like
+        # "last month" relative to *now*.  Temporal reasoning is left to the
+        # LLM working on retrieved evidence.
+        time_range: dict = {}
+        if query.query_timestamp:
+            time_range = {"start": 0, "end": query.query_timestamp}
+
         request = build_query(
             query=query.query,
             user_id=query.namespace,
             session_id=None,
-            time_range={},
+            time_range=time_range,
             query_mode=None if query.mode == "auto" else query.mode,
             source_filters=[],
             domain_filters=[],
