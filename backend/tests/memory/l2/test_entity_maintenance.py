@@ -266,3 +266,106 @@ async def test_consolidate_open_predicates_rewrites_to_core() -> None:
         edge = await store.get_relationship(triple_id=tid_open)
         assert edge is not None
         assert edge["predicate"] == "STUDYING"
+
+
+@pytest.mark.asyncio
+async def test_embed_pending_edges_skips_when_no_embedding_service() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        store = L2CognitionStore(db_path=db_path)
+        await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:ramen",
+            object_type="food",
+            evidence_event_ids=["evt-emb-1"],
+            confidence=0.5,
+            observed_at=time.time(),
+            source_type="chat",
+        )
+
+        maint = L2EntityMaintenance(db_path=db_path)
+        stats = await maint.run(
+            resolve_ghosts=False,
+            merge_fragments=False,
+            prune_orphans=False,
+            expire_future_intents=False,
+            consolidate_open_predicates=False,
+        )
+        assert stats.edges_embedded == 0
+
+        # Verify edge still has pending status
+        edges = await store.get_pending_edge_embeddings(limit=10)
+        assert len(edges) == 1
+        assert edges[0]["embedding_status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_embed_pending_edges_calls_pipeline_and_updates_status() -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        store = L2CognitionStore(db_path=db_path)
+        tid = await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:ramen",
+            object_type="food",
+            evidence_event_ids=["evt-emb-2"],
+            confidence=0.5,
+            observed_at=time.time(),
+            source_type="chat",
+            evidence_text="I really like ramen",
+        )
+
+        mock_embedding_service = MagicMock()
+        mock_vector_index = MagicMock()
+
+        mock_result = MagicMock()
+        mock_result.parent_id = tid
+        mock_result.embedded_at = time.time()
+
+        mock_pipeline_cls = AsyncMock()
+        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[mock_result])
+
+        maint = L2EntityMaintenance(
+            db_path=db_path,
+            embedding_service=mock_embedding_service,
+            edge_vector_index=mock_vector_index,
+        )
+
+        import magi.memory.l2.entity_maintenance as em_module
+        original_pipeline = em_module.MemoryEmbeddingPipeline
+        em_module.MemoryEmbeddingPipeline = lambda **kwargs: mock_pipeline_cls
+
+        try:
+            stats = await maint.run(
+                resolve_ghosts=False,
+                merge_fragments=False,
+                prune_orphans=False,
+                expire_future_intents=False,
+                consolidate_open_predicates=False,
+            )
+        finally:
+            em_module.MemoryEmbeddingPipeline = original_pipeline
+
+        assert stats.edges_embedded == 1
+
+        edges = await store.get_pending_edge_embeddings(limit=10)
+        assert len(edges) == 0
+
+        async with sqlite_connection_async(db_path) as db:
+            async with db.execute(
+                "SELECT embedding_status FROM knowledge_graph WHERE triple_id = ?",
+                (tid,),
+            ) as cur:
+                row = await cur.fetchone()
+        assert row is not None
+        assert row[0] == "ready"

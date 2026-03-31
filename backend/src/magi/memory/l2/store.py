@@ -1253,6 +1253,38 @@ class L2CognitionStore:
                 rows = await cursor.fetchall()
         return [self._snapshot_row_to_dict(row) for row in rows]
 
+    async def get_pending_edge_embeddings(self, *, limit: int = 200) -> List[Dict[str, Any]]:
+        """Return active edges whose embedding_status is 'pending'."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM knowledge_graph WHERE embedding_status = 'pending' AND status = 'active' "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._relation_row_to_dict(row) for row in rows]
+
+    async def update_edge_embedding_status(
+        self,
+        *,
+        triple_ids: List[str],
+        status: str = "ready",
+    ) -> int:
+        """Mark edges as embedded (or failed)."""
+        if not triple_ids:
+            return 0
+        await self.initialize()
+        placeholders = ", ".join("?" for _ in triple_ids)
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"UPDATE knowledge_graph SET embedding_status = ? WHERE triple_id IN ({placeholders})",
+                (status, *triple_ids),
+            )
+            await db.commit()
+            return cursor.rowcount
+
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight counts for API reporting."""
         return {

@@ -13,6 +13,13 @@ import aiosqlite
 
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
+from ..chunking import ChunkedText
+from ..embedding_pipeline import (
+    EmbeddingPipelineItem,
+    MemoryEmbeddingPipeline,
+)
+from ..embedding_text_builders import build_l2_edge_embedding_text
+from ..sqlite_vec_index import SqliteVecIndex
 from .ontology import PREDICATE_REGISTRY, get_predicate_synonym_group
 from .pipeline import L2Pipeline
 
@@ -68,14 +75,23 @@ class L2EntityMaintenanceStats:
     orphans_pruned: int = 0
     expired_future_intents: int = 0
     open_predicates_consolidated: int = 0
+    edges_embedded: int = 0
     errors: list[str] = field(default_factory=list)
 
 
 class L2EntityMaintenance:
     """Best-effort cleanup: ghost graph refs, same-name type merges, low-mention orphans."""
 
-    def __init__(self, *, db_path: str) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str,
+        embedding_service: Any | None = None,
+        edge_vector_index: SqliteVecIndex | None = None,
+    ) -> None:
         self._db_path = db_path
+        self._embedding_service = embedding_service
+        self._edge_vector_index = edge_vector_index
 
     async def run(
         self,
@@ -86,6 +102,7 @@ class L2EntityMaintenance:
         prune_orphans: bool = True,
         expire_future_intents: bool = True,
         consolidate_open_predicates: bool = True,
+        embed_edges: bool = True,
     ) -> L2EntityMaintenanceStats:
         stats = L2EntityMaintenanceStats()
         if resolve_ghosts:
@@ -98,6 +115,8 @@ class L2EntityMaintenance:
             await self._expire_stale_future_intents(stats)
         if consolidate_open_predicates:
             await self._consolidate_open_predicates(stats)
+        if embed_edges:
+            await self._embed_pending_edges(stats)
         if any(
             (
                 stats.ghost_edges_rewritten,
@@ -107,6 +126,7 @@ class L2EntityMaintenance:
                 stats.orphans_pruned,
                 stats.expired_future_intents,
                 stats.open_predicates_consolidated,
+                stats.edges_embedded,
             )
         ):
             logger.info(
@@ -120,6 +140,7 @@ class L2EntityMaintenance:
                 orphans_pruned=stats.orphans_pruned,
                 expired_future_intents=stats.expired_future_intents,
                 open_predicates_consolidated=stats.open_predicates_consolidated,
+                edges_embedded=stats.edges_embedded,
             )
         return stats
 
@@ -648,3 +669,80 @@ class L2EntityMaintenance:
             if consolidated:
                 await db.commit()
             stats.open_predicates_consolidated = consolidated
+
+    async def _embed_pending_edges(
+        self,
+        stats: L2EntityMaintenanceStats,
+        *,
+        batch_limit: int = 200,
+    ) -> None:
+        """Embed knowledge_graph edges that have embedding_status='pending'."""
+        if self._embedding_service is None or self._edge_vector_index is None:
+            return
+
+        pipeline = MemoryEmbeddingPipeline(
+            embedding_service=self._embedding_service,
+            vector_index=self._edge_vector_index,
+        )
+
+        async with sqlite_connection_async(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT triple_id, subject_id, predicate, object_id, evidence_text, natural_summary "
+                "FROM knowledge_graph WHERE embedding_status = 'pending' AND status = 'active' "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (batch_limit,),
+            ) as cur:
+                rows = await cur.fetchall()
+
+        if not rows:
+            return
+
+        items: list[EmbeddingPipelineItem] = []
+        for row in rows:
+            text = build_l2_edge_embedding_text(
+                subject_id=str(row["subject_id"]),
+                predicate=str(row["predicate"]),
+                object_id=str(row["object_id"]),
+                evidence_text=row["evidence_text"],
+                natural_summary=row["natural_summary"],
+            )
+            if not text.strip():
+                continue
+            triple_id = str(row["triple_id"])
+            items.append(
+                EmbeddingPipelineItem(
+                    parent_id=triple_id,
+                    chunks=[
+                        ChunkedText(
+                            chunk_id=triple_id,
+                            text=text,
+                            chunk_index=0,
+                            char_start=0,
+                            char_end=len(text),
+                            token_estimate=max(1, len(text) // 4),
+                        )
+                    ],
+                    metadata={"kind": "edge"},
+                )
+            )
+
+        if not items:
+            return
+
+        try:
+            results = await pipeline.upsert_items(items)
+            embedded_ids = [r.parent_id for r in results]
+            if embedded_ids:
+                placeholders = ", ".join("?" for _ in embedded_ids)
+                async with sqlite_connection_async(self._db_path) as db:
+                    await db.execute(
+                        f"UPDATE knowledge_graph SET embedding_status = 'ready' "
+                        f"WHERE triple_id IN ({placeholders})",
+                        tuple(embedded_ids),
+                    )
+                    await db.commit()
+                stats.edges_embedded = len(embedded_ids)
+        except Exception as exc:
+            logger.warning("Failed to embed pending edges: %s", exc)
+            stats.errors.append(f"edge_embedding: {exc}")

@@ -43,9 +43,34 @@ def build_l4_embedding_text(
         parts.append(prompt)
     return "\n".join(part for part in parts if part)
 
+
+def build_l2_edge_embedding_text(
+    *,
+    subject_id: str,
+    predicate: str,
+    object_id: str,
+    evidence_text: str | None = None,
+    natural_summary: str | None = None,
+) -> str:
+    """Return the canonical text for a knowledge-graph edge embedding.
+
+    Combines the triple's structural identity with its evidence to enable
+    semantic similarity search across edges.
+    """
+    parts = [f"{subject_id} {predicate} {object_id}"]
+    summary = str(natural_summary or "").strip()
+    if summary:
+        parts.append(summary)
+    evidence = str(evidence_text or "").strip()
+    if evidence:
+        parts.append(evidence)
+    return "\n".join(parts)
+
+
 __all__ = [
     "build_l1_embedding_text",
     "build_l2_entity_embedding_text",
+    "build_l2_edge_embedding_text",
     "build_l3_embedding_text",
     "build_l4_embedding_text",
 ]
