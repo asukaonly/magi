@@ -640,12 +640,14 @@ async def test_refresh_entity_snapshot_excludes_deprecated_preference_and_keeps_
     second_snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
 
     assert first_snapshot is not None
-    assert first_snapshot["preferences"]["food:sushi"] == "like"
+    assert first_snapshot["preferences"]["food:sushi"]["value"] == "like"
+    assert first_snapshot["preferences"]["food:sushi"]["affinity"] > 0
     assert second_snapshot is not None
-    assert second_snapshot["preferences"]["food:sushi"] == "dislike"
+    assert second_snapshot["preferences"]["food:sushi"]["value"] == "dislike"
+    assert second_snapshot["preferences"]["food:sushi"]["affinity"] < 0
     assert second_snapshot["preferences_history"][0]["field"] == "food:sushi"
-    assert second_snapshot["preferences_history"][0]["from"] == "like"
-    assert second_snapshot["preferences_history"][0]["to"] == "dislike"
+    assert second_snapshot["preferences_history"][0]["from"]["value"] == "like"
+    assert second_snapshot["preferences_history"][0]["to"]["value"] == "dislike"
 
 
 @pytest.mark.asyncio
@@ -2738,3 +2740,175 @@ async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
     # Should contain the most recent entries
     assert trajectory[-1]["value"] == f"mood_{count - 1}"
     assert trajectory[0]["value"] == f"mood_{count - _MOOD_TRAJECTORY_LIMIT}"
+
+
+# ---------------------------------------------------------------------------
+# Preference enrichment from taste_profile / preference_profile assertions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preferences_enriched_from_taste_profile_assertions(tmp_path):
+    """taste_profile assertions should appear in snapshot preferences with affinity."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "taste_profile",
+            "trait_name": "jazz_affinity",
+            "trait_value": "enjoys jazz guitar",
+            "confidence_score": 0.75,
+            "evidence_events": ["evt-jazz-1", "evt-jazz-2", "evt-jazz-3"],
+            "volatility_index": 0.3,
+            "source_domain": "sensor",
+            "inference_depth": "direct",
+            "validation_state": "stable",
+            "first_inferred_at": now - 3600,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "persistent",
+            "decay_policy": "none",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": None,
+        }
+    )
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    pref = snapshot["preferences"].get("jazz_affinity")
+    assert pref is not None
+    assert pref["value"] == "enjoys jazz guitar"
+    assert pref["family"] == "taste_profile"
+    # affinity = min(1.0, 0.75 * (1 + 0.1 * 3)) = 0.75 * 1.3 = 0.975
+    assert 0.9 < pref["affinity"] <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preferences_enriched_from_preference_profile_assertions(tmp_path):
+    """preference_profile assertions should also appear in preferences with affinity."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "preference_profile",
+            "trait_name": "communication_style",
+            "trait_value": "concise",
+            "confidence_score": 0.60,
+            "evidence_events": ["evt-style-1"],
+            "volatility_index": 0.2,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "validation_state": "stable",
+            "first_inferred_at": now - 7200,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "persistent",
+            "decay_policy": "none",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": None,
+        }
+    )
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    pref = snapshot["preferences"].get("communication_style")
+    assert pref is not None
+    assert pref["value"] == "concise"
+    assert pref["family"] == "preference_profile"
+    # affinity = min(1.0, 0.60 * (1 + 0.1 * 1)) = 0.60 * 1.1 = 0.66
+    assert 0.6 < pref["affinity"] < 0.7
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preference_affinity_computation(tmp_path):
+    """Affinity must scale with confidence and evidence count, capped at 1.0."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    # High confidence + many evidence → capped at 1.0
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "taste_profile",
+            "trait_name": "coffee_preference",
+            "trait_value": "strong espresso",
+            "confidence_score": 0.95,
+            "evidence_events": [f"evt-coffee-{i}" for i in range(10)],
+            "volatility_index": 0.1,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "validation_state": "stable",
+            "first_inferred_at": now - 86400,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "persistent",
+            "decay_policy": "none",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": None,
+        }
+    )
+
+    # Low confidence + single evidence → low affinity
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "taste_profile",
+            "trait_name": "tea_preference",
+            "trait_value": "green tea",
+            "confidence_score": 0.30,
+            "evidence_events": ["evt-tea-1"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "validation_state": "stable",
+            "first_inferred_at": now - 600,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "persistent",
+            "decay_policy": "none",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": None,
+        }
+    )
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    coffee = snapshot["preferences"]["coffee_preference"]
+    # 0.95 * (1 + 0.1 * 5) = 0.95 * 1.5 = 1.425 → capped at 1.0
+    assert coffee["affinity"] == 1.0
+
+    tea = snapshot["preferences"]["tea_preference"]
+    # 0.30 * (1 + 0.1 * 1) = 0.30 * 1.1 = 0.33
+    assert tea["affinity"] == 0.33

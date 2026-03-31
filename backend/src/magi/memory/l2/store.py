@@ -2119,11 +2119,43 @@ class L2CognitionStore:
             elif trait_name not in {"stress_level", "mood", "engagement"}:
                 core_traits[trait_name] = assertion["trait_value"]
 
+        # Enrich preferences from taste_profile / preference_profile assertions
+        _PREF_FAMILIES = {"taste_profile", "preference_profile"}
+        for assertion in assertions:
+            family = assertion.get("trait_family", "")
+            if family not in _PREF_FAMILIES:
+                continue
+            t_name = str(assertion.get("trait_name", ""))
+            if t_name.startswith("preference."):
+                continue  # already handled above via stable_by_trait
+            confidence = float(assertion.get("confidence_score", 0))
+            evidence_count = len(assertion.get("evidence_events", []) or [])
+            affinity = round(min(1.0, confidence * (1 + 0.1 * min(evidence_count, 5))), 2)
+            preferences[t_name] = {
+                "value": assertion["trait_value"],
+                "affinity": affinity,
+                "family": family,
+            }
+
         for relation in outgoing_relations:
             if relation["predicate"] == "LIKES":
-                preferences[relation["object_id"]] = "like"
+                confidence = float(relation.get("confidence", 0.5))
+                obs_count = int(relation.get("observation_count", 1))
+                affinity = round(min(1.0, confidence * (1 + 0.1 * min(obs_count, 5))), 2)
+                preferences[relation["object_id"]] = {
+                    "value": "like",
+                    "affinity": affinity,
+                    "family": "graph",
+                }
             elif relation["predicate"] == "DISLIKES":
-                preferences[relation["object_id"]] = "dislike"
+                confidence = float(relation.get("confidence", 0.5))
+                obs_count = int(relation.get("observation_count", 1))
+                affinity = round(min(1.0, confidence * (1 + 0.1 * min(obs_count, 5))), 2)
+                preferences[relation["object_id"]] = {
+                    "value": "dislike",
+                    "affinity": -affinity,
+                    "family": "graph",
+                }
 
         relationship_topology = {
             "outgoing_count": len(outgoing_relations),
