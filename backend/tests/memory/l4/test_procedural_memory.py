@@ -61,7 +61,7 @@ class _BatchTrackingEmbeddingService:
         return [self._make_result(text) for text in texts]
 
     def _make_result(self, text: str):
-        from magi.memory.embedding_service import EmbeddingResult
+        from magi.memory.embedding.embedding_service import EmbeddingResult
 
         lowered = text.lower()
         vector = [0.0, 0.0, 0.0, 0.0]
@@ -212,7 +212,7 @@ async def test_l4_skill_exposes_embedding_status_and_profile_id(tmp_path):
 @pytest.mark.asyncio
 async def test_l4_semantic_query_folds_chunk_hits_to_parent_skill(tmp_path):
     from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
-    from magi.memory.sqlite_vec_index import VectorSearchHit
+    from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
 
     embedding_service = _BatchTrackingEmbeddingService()
     store = L4ProceduralMemoryStore(

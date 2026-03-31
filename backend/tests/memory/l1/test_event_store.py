@@ -9,7 +9,7 @@ import pytest
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event, MemoryEvent
-from magi.memory.sqlite_vec_index import VectorSearchHit
+from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
 
 
 class _BatchTrackingEmbeddingService:
@@ -29,7 +29,7 @@ class _BatchTrackingEmbeddingService:
         return [self._make_result(text) for text in texts]
 
     def _make_result(self, text: str):
-        from magi.memory.embedding_service import EmbeddingProfile, EmbeddingResult
+        from magi.memory.embedding.embedding_service import EmbeddingProfile, EmbeddingResult
 
         lowered = text.lower()
         vector = [0.0] * self.embedding_dimension
@@ -44,7 +44,7 @@ class _BatchTrackingEmbeddingService:
         return EmbeddingResult(model_name=self.model_name, dimension=self.embedding_dimension, vector=vector)
 
     def get_active_profile(self, *, text_builder_version: str):
-        from magi.memory.embedding_service import EmbeddingProfile
+        from magi.memory.embedding.embedding_service import EmbeddingProfile
 
         return EmbeddingProfile.build(
             provider_name=self.provider_name,
@@ -54,7 +54,7 @@ class _BatchTrackingEmbeddingService:
         )
 
     def profile_from_result(self, result, *, text_builder_version: str):
-        from magi.memory.embedding_service import EmbeddingProfile
+        from magi.memory.embedding.embedding_service import EmbeddingProfile
 
         return EmbeddingProfile.build(
             provider_name=self.provider_name,

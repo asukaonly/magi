@@ -15,14 +15,14 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
-from ..chunking import ChunkedText, chunk_text
-from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding_text_builders import build_l1_embedding_text
+from ..embedding.chunking import ChunkedText, chunk_text
+from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ..embedding.embedding_text_builders import build_l1_embedding_text
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
-from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
 EMBEDDING_PROFILES_TABLE = "embedding_profiles"

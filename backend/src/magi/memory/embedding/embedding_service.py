@@ -9,14 +9,14 @@ from functools import lru_cache
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, TypeVar
 
-from ..config import get_config
-from ..config.loader import get_llm_provider_registry_file
-from ..config.llm_registry import (
+from ...config import get_config
+from ...config.loader import get_llm_provider_registry_file
+from ...config.llm_registry import (
     LLMProviderRegistryModel,
     find_embedding_model_meta,
     load_llm_provider_registry,
 )
-from ..llm import LLMScenario, ScenarioLLMPool, get_llm_concurrency_limiter
+from ...llm import LLMScenario, ScenarioLLMPool, get_llm_concurrency_limiter
 
 T = TypeVar("T")
 

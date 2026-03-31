@@ -338,7 +338,7 @@ class HybridRetrievalService:
         embedding_service = getattr(catalog, "_embedding_service", None) if catalog else None
         edge_vector_index = None
         if embedding_service is not None:
-            from ..sqlite_vec_index import SqliteVecIndex
+            from ..embedding.sqlite_vec_index import SqliteVecIndex
 
             db_path = str(getattr(catalog, "db_path", ""))
             if db_path:

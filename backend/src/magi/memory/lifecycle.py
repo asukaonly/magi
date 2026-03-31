@@ -13,7 +13,7 @@ from ..config import get_config
 from ..config.models import LLMScenario
 from ..llm.provider_bridge import LLMProviderBridge
 from . import UnifiedMemoryStore
-from .embedding_service import MemoryEmbeddingService
+from .embedding.embedding_service import MemoryEmbeddingService
 from .hybrid_retrieval import HybridRetrievalService
 from .hybrid_retrieval.service import build_retrieval_config_from_app_config
 from .integration import MemoryIntegrationConfig, MemoryIntegrationModule

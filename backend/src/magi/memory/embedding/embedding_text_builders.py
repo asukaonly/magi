@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .event_contracts import MemoryEvent
+from ..event_contracts import MemoryEvent
 
 
 def build_l1_embedding_text(event: MemoryEvent) -> str:

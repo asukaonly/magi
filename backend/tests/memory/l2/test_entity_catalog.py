@@ -12,7 +12,7 @@ class _RecordingEmbeddingService:
 
     async def embed_text(self, text: str):
         self.texts.append(text)
-        from magi.memory.embedding_service import EmbeddingResult
+        from magi.memory.embedding.embedding_service import EmbeddingResult
 
         return EmbeddingResult(model_name="test-embedding", dimension=4, vector=[1.0, 0.0, 0.0, 0.0])
 

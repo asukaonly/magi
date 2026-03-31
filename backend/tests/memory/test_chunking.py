@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.memory.chunking import ChunkedText, chunk_text
+from magi.memory.embedding.chunking import ChunkedText, chunk_text
 
 
 def test_chunk_text_returns_single_chunk_for_short_text() -> None:

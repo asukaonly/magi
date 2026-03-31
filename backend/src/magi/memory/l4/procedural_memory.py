@@ -14,13 +14,13 @@ import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
-from ..chunking import ChunkedText, chunk_text
-from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding_text_builders import build_l4_embedding_text
-from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ..embedding.chunking import ChunkedText, chunk_text
+from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+from ..embedding.embedding_text_builders import build_l4_embedding_text
+from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
-from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 logger = logging.getLogger(__name__)
 

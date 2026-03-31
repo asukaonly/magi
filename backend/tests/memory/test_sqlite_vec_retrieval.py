@@ -5,7 +5,7 @@ import pytest
 
 class FakeEmbeddingService:
     async def embed_text(self, text: str):
-        from magi.memory.embedding_service import EmbeddingResult
+        from magi.memory.embedding.embedding_service import EmbeddingResult
 
         lowered = text.lower()
         vector = [0.0, 0.0, 0.0, 0.0]

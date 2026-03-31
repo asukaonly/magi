@@ -13,7 +13,7 @@ from typing import Any, Optional
 import aiosqlite
 import sqlite_vec
 
-from ..core.sqlite import connect_aiosqlite
+from ...core.sqlite import connect_aiosqlite
 from .embedding_service import EmbeddingResult
 
 logger = logging.getLogger(__name__)

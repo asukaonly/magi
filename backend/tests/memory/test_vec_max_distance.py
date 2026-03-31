@@ -5,8 +5,8 @@ from __future__ import annotations
 import aiosqlite
 import pytest
 
-from magi.memory.embedding_service import EmbeddingResult
-from magi.memory.sqlite_vec_index import SqliteVecIndex
+from magi.memory.embedding.embedding_service import EmbeddingResult
+from magi.memory.embedding.sqlite_vec_index import SqliteVecIndex
 
 
 def _make_embedding(vector: list[float]) -> EmbeddingResult:

@@ -12,12 +12,12 @@ import aiosqlite
 
 from ...config.models import EmbeddingBackend
 from ...core.sqlite import sqlite_connection_async
-from ..chunking import ChunkedText
-from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding_service import EmbeddingProfile
-from ..embedding_text_builders import build_l2_entity_embedding_text
-from ..embedding_service import MemoryEmbeddingService
-from ..sqlite_vec_index import SqliteVecIndex
+from ..embedding.chunking import ChunkedText
+from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+from ..embedding.embedding_service import EmbeddingProfile
+from ..embedding.embedding_text_builders import build_l2_entity_embedding_text
+from ..embedding.embedding_service import MemoryEmbeddingService
+from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .ontology import coerce_unknown_entity_type
 
 logger = logging.getLogger(__name__)

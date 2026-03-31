@@ -13,7 +13,7 @@ from ...scheduler.contracts import (
     ScheduledTargetType,
 )
 from ...scheduler.service import SchedulerService
-from ..sqlite_vec_index import SqliteVecIndex
+from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .entity_maintenance import (
     L2EntityMaintenance,
     SCHEDULE_ID_L2_MAINTENANCE,

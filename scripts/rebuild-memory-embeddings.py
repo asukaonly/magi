@@ -16,7 +16,7 @@ if str(BACKEND_SRC_DIR) not in sys.path:
 
 from magi.config import get_config  # noqa: E402
 from magi.llm.factory import create_scenario_llm_pool  # noqa: E402
-from magi.memory.embedding_service import MemoryEmbeddingService  # noqa: E402
+from magi.memory.embedding.embedding_service import MemoryEmbeddingService  # noqa: E402
 from magi.memory.l1.event_store import L1EventStore  # noqa: E402
 from magi.memory.l2.entity_catalog import L2EntityCatalog  # noqa: E402
 from magi.memory.l3.summary_store import L3SummaryStore  # noqa: E402

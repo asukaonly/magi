@@ -13,13 +13,13 @@ import aiosqlite
 
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
-from ..chunking import ChunkedText
-from ..embedding_pipeline import (
+from ..embedding.chunking import ChunkedText
+from ..embedding.embedding_pipeline import (
     EmbeddingPipelineItem,
     MemoryEmbeddingPipeline,
 )
-from ..embedding_text_builders import build_l2_edge_embedding_text
-from ..sqlite_vec_index import SqliteVecIndex
+from ..embedding.embedding_text_builders import build_l2_edge_embedding_text
+from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .ontology import PREDICATE_REGISTRY, get_predicate_synonym_group
 from .pipeline import L2Pipeline
 

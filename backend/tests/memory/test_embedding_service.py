@@ -59,16 +59,16 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
 
     from magi.llm.concurrency_limiter import LLMConcurrencyLimiter
     from magi.config.llm_registry import LLMEmbeddingModelMetaModel, LLMProviderMetaModel, LLMProviderRegistryModel
-    from magi.memory.embedding_service import MemoryEmbeddingService
+    from magi.memory.embedding.embedding_service import MemoryEmbeddingService
 
     adapter = _BlockingEmbeddingAdapter()
     pool = _EmbeddingScenarioPool(adapter)
     service = MemoryEmbeddingService(pool)
 
     limiter = LLMConcurrencyLimiter(default_limit=1)
-    monkeypatch.setattr("magi.memory.embedding_service.get_llm_concurrency_limiter", lambda: limiter)
+    monkeypatch.setattr("magi.memory.embedding.embedding_service.get_llm_concurrency_limiter", lambda: limiter)
     monkeypatch.setattr(
-        "magi.memory.embedding_service.get_config",
+        "magi.memory.embedding.embedding_service.get_config",
         lambda: SimpleNamespace(
             llm=SimpleNamespace(
                 selections={},
@@ -77,7 +77,7 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
         ),
     )
     monkeypatch.setattr(
-        "magi.memory.embedding_service._load_provider_registry",
+        "magi.memory.embedding.embedding_service._load_provider_registry",
         lambda: LLMProviderRegistryModel(
             providers=[
                 LLMProviderMetaModel(
@@ -114,16 +114,16 @@ async def test_embedding_limit_uses_embedding_family_key(monkeypatch: pytest.Mon
     from types import SimpleNamespace
 
     from magi.config.llm_registry import LLMEmbeddingModelMetaModel, LLMProviderMetaModel, LLMProviderRegistryModel
-    from magi.memory.embedding_service import MemoryEmbeddingService
+    from magi.memory.embedding.embedding_service import MemoryEmbeddingService
 
     adapter = _BlockingEmbeddingAdapter()
     pool = _EmbeddingScenarioPool(adapter)
     service = MemoryEmbeddingService(pool)
 
     limiter = _RecordingLimiter()
-    monkeypatch.setattr("magi.memory.embedding_service.get_llm_concurrency_limiter", lambda: limiter)
+    monkeypatch.setattr("magi.memory.embedding.embedding_service.get_llm_concurrency_limiter", lambda: limiter)
     monkeypatch.setattr(
-        "magi.memory.embedding_service.get_config",
+        "magi.memory.embedding.embedding_service.get_config",
         lambda: SimpleNamespace(
             llm=SimpleNamespace(
                 selections={
@@ -134,7 +134,7 @@ async def test_embedding_limit_uses_embedding_family_key(monkeypatch: pytest.Mon
         ),
     )
     monkeypatch.setattr(
-        "magi.memory.embedding_service._load_provider_registry",
+        "magi.memory.embedding.embedding_service._load_provider_registry",
         lambda: LLMProviderRegistryModel(
             providers=[
                 LLMProviderMetaModel(

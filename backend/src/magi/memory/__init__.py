@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from typing import Any, Callable, Dict, Optional
 
 from ..events.events import Event, EventLevel, EventTypes
-from .embedding_service import MemoryEmbeddingService
+from .embedding.embedding_service import MemoryEmbeddingService
 from .event_contracts import MemoryEvent, normalize_runtime_event
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore

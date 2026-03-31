@@ -24,7 +24,7 @@ class _BatchTrackingEmbeddingService:
         return [self._make_result(text) for text in texts]
 
     def _make_result(self, text: str):
-        from magi.memory.embedding_service import EmbeddingResult
+        from magi.memory.embedding.embedding_service import EmbeddingResult
 
         lowered = text.lower()
         vector = [0.0, 0.0, 0.0, 0.0]
@@ -960,7 +960,7 @@ async def test_l3_summary_exposes_embedding_status_and_profile_id(tmp_path):
 @pytest.mark.asyncio
 async def test_l3_semantic_search_folds_chunk_hits_to_parent_summary(tmp_path):
     from magi.memory.l3.summary_store import L3SummaryStore
-    from magi.memory.sqlite_vec_index import VectorSearchHit
+    from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
 
     embedding_service = _BatchTrackingEmbeddingService()
     store = L3SummaryStore(

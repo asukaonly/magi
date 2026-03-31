@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from magi.memory.chunking import ChunkedText
-from magi.memory.embedding_service import EmbeddingResult
+from magi.memory.embedding.chunking import ChunkedText
+from magi.memory.embedding.embedding_service import EmbeddingResult
 
 
 class _RecordingEmbeddingService:
@@ -39,7 +39,7 @@ class _FallbackVectorIndex:
 
 @pytest.mark.asyncio
 async def test_embedding_pipeline_batches_chunks_and_falls_back_to_single_upserts():
-    from magi.memory.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+    from magi.memory.embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 
     embedding_service = _RecordingEmbeddingService()
     vector_index = _FallbackVectorIndex()

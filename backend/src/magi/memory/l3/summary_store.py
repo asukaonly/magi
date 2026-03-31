@@ -15,14 +15,14 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
-from ..chunking import ChunkedText, chunk_text
-from ..embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from ..embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ..embedding_text_builders import build_l3_embedding_text
+from ..embedding.chunking import ChunkedText, chunk_text
+from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ..embedding.embedding_text_builders import build_l3_embedding_text
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..hybrid_retrieval.handlers import rrf_fuse
 from ..l1.event_store import L1EventStore
-from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 from .models import L3Candidate
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
