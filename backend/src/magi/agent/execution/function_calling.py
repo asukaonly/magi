@@ -163,6 +163,7 @@ class FunctionCallingOrchestrator:
         self.loop_event_callback = loop_event_callback
         self.runtime_trace_store = runtime_trace_store
         self.step_executor = FunctionCallingStepExecutor(self)
+        self._current_messages: List[Dict[str, Any]] = []
         self._context_compactor = ContextCompactor(
             scenario_llm_pool=scenario_llm_pool,
             context_window=context_window,
@@ -240,6 +241,7 @@ class FunctionCallingOrchestrator:
             selected_tools=selected_tools,
             conversation_history=conversation_history,
         )
+        self._current_messages = state.messages
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         while state.iteration < max_iterations:
             step_outcome = await self.step_executor.execute_step(
@@ -1534,6 +1536,11 @@ class FunctionCallingOrchestrator:
             return normalized
         if "run_in_background" not in normalized:
             normalized["run_in_background"] = True
+
+        # Build parent context summary when inherit_context is requested.
+        if normalized.pop("inherit_context", False) and self._current_messages:
+            normalized["parent_context_summary"] = self._build_parent_context_summary()
+
         if not isinstance(orchestration_strategy, dict):
             return normalized
 
@@ -1541,6 +1548,30 @@ class FunctionCallingOrchestrator:
         if preferred_type and not str(normalized.get("subagent_type", "")).strip():
             normalized["subagent_type"] = preferred_type
         return normalized
+
+    # -- parent context helpers -----------------------------------------------
+
+    _PARENT_CONTEXT_MAX_MESSAGES = 20
+    _PARENT_CONTEXT_MAX_CHARS = 12_000
+
+    def _build_parent_context_summary(self) -> str:
+        """Build a concise summary of the current conversation for a child worker."""
+        from .context_compactor import ContextCompactor
+
+        messages = self._current_messages
+        if not messages:
+            return ""
+
+        # Take the most recent messages, skip tool-result noise.
+        recent = messages[-self._PARENT_CONTEXT_MAX_MESSAGES:]
+        rendered = ContextCompactor._render_messages_for_summary(recent)
+        if len(rendered) > self._PARENT_CONTEXT_MAX_CHARS:
+            rendered = rendered[-self._PARENT_CONTEXT_MAX_CHARS:]
+            # Trim to the first complete line to avoid mid-sentence cut.
+            nl = rendered.find("\n")
+            if nl > 0:
+                rendered = rendered[nl + 1:]
+        return rendered
 
     async def _execute_skill(
         self,

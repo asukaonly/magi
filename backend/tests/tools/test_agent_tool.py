@@ -43,6 +43,7 @@ class _FakeFunctionCallingOrchestrator:
         tool_result_callback=None,
         loop_event_callback=None,
         runtime_trace_store=None,
+        scenario_llm_pool=None,
     ):
         self._tool_result_callback = tool_result_callback
         self._loop_event_callback = loop_event_callback
@@ -65,6 +66,7 @@ class _FakeFunctionCallingOrchestrator:
         orchestration_strategy=None,
         llm_timeout_seconds=None,
         final_response_json_mode=False,
+        thinking_depth=None,
     ):
         _ = (
             system_prompt,
@@ -81,6 +83,7 @@ class _FakeFunctionCallingOrchestrator:
             orchestration_strategy,
             llm_timeout_seconds,
             final_response_json_mode,
+            thinking_depth,
         )
         if self._tool_result_callback:
             await self._tool_result_callback(
@@ -114,7 +117,8 @@ class _FakeFunctionCallingOrchestrator:
                 }
             )
         await asyncio.sleep(0.01)
-        if disable_thinking is False:
+        is_plan = thinking_depth is not None and getattr(thinking_depth, "value", str(thinking_depth)) not in ("none", "")
+        if is_plan:
             content = (
                 '{"result_status":"success","summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
                 '"evidence":[{"path":"/tmp/plan.json","detail":"planner output"}],'

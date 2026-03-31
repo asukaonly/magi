@@ -75,6 +75,7 @@ class WorkerRunState:
     retry_count: int = 0
     task: Optional[asyncio.Task] = None
     selected_tools: list[str] = field(default_factory=list)
+    parent_context_summary: str = ""
     started_at_ms: int = 0
     started_monotonic: float = 0.0
 
@@ -261,6 +262,17 @@ class WorkerAgentManager(Tool):
                     required=False,
                 ),
                 ToolParameter(
+                    name="inherit_context",
+                    type=ParameterType.BOOLEAN,
+                    description=(
+                        "Whether to pass a summary of the parent conversation "
+                        "to the worker. When false (default), workers start "
+                        "with a clean context and only see the prompt."
+                    ),
+                    required=False,
+                    default=False,
+                ),
+                ToolParameter(
                     name="retry_count",
                     type=ParameterType.INTEGER,
                     description="Retry attempt count for this worker launch",
@@ -433,6 +445,7 @@ class WorkerAgentManager(Tool):
         orchestration_id = _optional_string(parameters.get("orchestration_id"))
         subtask_id = _optional_string(parameters.get("subtask_id"))
         retry_count = int(parameters.get("retry_count", 0))
+        parent_context_summary = str(parameters.get("parent_context_summary", "")).strip()
         turn_id = _optional_string(parameters.get("turn_id") or context.env_vars.get("turn_id"))
 
         user_id = str(context.env_vars.get("user_id", "unknown"))
@@ -482,6 +495,7 @@ class WorkerAgentManager(Tool):
             created_at=created_at,
             updated_at=created_at,
             retry_count=retry_count,
+            parent_context_summary=parent_context_summary,
             started_at_ms=started_at_ms,
             started_monotonic=time.monotonic(),
         )
@@ -596,6 +610,19 @@ class WorkerAgentManager(Tool):
         )
 
         try:
+            # Prepend parent context summary to system prompt when inherited.
+            effective_system_prompt = worker_system_prompt
+            if run_state.parent_context_summary:
+                effective_system_prompt = (
+                    worker_system_prompt
+                    + "\n\n--- PARENT CONVERSATION CONTEXT ---\n"
+                    "The following is a summary of the parent agent's conversation "
+                    "that led to your creation. Use it for background context only; "
+                    "focus on your assigned task.\n\n"
+                    + run_state.parent_context_summary
+                    + "\n--- END PARENT CONTEXT ---\n"
+                )
+
             executor = FunctionCallingOrchestrator(
                 llm_adapter=self._llm_adapter,
                 tool_registry=self._tool_registry,
@@ -607,7 +634,7 @@ class WorkerAgentManager(Tool):
             )
             outcome = await executor.execute_with_tools(
                 user_message=run_state.prompt,
-                system_prompt=worker_system_prompt,
+                system_prompt=effective_system_prompt,
                 selected_tools=selected_tools,
                 user_id=run_state.user_id,
                 session_id=run_state.session_id or run_state.worker_id,
