@@ -227,3 +227,42 @@ async def test_expire_stale_future_intents():
         edge_active = await store.get_relationship(triple_id=tid_active)
         assert edge_active is not None
         assert edge_active["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_consolidate_open_predicates_rewrites_to_core() -> None:
+    """A non-core predicate not in any synonym group is left alone."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        store = L2CognitionStore(db_path=db_path)
+        now = time.time()
+
+        tid_open = await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="STUDYING",
+            object_id="topic:ml",
+            object_type="topic",
+            evidence_event_ids=["evt-open-1"],
+            confidence=0.7,
+            observed_at=now,
+            source_type="chat",
+        )
+
+        maint = L2EntityMaintenance(db_path=db_path)
+        stats = await maint.run(
+            resolve_ghosts=False,
+            merge_fragments=False,
+            prune_orphans=False,
+            expire_future_intents=False,
+        )
+
+        # STUDYING is not in any synonym group, so it should be left alone
+        assert stats.open_predicates_consolidated == 0
+
+        edge = await store.get_relationship(triple_id=tid_open)
+        assert edge is not None
+        assert edge["predicate"] == "STUDYING"

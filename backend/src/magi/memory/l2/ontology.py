@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 ENTITY_TYPE_REGISTRY: frozenset[str] = frozenset(
@@ -100,31 +101,22 @@ PREDICATE_REGISTRY: frozenset[str] = frozenset(
     }
 )
 
-_PREDICATE_COMPATIBILITY: dict[str, frozenset[str]] = {
-    "LIKES": frozenset(ENTITY_TYPE_REGISTRY - {"health_metric", "other"}),
-    "DISLIKES": frozenset(ENTITY_TYPE_REGISTRY - {"health_metric", "other"}),
-    "INTERESTED_IN": frozenset({"topic", "technology", "concept", "skill", "project", "activity", "media"}),
-    "VISITED": frozenset({"place", "product", "event", "organization", "location_state"}),
-    "VIEWED": frozenset({"media", "software", "product", "topic", "concept", "project"}),
-    "FOLLOWS": frozenset({"person", "organization", "group", "topic", "media"}),
-    "LIVES_IN": frozenset({"place"}),
-    "PLANS_TO": frozenset({"activity", "event", "project", "place"}),
-    "ATTENDED": frozenset({"activity", "event", "group", "organization"}),
-    "WORKS_AT": frozenset({"organization", "group", "project"}),
-    "WORKS_WITH": frozenset({"software", "technology", "hardware", "product", "person"}),
-    "MEMBER_OF": frozenset({"organization", "group", "project"}),
-    "INTERACTED_WITH": frozenset({"person", "group", "organization", "animal", "pet"}),
-    "KNOWS": frozenset({"person"}),
-    "FAMILY_OF": frozenset({"person", "pet"}),
-    "USES": frozenset({"software", "hardware", "product", "technology"}),
-    "OWNS": frozenset({"product", "hardware", "software", "virtual_object", "animal", "pet"}),
-    "CREATES": frozenset({"project", "media", "software", "virtual_object", "concept"}),
-    "PROFICIENT_IN": frozenset({"skill", "technology"}),
+_STRICT_PREDICATE_COMPATIBILITY: dict[str, frozenset[str]] = {
     "HAS_METRIC": frozenset({"health_metric"}),
+    "LIVES_IN": frozenset({"place"}),
+    "LOCATED_IN": frozenset({"place"}),
     "ON_PLATFORM": frozenset({"software"}),
     "PRESENCE_OF": frozenset({"person", "organization", "group"}),
-    "LOCATED_IN": frozenset({"place"}),
 }
+
+OPEN_PREDICATE_CONFIDENCE_PENALTY: float = 0.7
+
+_UPPER_SNAKE_CASE_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
+
+
+def is_valid_open_predicate(predicate: str) -> bool:
+    """Return whether *predicate* is a well-formed open predicate (UPPER_SNAKE_CASE)."""
+    return bool(_UPPER_SNAKE_CASE_RE.match(predicate.strip()))
 
 
 _PREDICATE_SYNONYM_GROUPS: dict[str, str] = {
@@ -197,20 +189,26 @@ def is_predicate_compatible(predicate: str, object_type: str) -> bool:
 
     canonical_predicate = predicate.strip().upper()
     canonical_object_type = coerce_unknown_entity_type(object_type)
-    compatible_types = _PREDICATE_COMPATIBILITY.get(canonical_predicate)
-    if compatible_types is None:
-        return False
-    return canonical_object_type in compatible_types
+    strict = _STRICT_PREDICATE_COMPATIBILITY.get(canonical_predicate)
+    if strict is not None:
+        return canonical_object_type in strict
+    return canonical_object_type in ENTITY_TYPE_REGISTRY
 
 
 def validate_graph_candidate(candidate: dict[str, Any]) -> tuple[bool, str | None]:
-    """Validate one graph candidate against the ontology registry."""
+    """Validate one graph candidate against the ontology registry.
+
+    Core predicates are validated against the strict compatibility matrix.
+    Non-core predicates are accepted if they match UPPER_SNAKE_CASE format;
+    callers should apply the confidence penalty themselves.
+    """
 
     predicate = str(candidate.get("predicate", "")).strip().upper()
-    if predicate not in PREDICATE_REGISTRY:
+    is_core = predicate in PREDICATE_REGISTRY
+    if not is_core and not is_valid_open_predicate(predicate):
         return False, "invalid_predicate"
     object_type = coerce_unknown_entity_type(candidate.get("object_type"))
-    if not is_predicate_compatible(predicate, object_type):
+    if is_core and not is_predicate_compatible(predicate, object_type):
         return False, "invalid_object_type"
     return True, None
 
@@ -257,6 +255,7 @@ __all__ = [
     "ASSERTION_FAMILY_ALLOWLIST",
     "ENTITY_TYPE_ALIASES",
     "ENTITY_TYPE_REGISTRY",
+    "OPEN_PREDICATE_CONFIDENCE_PENALTY",
     "PREDICATE_REGISTRY",
     "are_predicates_synonymous",
     "coerce_unknown_entity_type",
@@ -264,6 +263,7 @@ __all__ = [
     "is_leaf_fact_duplicate",
     "is_predicate_compatible",
     "is_valid_entity_type",
+    "is_valid_open_predicate",
     "is_valid_predicate",
     "normalize_entity_type",
     "validate_assertion_candidate",

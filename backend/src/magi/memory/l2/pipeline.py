@@ -49,9 +49,11 @@ from .entity_catalog import L2EntityCatalog
 from .extraction_profiles import ExtractionProfile, resolve_extraction_profile
 from .llm_service import L2LLMService
 from .ontology import (
+    OPEN_PREDICATE_CONFIDENCE_PENALTY,
     PREDICATE_REGISTRY,
     coerce_unknown_entity_type,
     is_leaf_fact_duplicate,
+    is_valid_open_predicate,
     validate_assertion_candidate,
     validate_graph_candidate,
 )
@@ -1653,7 +1655,10 @@ class L2Pipeline:
             if object_type not in profile.effective_structured_allowed_entity_types:
                 rejected_count += 1
                 continue
-            if predicate not in profile.effective_structured_allowed_predicates:
+            if predicate not in profile.effective_structured_allowed_predicates and not (
+                profile.effective_structured_allowed_predicates >= PREDICATE_REGISTRY
+                and is_valid_open_predicate(predicate)
+            ):
                 rejected_count += 1
                 continue
             is_valid, _ = validate_graph_candidate(
@@ -1695,7 +1700,11 @@ class L2Pipeline:
                     "object_type": object_type,
                     "fact_kind": self._non_empty_text(edge.fact_kind) or "explicit_fact",
                     "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
-                    "confidence": edge.confidence,
+                    "confidence": (
+                        edge.confidence * OPEN_PREDICATE_CONFIDENCE_PENALTY
+                        if predicate not in PREDICATE_REGISTRY
+                        else edge.confidence
+                    ),
                     "observed_at": event.timestamp,
                     "source_type": event.source,
                     "extraction_method": "llm_phase2_integration",
@@ -2554,7 +2563,10 @@ class L2Pipeline:
             if object_type not in profile.allowed_entity_types:
                 rejected_count += 1
                 continue
-            if predicate not in profile.allowed_predicates:
+            if predicate not in profile.allowed_predicates and not (
+                profile.allowed_predicates >= PREDICATE_REGISTRY
+                and is_valid_open_predicate(predicate)
+            ):
                 rejected_count += 1
                 continue
             is_valid, _ = validate_graph_candidate(
@@ -2598,7 +2610,11 @@ class L2Pipeline:
                     "object_id": object_id,
                     "object_type": object_type,
                     "evidence_event_ids": list(evidence_event_ids or [event.event_id]),
-                    "confidence": raw_candidate.confidence,
+                    "confidence": (
+                        raw_candidate.confidence * OPEN_PREDICATE_CONFIDENCE_PENALTY
+                        if predicate not in PREDICATE_REGISTRY
+                        else raw_candidate.confidence
+                    ),
                     "observed_at": event.timestamp,
                     "source_type": event.source,
                     "extraction_method": "llm_two_phase_extraction",

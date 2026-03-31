@@ -73,3 +73,42 @@ def test_chrome_history_source_uses_chrome_history_profile_restrictions():
         "VIEWED", "WORKS_WITH",
     })
     assert profile.allow_assertion is False
+
+
+# ── YAML config loading ──
+
+
+def test_yaml_profiles_load_chrome_history():
+    from magi.memory.l2.extraction_profiles import get_extraction_profiles
+
+    profiles = get_extraction_profiles()
+    assert "timeline.chrome_history" in profiles
+    profile = profiles["timeline.chrome_history"]
+    assert profile.profile_id == "timeline.chrome_history"
+    assert profile.allow_assertion is False
+    assert "VISITED" in profile.allowed_predicates
+    assert profile.extraction_instructions is not None
+
+
+def test_yaml_profiles_always_include_default_chat():
+    from magi.memory.l2.extraction_profiles import get_extraction_profiles
+
+    profiles = get_extraction_profiles()
+    assert "chat.user_message" in profiles
+
+
+def test_load_profiles_from_yaml_handles_missing_file():
+    from pathlib import Path
+    from magi.memory.l2.extraction_profiles import _load_profiles_from_yaml
+
+    profiles = _load_profiles_from_yaml(Path("/nonexistent/path.yaml"))
+    assert "chat.user_message" in profiles
+
+
+def test_load_profiles_from_yaml_handles_invalid_yaml(tmp_path):
+    from magi.memory.l2.extraction_profiles import _load_profiles_from_yaml
+
+    bad_file = tmp_path / "bad.yaml"
+    bad_file.write_text("profiles: not_a_dict_value: [bad", encoding="utf-8")
+    profiles = _load_profiles_from_yaml(bad_file)
+    assert "chat.user_message" in profiles

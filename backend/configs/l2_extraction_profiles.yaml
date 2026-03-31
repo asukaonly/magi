@@ -1,0 +1,102 @@
+# L2 Extraction Profiles
+#
+# Each profile controls which entity types, predicates, and assertion families
+# are allowed during L2 knowledge extraction for a given event source.
+#
+# Special values:
+#   allowed_entity_types: all   → accepts all registered entity types
+#   allowed_predicates: all     → accepts all registered predicates
+#   allowed_assertion_families: all → accepts all registered assertion families
+
+profiles:
+  chat.user_message:
+    allowed_entity_types: all
+    allowed_predicates: all
+    allow_graph: true
+    allow_assertion: true
+
+  timeline.chrome_history:
+    allowed_entity_types:
+      - product
+      - software
+      - technology
+      - media
+      - person
+      - organization
+      - topic
+    allowed_predicates:
+      - VISITED
+      - USES
+      - INTERESTED_IN
+      - FOLLOWS
+      - VIEWED
+      - WORKS_WITH
+    structured_allowed_entity_types:
+      - presence
+      - product
+      - software
+      - technology
+      - media
+      - person
+      - group
+      - organization
+      - topic
+    structured_allowed_predicates:
+      - VISITED
+      - USES
+      - INTERESTED_IN
+      - FOLLOWS
+      - VIEWED
+      - WORKS_WITH
+      - ON_PLATFORM
+      - PRESENCE_OF
+      - LOCATED_IN
+    allow_graph: true
+    allow_assertion: false
+    extraction_instructions: |
+      These events are browser history page titles, NOT user-authored messages.
+      Page titles often follow patterns like '{content} - {platform}' or
+      '{content} | {platform}'. Treat the platform part (YouTube, 哔哩哔哩,
+      GitHub, etc.) as a `software` entity, and the content part as the
+      actual subject (media, person, project, topic).
+
+      Predicate guidance for browsing behavior:
+      - USES: only for tool/platform usage (e.g., user uses GitHub, ChatGPT)
+      - INTERESTED_IN: when the user repeatedly browses content on a topic
+        (e.g., AI papers, a TV show, a game)
+      - VIEWED: for individual content consumption (a specific video, article)
+      - FOLLOWS: when visiting a specific creator or person's page
+      - WORKS_WITH: for professional tools/technologies seen in work context
+
+      Entity extraction rules (IMPORTANT):
+      - Be SELECTIVE: only extract entities that reveal user interests,
+        habits, or tool usage. Not every page title deserves an entity.
+      - SKIP noise: error messages, email addresses, IP addresses,
+        UI element names (Home, Inbox, Schema Panel), authentication pages,
+        and generic navigation titles are NOT entities.
+      - MERGE related content: multiple pages about the same game, show,
+        or topic should map to ONE entity with a concise canonical name,
+        not one entity per page title. E.g., '燕云十六声射覆答案',
+        '燕云十六声攻略', '燕云十六声金明池' → single entity '燕云十六声'.
+      - Keep canonical names SHORT: use the core subject name, not the
+        full page title. E.g., 'Joe Pera Talks With You' not
+        'Joe Pera Talks With You 豆瓣'.
+      - Only use allowed entity types: software, product, technology,
+        media, person, organization, topic. Do NOT use virtual_object,
+        activity, concept, skill, food, health_metric, or other.
+      - Do NOT use platform names as alias_signals for content entities.
+      - Keep entity types consistent: a website/app is always `software`,
+        not `activity` or `organization`.
+
+  timeline.calendar:
+    allowed_entity_types:
+      - activity
+      - event
+      - place
+      - organization
+    allowed_predicates:
+      - ATTENDED
+      - PLANS_TO
+      - VISITED
+    allow_graph: true
+    allow_assertion: false

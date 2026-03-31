@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from ..event_contracts import MemoryEvent
 from .ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_ALIASES, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
@@ -47,70 +53,102 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
     "chat.user_message": ExtractionProfile(
         profile_id="chat.user_message",
     ),
-    "timeline.chrome_history": ExtractionProfile(
-        profile_id="timeline.chrome_history",
-        allowed_entity_types=frozenset({
-            "product", "software", "technology", "media",
-            "person", "organization", "topic",
-        }),
-        allowed_predicates=frozenset({
-            "VISITED", "USES", "INTERESTED_IN", "FOLLOWS",
-            "VIEWED", "WORKS_WITH",
-        }),
-        structured_allowed_entity_types=frozenset({
-            "presence",
-            "product", "software", "technology", "media",
-            "person", "group", "organization", "topic",
-        }),
-        structured_allowed_predicates=frozenset({
-            "VISITED", "USES", "INTERESTED_IN", "FOLLOWS",
-            "VIEWED", "WORKS_WITH",
-            "ON_PLATFORM", "PRESENCE_OF", "LOCATED_IN",
-        }),
-        allowed_assertion_families=frozenset(),
-        allow_assertion=False,
-        extraction_instructions=(
-            "These events are browser history page titles, NOT user-authored messages.\n"
-            "Page titles often follow patterns like '{content} - {platform}' or "
-            "'{content} | {platform}'. Treat the platform part (YouTube, 哔哩哔哩, "
-            "GitHub, etc.) as a `software` entity, and the content part as the "
-            "actual subject (media, person, project, topic).\n\n"
-            "Predicate guidance for browsing behavior:\n"
-            "- USES: only for tool/platform usage (e.g., user uses GitHub, ChatGPT)\n"
-            "- INTERESTED_IN: when the user repeatedly browses content on a topic "
-            "(e.g., AI papers, a TV show, a game)\n"
-            "- VIEWED: for individual content consumption (a specific video, article)\n"
-            "- FOLLOWS: when visiting a specific creator or person's page\n"
-            "- WORKS_WITH: for professional tools/technologies seen in work context\n\n"
-            "Entity extraction rules (IMPORTANT):\n"
-            "- Be SELECTIVE: only extract entities that reveal user interests, "
-            "habits, or tool usage. Not every page title deserves an entity.\n"
-            "- SKIP noise: error messages, email addresses, IP addresses, "
-            "UI element names (Home, Inbox, Schema Panel), authentication pages, "
-            "and generic navigation titles are NOT entities.\n"
-            "- MERGE related content: multiple pages about the same game, show, "
-            "or topic should map to ONE entity with a concise canonical name, "
-            "not one entity per page title. E.g., '燕云十六声射覆答案', "
-            "'燕云十六声攻略', '燕云十六声金明池' → single entity '燕云十六声'.\n"
-            "- Keep canonical names SHORT: use the core subject name, not the "
-            "full page title. E.g., 'Joe Pera Talks With You' not "
-            "'Joe Pera Talks With You 豆瓣'.\n"
-            "- Only use allowed entity types: software, product, technology, "
-            "media, person, organization, topic. Do NOT use virtual_object, "
-            "activity, concept, skill, food, health_metric, or other.\n"
-            "- Do NOT use platform names as alias_signals for content entities.\n"
-            "- Keep entity types consistent: a website/app is always `software`, "
-            "not `activity` or `organization`."
-        ),
-    ),
-    "timeline.calendar": ExtractionProfile(
-        profile_id="timeline.calendar",
-        allowed_entity_types=frozenset({"activity", "event", "place", "organization"}),
-        allowed_predicates=frozenset({"ATTENDED", "PLANS_TO", "VISITED"}),
-        allowed_assertion_families=frozenset(),
-        allow_assertion=False,
-    ),
 }
+
+_BUILTIN_YAML_PATH = Path(__file__).resolve().parents[4] / "configs" / "l2_extraction_profiles.yaml"
+
+_loaded_profiles: dict[str, ExtractionProfile] | None = None
+
+
+def _parse_profile_from_dict(profile_id: str, raw: dict[str, Any]) -> ExtractionProfile:
+    """Build an ``ExtractionProfile`` from a raw YAML dict."""
+
+    def _parse_entity_types(val: Any) -> frozenset[str]:
+        if val == "all" or val is None:
+            return ENTITY_TYPE_REGISTRY
+        if isinstance(val, (list, tuple)):
+            return frozenset(str(v).strip().lower() for v in val if str(v).strip())
+        return ENTITY_TYPE_REGISTRY
+
+    def _parse_predicates(val: Any) -> frozenset[str]:
+        if val == "all" or val is None:
+            return PREDICATE_REGISTRY
+        if isinstance(val, (list, tuple)):
+            return frozenset(str(v).strip().upper() for v in val if str(v).strip())
+        return PREDICATE_REGISTRY
+
+    def _parse_assertion_families(val: Any) -> frozenset[str]:
+        if val == "all" or val is None:
+            return ASSERTION_FAMILY_ALLOWLIST
+        if isinstance(val, (list, tuple)):
+            return frozenset(str(v).strip().lower() for v in val if str(v).strip())
+        return frozenset()
+
+    def _parse_optional_set(val: Any, parser: Any) -> frozenset[str] | None:
+        if val is None:
+            return None
+        return parser(val)
+
+    return ExtractionProfile(
+        profile_id=profile_id,
+        allowed_entity_types=_parse_entity_types(raw.get("allowed_entity_types")),
+        allowed_predicates=_parse_predicates(raw.get("allowed_predicates")),
+        structured_allowed_entity_types=_parse_optional_set(
+            raw.get("structured_allowed_entity_types"), _parse_entity_types,
+        ),
+        structured_allowed_predicates=_parse_optional_set(
+            raw.get("structured_allowed_predicates"), _parse_predicates,
+        ),
+        allowed_assertion_families=_parse_assertion_families(raw.get("allowed_assertion_families")),
+        allow_graph=bool(raw.get("allow_graph", True)),
+        allow_assertion=bool(raw.get("allow_assertion", True)),
+        extraction_instructions=raw.get("extraction_instructions"),
+    )
+
+
+def _load_profiles_from_yaml(path: Path) -> dict[str, ExtractionProfile]:
+    """Load extraction profiles from a YAML file.
+
+    Returns the hardcoded fallback if the file is missing or unparseable.
+    """
+    if not path.exists():
+        return dict(DEFAULT_EXTRACTION_PROFILES)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        logger.warning("failed to load extraction profiles from %s, using defaults", path)
+        return dict(DEFAULT_EXTRACTION_PROFILES)
+
+    raw_profiles: dict[str, Any] = data.get("profiles", {})
+    if not isinstance(raw_profiles, dict) or not raw_profiles:
+        return dict(DEFAULT_EXTRACTION_PROFILES)
+
+    profiles: dict[str, ExtractionProfile] = {}
+    for profile_id, raw in raw_profiles.items():
+        if not isinstance(raw, dict):
+            continue
+        profiles[str(profile_id)] = _parse_profile_from_dict(str(profile_id), raw)
+
+    if "chat.user_message" not in profiles:
+        profiles["chat.user_message"] = DEFAULT_EXTRACTION_PROFILES["chat.user_message"]
+
+    return profiles
+
+
+def get_extraction_profiles() -> dict[str, ExtractionProfile]:
+    """Return cached extraction profiles, loading from YAML on first call."""
+    global _loaded_profiles
+    if _loaded_profiles is None:
+        _loaded_profiles = _load_profiles_from_yaml(_BUILTIN_YAML_PATH)
+    return _loaded_profiles
+
+
+def reload_extraction_profiles() -> dict[str, ExtractionProfile]:
+    """Force reload extraction profiles from YAML."""
+    global _loaded_profiles
+    _loaded_profiles = _load_profiles_from_yaml(_BUILTIN_YAML_PATH)
+    return _loaded_profiles
 
 
 def resolve_extraction_profile(
@@ -119,7 +157,7 @@ def resolve_extraction_profile(
 ) -> ExtractionProfile:
     """Resolve the extraction profile for a normalized event."""
 
-    registry = profile_registry or DEFAULT_EXTRACTION_PROFILES
+    registry = profile_registry or get_extraction_profiles()
     default_profile_id = _default_profile_id_for_event(event)
     return registry.get(default_profile_id, registry["chat.user_message"])
 
@@ -256,5 +294,7 @@ __all__ = [
     "DEFAULT_EXTRACTION_PROFILES",
     "DefaultSubjectPolicy",
     "ExtractionProfile",
+    "get_extraction_profiles",
+    "reload_extraction_profiles",
     "resolve_extraction_profile",
 ]

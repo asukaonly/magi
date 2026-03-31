@@ -13,6 +13,7 @@ import aiosqlite
 
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
+from .ontology import PREDICATE_REGISTRY, get_predicate_synonym_group
 from .pipeline import L2Pipeline
 
 logger = get_logger(__name__)
@@ -66,6 +67,7 @@ class L2EntityMaintenanceStats:
     fragment_groups_processed: int = 0
     orphans_pruned: int = 0
     expired_future_intents: int = 0
+    open_predicates_consolidated: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -83,6 +85,7 @@ class L2EntityMaintenance:
         merge_fragments: bool = True,
         prune_orphans: bool = True,
         expire_future_intents: bool = True,
+        consolidate_open_predicates: bool = True,
     ) -> L2EntityMaintenanceStats:
         stats = L2EntityMaintenanceStats()
         if resolve_ghosts:
@@ -93,6 +96,8 @@ class L2EntityMaintenance:
             await self._prune_orphan_low_mention_entities(stats, min_mentions=min_mentions_to_keep)
         if expire_future_intents:
             await self._expire_stale_future_intents(stats)
+        if consolidate_open_predicates:
+            await self._consolidate_open_predicates(stats)
         if any(
             (
                 stats.ghost_edges_rewritten,
@@ -101,6 +106,7 @@ class L2EntityMaintenance:
                 stats.fragment_entities_merged,
                 stats.orphans_pruned,
                 stats.expired_future_intents,
+                stats.open_predicates_consolidated,
             )
         ):
             logger.info(
@@ -113,6 +119,7 @@ class L2EntityMaintenance:
                 fragment_groups=stats.fragment_groups_processed,
                 orphans_pruned=stats.orphans_pruned,
                 expired_future_intents=stats.expired_future_intents,
+                open_predicates_consolidated=stats.open_predicates_consolidated,
             )
         return stats
 
@@ -575,3 +582,69 @@ class L2EntityMaintenance:
             )
             stats.expired_future_intents = cursor.rowcount
             await db.commit()
+
+    async def _consolidate_open_predicates(self, stats: L2EntityMaintenanceStats) -> None:
+        """Rewrite non-core predicates to their core synonym when a mapping exists.
+
+        For each active edge whose predicate is not in ``PREDICATE_REGISTRY``,
+        check ``_PREDICATE_SYNONYM_GROUPS``. If the open predicate's synonym
+        group contains a core predicate, rewrite the edge's predicate and
+        recalculate its ``triple_id``.
+        """
+        core_by_group: dict[str, str] = {}
+        for pred in PREDICATE_REGISTRY:
+            group = get_predicate_synonym_group(pred)
+            if group and group not in core_by_group:
+                core_by_group[group] = pred
+
+        async with sqlite_connection_async(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            rows = await db.execute_fetchall(
+                """
+                SELECT triple_id, subject_id, predicate, object_id
+                FROM knowledge_graph
+                WHERE status = 'active'
+                """
+            )
+            consolidated = 0
+            now = time.time()
+            for row in rows:
+                predicate = str(row["predicate"]).strip().upper()
+                if predicate in PREDICATE_REGISTRY:
+                    continue
+                group = get_predicate_synonym_group(predicate)
+                if group is None or group not in core_by_group:
+                    continue
+                core_predicate = core_by_group[group]
+                new_triple_id = str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"{row['subject_id']}:{core_predicate}:{row['object_id']}",
+                    )
+                )
+                existing = await db.execute_fetchall(
+                    "SELECT triple_id FROM knowledge_graph WHERE triple_id = ?",
+                    (new_triple_id,),
+                )
+                if existing:
+                    await db.execute(
+                        """
+                        UPDATE knowledge_graph
+                        SET status = 'superseded', updated_at = ?
+                        WHERE triple_id = ?
+                        """,
+                        (now, row["triple_id"]),
+                    )
+                else:
+                    await db.execute(
+                        """
+                        UPDATE knowledge_graph
+                        SET predicate = ?, triple_id = ?, updated_at = ?
+                        WHERE triple_id = ?
+                        """,
+                        (core_predicate, new_triple_id, now, row["triple_id"]),
+                    )
+                consolidated += 1
+            if consolidated:
+                await db.commit()
+            stats.open_predicates_consolidated = consolidated

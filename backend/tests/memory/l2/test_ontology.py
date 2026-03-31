@@ -25,10 +25,13 @@ def test_none_is_not_a_valid_entity_type():
     ("predicate", "object_type", "expected"),
     [
         ("DISLIKES", "food", True),
-        ("DISLIKES", "health_metric", False),
+        ("DISLIKES", "health_metric", True),
         ("HAS_METRIC", "health_metric", True),
+        ("HAS_METRIC", "food", False),
         ("LIVES_IN", "place", True),
         ("LIVES_IN", "organization", False),
+        ("VISITED", "virtual_object", True),
+        ("ON_PLATFORM", "food", False),
     ],
 )
 def test_predicate_compatibility_matrix(predicate: str, object_type: str, expected: bool):
@@ -37,12 +40,12 @@ def test_predicate_compatibility_matrix(predicate: str, object_type: str, expect
     assert is_predicate_compatible(predicate, object_type) is expected
 
 
-def test_validator_rejects_unknown_graph_predicate():
+def test_validator_rejects_malformed_graph_predicate():
     from magi.memory.l2.ontology import validate_graph_candidate
 
     is_valid, reason = validate_graph_candidate(
         {
-            "predicate": "ADORES",
+            "predicate": "adores food",
             "object_type": "food",
         }
     )
@@ -51,13 +54,27 @@ def test_validator_rejects_unknown_graph_predicate():
     assert reason == "invalid_predicate"
 
 
+def test_validator_accepts_open_predicate_upper_snake_case():
+    from magi.memory.l2.ontology import validate_graph_candidate
+
+    is_valid, reason = validate_graph_candidate(
+        {
+            "predicate": "ALLERGIC_TO",
+            "object_type": "food",
+        }
+    )
+
+    assert is_valid is True
+    assert reason is None
+
+
 def test_validator_rejects_illegal_graph_object_type_combination():
     from magi.memory.l2.ontology import validate_graph_candidate
 
     is_valid, reason = validate_graph_candidate(
         {
-            "predicate": "DISLIKES",
-            "object_type": "health_metric",
+            "predicate": "HAS_METRIC",
+            "object_type": "food",
         }
     )
 
@@ -170,3 +187,29 @@ def test_get_predicate_synonym_group():
     assert get_predicate_synonym_group("LIKES") == "affinity"
     assert get_predicate_synonym_group("DISLIKES") == "aversion"
     assert get_predicate_synonym_group("HAS_METRIC") is None
+
+
+# ── Semi-open predicates ──
+
+
+def test_is_valid_open_predicate_accepts_upper_snake_case():
+    from magi.memory.l2.ontology import is_valid_open_predicate
+
+    assert is_valid_open_predicate("LEARNING") is True
+    assert is_valid_open_predicate("ALLERGIC_TO") is True
+    assert is_valid_open_predicate("HAS_2_CATS") is True
+
+
+def test_is_valid_open_predicate_rejects_invalid_formats():
+    from magi.memory.l2.ontology import is_valid_open_predicate
+
+    assert is_valid_open_predicate("learning") is False
+    assert is_valid_open_predicate("foo bar") is False
+    assert is_valid_open_predicate("") is False
+    assert is_valid_open_predicate("_LEADING") is False
+
+
+def test_open_predicate_confidence_penalty():
+    from magi.memory.l2.ontology import OPEN_PREDICATE_CONFIDENCE_PENALTY
+
+    assert OPEN_PREDICATE_CONFIDENCE_PENALTY == 0.7
