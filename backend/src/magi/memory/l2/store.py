@@ -1939,18 +1939,18 @@ class L2CognitionStore:
     ) -> Optional[Dict[str, Any]]:
         """Rebuild one snapshot from reconciled assertions and graph edges."""
         assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
-        outgoing = await self.get_relationships(subject_id=entity_id, limit=200)
-        incoming = await self.get_relationships(object_id=entity_id, limit=200)
-        superseded_outgoing = await self.get_relationships(
-            subject_id=entity_id,
-            status_filters=["deprecated", "conflicted"],
-            limit=200,
+        batch_result = await self.batch_get_relationships(
+            entity_ids=[entity_id],
+            direction="both",
+            status_filters=["active", "deprecated", "conflicted"],
+            limit_per_entity=400,
         )
-        superseded_incoming = await self.get_relationships(
-            object_id=entity_id,
-            status_filters=["deprecated", "conflicted"],
-            limit=200,
-        )
+        all_edges = batch_result.get(entity_id, [])
+        _superseded = {"deprecated", "conflicted"}
+        outgoing = [e for e in all_edges if e["subject_id"] == entity_id and e["status"] == "active"]
+        incoming = [e for e in all_edges if e["object_id"] == entity_id and e["status"] == "active"]
+        superseded_outgoing = [e for e in all_edges if e["subject_id"] == entity_id and e["status"] in _superseded]
+        superseded_incoming = [e for e in all_edges if e["object_id"] == entity_id and e["status"] in _superseded]
         expired_assertions = [item for item in assertions if self._is_assertion_expired(item)]
         active_assertions = [
             item
