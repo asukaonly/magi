@@ -33,6 +33,9 @@ _TAG_FOCAL_LENGTH = 0x920A
 _TAG_FNUMBER = 0x829D
 _TAG_ISO = 0x8827
 _TAG_EXPOSURE_TIME = 0x829A
+_TAG_SOFTWARE = 0x0131
+_TAG_USER_COMMENT = 0x9286
+
 # GPS tags
 _GPS_LATITUDE_REF = 0x0001
 _GPS_LATITUDE = 0x0002
@@ -88,6 +91,7 @@ class PhotoMetadata:
 
     # Derived
     capture_timestamp: float = 0.0
+    image_type: str = "photo"  # photo | screenshot
 
 
 @dataclass
@@ -200,6 +204,99 @@ def _read_short(data: bytes, offset: int, byte_order: str) -> int:
     return struct.unpack_from(f"{byte_order}H", data, offset)[0]
 
 
+# ---------------------------------------------------------------------------
+# Screenshot vs photo classification
+# ---------------------------------------------------------------------------
+
+# Filename patterns that indicate screenshots
+_SCREENSHOT_FILENAME_PATTERNS: tuple[str, ...] = (
+    "screenshot",
+    "截屏",
+    "截图",
+    "screen shot",
+    "simulator screen shot",
+    "cleanshot",
+)
+
+# iOS / macOS screen dimensions (logical points × scale, both orientations)
+_KNOWN_SCREEN_DIMS: frozenset[tuple[int, int]] = frozenset({
+    # iPhone 15 Pro Max / 16 Pro Max
+    (1290, 2796), (2796, 1290),
+    # iPhone 15 Pro / 16 Pro
+    (1179, 2556), (2556, 1179),
+    # iPhone 15 / 14
+    (1170, 2532), (2532, 1170),
+    # iPhone SE 3
+    (750, 1334), (1334, 750),
+    # iPad Pro 12.9"
+    (2048, 2732), (2732, 2048),
+    # iPad Pro 11"
+    (1668, 2388), (2388, 1668),
+    # iPad Air / iPad 10th
+    (1640, 2360), (2360, 1640),
+    # Common Mac Retina
+    (2880, 1800), (1800, 2880),
+    (3024, 1964), (1964, 3024),
+    (3456, 2234), (2234, 3456),
+    (2560, 1600), (1600, 2560),
+    (2560, 1664), (1664, 2560),
+    (3840, 2160), (2160, 3840),
+    (1920, 1080), (1080, 1920),
+    (2880, 1920), (1920, 2880),
+})
+
+
+def classify_image_type(item: dict[str, Any]) -> str:
+    """Classify an image item as 'photo' or 'screenshot'.
+
+    Uses a weighted heuristic combining filename patterns, EXIF metadata
+    presence, software tag, and known screen dimensions.
+    """
+    score = 0  # positive = screenshot, negative = photo
+
+    filename_lower = str(item.get("filename", "")).lower()
+
+    # Signal 1: filename pattern (strongest signal)
+    for pattern in _SCREENSHOT_FILENAME_PATTERNS:
+        if pattern in filename_lower:
+            score += 3
+            break
+
+    # Signal 2: absence of real camera EXIF (no lens, no focal length, no ISO)
+    has_lens = bool(item.get("lens_model"))
+    has_focal = bool(item.get("focal_length"))
+    has_iso = bool(item.get("iso"))
+    if not has_lens and not has_focal and not has_iso:
+        score += 1
+
+    # Signal 3: Software tag present without camera firmware hint
+    software = str(item.get("software", "")).strip()
+    if software:
+        sw_lower = software.lower()
+        # Pure version strings like "16.0" or "17.4.1" are iOS/macOS versions
+        # Camera firmware usually contains brand-specific words
+        is_os_version = all(
+            c in "0123456789. " for c in sw_lower
+        ) and "." in sw_lower
+        if is_os_version:
+            score += 1
+
+    # Signal 4: dimensions match known screen sizes
+    w = int(item.get("image_width") or 0)
+    h = int(item.get("image_height") or 0)
+    if w > 0 and h > 0 and (w, h) in _KNOWN_SCREEN_DIMS:
+        score += 1
+
+    # Signal 5: PNG from an Apple device with no camera EXIF is very likely screenshot
+    ext = str(item.get("extension", "")).lower()
+    make = str(item.get("camera_make", "")).lower()
+    if ext == ".png" and make in ("apple", "") and not has_lens:
+        score += 1
+
+    # Threshold: 2+ signals ⇒ screenshot
+    return "screenshot" if score >= 2 else "photo"
+
+
 def _read_long(data: bytes, offset: int, byte_order: str) -> int:
     """Read a LONG value."""
     if offset + 4 > len(data):
@@ -273,6 +370,9 @@ def extract_exif(path: Path) -> dict[str, Any]:
             if _TAG_DATETIME in ifd0:
                 _, count, off = ifd0[_TAG_DATETIME]
                 result["datetime"] = _read_string(exif_data, off, count)
+            if _TAG_SOFTWARE in ifd0:
+                _, count, off = ifd0[_TAG_SOFTWARE]
+                result["software"] = _read_string(exif_data, off, count)
 
             # EXIF sub-IFD
             if _TAG_EXIF_IFD in ifd0:
@@ -432,7 +532,9 @@ class PhotoLibraryReader:
                         "latitude": exif.get("latitude"),
                         "longitude": exif.get("longitude"),
                         "altitude": exif.get("altitude"),
+                        "software": exif.get("software", ""),
                     }
+                    item["image_type"] = classify_image_type(item)
                     items.append(item)
                     if len(items) >= limit:
                         return ScanResult(items=items, total_scanned=total, errors=errors)

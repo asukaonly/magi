@@ -6,6 +6,8 @@
   "summary": {
     "basic": "{filename}",
     "with_camera": "{filename} — {camera}",
-    "with_camera_params": "{filename} — {camera} {params}"
+    "with_camera_params": "{filename} — {camera} {params}",
+    "screenshot": "{filename}（截图）",
+    "screenshot_with_device": "{filename}（截图 — {device}）"
   }
 }

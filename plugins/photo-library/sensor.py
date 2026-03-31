@@ -188,7 +188,14 @@ class PhotoLibraryTimelineSensor(SensorBase):
         )
 
         # Build i18n summary
-        if camera and params:
+        image_type = str(item.get("image_type", "photo"))
+        if image_type == "screenshot":
+            device = camera or str(item.get("camera_model", ""))
+            if device:
+                summary = self.t("summary.screenshot_with_device", filename=filename, device=device)
+            else:
+                summary = self.t("summary.screenshot", filename=filename)
+        elif camera and params:
             summary = self.t("summary.with_camera_params", filename=filename, camera=camera, params=params)
         elif camera:
             summary = self.t("summary.with_camera", filename=filename, camera=camera)
@@ -217,7 +224,7 @@ class PhotoLibraryTimelineSensor(SensorBase):
             occurred_at=occurred_at,
             raw_payload_ref=path,
             content_blocks=content_blocks,
-            tags=[t for t in ("photo_library", item.get("extension", "")) if t],
+            tags=[t for t in ("photo_library", image_type, item.get("extension", "")) if t],
             provenance={
                 "sensor_id": self.sensor_id,
                 "camera": camera,
@@ -234,13 +241,15 @@ class PhotoLibraryTimelineSensor(SensorBase):
                 "longitude": lon,
                 "file_hash": str(item.get("file_hash", "")),
                 "filename": filename,
+                "image_type": image_type,
             },
             domain_payload={"retention_mode": self.retention_mode},
         )
 
     async def extract_metadata(self, item: dict[str, Any]) -> SensorOutputMetadata:
+        image_type = str(item.get("image_type", "photo"))
         return SensorOutputMetadata(
             entities=build_entity_hints(item),
-            tags=[t for t in ("photo_library", item.get("extension", "")) if t],
+            tags=[t for t in ("photo_library", image_type, item.get("extension", "")) if t],
             relation_candidates=build_relation_candidates(item),
         )

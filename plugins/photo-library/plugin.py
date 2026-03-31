@@ -144,6 +144,7 @@ class PhotoLibraryPlugin(Plugin):
 
         camera_counter: Counter[str] = Counter()
         gps_count = 0
+        screenshot_count = 0
         timestamps: list[float] = []
         extensions: Counter[str] = Counter()
 
@@ -162,6 +163,8 @@ class PhotoLibraryPlugin(Plugin):
                 camera_counter[camera] += 1
             if provenance.get("latitude") is not None:
                 gps_count += 1
+            if str(provenance.get("image_type", "")) == "screenshot":
+                screenshot_count += 1
             filename = str(provenance.get("filename") or "")
             if "." in filename:
                 extensions[filename.rsplit(".", 1)[-1].lower()] += 1
@@ -182,12 +185,16 @@ class PhotoLibraryPlugin(Plugin):
             summary_lines.append(f"Photos taken with {joined}.")
         if gps_count > 0:
             summary_lines.append(f"{gps_count} photos have GPS coordinates.")
+        if screenshot_count > 0:
+            photo_count = len(events) - screenshot_count
+            summary_lines.append(f"{photo_count} photos, {screenshot_count} screenshots.")
 
         return {
             "feature_type": "photo_library",
             "event_count": len(events),
             "cameras": top_cameras,
             "gps_count": gps_count,
+            "screenshot_count": screenshot_count,
             "format_distribution": dict(extensions.most_common(5)),
             "summary_lines": summary_lines,
         }

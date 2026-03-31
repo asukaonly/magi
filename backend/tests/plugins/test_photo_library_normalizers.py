@@ -201,3 +201,19 @@ class TestBuildRelationCandidates:
         candidates = build_relation_candidates(item)
         assert len(candidates) == 1
         assert candidates[0]["predicate"] == "CAPTURED"
+
+    def test_screenshot_item_uses_screenshot_type(self):
+        item = self._base_item()
+        item["image_type"] = "screenshot"
+        candidates = build_relation_candidates(item)
+        captured = [c for c in candidates if c["predicate"] == "CAPTURED"]
+        assert captured[0]["object_type"] == "screenshot"
+        assert captured[0]["object_attributes"]["source_kind"] == "screenshot"
+
+    def test_photo_item_uses_photo_type(self):
+        item = self._base_item()
+        item["image_type"] = "photo"
+        candidates = build_relation_candidates(item)
+        captured = [c for c in candidates if c["predicate"] == "CAPTURED"]
+        assert captured[0]["object_type"] == "photo"
+        assert captured[0]["object_attributes"]["source_kind"] == "photo"

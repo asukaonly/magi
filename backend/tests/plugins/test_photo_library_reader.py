@@ -31,6 +31,7 @@ _file_hash_quick = _reader_mod._file_hash_quick
 _gps_dms_to_decimal = _reader_mod._gps_dms_to_decimal
 _parse_exif_datetime = _reader_mod._parse_exif_datetime
 extract_exif = _reader_mod.extract_exif
+classify_image_type = _reader_mod.classify_image_type
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +284,126 @@ class TestScanDirectory:
             "camera_make", "camera_model", "lens_model",
             "focal_length", "aperture", "exposure_time", "iso",
             "image_width", "image_height", "orientation",
-            "latitude", "longitude", "altitude",
+            "latitude", "longitude", "altitude", "image_type",
         }
         assert expected_keys.issubset(set(item.keys()))
+
+
+# ---------------------------------------------------------------------------
+# classify_image_type
+# ---------------------------------------------------------------------------
+
+class TestClassifyImageType:
+    def _base_photo(self, **overrides) -> dict:
+        """A realistic photo item with full EXIF."""
+        base = {
+            "filename": "IMG_1234.JPG",
+            "extension": ".jpg",
+            "camera_make": "Apple",
+            "camera_model": "iPhone 15 Pro",
+            "lens_model": "iPhone 15 Pro back camera 6.765mm f/1.78",
+            "focal_length": "6.8mm",
+            "aperture": "f/1.8",
+            "iso": "100",
+            "exposure_time": "1/120s",
+            "image_width": 4032,
+            "image_height": 3024,
+            "software": "",
+        }
+        base.update(overrides)
+        return base
+
+    def _base_screenshot(self, **overrides) -> dict:
+        """A typical iOS screenshot."""
+        base = {
+            "filename": "Screenshot 2024-06-15 at 14.30.00.png",
+            "extension": ".png",
+            "camera_make": "",
+            "camera_model": "",
+            "lens_model": "",
+            "focal_length": "",
+            "aperture": "",
+            "iso": "",
+            "exposure_time": "",
+            "image_width": 1179,
+            "image_height": 2556,
+            "software": "17.5",
+        }
+        base.update(overrides)
+        return base
+
+    def test_real_photo_classified_as_photo(self):
+        assert classify_image_type(self._base_photo()) == "photo"
+
+    def test_screenshot_by_filename(self):
+        assert classify_image_type(self._base_screenshot()) == "screenshot"
+
+    def test_chinese_screenshot_filename(self):
+        item = self._base_screenshot(filename="截屏2024-06-15 14.30.00.png")
+        assert classify_image_type(item) == "screenshot"
+
+    def test_chinese_截图_filename(self):
+        item = self._base_screenshot(filename="截图_20240615.png")
+        assert classify_image_type(item) == "screenshot"
+
+    def test_macos_screenshot_filename(self):
+        item = self._base_screenshot(
+            filename="Screenshot 2024-06-15 at 14.30.00.png",
+            image_width=2560, image_height=1600,
+        )
+        assert classify_image_type(item) == "screenshot"
+
+    def test_cleanshot_filename(self):
+        item = self._base_screenshot(filename="CleanShot 2024-06-15.png")
+        assert classify_image_type(item) == "screenshot"
+
+    def test_png_no_exif_apple_device(self):
+        """PNG from Apple device with no camera EXIF = likely screenshot."""
+        item = {
+            "filename": "IMG_0042.PNG",
+            "extension": ".png",
+            "camera_make": "Apple",
+            "camera_model": "iPhone 15 Pro",
+            "lens_model": "",
+            "focal_length": "",
+            "aperture": "",
+            "iso": "",
+            "image_width": 1179,
+            "image_height": 2556,
+            "software": "17.5",
+        }
+        assert classify_image_type(item) == "screenshot"
+
+    def test_photo_with_screen_dimensions_but_full_exif(self):
+        """Full EXIF data = photo even if dimensions happen to match screen."""
+        item = self._base_photo(image_width=1920, image_height=1080)
+        assert classify_image_type(item) == "photo"
+
+    def test_png_with_real_camera_exif_is_photo(self):
+        """Camera-shot PNG should still be classified as photo."""
+        item = self._base_photo(filename="IMG_1234.png", extension=".png")
+        assert classify_image_type(item) == "photo"
+
+    def test_no_metadata_jpg_is_photo(self):
+        """JPG with no metadata at all defaults to photo (conservative)."""
+        item = {
+            "filename": "DSC_0001.jpg",
+            "extension": ".jpg",
+            "camera_make": "",
+            "camera_model": "",
+            "lens_model": "",
+            "focal_length": "",
+            "aperture": "",
+            "iso": "",
+            "image_width": 0,
+            "image_height": 0,
+            "software": "",
+        }
+        assert classify_image_type(item) == "photo"
+
+    def test_ios_version_software_is_screenshot_signal(self):
+        """Software tag with pure version like '17.5' is an iOS screenshot signal."""
+        item = self._base_screenshot(filename="IMG_0099.PNG")
+        # No screenshot keyword in filename, but has: no EXIF, iOS version software,
+        # screen dimensions, PNG from Apple → enough signals
+        assert classify_image_type(item) == "screenshot"

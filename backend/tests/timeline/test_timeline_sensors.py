@@ -68,6 +68,8 @@ def _photo_item(**overrides) -> dict:
         "latitude": 35.6586,
         "longitude": 139.7454,
         "altitude": 40.0,
+        "software": "",
+        "image_type": "photo",
     }
     base.update(overrides)
     return base
@@ -207,6 +209,27 @@ async def test_build_output_gps_content_block():
     gps_blocks = [b for b in output.content_blocks if b.kind == "text" and "GPS" in b.value]
     assert len(gps_blocks) == 1
     assert "35.658600" in gps_blocks[0].value
+
+
+@pytest.mark.asyncio
+async def test_build_output_screenshot_item():
+    sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+    item = _photo_item(
+        filename="Screenshot 2024-03-09.png",
+        extension=".png",
+        image_type="screenshot",
+        camera_make="",
+        camera_model="",
+        lens_model="",
+        focal_length="",
+        aperture="",
+        exposure_time="",
+        iso="",
+    )
+    output = await sensor.build_output(item)
+    assert "screenshot" in output.tags
+    assert output.provenance["image_type"] == "screenshot"
+    assert "screenshot" in output.summary.lower() or "截图" in output.summary
 
 
 # ---------------------------------------------------------------------------

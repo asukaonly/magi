@@ -77,20 +77,22 @@ def build_relation_candidates(item: dict[str, Any]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     capture_ts = float(item.get("capture_timestamp") or item.get("modified_at") or 0.0)
     path = str(item.get("path", ""))
+    image_type = str(item.get("image_type", "photo"))
+    source_kind = "screenshot" if image_type == "screenshot" else "photo"
 
-    # CAPTURED: user captured this photo
+    # CAPTURED: user captured this photo / took this screenshot
     candidates.append({
         "subject_id": "user:self",
         "subject_type": "user",
         "predicate": "CAPTURED",
         "object_id": f"photo:{item.get('asset_local_id', '')}",
-        "object_type": "photo",
+        "object_type": image_type,
         "confidence": 0.85,
         "observed_at": capture_ts,
         "object_attributes": {
             "path": path,
             "filename": str(item.get("filename", "")),
-            "source_kind": "photo",
+            "source_kind": source_kind,
         },
     })
 
