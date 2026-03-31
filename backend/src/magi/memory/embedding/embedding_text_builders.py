@@ -51,13 +51,18 @@ def build_l2_edge_embedding_text(
     object_id: str,
     evidence_text: str | None = None,
     natural_summary: str | None = None,
+    subject_name: str | None = None,
+    object_name: str | None = None,
 ) -> str:
     """Return the canonical text for a knowledge-graph edge embedding.
 
-    Combines the triple's structural identity with its evidence to enable
-    semantic similarity search across edges.
+    When *subject_name* or *object_name* are available the embedding text
+    uses human-readable names instead of opaque entity IDs, which yields
+    higher-quality semantic vectors.
     """
-    parts = [f"{subject_id} {predicate} {object_id}"]
+    subj = subject_name or subject_id
+    obj = object_name or object_id
+    parts = [f"{subj} {predicate} {obj}"]
     summary = str(natural_summary or "").strip()
     if summary:
         parts.append(summary)

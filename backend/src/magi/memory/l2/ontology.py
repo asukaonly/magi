@@ -135,10 +135,39 @@ _PREDICATE_SYNONYM_GROUPS: dict[str, str] = {
     "PROFICIENT_IN": "skill_level",
 }
 
+FAMILY_TO_PREDICATES: dict[str, list[str]] = {
+    "preference": ["LIKES", "DISLIKES", "INTERESTED_IN", "FOLLOWS"],
+    "relationship": ["KNOWS", "FAMILY_OF", "INTERACTED_WITH", "MEMBER_OF"],
+    "activity": ["VISITED", "ATTENDED", "VIEWED", "USES", "WORKS_WITH"],
+    "profile_fact": ["LIVES_IN", "WORKS_AT", "MEMBER_OF", "OWNS", "PROFICIENT_IN"],
+}
+
 
 def get_predicate_synonym_group(predicate: str) -> str | None:
     """Return the synonym group for a predicate, or ``None`` if ungrouped."""
     return _PREDICATE_SYNONYM_GROUPS.get(predicate.strip().upper())
+
+
+def expand_predicate_group(predicates: list[str]) -> list[str]:
+    """Expand predicates to include all synonyms from the same synonym group."""
+    expanded: set[str] = {p.strip().upper() for p in predicates}
+    groups: set[str] = set()
+    for pred in list(expanded):
+        group = _PREDICATE_SYNONYM_GROUPS.get(pred)
+        if group:
+            groups.add(group)
+    for other_pred, other_group in _PREDICATE_SYNONYM_GROUPS.items():
+        if other_group in groups:
+            expanded.add(other_pred)
+    return sorted(expanded)
+
+
+def predicates_for_family(family: str) -> list[str] | None:
+    """Return the canonical predicate list for a retrieval family."""
+    base = FAMILY_TO_PREDICATES.get(family)
+    if base is None:
+        return None
+    return expand_predicate_group(base)
 
 
 def are_predicates_synonymous(a: str, b: str) -> bool:
@@ -255,10 +284,12 @@ __all__ = [
     "ASSERTION_FAMILY_ALLOWLIST",
     "ENTITY_TYPE_ALIASES",
     "ENTITY_TYPE_REGISTRY",
+    "FAMILY_TO_PREDICATES",
     "OPEN_PREDICATE_CONFIDENCE_PENALTY",
     "PREDICATE_REGISTRY",
     "are_predicates_synonymous",
     "coerce_unknown_entity_type",
+    "expand_predicate_group",
     "get_predicate_synonym_group",
     "is_leaf_fact_duplicate",
     "is_predicate_compatible",
@@ -266,6 +297,7 @@ __all__ = [
     "is_valid_open_predicate",
     "is_valid_predicate",
     "normalize_entity_type",
+    "predicates_for_family",
     "validate_assertion_candidate",
     "validate_graph_candidate",
 ]

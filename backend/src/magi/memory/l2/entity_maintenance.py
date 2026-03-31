@@ -688,9 +688,14 @@ class L2EntityMaintenance:
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT triple_id, subject_id, predicate, object_id, evidence_text, natural_summary "
-                "FROM knowledge_graph WHERE embedding_status = 'pending' AND status = 'active' "
-                "ORDER BY updated_at DESC LIMIT ?",
+                "SELECT kg.triple_id, kg.subject_id, kg.predicate, kg.object_id, "
+                "kg.evidence_text, kg.natural_summary, "
+                "sc.canonical_name AS subject_name, oc.canonical_name AS object_name "
+                "FROM knowledge_graph kg "
+                "LEFT JOIN entity_catalog sc ON sc.entity_id = kg.subject_id "
+                "LEFT JOIN entity_catalog oc ON oc.entity_id = kg.object_id "
+                "WHERE kg.embedding_status = 'pending' AND kg.status = 'active' "
+                "ORDER BY kg.updated_at DESC LIMIT ?",
                 (batch_limit,),
             ) as cur:
                 rows = await cur.fetchall()
@@ -706,6 +711,8 @@ class L2EntityMaintenance:
                 object_id=str(row["object_id"]),
                 evidence_text=row["evidence_text"],
                 natural_summary=row["natural_summary"],
+                subject_name=row["subject_name"],
+                object_name=row["object_name"],
             )
             if not text.strip():
                 continue
