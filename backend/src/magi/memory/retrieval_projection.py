@@ -147,18 +147,20 @@ def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not subject or not predicate or not object_value:
             continue
         evidence_ref_ids = _collect_ids(item.get("triple_id"), item.get("evidence_event_ids"))
-        findings.append(
-            {
-                "kind": "relationship",
-                "statement": f"{subject} {predicate} {object_value}",
-                "source_layer": "L2",
-                "confidence": item.get("confidence"),
-                "status": item.get("status"),
-                "occurred_at": item.get("first_observed_at"),
-                "updated_at": item.get("updated_at"),
-                "evidence_ref_ids": evidence_ref_ids,
-            }
-        )
+        finding: dict[str, Any] = {
+            "kind": "relationship",
+            "statement": f"{subject} {predicate} {object_value}",
+            "source_layer": "L2",
+            "confidence": item.get("confidence"),
+            "status": item.get("status"),
+            "occurred_at": item.get("first_observed_at"),
+            "updated_at": item.get("updated_at"),
+            "evidence_ref_ids": evidence_ref_ids,
+        }
+        evidence_text = str(item.get("evidence_text") or "").strip()
+        if evidence_text:
+            finding["evidence_text"] = evidence_text
+        findings.append(finding)
     return findings
 
 

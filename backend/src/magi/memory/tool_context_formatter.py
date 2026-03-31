@@ -206,16 +206,18 @@ def _compact_relationships(items: Any, *, max_items: int) -> list[dict[str, Any]
     for item in items[:max_items]:
         if not isinstance(item, dict):
             continue
-        compact.append(
-            {
-                "subject": _coalesce_text(item.get("subject"), item.get("subject_id")),
-                "subject_type": item.get("subject_type"),
-                "predicate": item.get("predicate"),
-                "object": _coalesce_text(item.get("object"), item.get("object_id")),
-                "object_type": item.get("object_type"),
-                "confidence": item.get("confidence"),
-            }
-        )
+        entry: dict[str, Any] = {
+            "subject": _coalesce_text(item.get("subject"), item.get("subject_id")),
+            "subject_type": item.get("subject_type"),
+            "predicate": item.get("predicate"),
+            "object": _coalesce_text(item.get("object"), item.get("object_id")),
+            "object_type": item.get("object_type"),
+            "confidence": item.get("confidence"),
+        }
+        evidence = _coalesce_text(item.get("evidence_text"), item.get("natural_summary"))
+        if evidence:
+            entry["evidence"] = evidence
+        compact.append(entry)
     return compact
 
 
@@ -364,11 +366,11 @@ def _render_memory_context(compact_results: Dict[str, Any]) -> str:
             subject = _coalesce_text(item.get("subject"), "unknown")
             predicate = _coalesce_text(item.get("predicate"), "RELATED_TO")
             object_value = _coalesce_text(item.get("object"), "unknown")
-            lines.append(
-                "- "
-                f"{subject} {predicate} {object_value} "
-                f"(confidence={item.get('confidence')})"
-            )
+            line = f"- {subject} {predicate} {object_value} (confidence={item.get('confidence')})"
+            evidence = _coalesce_text(item.get("evidence"))
+            if evidence:
+                line += f" [{evidence}]"
+            lines.append(line)
         sections.append("\n".join(lines))
 
     assertions = list(compact_results.get("l2_assertions") or [])

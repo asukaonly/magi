@@ -302,9 +302,9 @@ class TestServiceLayerRouting:
     @pytest.mark.asyncio
     async def test_graph_mode_filters_relationships_by_predicate_and_status(self):
         l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = [{"triple_id": "triple-1"}]
-        l2.list_tom_assertions.return_value = []
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_list_tom_assertions.return_value = {}
+        l2.batch_get_relationships.return_value = {"user:u1": [{"triple_id": "triple-1"}]}
         mem = _make_memory(l2=l2)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
 
@@ -316,16 +316,16 @@ class TestServiceLayerRouting:
         )
 
         assert len(result.l2_relationships) == 1
-        _, kwargs = l2.get_relationships.call_args
+        _, kwargs = l2.batch_get_relationships.call_args
         assert kwargs["predicates"] == ["LIKES", "DISLIKES", "INTERESTED_IN"]
         assert kwargs["status_filters"] == ["active", "conflicted"]
 
     @pytest.mark.asyncio
     async def test_graph_mode_resolves_alias_entities_via_entity_catalog(self):
         l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = [{"triple_id": "triple-1", "subject_id": "place:shanghai"}]
-        l2.list_tom_assertions.return_value = []
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_get_relationships.return_value = {"place:shanghai": [{"triple_id": "triple-1", "subject_id": "place:shanghai"}]}
+        l2.batch_list_tom_assertions.return_value = {}
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -346,15 +346,15 @@ class TestServiceLayerRouting:
         )
 
         entity_catalog.resolve_query_entities.assert_called_once()
-        _, kwargs = l2.get_relationships.call_args
-        assert kwargs["subject_id"] == "place:shanghai"
+        _, kwargs = l2.batch_get_relationships.call_args
+        assert "place:shanghai" in kwargs["entity_ids"]
 
     @pytest.mark.asyncio
     async def test_graph_mode_can_query_incoming_relationships(self):
         l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = [{"triple_id": "triple-in", "object_id": "user:u1"}]
-        l2.list_tom_assertions.return_value = []
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_get_relationships.return_value = {"user:u1": [{"triple_id": "triple-in", "object_id": "user:u1"}]}
+        l2.batch_list_tom_assertions.return_value = {}
         mem = _make_memory(l2=l2)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
 
@@ -366,15 +366,16 @@ class TestServiceLayerRouting:
         )
 
         assert len(result.l2_relationships) == 1
-        _, kwargs = l2.get_relationships.call_args
-        assert kwargs["object_id"] == "user:u1"
+        _, kwargs = l2.batch_get_relationships.call_args
+        assert "user:u1" in kwargs["entity_ids"]
+        assert kwargs["direction"] == "incoming"
 
     @pytest.mark.asyncio
     async def test_graph_mode_filters_assertions_by_target_entity(self):
         l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = []
-        l2.list_tom_assertions.return_value = [{"assertion_id": "assert-1"}]
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_get_relationships.return_value = {}
+        l2.batch_list_tom_assertions.return_value = {"user:u1": [{"assertion_id": "assert-1"}]}
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -394,15 +395,15 @@ class TestServiceLayerRouting:
             )
         )
 
-        _, kwargs = l2.list_tom_assertions.call_args
+        _, kwargs = l2.batch_list_tom_assertions.call_args
         assert kwargs["target_entity_id"] == "weather_state:rainy-hangzhou"
 
     @pytest.mark.asyncio
     async def test_graph_mode_populates_l2_query_trace(self):
         l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = [{"triple_id": "triple-1", "predicate": "KNOWS"}]
-        l2.list_tom_assertions.return_value = [{"assertion_id": "assert-1"}]
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_get_relationships.return_value = {"place:shanghai": [{"triple_id": "triple-1", "predicate": "KNOWS"}]}
+        l2.batch_list_tom_assertions.return_value = {"place:shanghai": [{"assertion_id": "assert-1"}]}
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -574,9 +575,9 @@ class TestServiceLayerRouting:
         user entity even when the rewritten content_query omits first-person
         pronouns."""
         l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = [{"triple_id": "t1"}]
-        l2.list_tom_assertions.return_value = []
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_get_relationships.return_value = {"user:local_user": [{"triple_id": "t1"}]}
+        l2.batch_list_tom_assertions.return_value = {}
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -597,8 +598,8 @@ class TestServiceLayerRouting:
             )
         )
 
-        _, kwargs = l2.get_relationships.call_args
-        assert kwargs["subject_id"] == "user:local_user"
+        _, kwargs = l2.batch_get_relationships.call_args
+        assert "user:local_user" in kwargs["entity_ids"]
 
     @pytest.mark.asyncio
     async def test_graph_mode_vector_only_entity_skips_target_filter(self):
@@ -606,9 +607,9 @@ class TestServiceLayerRouting:
         confidence), it should NOT be used as an exact target filter for
         preference queries."""
         l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = [{"triple_id": "t1"}]
-        l2.list_tom_assertions.return_value = [{"assertion_id": "a1"}]
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_get_relationships.return_value = {"user:local_user": [{"triple_id": "t1"}]}
+        l2.batch_list_tom_assertions.return_value = {"user:local_user": [{"assertion_id": "a1"}]}
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -629,10 +630,10 @@ class TestServiceLayerRouting:
             )
         )
 
-        _, rel_kwargs = l2.get_relationships.call_args
+        _, rel_kwargs = l2.batch_get_relationships.call_args
         # Should NOT filter by the vector-only entity
-        assert rel_kwargs.get("object_id") is None
-        _, assert_kwargs = l2.list_tom_assertions.call_args
+        assert rel_kwargs.get("target_object_id") is None
+        _, assert_kwargs = l2.batch_list_tom_assertions.call_args
         assert assert_kwargs["target_entity_id"] is None
 
 
