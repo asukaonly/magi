@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
-from magi.timeline.sensors import PhotoLibraryTimelineSensor
+from .sensor import PhotoLibraryTimelineSensor
 
 
 DEFAULT_SETTINGS = {

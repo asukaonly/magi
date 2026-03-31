@@ -3,8 +3,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...awareness.sensor_base import SensorBase
-from ...awareness.sensor_output import ContentBlock, SensorMemoryPolicy, SensorOutput, SensorOutputMetadata
+from magi.awareness import (
+    ContentBlock,
+    SensorBase,
+    SensorMemoryPolicy,
+    SensorOutput,
+    SensorOutputMetadata,
+)
 
 
 class PhotoLibraryTimelineSensor(SensorBase):

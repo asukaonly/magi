@@ -1,11 +1,16 @@
+import importlib.util
 import time
 from pathlib import Path
 
 import pytest
 
-from magi.timeline.sensors import (
-    PhotoLibraryTimelineSensor,
-)
+_sensor_path = Path(__file__).resolve().parents[3] / "plugins" / "photo-library" / "sensor.py"
+_spec = importlib.util.spec_from_file_location("photo_library_sensor", _sensor_path)
+assert _spec is not None and _spec.loader is not None
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+PhotoLibraryTimelineSensor = _mod.PhotoLibraryTimelineSensor
+
 from magi.timeline.adapter import TimelineAdapter
 from magi.timeline.insight_pipeline import TimelineInsightPipeline
 
