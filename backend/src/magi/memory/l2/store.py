@@ -22,6 +22,8 @@ _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
 _MOMENTARY_TRAITS = {"annoyance", "irritation", "frustration"}
 _SNAPSHOT_HISTORY_LIMIT = 5
+_MOOD_TRAJECTORY_FAMILIES = {"mood", "stress", "engagement"}
+_MOOD_TRAJECTORY_LIMIT = 20
 DEFAULT_FUTURE_INTENT_TTL_SECONDS = 30 * 24 * 3600  # 30 days
 logger = get_logger(__name__)
 
@@ -387,6 +389,7 @@ class L2CognitionStore:
             "active_record_ids": "TEXT",
             "superseded_record_ids": "TEXT",
             "emerging_signals": "TEXT",
+            "mood_trajectory": "TEXT",
         }
         for column_name, column_type in required_columns.items():
             if column_name in existing_columns:
@@ -1742,6 +1745,7 @@ class L2CognitionStore:
             expired_assertions=expired_assertions,
             stable_assertions=stable_assertions,
             tentative_assertions=tentative_assertions,
+            all_raw_assertions=assertions,
             outgoing_relations=outgoing,
             incoming_relations=incoming,
             superseded_outgoing_relations=superseded_outgoing,
@@ -2073,6 +2077,7 @@ class L2CognitionStore:
         expired_assertions: List[Dict[str, Any]],
         stable_assertions: List[Dict[str, Any]],
         tentative_assertions: List[Dict[str, Any]] | None = None,
+        all_raw_assertions: List[Dict[str, Any]] | None = None,
         outgoing_relations: List[Dict[str, Any]],
         incoming_relations: List[Dict[str, Any]],
         superseded_outgoing_relations: List[Dict[str, Any]],
@@ -2157,6 +2162,7 @@ class L2CognitionStore:
                 "first_inferred_at": float(item.get("first_inferred_at", 0)),
                 "last_validated_at": float(item.get("last_validated_at", 0)),
             })
+
         update_source_assertion_ids = [item["assertion_id"] for item in assertions]
         last_interaction_at = max(
             [float(item["last_validated_at"]) for item in assertions] + [now]
@@ -2171,6 +2177,29 @@ class L2CognitionStore:
             ) as cursor:
                 existing = await cursor.fetchone()
             existing_snapshot = self._snapshot_row_to_dict(existing) if existing else None
+
+            # Build mood trajectory: accumulate from previous snapshot, append current state
+            prev_trajectory: list[dict[str, Any]] = (
+                list(existing_snapshot.get("mood_trajectory", [])) if existing_snapshot else []
+            )
+            for item in (all_raw_assertions or assertions):
+                family = item.get("trait_family")
+                if family not in _MOOD_TRAJECTORY_FAMILIES:
+                    continue
+                if self._is_assertion_expired(item):
+                    continue
+                val = str(item["trait_value"])
+                same_family = [e for e in prev_trajectory if e.get("family") == family]
+                if same_family and str(same_family[-1].get("value")) == val:
+                    continue
+                prev_trajectory.append({
+                    "family": family,
+                    "value": val,
+                    "confidence": float(item.get("confidence_score", 0)),
+                    "at": float(item.get("last_validated_at", 0)),
+                })
+            prev_trajectory.sort(key=lambda e: e["at"])
+            mood_trajectory = prev_trajectory[-_MOOD_TRAJECTORY_LIMIT:]
 
             evolution_payload = self._build_snapshot_evolution_payload(
                 existing_snapshot=existing_snapshot,
@@ -2206,6 +2235,7 @@ class L2CognitionStore:
                 json.dumps(evolution_payload["active_record_ids"], ensure_ascii=False),
                 json.dumps(evolution_payload["superseded_record_ids"], ensure_ascii=False),
                 json.dumps(emerging_signals, ensure_ascii=False),
+                json.dumps(mood_trajectory, ensure_ascii=False),
             )
 
             if existing:
@@ -2219,7 +2249,7 @@ class L2CognitionStore:
                         last_updated_at = ?, update_source_assertion_ids = ?,
                         core_traits_history = ?, preferences_history = ?, relationship_history = ?,
                         last_evolution_at = ?, active_record_ids = ?, superseded_record_ids = ?,
-                        emerging_signals = ?,
+                        emerging_signals = ?, mood_trajectory = ?,
                         snapshot_version = snapshot_version + 1
                     WHERE snapshot_id = ?
                     """,
@@ -2235,8 +2265,9 @@ class L2CognitionStore:
                         interaction_count, last_interaction_at, last_updated_at,
                         update_source_assertion_ids, core_traits_history, preferences_history,
                         relationship_history, last_evolution_at, active_record_ids,
-                        superseded_record_ids, emerging_signals, snapshot_version, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        superseded_record_ids, emerging_signals, mood_trajectory,
+                        snapshot_version, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         f"snapshot_{uuid.uuid4().hex}",
@@ -2828,6 +2859,7 @@ class L2CognitionStore:
                 json.loads(row["superseded_record_ids"] or "[]") if "superseded_record_ids" in columns else []
             ),
             "emerging_signals": json.loads(row["emerging_signals"] or "[]") if "emerging_signals" in columns else [],
+            "mood_trajectory": json.loads(row["mood_trajectory"] or "[]") if "mood_trajectory" in columns else [],
             "snapshot_version": int(row["snapshot_version"] or 1),
             "created_at": float(row["created_at"]),
         }

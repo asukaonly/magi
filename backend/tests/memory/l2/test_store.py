@@ -2519,3 +2519,222 @@ async def test_snapshot_emerging_signals_empty_when_no_tentative(tmp_path):
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snapshot is not None
     assert snapshot.get("emerging_signals", []) == []
+
+
+@pytest.mark.asyncio
+async def test_snapshot_mood_trajectory_tracks_temporal_assertions(tmp_path):
+    """Mood trajectory should collect mood/stress/engagement assertions sorted by time."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    # Insert assertions from different temporal families at different times.
+    # Note: upsert deduplicates by (entity_id, trait_name, target_entity_id),
+    # so each entry must have a distinct trait_name.
+    for i, (family, name, value, offset) in enumerate([
+        ("mood", "mood", "calm", -1800),                    # 30min ago
+        ("stress", "stress_level", "high", -3600),           # 1h ago
+        ("engagement", "engagement", "focused", -600),       # 10min ago
+    ]):
+        await store.upsert_assertion_candidate({
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": family,
+            "trait_name": name,
+            "trait_value": value,
+            "confidence_score": 0.60,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": [f"evt-{i}"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now + offset,
+            "last_validated_at": now + offset,
+        })
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    trajectory = snapshot.get("mood_trajectory", [])
+    assert len(trajectory) == 3
+
+    # Should be sorted by time ascending (oldest first)
+    assert trajectory[0]["family"] == "stress"
+    assert trajectory[0]["value"] == "high"
+    assert trajectory[1]["family"] == "mood"
+    assert trajectory[1]["value"] == "calm"
+    assert trajectory[2]["family"] == "engagement"
+    assert trajectory[2]["value"] == "focused"
+
+    # All should have confidence and timestamp
+    for entry in trajectory:
+        assert "confidence" in entry
+        assert "at" in entry
+        assert entry["confidence"] == pytest.approx(0.60, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_mood_trajectory_includes_expired_assertions(tmp_path):
+    """Mood trajectory should accumulate entries across snapshot refreshes, preserving history."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    # First: insert a mood=sad assertion and snapshot
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "sad",
+        "confidence_score": 0.70,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-1"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now - 3600,
+        "last_validated_at": now - 3600,
+    })
+    snap1 = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snap1 is not None
+    assert len(snap1.get("mood_trajectory", [])) == 1
+    assert snap1["mood_trajectory"][0]["value"] == "sad"
+
+    # Second: update the same assertion to mood=happy and snapshot again
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "happy",
+        "confidence_score": 0.80,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-2"],
+        "volatility_index": 0.3,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+    snap2 = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snap2 is not None
+
+    trajectory = snap2.get("mood_trajectory", [])
+    # Should have accumulated both mood states across the two refreshes
+    assert len(trajectory) == 2
+    assert trajectory[0]["value"] == "sad"
+    assert trajectory[1]["value"] == "happy"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_mood_trajectory_excludes_non_temporal_families(tmp_path):
+    """Non-temporal families like preference_profile should not appear in mood_trajectory."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    # Insert a preference assertion (not a temporal family)
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "preference_profile",
+        "trait_name": "preference.coffee",
+        "trait_value": "likes_strong_coffee",
+        "confidence_score": 0.90,
+        "validation_state": "stable",
+        "temporal_scope": "persistent",
+        "decay_policy": "",
+        "evidence_events": ["evt-1", "evt-2", "evt-3"],
+        "volatility_index": 0.1,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    # Insert a mood assertion so snapshot isn't trivial
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "content",
+        "confidence_score": 0.60,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-4"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    trajectory = snapshot.get("mood_trajectory", [])
+    # Only mood assertion, not preference_profile
+    assert len(trajectory) == 1
+    assert trajectory[0]["family"] == "mood"
+    assert all(e["family"] in {"mood", "stress", "engagement"} for e in trajectory)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
+    """Mood trajectory should keep only the most recent entries when exceeding limit."""
+    from magi.memory.l2.store import L2CognitionStore, _MOOD_TRAJECTORY_LIMIT
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    count = _MOOD_TRAJECTORY_LIMIT + 5
+
+    # Simulate accumulation by alternating mood values and refreshing each time
+    for i in range(count):
+        await store.upsert_assertion_candidate({
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": f"mood_{i}",
+            "confidence_score": 0.60,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": [f"evt-{i}"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now + i * 600,
+            "last_validated_at": now + i * 600,
+        })
+        await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+
+    snapshot = await store.get_tom_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    trajectory = snapshot.get("mood_trajectory", [])
+    assert len(trajectory) == _MOOD_TRAJECTORY_LIMIT
+
+    # Should contain the most recent entries
+    assert trajectory[-1]["value"] == f"mood_{count - 1}"
+    assert trajectory[0]["value"] == f"mood_{count - _MOOD_TRAJECTORY_LIMIT}"
