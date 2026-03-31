@@ -128,6 +128,13 @@ class L2CognitionStore:
                 CREATE INDEX IF NOT EXISTS idx_entity_facets_name_value
                     ON entity_facets(facet_name, facet_value);
 
+                CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_subject
+                    ON knowledge_graph(status, subject_id, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_object
+                    ON knowledge_graph(status, object_id, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_predicate
+                    ON knowledge_graph(status, predicate);
+
                 CREATE TABLE IF NOT EXISTS tom_trait_assertions (
                     assertion_id TEXT PRIMARY KEY,
                     entity_id TEXT NOT NULL,
@@ -157,6 +164,8 @@ class L2CognitionStore:
                     updated_at REAL NOT NULL,
                     UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
                 );
+                CREATE INDEX IF NOT EXISTS idx_tom_assertions_entity_updated
+                    ON tom_trait_assertions(entity_id, entity_type, updated_at DESC);
 
                 CREATE TABLE IF NOT EXISTS tom_snapshots (
                     snapshot_id TEXT PRIMARY KEY,

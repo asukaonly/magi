@@ -1859,3 +1859,28 @@ async def test_non_future_intent_does_not_set_expires_at(tmp_path):
     edge = await store.get_relationship(triple_id=tid)
     assert edge is not None
     assert edge["expires_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_initialize_creates_query_indexes(tmp_path):
+    """Verify secondary indexes exist on knowledge_graph and tom_trait_assertions."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
+        async with db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'knowledge_graph'"
+        ) as cursor:
+            kg_indexes = {row[0] for row in await cursor.fetchall()}
+
+        async with db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tom_trait_assertions'"
+        ) as cursor:
+            ta_indexes = {row[0] for row in await cursor.fetchall()}
+
+    assert "idx_knowledge_graph_status_subject" in kg_indexes
+    assert "idx_knowledge_graph_status_object" in kg_indexes
+    assert "idx_knowledge_graph_status_predicate" in kg_indexes
+    assert "idx_tom_assertions_entity_updated" in ta_indexes
