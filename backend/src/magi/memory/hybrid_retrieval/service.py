@@ -478,6 +478,18 @@ class HybridRetrievalService:
         if HybridRetrievalService._count_results(payload) == 0:
             return "empty_primary"
 
+        # L2 entity cards alone are not actionable evidence; if no other layer
+        # produced concrete data, fall back so L1 full-text search can try.
+        actionable_count = (
+            len(payload.l1_events)
+            + len(payload.l2_relationships)
+            + len(payload.l2_assertions)
+            + len(payload.l3_reflections)
+            + len(payload.l4_procedures)
+        )
+        if actionable_count == 0:
+            return "l2_entity_card_only"
+
         coverage_spans = extract_quoted_spans(query)
         missing_reason = "missing_quoted_coverage"
         if not coverage_spans:

@@ -725,6 +725,9 @@ class LLMIntentDecider:
         if inp.domain_filters:
             prompt_lines.append(f"domain_filters_hint: {json.dumps(inp.domain_filters, ensure_ascii=False)}")
         user_prompt = "\n".join(prompt_lines)
+        model = getattr(getattr(self._bridge, "llm", None), "model_name", "unknown")
+        base_url = str(getattr(getattr(self._bridge, "llm", None), "base_url", "unknown"))
+        t0 = time.monotonic()
         try:
             raw = await self._bridge.chat(
                 system_prompt=_LLM_SYSTEM_PROMPT,
@@ -735,12 +738,26 @@ class LLMIntentDecider:
                 json_mode=True,
                 timeout_seconds=self._timeout,
             )
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            logger.info(
+                "LLM intent decider completed model=%s base_url=%s elapsed_ms=%.1f timeout=%s prompt_len=%d",
+                model, base_url, elapsed_ms, self._timeout, len(user_prompt),
+            )
             decision = self._parse_response(raw)
             if decision is None:
                 return None
             return self._validate_decision(inp.query, decision)
         except Exception:
-            logger.warning("LLM intent decider failed", exc_info=True)
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            logger.warning(
+                "LLM intent decider failed model=%s base_url=%s elapsed_ms=%.1f timeout=%s prompt_len=%d"
+                "\n  disable_thinking=True json_mode=True max_tokens=512 temperature=0.3"
+                "\n  system_prompt:\n%s"
+                "\n  user_prompt:\n%s",
+                model, base_url, elapsed_ms, self._timeout, len(user_prompt),
+                _LLM_SYSTEM_PROMPT, user_prompt,
+                exc_info=True,
+            )
             return None
 
     def _parse_response(self, raw: str) -> IntentDecision | None:

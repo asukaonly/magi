@@ -195,7 +195,7 @@ class RetrievalConfig:
 
     # IntentDecider
     intent_decider_llm_enabled: bool = True
-    intent_decider_llm_timeout_seconds: float = 5.0
+    intent_decider_llm_timeout_seconds: float = 10.0
     intent_decider_fallback_on_error: bool = True
     intent_shadow_eval_enabled: bool = True
 
