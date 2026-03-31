@@ -152,42 +152,41 @@ export function MemoryGeneralSettingsSection({
 
   return (
     <MemorySectionShell>
-      <div className="grid gap-8 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
-        <MemoryGroup>
-          <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-            <div className="space-y-2">
-              <label className="space-y-2" htmlFor="memory-storage-path">
-                <span className="text-sm font-medium text-foreground">
-                  {t('settings.memory.fields.db_path.label')}
-                </span>
-                <Input
-                  id="memory-storage-path"
-                  aria-label={t('settings.memory.fields.db_path.label')}
-                  readOnly
-                  value={memoryStoragePath}
-                  placeholder={t('settings.memory.fields.db_path.placeholder')}
-                />
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    void handlePickMemoryStoragePath();
-                  }}
-                  disabled={pickingMemoryStoragePath}
-                >
-                  <FolderOpen className="mr-2 h-4 w-4" />
-                  {t('settings.actions.chooseDirectory')}
-                </Button>
-              </div>
+      <MemoryGroup>
+        <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+          <div className="space-y-2">
+            <label className="space-y-2" htmlFor="memory-storage-path">
+              <span className="text-sm font-medium text-foreground">
+                {t('settings.memory.fields.db_path.label')}
+              </span>
+              <Input
+                id="memory-storage-path"
+                aria-label={t('settings.memory.fields.db_path.label')}
+                readOnly
+                value={memoryStoragePath}
+                placeholder={t('settings.memory.fields.db_path.placeholder')}
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  void handlePickMemoryStoragePath();
+                }}
+                disabled={pickingMemoryStoragePath}
+              >
+                <FolderOpen className="mr-2 h-4 w-4" />
+                {t('settings.actions.chooseDirectory')}
+              </Button>
             </div>
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">{t('settings.memory.fields.db_path.description')}</p>
           </div>
-        </MemoryGroup>
+          <p className="mt-2 text-xs leading-6 text-muted-foreground">{t('settings.memory.fields.db_path.description')}</p>
+        </div>
+      </MemoryGroup>
 
-        <MemoryGroup>
-          <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+      <MemoryGroup>
+        <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
             <MemorySwitchRow
               label={t('settings.memory.fields.reranker_enabled.label')}
               description={t('settings.memory.fields.reranker_enabled.description')}
@@ -440,7 +439,6 @@ export function MemoryGeneralSettingsSection({
             </div>
           )}
         </MemoryGroup>
-      </div>
     </MemorySectionShell>
   );
 }
