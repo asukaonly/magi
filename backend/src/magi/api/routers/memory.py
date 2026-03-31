@@ -307,7 +307,9 @@ async def _synthesize_eval_answer(
         "Return a concise final answer to the question.\n"
         "Return only the final answer span with no explanation.\n"
         "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
-        "If the evidence is insufficient, answer exactly: unknown"
+        "When asked about order, count, duration, or time difference, reason over timestamps and content to derive the answer.\n"
+        "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete.\n"
+        "Answer exactly 'unknown' only when the evidence contains nothing relevant at all."
     )
     l2_context_text = _format_l2_context(
         entity_cards=l2_entity_cards,
