@@ -409,34 +409,11 @@ class L2EntityCatalog:
             for item in (entity_types or [])
             if (normalized := _normalize_catalog_entity_type(item))
         }
-        entities = await self._list_entities(limit=500, entity_type=None)
 
-        matches: list[dict[str, Any]] = []
-        for entity in entities:
-            entity_type = str(entity.get("entity_type") or "").strip()
-            if type_filter and entity_type not in type_filter:
-                continue
-            canonical_name = str(entity.get("canonical_name") or "").strip()
-            aliases = [str(item).strip() for item in entity.get("aliases", []) if str(item).strip()]
-            candidate_surfaces = [(canonical_name, "canonical_name", 0.95)] + [
-                (alias, "alias", 0.9) for alias in aliases
-            ]
-            for surface, match_source, confidence in candidate_surfaces:
-                if not surface:
-                    continue
-                if _normalize_alias(surface) not in normalized_query:
-                    continue
-                matches.append(
-                    {
-                        "entity_id": str(entity["entity_id"]),
-                        "entity_type": entity_type,
-                        "canonical_name": canonical_name,
-                        "match_source": match_source,
-                        "matched_text": surface,
-                        "confidence": confidence,
-                    }
-                )
-                break
+        matches = await self._search_entities_by_substring(
+            normalized_query,
+            type_filter=type_filter or None,
+        )
 
         # Merge vector similarity results when available
         semantic_hits = await self.search_entities_semantic(query_text, limit=limit)
@@ -686,6 +663,61 @@ class L2EntityCatalog:
             entity["distance"] = distance_by_id.get(entity["entity_id"])
         entities.sort(key=lambda e: e.get("distance") or float("inf"))
         return entities[:limit]
+
+    async def _search_entities_by_substring(
+        self,
+        normalized_query: str,
+        *,
+        type_filter: set[str] | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Find entities whose canonical name or alias is a substring of the query.
+
+        Uses SQL INSTR() to avoid loading all entities into Python.
+        """
+        type_clause = ""
+        type_args: list[Any] = []
+        if type_filter:
+            type_ph = ", ".join("?" for _ in type_filter)
+            type_clause = f" AND ec.entity_type IN ({type_ph})"
+            type_args = list(type_filter)
+
+        query = f"""
+            SELECT ec.entity_id, ec.canonical_name, ec.entity_type,
+                   ec.canonical_name AS matched_text, 'canonical_name' AS match_source
+            FROM entity_catalog ec
+            WHERE INSTR(?, LOWER(TRIM(ec.canonical_name))) > 0{type_clause}
+            UNION ALL
+            SELECT ec.entity_id, ec.canonical_name, ec.entity_type,
+                   ea.alias_text AS matched_text, 'alias' AS match_source
+            FROM entity_aliases ea
+            JOIN entity_catalog ec ON ea.entity_id = ec.entity_id
+            WHERE INSTR(?, ea.normalized_alias) > 0{type_clause}
+              AND ec.entity_id NOT IN (
+                  SELECT entity_id FROM entity_catalog
+                  WHERE INSTR(?, LOWER(TRIM(canonical_name))) > 0
+              )
+            LIMIT ?
+        """
+        args = [normalized_query] + type_args + [normalized_query] + type_args + [normalized_query, limit]
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+
+        matches: list[dict[str, Any]] = []
+        for row in rows:
+            match_source = str(row["match_source"])
+            matches.append({
+                "entity_id": str(row["entity_id"]),
+                "entity_type": str(row["entity_type"]),
+                "canonical_name": str(row["canonical_name"]),
+                "match_source": match_source,
+                "matched_text": str(row["matched_text"]),
+                "confidence": 0.95 if match_source == "canonical_name" else 0.9,
+            })
+        return matches
 
     async def _list_entities(
         self,
