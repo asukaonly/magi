@@ -2415,3 +2415,107 @@ async def test_expire_session_decay_does_not_touch_corroborated(tmp_path):
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
     assert assertions[0]["validation_state"] == "corroborated"
+
+
+# -----------------------------------------------------------------------
+# C1: Emerging signals in snapshot
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_snapshot_includes_emerging_signals(tmp_path):
+    """Tentative assertions should appear in snapshot.emerging_signals."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    # Insert a tentative assertion (single evidence, won't promote without reconcile)
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "preference_profile",
+        "trait_name": "preference.coffee",
+        "trait_value": "likes_strong_coffee",
+        "confidence_score": 0.25,
+        "validation_state": "tentative",
+        "temporal_scope": "persistent",
+        "decay_policy": "",
+        "evidence_events": ["evt-1"],
+        "volatility_index": 0.3,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    # Also insert a corroborated assertion so snapshot isn't empty
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "happy",
+        "confidence_score": 0.60,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-2", "evt-3"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    # Tentative assertion should appear in emerging_signals
+    emerging = snapshot.get("emerging_signals", [])
+    assert len(emerging) == 1
+    assert emerging[0]["trait_name"] == "preference.coffee"
+    assert emerging[0]["trait_value"] == "likes_strong_coffee"
+    assert emerging[0]["confidence"] == pytest.approx(0.25, abs=0.01)
+    assert emerging[0]["evidence_count"] == 1
+
+    # Corroborated assertion should NOT appear in emerging_signals
+    assert all(s["trait_name"] != "mood" for s in emerging)
+
+    # But mood should appear in the active snapshot data
+    assert snapshot["current_mood"] == "happy"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_emerging_signals_empty_when_no_tentative(tmp_path):
+    """Snapshot should have empty emerging_signals when all assertions are confirmed."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "focused",
+        "confidence_score": 0.60,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-1", "evt-2"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+    assert snapshot.get("emerging_signals", []) == []

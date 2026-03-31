@@ -386,6 +386,7 @@ class L2CognitionStore:
             "last_evolution_at": "REAL",
             "active_record_ids": "TEXT",
             "superseded_record_ids": "TEXT",
+            "emerging_signals": "TEXT",
         }
         for column_name, column_type in required_columns.items():
             if column_name in existing_columns:
@@ -1722,6 +1723,13 @@ class L2CognitionStore:
             and not self._is_assertion_expired(item)
             and item.get("user_feedback") != "rejected"
         ]
+        tentative_assertions = [
+            item
+            for item in assertions
+            if item["validation_state"] == "tentative"
+            and not self._is_assertion_expired(item)
+            and item.get("user_feedback") != "rejected"
+        ]
         if not assertions and not outgoing and not incoming and not superseded_outgoing and not superseded_incoming:
             return None
 
@@ -1733,6 +1741,7 @@ class L2CognitionStore:
             assertions=active_assertions,
             expired_assertions=expired_assertions,
             stable_assertions=stable_assertions,
+            tentative_assertions=tentative_assertions,
             outgoing_relations=outgoing,
             incoming_relations=incoming,
             superseded_outgoing_relations=superseded_outgoing,
@@ -2063,6 +2072,7 @@ class L2CognitionStore:
         assertions: List[Dict[str, Any]],
         expired_assertions: List[Dict[str, Any]],
         stable_assertions: List[Dict[str, Any]],
+        tentative_assertions: List[Dict[str, Any]] | None = None,
         outgoing_relations: List[Dict[str, Any]],
         incoming_relations: List[Dict[str, Any]],
         superseded_outgoing_relations: List[Dict[str, Any]],
@@ -2136,6 +2146,17 @@ class L2CognitionStore:
             "stable_assertion_count": len(stable_assertions),
             "relation_count": len(outgoing_relations) + len(incoming_relations),
         }
+        emerging_signals: list[dict[str, Any]] = []
+        for item in (tentative_assertions or []):
+            emerging_signals.append({
+                "trait_family": item.get("trait_family", ""),
+                "trait_name": item["trait_name"],
+                "trait_value": item["trait_value"],
+                "confidence": float(item.get("confidence_score", 0)),
+                "evidence_count": len(item.get("evidence_events", []) or []),
+                "first_inferred_at": float(item.get("first_inferred_at", 0)),
+                "last_validated_at": float(item.get("last_validated_at", 0)),
+            })
         update_source_assertion_ids = [item["assertion_id"] for item in assertions]
         last_interaction_at = max(
             [float(item["last_validated_at"]) for item in assertions] + [now]
@@ -2184,6 +2205,7 @@ class L2CognitionStore:
                 evolution_payload["last_evolution_at"],
                 json.dumps(evolution_payload["active_record_ids"], ensure_ascii=False),
                 json.dumps(evolution_payload["superseded_record_ids"], ensure_ascii=False),
+                json.dumps(emerging_signals, ensure_ascii=False),
             )
 
             if existing:
@@ -2197,6 +2219,7 @@ class L2CognitionStore:
                         last_updated_at = ?, update_source_assertion_ids = ?,
                         core_traits_history = ?, preferences_history = ?, relationship_history = ?,
                         last_evolution_at = ?, active_record_ids = ?, superseded_record_ids = ?,
+                        emerging_signals = ?,
                         snapshot_version = snapshot_version + 1
                     WHERE snapshot_id = ?
                     """,
@@ -2212,8 +2235,8 @@ class L2CognitionStore:
                         interaction_count, last_interaction_at, last_updated_at,
                         update_source_assertion_ids, core_traits_history, preferences_history,
                         relationship_history, last_evolution_at, active_record_ids,
-                        superseded_record_ids, snapshot_version, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        superseded_record_ids, emerging_signals, snapshot_version, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         f"snapshot_{uuid.uuid4().hex}",
@@ -2804,6 +2827,7 @@ class L2CognitionStore:
             "superseded_record_ids": (
                 json.loads(row["superseded_record_ids"] or "[]") if "superseded_record_ids" in columns else []
             ),
+            "emerging_signals": json.loads(row["emerging_signals"] or "[]") if "emerging_signals" in columns else [],
             "snapshot_version": int(row["snapshot_version"] or 1),
             "created_at": float(row["created_at"]),
         }
