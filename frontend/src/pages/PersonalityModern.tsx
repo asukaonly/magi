@@ -74,7 +74,10 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     switchPersonality,
     confirmSwitchPersonality,
     cancelSwitchPersonality,
-    deletePersonality,
+    deleteConfirmOpen,
+    requestDeletePersonality,
+    confirmDeletePersonality,
+    cancelDeletePersonality,
     reload,
   } = usePersonality();
 
@@ -337,7 +340,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                 {!isNewMode && (
                   <Button
                     variant="outline"
-                    onClick={deletePersonality}
+                    onClick={requestDeletePersonality}
                     disabled={selectedName === 'default'}
                     className="rounded-2xl border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
                   >
@@ -742,6 +745,29 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               disabled={switching}
             >
               {switching ? t('personality.switching') : t('personality.confirmSwitch')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={(open) => { if (!open) cancelDeletePersonality(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('personality.deleteTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('personality.deleteConfirm', { name: selectedName })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={cancelDeletePersonality}>
+              {t('personality.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => { void confirmDeletePersonality(); }}
+            >
+              {t('personality.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1575,6 +1575,7 @@
     "switchPromptFallback": "Give me one more chance before you switch away.",
     "confirmSwitch": "Confirm switch",
     "deleteConfirm": "Delete {{name}}?",
+    "deleteTitle": "Delete personality",
     "newNamePrompt": "New personality name",
     "nameRequired": "Please enter a personality name",
     "title": "Personality Config",

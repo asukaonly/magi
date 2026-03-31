@@ -1570,6 +1570,7 @@
     "switchPromptFallback": "先别急着走，再给我一次机会。",
     "confirmSwitch": "确认切换",
     "deleteConfirm": "删除 {{name}} ?",
+    "deleteTitle": "删除人格",
     "newNamePrompt": "新人格名称",
     "nameRequired": "请输入人格名称",
     "title": "人格配置",

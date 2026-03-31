@@ -70,6 +70,10 @@ export interface UsePersonalityReturn {
   confirmSwitchPersonality: () => Promise<void>;
   cancelSwitchPersonality: () => void;
   deletePersonality: () => Promise<void>;
+  deleteConfirmOpen: boolean;
+  requestDeletePersonality: () => void;
+  confirmDeletePersonality: () => Promise<void>;
+  cancelDeletePersonality: () => void;
   reload: () => Promise<void>;
 }
 
@@ -413,10 +417,16 @@ export function usePersonality(
     setSwitchPrompt(null);
   }, []);
 
-  const deletePersonality = useCallback(async () => {
-    if (selectedName === 'default') return;
-    if (!window.confirm(t('personality.deleteConfirm', { name: selectedName }))) return;
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
+  const requestDeletePersonality = useCallback(() => {
+    if (selectedName === 'default') return;
+    setDeleteConfirmOpen(true);
+  }, [selectedName]);
+
+  const confirmDeletePersonality = useCallback(async () => {
+    setDeleteConfirmOpen(false);
+    if (selectedName === 'default') return;
     try {
       await personalityApi.delete(selectedName);
       await loadList();
@@ -425,7 +435,13 @@ export function usePersonality(
     } catch (error) {
       handleError(error, 'Delete personality');
     }
-  }, [selectedName, loadList, loadCurrent, loadOne, t]);
+  }, [selectedName, loadList, loadCurrent, loadOne]);
+
+  const cancelDeletePersonality = useCallback(() => {
+    setDeleteConfirmOpen(false);
+  }, []);
+
+  const deletePersonality = confirmDeletePersonality;
 
   const reload = useCallback(async () => {
     await loadOne(selectedName);
@@ -466,6 +482,10 @@ export function usePersonality(
     confirmSwitchPersonality,
     cancelSwitchPersonality,
     deletePersonality,
+    deleteConfirmOpen,
+    requestDeletePersonality,
+    confirmDeletePersonality,
+    cancelDeletePersonality,
     reload,
   };
 }

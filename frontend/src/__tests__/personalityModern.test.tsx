@@ -105,6 +105,10 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   confirmSwitchPersonality: vi.fn(),
   cancelSwitchPersonality: vi.fn(),
   deletePersonality: vi.fn(),
+  deleteConfirmOpen: false,
+  requestDeletePersonality: vi.fn(),
+  confirmDeletePersonality: vi.fn(),
+  cancelDeletePersonality: vi.fn(),
   reload: vi.fn(),
   ...overrides,
 });
