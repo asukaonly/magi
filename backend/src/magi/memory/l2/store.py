@@ -1073,8 +1073,185 @@ class L2CognitionStore:
 
     async def find_edges_by_event_id(self, event_id: str) -> List[Dict[str, Any]]:
         """Return graph edges that cite a specific event as evidence."""
-        edges = await self.get_relationships(limit=500)
-        return [edge for edge in edges if event_id in edge["evidence_event_ids"]]
+        await self.initialize()
+        escaped = str(event_id).replace('"', '""')
+        pattern = f'%"{escaped}"%'
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM knowledge_graph WHERE evidence_event_ids LIKE ? AND status = 'active' ORDER BY updated_at DESC LIMIT 500",
+                (pattern,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            self._relation_row_to_dict(row) for row in rows
+            if event_id in json.loads(row["evidence_event_ids"] or "[]")
+        ]
+
+    async def batch_get_relationships(
+        self,
+        *,
+        entity_ids: List[str],
+        direction: str = "outgoing",
+        status: str = "active",
+        status_filters: Optional[List[str]] = None,
+        predicates: Optional[List[str]] = None,
+        target_object_id: Optional[str] = None,
+        object_types: Optional[List[str]] = None,
+        limit_per_entity: int = 100,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Batch-fetch relationships for multiple entities in one query.
+
+        Returns a dict keyed by entity_id with lists of relationship dicts.
+        ``direction`` controls whether entity_ids match subject_id ('outgoing'),
+        object_id ('incoming'), or both ('both').
+        ``target_object_id`` narrows to edges pointing at a specific object.
+        """
+        await self.initialize()
+        if not entity_ids:
+            return {}
+
+        unique_ids = list(dict.fromkeys(entity_ids))
+        id_placeholders = ", ".join("?" for _ in unique_ids)
+
+        if status_filters:
+            status_ph = ", ".join("?" for _ in status_filters)
+            status_clause = f"status IN ({status_ph})"
+            status_args = [str(s).strip() for s in status_filters]
+        else:
+            status_clause = "status = ?"
+            status_args = [status]
+
+        direction_clause: str
+        if direction == "incoming":
+            direction_clause = f"object_id IN ({id_placeholders})"
+        elif direction == "both":
+            direction_clause = f"(subject_id IN ({id_placeholders}) OR object_id IN ({id_placeholders}))"
+            unique_ids = unique_ids + unique_ids  # duplicate for both IN clauses
+        else:
+            direction_clause = f"subject_id IN ({id_placeholders})"
+
+        args: list[Any] = status_args + unique_ids
+        query = f"SELECT * FROM knowledge_graph WHERE {status_clause} AND {direction_clause}"
+        if predicates:
+            pred_ph = ", ".join("?" for _ in predicates)
+            query += f" AND predicate IN ({pred_ph})"
+            args.extend(str(p).strip().upper() for p in predicates)
+        if target_object_id:
+            query += " AND object_id = ?"
+            args.append(str(target_object_id))
+        if object_types:
+            ot_ph = ", ".join("?" for _ in object_types)
+            query += f" AND object_type IN ({ot_ph})"
+            args.extend(str(t).strip().lower() for t in object_types)
+        query += " ORDER BY updated_at DESC"
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+
+        result: Dict[str, List[Dict[str, Any]]] = {eid: [] for eid in dict.fromkeys(entity_ids)}
+        for row in rows:
+            edge = self._relation_row_to_dict(row)
+            subject_id = edge["subject_id"]
+            object_id = edge["object_id"]
+            if direction == "incoming":
+                if object_id in result and len(result[object_id]) < limit_per_entity:
+                    result[object_id].append(edge)
+            elif direction == "both":
+                if subject_id in result and len(result[subject_id]) < limit_per_entity:
+                    result[subject_id].append(edge)
+                if object_id in result and object_id != subject_id and len(result[object_id]) < limit_per_entity:
+                    result[object_id].append(edge)
+            else:
+                if subject_id in result and len(result[subject_id]) < limit_per_entity:
+                    result[subject_id].append(edge)
+        return result
+
+    async def batch_list_tom_assertions(
+        self,
+        *,
+        entity_ids: List[str],
+        entity_type: Optional[str] = None,
+        trait_families: Optional[List[str]] = None,
+        validation_states: Optional[List[str]] = None,
+        include_expired: bool = False,
+        target_entity_id: Optional[str] = None,
+        limit_per_entity: int = 100,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Batch-fetch assertions for multiple entities in one query.
+
+        Returns a dict keyed by entity_id.
+        """
+        await self.initialize()
+        if not entity_ids:
+            return {}
+
+        unique_ids = list(dict.fromkeys(entity_ids))
+        id_placeholders = ", ".join("?" for _ in unique_ids)
+        query = f"SELECT * FROM tom_trait_assertions WHERE entity_id IN ({id_placeholders})"
+        args: list[Any] = list(unique_ids)
+
+        if entity_type:
+            query += " AND entity_type = ?"
+            args.append(entity_type)
+        if trait_families:
+            tf_ph = ", ".join("?" for _ in trait_families)
+            query += f" AND trait_family IN ({tf_ph})"
+            args.extend(str(tf).strip().lower() for tf in trait_families)
+        if validation_states:
+            vs_ph = ", ".join("?" for _ in validation_states)
+            query += f" AND validation_state IN ({vs_ph})"
+            args.extend(str(vs).strip() for vs in validation_states)
+        if target_entity_id:
+            query += " AND target_entity_id = ?"
+            args.append(target_entity_id)
+        if not include_expired:
+            now = time.time()
+            query += " AND (expires_at IS NULL OR expires_at > ?)"
+            args.append(now)
+        query += " ORDER BY updated_at DESC"
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+
+        result: Dict[str, List[Dict[str, Any]]] = {eid: [] for eid in unique_ids}
+        for row in rows:
+            assertion = self._assertion_row_to_dict(row)
+            eid = assertion["entity_id"]
+            if eid in result and len(result[eid]) < limit_per_entity:
+                result[eid].append(assertion)
+        return result
+
+    async def batch_get_tom_snapshots(
+        self,
+        *,
+        entities: List[Dict[str, str]],
+    ) -> List[Dict[str, Any]]:
+        """Batch-fetch snapshots for multiple entity_id+entity_type pairs.
+
+        Returns a list of snapshot dicts (one per found entity).
+        """
+        await self.initialize()
+        if not entities:
+            return []
+
+        conditions: list[str] = []
+        args: list[Any] = []
+        for entity in entities:
+            conditions.append("(entity_id = ? AND entity_type = ?)")
+            args.append(str(entity["entity_id"]))
+            args.append(str(entity["entity_type"]))
+
+        query = f"SELECT * FROM tom_snapshots WHERE {' OR '.join(conditions)}"
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._snapshot_row_to_dict(row) for row in rows]
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight counts for API reporting."""

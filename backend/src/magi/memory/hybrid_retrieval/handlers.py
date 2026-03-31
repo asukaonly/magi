@@ -309,28 +309,23 @@ class L2Handler:
 
         snapshot_entities = query_frame["snapshot_entities"] or resolved_entities
         if conditions.include_tom_snapshot and snapshot_entities:
-            for entity in snapshot_entities:
-                snapshot = await self._store.get_tom_snapshot(
-                    entity_id=entity["entity_id"],
-                    entity_type=entity["entity_type"],
-                )
-                if snapshot:
-                    results["entity_cards"].append(snapshot)
+            results["entity_cards"] = await self._store.batch_get_tom_snapshots(
+                entities=snapshot_entities,
+            )
 
         if conditions.include_assertions:
             assertion_entities = query_frame["assertion_entities"] or resolved_entities
             trait_families = conditions.trait_families or self._infer_trait_families(predicate_family)
             if assertion_entities:
-                for entity in assertion_entities:
-                    assertions = await self._store.list_tom_assertions(
-                        entity_id=entity["entity_id"],
-                        entity_type=entity["entity_type"],
-                        trait_families=trait_families,
-                        validation_states=self._infer_assertion_states(status_filters),
-                        include_expired=False,
-                        target_entity_id=target_entity_id,
-                        limit=conditions.limit,
-                    )
+                batch_assertions = await self._store.batch_list_tom_assertions(
+                    entity_ids=[e["entity_id"] for e in assertion_entities],
+                    trait_families=trait_families,
+                    validation_states=self._infer_assertion_states(status_filters),
+                    include_expired=False,
+                    target_entity_id=target_entity_id,
+                    limit_per_entity=conditions.limit,
+                )
+                for assertions in batch_assertions.values():
                     results["assertions"].extend(assertions)
             else:
                 results["assertions"] = await self._store.list_tom_assertions(
@@ -356,19 +351,27 @@ class L2Handler:
             else:
                 relationship_entities = query_frame["relationship_entities"] or resolved_entities
                 if relationship_entities:
-                    for entity in relationship_entities:
-                        results["relationships"].extend(
-                            await self._query_relationships_for_entity(
-                                entity_id=entity["entity_id"],
-                                entity_type=entity["entity_type"],
-                                direction=relation_direction,
-                                predicates=predicates,
-                                status_filters=status_filters,
-                                object_id=query_frame["relationship_object_id"],
-                                object_types=query_frame["relationship_object_types"],
-                                limit=conditions.limit,
-                            )
-                        )
+                    entity_ids = [e["entity_id"] for e in relationship_entities]
+                    all_user = all(e.get("entity_type") == "user" for e in relationship_entities)
+                    apply_object_filter = all_user and relation_direction == "outgoing"
+                    batch_rels = await self._store.batch_get_relationships(
+                        entity_ids=entity_ids,
+                        direction=relation_direction,
+                        status_filters=status_filters,
+                        predicates=predicates,
+                        target_object_id=query_frame["relationship_object_id"] if apply_object_filter else None,
+                        object_types=query_frame["relationship_object_types"] if apply_object_filter else None,
+                        limit_per_entity=conditions.limit,
+                    )
+                    seen: set[str] = set()
+                    for rels in batch_rels.values():
+                        for rel in rels:
+                            triple_id = str(rel.get("triple_id") or "")
+                            if triple_id and triple_id in seen:
+                                continue
+                            if triple_id:
+                                seen.add(triple_id)
+                            results["relationships"].append(rel)
                 else:
                     rels = await self._store.get_relationships(
                         predicates=predicates,

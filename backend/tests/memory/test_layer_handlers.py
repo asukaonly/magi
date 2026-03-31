@@ -303,7 +303,9 @@ class TestL2Handler:
     @pytest.fixture
     def store(self):
         s = AsyncMock()
-        s.get_tom_snapshot.return_value = {"entity_id": "alice", "name": "Alice"}
+        s.batch_get_tom_snapshots.return_value = [{"entity_id": "alice", "name": "Alice"}]
+        s.batch_get_relationships.return_value = {"person:alice": [{"subject": "alice", "object": "bob"}]}
+        s.batch_list_tom_assertions.return_value = {}
         s.get_relationships.return_value = [{"subject": "alice", "object": "bob"}]
         return s
 
@@ -357,9 +359,9 @@ class TestL2Handler:
     @pytest.mark.asyncio
     async def test_self_preference_binds_user_as_subject_and_weather_type(self):
         store = AsyncMock()
-        store.get_tom_snapshot.return_value = {"entity_id": "user:u1", "entity_type": "user"}
-        store.get_relationships.return_value = [{"triple_id": "pref-1", "subject_id": "user:u1"}]
-        store.list_tom_assertions.return_value = []
+        store.batch_get_tom_snapshots.return_value = [{"entity_id": "user:u1", "entity_type": "user"}]
+        store.batch_get_relationships.return_value = {"user:u1": [{"triple_id": "pref-1", "subject_id": "user:u1"}]}
+        store.batch_list_tom_assertions.return_value = {"user:u1": []}
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -383,11 +385,11 @@ class TestL2Handler:
 
         results = await handler.execute(conds, user_id="u1")
 
-        store.get_tom_snapshot.assert_called_once_with(entity_id="user:u1", entity_type="user")
-        _, relationship_kwargs = store.get_relationships.call_args
-        assert relationship_kwargs["subject_id"] == "user:u1"
+        store.batch_get_tom_snapshots.assert_called_once_with(entities=[{"entity_id": "user:u1", "entity_type": "user"}])
+        _, relationship_kwargs = store.batch_get_relationships.call_args
+        assert relationship_kwargs["entity_ids"] == ["user:u1"]
         assert relationship_kwargs["object_types"] == ["weather_state"]
-        assert relationship_kwargs.get("object_id") is None
+        assert relationship_kwargs.get("target_object_id") is None
         assert relationship_kwargs["predicates"] == ["LIKES", "DISLIKES", "INTERESTED_IN"]
         assert results["trace"]["query_frame"]["chosen_subject_entity_id"] == "user:u1"
         assert results["trace"]["query_frame"]["subject_binding_source"] == "self_anchor"
@@ -395,7 +397,7 @@ class TestL2Handler:
     @pytest.mark.asyncio
     async def test_explicit_subject_preference_does_not_bind_self(self):
         store = AsyncMock()
-        store.get_relationships.return_value = [{"triple_id": "pref-1", "subject_id": "person:xiaowang"}]
+        store.batch_get_relationships.return_value = {"person:xiaowang": [{"triple_id": "pref-1", "subject_id": "person:xiaowang"}]}
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -419,8 +421,8 @@ class TestL2Handler:
 
         results = await handler.execute(conds, user_id="u1")
 
-        _, relationship_kwargs = store.get_relationships.call_args
-        assert relationship_kwargs["subject_id"] == "person:xiaowang"
+        _, relationship_kwargs = store.batch_get_relationships.call_args
+        assert relationship_kwargs["entity_ids"] == ["person:xiaowang"]
         assert relationship_kwargs.get("object_types") is None
         assert results["trace"]["query_frame"]["chosen_subject_entity_id"] == "person:xiaowang"
         assert results["trace"]["query_frame"]["subject_binding_source"] == "explicit_entity"
@@ -428,9 +430,9 @@ class TestL2Handler:
     @pytest.mark.asyncio
     async def test_self_preference_filters_person_noise_from_targets(self):
         store = AsyncMock()
-        store.get_tom_snapshot.return_value = {"entity_id": "user:local_user", "entity_type": "user"}
-        store.get_relationships.return_value = []
-        store.list_tom_assertions.return_value = []
+        store.batch_get_tom_snapshots.return_value = [{"entity_id": "user:local_user", "entity_type": "user"}]
+        store.batch_get_relationships.return_value = {"user:local_user": []}
+        store.batch_list_tom_assertions.return_value = {"user:local_user": []}
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -466,10 +468,10 @@ class TestL2Handler:
 
         results = await handler.execute(conds, user_id="local_user")
 
-        _, relationship_kwargs = store.get_relationships.call_args
-        assert relationship_kwargs["subject_id"] == "user:local_user"
+        _, relationship_kwargs = store.batch_get_relationships.call_args
+        assert relationship_kwargs["entity_ids"] == ["user:local_user"]
         assert relationship_kwargs["object_types"] == ["weather_state"]
-        assert relationship_kwargs.get("object_id") is None
+        assert relationship_kwargs.get("target_object_id") is None
         assert results["trace"]["query_frame"]["chosen_target_entity_id"] == "weather_state:weather-state"
         assert results["trace"]["query_frame"]["target_entity_id_exact"] is None
 
