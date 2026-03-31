@@ -279,6 +279,15 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
                 session_id=session_id,
                 entity_count=len(accumulated),
             )
+            expired_count = await self._cognition_store.expire_session_decay_assertions(
+                entity_ids=accumulated,
+            )
+            if expired_count:
+                logger.info(
+                    "L2 session-end tentative assertions expired",
+                    session_id=session_id,
+                    expired_count=expired_count,
+                )
             await self.enqueue_entities(accumulated)
             await self.enqueue_snapshot_refresh(accumulated)
         return accumulated

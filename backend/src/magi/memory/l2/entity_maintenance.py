@@ -74,6 +74,7 @@ class L2EntityMaintenanceStats:
     fragment_groups_processed: int = 0
     orphans_pruned: int = 0
     expired_future_intents: int = 0
+    expired_assertions: int = 0
     open_predicates_consolidated: int = 0
     edges_embedded: int = 0
     errors: list[str] = field(default_factory=list)
@@ -93,6 +94,10 @@ class L2EntityMaintenance:
         self._embedding_service = embedding_service
         self._edge_vector_index = edge_vector_index
 
+    # Default TTLs (seconds) for decay policies that lack an explicit expires_at.
+    FAST_DECAY_TTL: float = 4 * 3600       # 4 hours
+    SESSION_DECAY_TTL: float = 24 * 3600   # 24 hours
+
     async def run(
         self,
         *,
@@ -101,6 +106,7 @@ class L2EntityMaintenance:
         merge_fragments: bool = True,
         prune_orphans: bool = True,
         expire_future_intents: bool = True,
+        expire_decayed_assertions: bool = True,
         consolidate_open_predicates: bool = True,
         embed_edges: bool = True,
     ) -> L2EntityMaintenanceStats:
@@ -113,6 +119,8 @@ class L2EntityMaintenance:
             await self._prune_orphan_low_mention_entities(stats, min_mentions=min_mentions_to_keep)
         if expire_future_intents:
             await self._expire_stale_future_intents(stats)
+        if expire_decayed_assertions:
+            await self._expire_decayed_assertions(stats)
         if consolidate_open_predicates:
             await self._consolidate_open_predicates(stats)
         if embed_edges:
@@ -125,6 +133,7 @@ class L2EntityMaintenance:
                 stats.fragment_entities_merged,
                 stats.orphans_pruned,
                 stats.expired_future_intents,
+                stats.expired_assertions,
                 stats.open_predicates_consolidated,
                 stats.edges_embedded,
             )
@@ -139,6 +148,7 @@ class L2EntityMaintenance:
                 fragment_groups=stats.fragment_groups_processed,
                 orphans_pruned=stats.orphans_pruned,
                 expired_future_intents=stats.expired_future_intents,
+                expired_assertions=stats.expired_assertions,
                 open_predicates_consolidated=stats.open_predicates_consolidated,
                 edges_embedded=stats.edges_embedded,
             )
@@ -602,6 +612,36 @@ class L2EntityMaintenance:
                 (now, now),
             )
             stats.expired_future_intents = cursor.rowcount
+            await db.commit()
+
+    async def _expire_decayed_assertions(self, stats: L2EntityMaintenanceStats) -> None:
+        """Expire assertions whose decay policy indicates they have outlived their TTL.
+
+        - ``fast_decay`` (annoyance, irritation, frustration): expire after
+          ``FAST_DECAY_TTL`` seconds since last update.
+        - ``session_decay`` (mood, engagement): expire after
+          ``SESSION_DECAY_TTL`` seconds since last update.
+        - Assertions that already have an explicit ``expires_at`` in the past
+          are also marked expired.
+        """
+        now = time.time()
+        fast_cutoff = now - self.FAST_DECAY_TTL
+        session_cutoff = now - self.SESSION_DECAY_TTL
+        async with sqlite_connection_async(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE tom_trait_assertions
+                SET validation_state = 'expired', updated_at = ?
+                WHERE validation_state NOT IN ('expired', 'user_rejected', 'contradicted')
+                  AND (
+                    (expires_at IS NOT NULL AND expires_at < ?)
+                    OR (decay_policy = 'fast_decay' AND updated_at < ?)
+                    OR (decay_policy = 'session_decay' AND updated_at < ?)
+                  )
+                """,
+                (now, now, fast_cutoff, session_cutoff),
+            )
+            stats.expired_assertions = cursor.rowcount
             await db.commit()
 
     async def _consolidate_open_predicates(self, stats: L2EntityMaintenanceStats) -> None:

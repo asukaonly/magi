@@ -886,6 +886,39 @@ class L2CognitionStore:
                 rows = await cursor.fetchall()
         return [self._assertion_row_to_dict(row) for row in rows]
 
+    async def expire_session_decay_assertions(
+        self,
+        *,
+        entity_ids: List[str],
+    ) -> int:
+        """Mark tentative ``session_decay`` assertions as expired for the given entities.
+
+        Called at session end so that ephemeral mood / engagement signals do
+        not linger beyond the conversation that produced them.  Assertions
+        that have already been promoted to *stable* or *corroborated* with
+        multi-evidence backing are left untouched — only *tentative* ones
+        are expired because they lack sufficient evidence to persist.
+        """
+        if not entity_ids:
+            return 0
+        await self.initialize()
+        now = time.time()
+        placeholders = ", ".join("?" for _ in entity_ids)
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"""
+                UPDATE tom_trait_assertions
+                SET validation_state = 'expired', expires_at = ?, updated_at = ?
+                WHERE entity_id IN ({placeholders})
+                  AND decay_policy = 'session_decay'
+                  AND validation_state = 'tentative'
+                """,
+                (now, now, *entity_ids),
+            )
+            count = cursor.rowcount
+            await db.commit()
+        return count
+
     async def get_tom_snapshot(self, *, entity_id: str, entity_type: str) -> Optional[Dict[str, Any]]:
         """Fetch the current stable snapshot for an entity."""
         await self.initialize()
@@ -2481,6 +2514,8 @@ class L2CognitionStore:
         current_time = float(now if now is not None else time.time())
         return float(expires_at) <= current_time
 
+    _TEMPORARY_STATE_TRAITS = frozenset({"stress_level", "mood", "engagement"})
+
     def _derive_reconcile_state(
         self,
         *,
@@ -2491,25 +2526,36 @@ class L2CognitionStore:
         trait_name: str,
         user_feedback: Optional[str] = None,
     ) -> tuple[str, float, str]:
+        is_temporary = trait_name in self._TEMPORARY_STATE_TRAITS
+
         # User-rejected assertions stay rejected.
         if user_feedback == "rejected":
             return ("user_rejected", 0.10, "volatile_pattern")
 
         # User-confirmed assertions are promoted to stable with a confidence floor.
         if user_feedback == "confirmed":
-            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "stable_trait"
+            stability_kind = "temporary_state" if is_temporary else "stable_trait"
             return ("stable", max(current_confidence, 0.85), stability_kind)
 
         if current_state == "contradicted":
             return ("contradicted", min(current_confidence, 0.35), "volatile_pattern")
 
+        # Temporary-state traits (mood, stress, engagement) are inherently
+        # short-lived observations.  A single piece of evidence is enough to
+        # treat them as corroborated so that they appear in snapshots and are
+        # actionable until they expire or are contradicted.
+        if is_temporary:
+            if evidence_count >= 3 and time_span_hours >= 24.0:
+                return ("stable", max(current_confidence, 0.82), "temporary_state")
+            if evidence_count >= 1:
+                return ("corroborated", max(current_confidence, 0.50), "temporary_state")
+
         if evidence_count >= 3 and time_span_hours >= 24.0:
-            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "stable_trait"
+            stability_kind = "stable_trait"
             return ("stable", max(current_confidence, 0.82), stability_kind)
 
         if evidence_count >= 2:
-            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "volatile_pattern"
-            return ("corroborated", max(current_confidence, 0.58), stability_kind)
+            return ("corroborated", max(current_confidence, 0.58), "volatile_pattern")
 
         return ("tentative", min(current_confidence, 0.3), "volatile_pattern")
 

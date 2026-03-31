@@ -2250,3 +2250,168 @@ async def test_search_edges_by_embedding_returns_empty_without_index(tmp_path):
         limit=10,
     )
     assert results == []
+
+
+# -----------------------------------------------------------------------
+# A1: Temporary-state traits get corroborated with single evidence
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_temporary_trait_corroborated_with_single_evidence(tmp_path):
+    """Stress/mood/engagement should reach 'corroborated' with just 1 evidence."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message(
+        "I feel really stressed about the deadline.",
+        correlation_id="evt-temp-1",
+        timestamp=1710000000.0,
+    )
+    await _apply_rule_candidates(store, event)
+
+    # Reconciliation promotes temporary traits with single evidence
+    await store.reconcile_entity(entity_id="user:u1", entity_type="user")
+
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    assert len(assertions) == 1
+    assert assertions[0]["trait_name"] == "stress_level"
+    # With A1 change, single evidence should promote to corroborated
+    assert assertions[0]["validation_state"] == "corroborated"
+    assert assertions[0]["confidence_score"] >= 0.50
+
+
+@pytest.mark.asyncio
+async def test_temporary_trait_corroborated_appears_in_snapshot(tmp_path):
+    """A corroborated temporary trait should appear in the entity snapshot."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message(
+        "I have been stressed about work.",
+        correlation_id="evt-snap-temp-1",
+        timestamp=1710000000.0,
+    )
+    await _apply_rule_candidates(store, event)
+
+    # Reconcile to promote temporary trait
+    await store.reconcile_entity(entity_id="user:u1", entity_type="user")
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+    # Corroborated stress_level should now appear in snapshot
+    stress = snapshot.get("current_stress_level")
+    if stress is None:
+        stress = (snapshot.get("core_traits") or {}).get("stress_level")
+    assert stress is not None
+
+
+@pytest.mark.asyncio
+async def test_non_temporary_trait_still_requires_multiple_evidence(tmp_path):
+    """Non-temporary traits (e.g. preference_profile) still need >=2 evidence."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    # Directly insert a non-temporary assertion with 1 evidence
+    now = time.time()
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "preference_profile",
+        "trait_name": "preference.coffee",
+        "trait_value": "likes_dark_roast",
+        "confidence_score": 0.25,
+        "validation_state": "tentative",
+        "temporal_scope": "stable",
+        "decay_policy": "evidence_only",
+        "evidence_events": ["evt-pref-1"],
+        "volatility_index": 0.3,
+        "source_domain": "chat",
+        "inference_depth": "defensive_psychology",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    outcomes = await store.reconcile_entity(
+        entity_id="user:u1",
+        entity_type="user",
+        evidence_timestamps={"evt-pref-1": 1710000000.0},
+    )
+    assert len(outcomes) == 1
+    # Single evidence for a non-temporary trait stays tentative
+    assert outcomes[0].status == "tentative"
+
+
+# -----------------------------------------------------------------------
+# B2: expire_session_decay_assertions
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_expire_session_decay_assertions_expires_tentative(tmp_path):
+    """Session-end should expire tentative session_decay assertions."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "happy",
+        "confidence_score": 0.25,
+        "validation_state": "tentative",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-mood-1"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "defensive_psychology",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    expired_count = await store.expire_session_decay_assertions(entity_ids=["user:u1"])
+    assert expired_count == 1
+
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    assert assertions[0]["validation_state"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_expire_session_decay_does_not_touch_corroborated(tmp_path):
+    """Corroborated session_decay assertions should survive session end."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "happy",
+        "confidence_score": 0.60,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-mood-1", "evt-mood-2"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "defensive_psychology",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    expired_count = await store.expire_session_decay_assertions(entity_ids=["user:u1"])
+    assert expired_count == 0
+
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    assert assertions[0]["validation_state"] == "corroborated"
