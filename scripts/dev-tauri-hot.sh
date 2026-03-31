@@ -36,45 +36,44 @@ kill_listeners_on_port() {
 }
 
 cleanup_stale_dev_backends() {
-  local pattern
   local pid_list
   local pid
 
-  for pattern in \
-    "python run_server.py --role runtime_worker --no-reload" \
-    "python run_server.py --role api --host"; do
-    pid_list="$(ps -Ao pid=,command= | grep -F "${pattern}" | grep -v grep | awk '{print $1}' || true)"
-    if [[ -z "${pid_list}" ]]; then
-      continue
-    fi
+  # Catch-all for any magi backend process (run_server.py with any role/port combination)
+  # This ensures we don't leave orphaned processes even if the process command changes
+  pid_list="$(ps -Ao pid=,command= | grep -E 'python.*run_server\.py' | grep -v grep | awk '{print $1}' || true)"
+  
+  if [[ -z "${pid_list}" ]]; then
+    return 0
+  fi
 
-    echo "Stopping stale dev backend process(es): ${pid_list}"
-    while IFS= read -r pid; do
-      [[ -z "${pid}" ]] && continue
-      kill -TERM "${pid}" 2>/dev/null || true
-    done <<< "${pid_list}"
-  done
+  echo "Stopping stale Magi backend process(es): ${pid_list}"
+  while IFS= read -r pid; do
+    [[ -z "${pid}" ]] && continue
+    kill -TERM "${pid}" 2>/dev/null || true
+  done <<< "${pid_list}"
 
-  sleep 1
+  sleep 2
 
-  for pattern in \
-    "python run_server.py --role runtime_worker --no-reload" \
-    "python run_server.py --role api --host"; do
-    pid_list="$(ps -Ao pid=,command= | grep -F "${pattern}" | grep -v grep | awk '{print $1}' || true)"
-    if [[ -z "${pid_list}" ]]; then
-      continue
-    fi
+  # Check for any remaining processes (may have become zombies)
+  pid_list="$(ps -Ao pid=,command= | grep -E 'python.*run_server\.py' | grep -v grep | awk '{print $1}' || true)"
+  
+  if [[ -z "${pid_list}" ]]; then
+    return 0
+  fi
 
-    echo "Force stopping stale dev backend process(es): ${pid_list}"
-    while IFS= read -r pid; do
-      [[ -z "${pid}" ]] && continue
-      kill -KILL "${pid}" 2>/dev/null || true
-    done <<< "${pid_list}"
-  done
+  echo "Force stopping stale Magi backend process(es): ${pid_list}"
+  while IFS= read -r pid; do
+    [[ -z "${pid}" ]] && continue
+    kill -KILL "${pid}" 2>/dev/null || true
+  done <<< "${pid_list}"
 }
 
 cleanup_on_exit() {
+  echo ""
+  echo "dev-tauri-hot.sh shutting down..."
   cleanup_stale_dev_backends
+  echo "Cleanup complete."
 }
 
 ensure_sidecar_placeholder() {
