@@ -9,7 +9,7 @@ import {
   normalizeTraceSummary,
   shouldShowTraceEntry,
   upsertTraceSummary,
-} from '@/pages/chat-state';
+} from '@/domain/chat/state';
 
 describe('chat trace state helpers', () => {
   it('creates a compact pending turn with only the user message by default', () => {

@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useChatTraceStore, useRealtimeStore } from '@/stores';
-import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/pages/chat-state';
+import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/domain/chat/state';
 import { messagesApi } from '@/api';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 

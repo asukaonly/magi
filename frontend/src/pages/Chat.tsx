@@ -32,7 +32,7 @@ import {
   type ChatTimelineMessageLabel,
   type ChatTimelineReplyPreview,
   normalizeMessageLabel,
-} from './chat-state';
+} from '@/domain/chat/state';
 import { formatChatClockTime, normalizeChatTimestamp } from '@/domain/chat/timestamps';
 
 interface WSMessage {

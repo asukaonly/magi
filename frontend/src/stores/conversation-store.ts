@@ -10,7 +10,7 @@ import {
   type NormalizedExecutionTraceSummary,
   type NormalizedTurnUxPlan,
   upsertTraceSummary as applyTraceSummaryUpdate,
-} from '@/pages/chat-state';
+} from '@/domain/chat/state';
 
 type AgentResponsePayload = {
   sessionId: string;

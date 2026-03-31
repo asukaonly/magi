@@ -6,7 +6,7 @@ import {
   useRef,
   type PropsWithChildren,
 } from 'react';
-import { normalizeHistoryMessages, normalizeTraceSummary } from '@/pages/chat-state';
+import { normalizeHistoryMessages, normalizeTraceSummary } from '@/domain/chat/state';
 import { DEFAULT_USER_CHANNEL } from '@/constants';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 import { getRuntimeConfig } from '@/runtime/config';

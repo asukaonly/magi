@@ -2,7 +2,7 @@ import React from 'react';
 import { CheckCircle2, ChevronRight, CircleDashed, GitBranch, Hammer, Layers3, Workflow, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import type { NormalizedExecutionTraceNode } from '@/pages/chat-state';
+import type { NormalizedExecutionTraceNode } from '@/domain/chat/state';
 import { formatTraceKind, formatTraceLabel, formatTraceStatus } from './traceDisplay';
 
 interface TraceTreeProps {

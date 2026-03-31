@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { vi } from 'vitest';
 
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
-import type { NormalizedExecutionTraceSnapshot } from '@/pages/chat-state';
+import type { NormalizedExecutionTraceSnapshot } from '@/domain/chat/state';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

@@ -9,7 +9,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import TraceTree from './TraceTree';
-import { flattenPlanningNodeForDisplay, type NormalizedExecutionTraceNode, type NormalizedExecutionTraceSnapshot } from '@/pages/chat-state';
+import { flattenPlanningNodeForDisplay, type NormalizedExecutionTraceNode, type NormalizedExecutionTraceSnapshot } from '@/domain/chat/state';
 import { formatTraceKind, formatTraceLabel, formatTraceMode, formatTraceStatus } from './traceDisplay';
 
 interface ToolchainDrawerProps {
