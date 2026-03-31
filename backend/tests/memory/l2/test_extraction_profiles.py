@@ -112,3 +112,97 @@ def test_load_profiles_from_yaml_handles_invalid_yaml(tmp_path):
     bad_file.write_text("profiles: not_a_dict_value: [bad", encoding="utf-8")
     profiles = _load_profiles_from_yaml(bad_file)
     assert "chat.user_message" in profiles
+
+
+# ── Sensor source routing ──
+
+
+def test_netease_music_source_uses_music_profile():
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+
+    profile = resolve_extraction_profile(
+        _make_event(source="netease_music", content="Playing a song")
+    )
+    assert profile.profile_id == "timeline.netease_music"
+    assert profile.allow_graph is True
+    assert profile.allow_assertion is True
+    assert "LISTENED" in profile.allowed_predicates
+    assert "taste_profile" in profile.allowed_assertion_families
+    assert "media" in profile.allowed_entity_types
+    assert "person" in profile.allowed_entity_types
+
+
+def test_git_activity_source_uses_git_profile():
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+
+    profile = resolve_extraction_profile(
+        _make_event(source="git_activity", content="commit abc")
+    )
+    assert profile.profile_id == "timeline.git_activity"
+    assert profile.allow_graph is True
+    assert profile.allow_assertion is False
+    assert "COMMITTED" in profile.allowed_predicates
+    assert "WORKS_WITH" in profile.allowed_predicates
+    assert "software" in profile.allowed_entity_types
+    assert "technology" in profile.allowed_entity_types
+
+
+def test_terminal_history_source_uses_terminal_profile():
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+
+    profile = resolve_extraction_profile(
+        _make_event(source="terminal_history", content="docker ps")
+    )
+    assert profile.profile_id == "timeline.terminal_history"
+    assert profile.allow_graph is True
+    assert profile.allow_assertion is False
+    assert "EXECUTED" in profile.allowed_predicates
+    assert "USES" in profile.allowed_predicates
+    assert "software" in profile.allowed_entity_types
+
+
+def test_screen_time_source_uses_screen_time_profile():
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+
+    profile = resolve_extraction_profile(
+        _make_event(source="screen_time", content="App usage")
+    )
+    assert profile.profile_id == "timeline.screen_time"
+    assert profile.allow_graph is True
+    assert profile.allow_assertion is False
+    assert "USES" in profile.allowed_predicates
+    assert "software" in profile.allowed_entity_types
+
+
+def test_yaml_profiles_load_all_sensor_profiles():
+    from magi.memory.l2.extraction_profiles import get_extraction_profiles
+
+    profiles = get_extraction_profiles()
+    expected = {
+        "timeline.netease_music",
+        "timeline.git_activity",
+        "timeline.terminal_history",
+        "timeline.screen_time",
+    }
+    for pid in expected:
+        assert pid in profiles, f"Missing profile: {pid}"
+
+
+def test_netease_music_profile_allows_taste_assertions():
+    from magi.memory.l2.extraction_profiles import get_extraction_profiles
+
+    profiles = get_extraction_profiles()
+    music_profile = profiles["timeline.netease_music"]
+    assert music_profile.allow_assertion is True
+    assert "taste_profile" in music_profile.allowed_assertion_families
+    assert "preference_profile" in music_profile.allowed_assertion_families
+    assert music_profile.extraction_instructions is not None
+
+
+def test_unknown_source_still_falls_back_to_chat():
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+
+    profile = resolve_extraction_profile(
+        _make_event(source="some_unknown_sensor", content="data")
+    )
+    assert profile.profile_id == "chat.user_message"

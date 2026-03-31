@@ -100,3 +100,147 @@ profiles:
       - VISITED
     allow_graph: true
     allow_assertion: false
+
+  timeline.netease_music:
+    allowed_entity_types:
+      - media
+      - person
+      - group
+    allowed_predicates:
+      - LISTENED
+      - LIKES
+      - INTERESTED_IN
+    structured_allowed_entity_types:
+      - media
+      - person
+      - group
+    structured_allowed_predicates:
+      - LISTENED
+      - LIKES
+      - INTERESTED_IN
+    allowed_assertion_families:
+      - taste_profile
+      - preference_profile
+    allow_graph: true
+    allow_assertion: true
+    extraction_instructions: |
+      These events are music play records from NetEase Cloud Music. Each event
+      represents one track playback with track name, artist, and album info.
+
+      Entity extraction rules:
+      - Extract the artist as a `person` (solo) or `group` (band/group) entity.
+      - Extract the track/album as a `media` entity only when it reveals a
+        genuine listening pattern — skip one-off plays.
+      - LISTENED: for individual track plays (graph edge).
+      - LIKES: when the user explicitly liked a track (is_liked flag in provenance).
+      - INTERESTED_IN: only for recurring artists or genres.
+      - Keep entity names concise: use the canonical artist name, not
+        "artist_name - track_name".
+
+      Assertion rules:
+      - taste_profile assertions capture music taste dimensions, e.g.,
+        trait_name: "music.genre", trait_value: "indie_rock".
+      - preference_profile assertions capture specific artist/genre preferences.
+      - Only assert preferences when there is genuine frequency signal
+        (multiple plays), not from a single listen.
+
+  timeline.git_activity:
+    allowed_entity_types:
+      - software
+      - technology
+      - topic
+    allowed_predicates:
+      - COMMITTED
+      - CHECKED_OUT
+      - MERGED
+      - REBASED
+      - WORKS_WITH
+      - USES
+    structured_allowed_entity_types:
+      - software
+      - technology
+      - topic
+    structured_allowed_predicates:
+      - COMMITTED
+      - CHECKED_OUT
+      - MERGED
+      - REBASED
+      - WORKS_WITH
+      - USES
+    allow_graph: true
+    allow_assertion: false
+    extraction_instructions: |
+      These events are git operations (commits, checkouts, merges, rebases).
+      Focus on extracting the repository/project as a `software` entity and
+      any technologies or frameworks mentioned in commit messages.
+
+      Entity extraction rules:
+      - Extract the repository name as a `software` entity.
+      - Extract programming languages and frameworks as `technology` entities
+        only when clearly visible in commit context.
+      - COMMITTED: for commit operations.
+      - WORKS_WITH: for technologies used in the project.
+      - USES: for tools and platforms (GitHub, GitLab).
+      - Do NOT extract individual file paths, function names, or branch names
+        as entities.
+
+  timeline.terminal_history:
+    allowed_entity_types:
+      - software
+      - technology
+    allowed_predicates:
+      - EXECUTED
+      - USED
+      - USES
+    structured_allowed_entity_types:
+      - software
+      - technology
+    structured_allowed_predicates:
+      - EXECUTED
+      - USED
+      - USES
+    allow_graph: true
+    allow_assertion: false
+    extraction_instructions: |
+      These events are shell command executions. Extract meaningful tool usage
+      patterns, not individual commands.
+
+      Entity extraction rules:
+      - Extract CLI tools and package managers as `software` entities
+        (e.g., docker, kubectl, npm, brew).
+      - Extract programming runtimes as `technology` entities
+        (e.g., python, node, rust).
+      - USES: for recurring tool usage patterns.
+      - EXECUTED: for specific tool invocations.
+      - Do NOT extract arguments, file paths, environment variables,
+        or shell builtins (cd, ls, cat) as entities.
+      - Be SELECTIVE: skip noise commands and focus on tools that reveal
+        the user's technical stack and workflow.
+
+  timeline.screen_time:
+    allowed_entity_types:
+      - software
+      - media
+    allowed_predicates:
+      - USES
+      - VIEWED
+    structured_allowed_entity_types:
+      - software
+      - media
+    structured_allowed_predicates:
+      - USES
+      - VIEWED
+    allow_graph: true
+    allow_assertion: false
+    extraction_instructions: |
+      These events are app usage duration records from macOS Screen Time.
+      Each event reports how long an app was used in a time window.
+
+      Entity extraction rules:
+      - Extract the application as a `software` entity.
+      - Extract media apps (Netflix, YouTube, etc.) with VIEWED predicate.
+      - USES: for productivity and development tools.
+      - Only extract apps with meaningful usage duration, skip brief
+        system utility interactions.
+      - Normalize app names: use the canonical app name, not the bundle
+        identifier.
