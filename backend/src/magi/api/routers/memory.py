@@ -234,12 +234,43 @@ def _build_clear_result(count: int) -> Dict[str, Any]:
     }
 
 
+def _format_l2_context(
+    *,
+    entity_cards: list[dict[str, Any]] | None = None,
+    relationships: list[dict[str, Any]] | None = None,
+    assertions: list[dict[str, Any]] | None = None,
+) -> str:
+    """Format L2 knowledge graph data as LLM-readable context."""
+    blocks: list[str] = []
+    for rel in (relationships or []):
+        summary = str(rel.get("natural_summary") or rel.get("evidence_text") or "").strip()
+        if not summary:
+            subj = str(rel.get("subject_id") or "")
+            pred = str(rel.get("predicate") or "")
+            obj = str(rel.get("object_id") or "")
+            summary = f"{subj} {pred} {obj}"
+        blocks.append(f"- [relationship] {summary}")
+    for card in (entity_cards or []):
+        entity_id = str(card.get("entity_id") or "")
+        summary = str(card.get("summary") or card.get("snapshot") or "").strip()
+        if summary:
+            blocks.append(f"- [entity] {entity_id}: {summary}")
+    for a in (assertions or []):
+        text = str(a.get("assertion_text") or a.get("value") or "").strip()
+        if text:
+            blocks.append(f"- [assertion] {text}")
+    return "\n".join(blocks) if blocks else "(no knowledge graph context)"
+
+
 async def _synthesize_eval_answer(
     *,
     question: str,
     hits: list[dict[str, Any]],
     evidence_bundles: list[dict[str, Any]] | None = None,
     timeline_summary: list[dict[str, Any]] | None = None,
+    l2_entity_cards: list[dict[str, Any]] | None = None,
+    l2_relationships: list[dict[str, Any]] | None = None,
+    l2_assertions: list[dict[str, Any]] | None = None,
     query_timestamp: float | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
@@ -278,6 +309,11 @@ async def _synthesize_eval_answer(
         "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
         "If the evidence is insufficient, answer exactly: unknown"
     )
+    l2_context_text = _format_l2_context(
+        entity_cards=l2_entity_cards,
+        relationships=l2_relationships,
+        assertions=l2_assertions,
+    )
     user_prompt = (
         "Use relative time expressions in the evidence when comparing event order.\n"
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
@@ -286,7 +322,8 @@ async def _synthesize_eval_answer(
         f"Question:\n{question}\n\n"
         f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
         f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
-        f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n"
+        f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
+        f"Knowledge Graph Context:\n{l2_context_text}\n"
     )
     llm_messages = [
         {"role": "system", "content": system_prompt},
@@ -327,10 +364,11 @@ async def _synthesize_eval_answer(
         raw_answer=raw_answer,
         answer=normalized_answer,
     )
+    l2_count = len(l2_entity_cards or []) + len(l2_relationships or []) + len(l2_assertions or [])
     answer_trace = {
         "answer_source": "llm",
         "llm_scenario": LLMScenario.CORE.value,
-        "evidence_hit_count": len(hits),
+        "evidence_hit_count": len(hits) + l2_count,
         "evidence_bundle_count": len(evidence_bundles or []),
         "evidence_timeline_count": len(timeline_summary or []),
     }
@@ -837,6 +875,9 @@ async def query_eval_memory(body: EvalQueryRequest):
             hits=[asdict(hit) for hit in result.hits],
             evidence_bundles=list(result.evidence_bundles),
             timeline_summary=list(result.timeline_summary),
+            l2_entity_cards=list(result.l2_entity_cards),
+            l2_relationships=list(result.l2_relationships),
+            l2_assertions=list(result.l2_assertions),
             query_timestamp=body.query_timestamp,
             show_prompt=body.show_prompt,
         )

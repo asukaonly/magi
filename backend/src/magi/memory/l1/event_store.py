@@ -760,6 +760,10 @@ class L1EventStore:
                         rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id)
                         if rows:
                             break
+                if not rows:
+                    or_query = " OR ".join(escaped.split())
+                    if or_query != escaped:
+                        rows = await self._run_bm25_query(db, or_query, limit=limit, user_id=user_id)
                 return [(str(row[0]), float(row[1])) for row in rows]
             except Exception as exc:
                 logger.warning("FTS5 BM25 search failed: %s", exc)
