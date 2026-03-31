@@ -6,6 +6,7 @@ queries based on structured LayerQueryPlan conditions.
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import logging
 from dataclasses import asdict
@@ -57,13 +58,106 @@ def rrf_fuse(
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
 
-class L1Handler:
-    """Execute L1 event store queries with triple-path RRF fusion."""
+# ---------------------------------------------------------------------------
+# Abstract base for BM25 + vector + keyword → RRF fusion handlers
+# ---------------------------------------------------------------------------
 
-    def __init__(self, l1_store: Any, config: Optional[RetrievalConfig] = None) -> None:
-        self._store = l1_store
+
+class RRFSearchHandler(abc.ABC):
+    """Template for handlers that fuse BM25, vector, and keyword paths via RRF.
+
+    Subclasses override the three search paths and the hydration step.
+    """
+
+    layer_name: str = "?"
+
+    def __init__(self, store: Any, config: Optional[RetrievalConfig] = None) -> None:
+        self._store = store
         self._config = config or RetrievalConfig()
         self._reranker = build_retrieval_reranker(self._config)
+
+    async def _rrf_execute(
+        self,
+        *,
+        content_query: str,
+        limit: int,
+        bm25_coro,
+        vector_coro,
+        keyword_coro,
+        hydrate_coro_fn,
+        time_range: Optional[TimeRange] = None,
+    ) -> List[Dict[str, Any]]:
+        """Shared RRF fusion skeleton used by all subclasses."""
+        if not content_query:
+            return []
+
+        fetch_k = max(limit * 5, 20)
+
+        results_or_errors = await asyncio.gather(
+            bm25_coro, vector_coro, keyword_coro, return_exceptions=True,
+        )
+
+        bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
+        vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
+        kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
+
+        for i, res in enumerate(results_or_errors):
+            if isinstance(res, BaseException):
+                logger.warning("%s search path %d failed: %s", self.layer_name, i, res)
+
+        if not bm25_ids and not vec_ids and not kw_ids:
+            return []
+
+        cfg = self._config
+        fused = rrf_fuse(
+            [bm25_ids, vec_ids, kw_ids],
+            [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword],
+            k=cfg.rrf_k,
+        )
+
+        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
+        if not top_ids:
+            return []
+
+        results = await hydrate_coro_fn(top_ids)
+
+        if time_range and results:
+            results = self._filter_by_time(results, time_range)
+
+        reranked = await self._reranker.rerank(
+            layer=self.layer_name,
+            results=results,
+            query=content_query,
+            fused_scores=dict(fused),
+        )
+        return reranked[:limit]
+
+    @staticmethod
+    def _filter_by_time(
+        results: List[Dict[str, Any]],
+        time_range: TimeRange,
+    ) -> List[Dict[str, Any]]:
+        """Default time-range filter using timestamp/created_at."""
+        filtered = []
+        for r in results:
+            ts = r.get("timestamp") or r.get("created_at")
+            if ts is None:
+                filtered.append(r)
+                continue
+            if time_range.start and ts < time_range.start:
+                continue
+            if time_range.end and ts > time_range.end:
+                continue
+            filtered.append(r)
+        return filtered
+
+class L1Handler(RRFSearchHandler):
+    """Execute L1 event store queries with triple-path RRF fusion."""
+
+    layer_name = "L1"
+
+    def __init__(self, l1_store: Any, config: Optional[RetrievalConfig] = None) -> None:
+        super().__init__(l1_store, config)
 
     async def execute(
         self,
@@ -76,56 +170,19 @@ class L1Handler:
         """Query L1 using BM25 + vector + keyword, fused via RRF."""
         if not conditions.content_query:
             return []
-
         fetch_k = max(conditions.limit * 5, 20)
-
-        # Three concurrent search paths
-        bm25_task = asyncio.ensure_future(self._bm25_path(conditions.content_query, fetch_k))
-        vec_task = asyncio.ensure_future(self._vector_path(conditions.content_query, fetch_k))
-        kw_task = asyncio.ensure_future(self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id))
-
-        results_or_errors = await asyncio.gather(bm25_task, vec_task, kw_task, return_exceptions=True)
-
-        bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
-        vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
-        kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
-
-        for i, res in enumerate(results_or_errors):
-            if isinstance(res, BaseException):
-                logger.warning("L1 search path %d failed: %s", i, res)
-
-        if not bm25_ids and not vec_ids and not kw_ids:
-            return []
-
-        # RRF fusion
-        cfg = self._config
-        fused = rrf_fuse(
-            [bm25_ids, vec_ids, kw_ids],
-            [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword],
-            k=cfg.rrf_k,
-        )
-
-        # Take top IDs up to fetch_k for hydration
-        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
-        if not top_ids:
-            return []
-
-        # Hydrate full events and apply filters
-        results = await self._fetch_and_filter(
-            event_ids=top_ids,
-            conditions=conditions,
+        return await self._rrf_execute(
+            content_query=conditions.content_query,
+            limit=conditions.limit,
+            bm25_coro=self._bm25_path(conditions.content_query, fetch_k),
+            vector_coro=self._vector_path(conditions.content_query, fetch_k),
+            keyword_coro=self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id),
+            hydrate_coro_fn=lambda ids: self._fetch_and_filter(
+                event_ids=ids, conditions=conditions, time_range=time_range,
+                session_id=session_id, user_id=user_id,
+            ),
             time_range=time_range,
-            session_id=session_id,
-            user_id=user_id,
         )
-
-        reranked = await self._reranker.rerank(
-            layer="L1",
-            results=results,
-            query=conditions.content_query,
-            fused_scores=dict(fused),
-        )
-        return reranked[:conditions.limit]
 
     async def _bm25_path(self, query: str, limit: int) -> List[str]:
         """BM25 search via FTS5."""
@@ -251,25 +308,6 @@ class L1Handler:
             results = self._filter_by_time(results, time_range)
 
         return results
-
-    @staticmethod
-    def _filter_by_time(
-        results: List[Dict[str, Any]],
-        time_range: TimeRange,
-    ) -> List[Dict[str, Any]]:
-        """Post-filter results by time range."""
-        filtered = []
-        for r in results:
-            ts = r.get("timestamp") or r.get("created_at")
-            if ts is None:
-                filtered.append(r)
-                continue
-            if time_range.start and ts < time_range.start:
-                continue
-            if time_range.end and ts > time_range.end:
-                continue
-            filtered.append(r)
-        return filtered
 
 class L2Handler:
     """Execute L2 knowledge graph queries from structured conditions."""
@@ -1140,13 +1178,13 @@ class L2Handler:
         return None
 
 
-class L3Handler:
+class L3Handler(RRFSearchHandler):
     """Execute L3 summary store queries with triple-path RRF fusion."""
 
+    layer_name = "L3"
+
     def __init__(self, l3_store: Any, config: Optional[RetrievalConfig] = None) -> None:
-        self._store = l3_store
-        self._config = config or RetrievalConfig()
-        self._reranker = build_retrieval_reranker(self._config)
+        super().__init__(l3_store, config)
 
     async def execute(
         self,
@@ -1156,55 +1194,18 @@ class L3Handler:
         """Query L3 using BM25 + vector + keyword, fused via RRF."""
         if not conditions.content_query:
             return []
-
         summary_type = conditions.summary_types[0] if conditions.summary_types else None
         summary_category = conditions.summary_categories[0] if conditions.summary_categories else None
         fetch_k = max(conditions.limit * 5, 20)
-
-        bm25_task = asyncio.ensure_future(
-            self._bm25_path(conditions.content_query, summary_type, summary_category, fetch_k)
+        return await self._rrf_execute(
+            content_query=conditions.content_query,
+            limit=conditions.limit,
+            bm25_coro=self._bm25_path(conditions.content_query, summary_type, summary_category, fetch_k),
+            vector_coro=self._vector_path(conditions.content_query, summary_type, summary_category, fetch_k),
+            keyword_coro=self._keyword_path(conditions.content_query, summary_type, summary_category, fetch_k),
+            hydrate_coro_fn=lambda ids: self._fetch_by_ids(ids, summary_type, summary_category),
+            time_range=time_range,
         )
-        vec_task = asyncio.ensure_future(
-            self._vector_path(conditions.content_query, summary_type, summary_category, fetch_k)
-        )
-        kw_task = asyncio.ensure_future(
-            self._keyword_path(conditions.content_query, summary_type, summary_category, fetch_k)
-        )
-
-        results_or_errors = await asyncio.gather(bm25_task, vec_task, kw_task, return_exceptions=True)
-
-        bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
-        vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
-        kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
-
-        for i, res in enumerate(results_or_errors):
-            if isinstance(res, BaseException):
-                logger.warning("L3 search path %d failed: %s", i, res)
-
-        if not bm25_ids and not vec_ids and not kw_ids:
-            return []
-
-        cfg = self._config
-        fused = rrf_fuse(
-            [bm25_ids, vec_ids, kw_ids],
-            [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword],
-            k=cfg.rrf_k,
-        )
-
-        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
-        if not top_ids:
-            return []
-
-        results = await self._fetch_by_ids(top_ids, summary_type, summary_category)
-        if time_range and results:
-            results = self._filter_by_time(results, time_range)
-        reranked = await self._reranker.rerank(
-            layer="L3",
-            results=results,
-            query=conditions.content_query,
-            fused_scores=dict(fused),
-        )
-        return reranked[:conditions.limit]
 
     async def _bm25_path(
         self,
@@ -1310,13 +1311,13 @@ class L3Handler:
         return filtered
 
 
-class L4Handler:
+class L4Handler(RRFSearchHandler):
     """Execute L4 procedural memory queries with triple-path RRF fusion."""
 
+    layer_name = "L4"
+
     def __init__(self, l4_store: Any, config: Optional[RetrievalConfig] = None) -> None:
-        self._store = l4_store
-        self._config = config or RetrievalConfig()
-        self._reranker = build_retrieval_reranker(self._config)
+        super().__init__(l4_store, config)
 
     async def execute(
         self,
@@ -1326,45 +1327,15 @@ class L4Handler:
         """Query L4 using BM25 + vector + keyword, fused via RRF."""
         if not conditions.content_query:
             return []
-
         fetch_k = max(conditions.limit * 5, 20)
-
-        bm25_task = asyncio.ensure_future(self._bm25_path(conditions.content_query, fetch_k))
-        vec_task = asyncio.ensure_future(self._vector_path(conditions.content_query, fetch_k))
-        kw_task = asyncio.ensure_future(self._keyword_path(conditions.content_query, fetch_k))
-
-        results_or_errors = await asyncio.gather(bm25_task, vec_task, kw_task, return_exceptions=True)
-
-        bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
-        vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
-        kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
-
-        for i, res in enumerate(results_or_errors):
-            if isinstance(res, BaseException):
-                logger.warning("L4 search path %d failed: %s", i, res)
-
-        if not bm25_ids and not vec_ids and not kw_ids:
-            return []
-
-        cfg = self._config
-        fused = rrf_fuse(
-            [bm25_ids, vec_ids, kw_ids],
-            [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword],
-            k=cfg.rrf_k,
+        return await self._rrf_execute(
+            content_query=conditions.content_query,
+            limit=conditions.limit,
+            bm25_coro=self._bm25_path(conditions.content_query, fetch_k),
+            vector_coro=self._vector_path(conditions.content_query, fetch_k),
+            keyword_coro=self._keyword_path(conditions.content_query, fetch_k),
+            hydrate_coro_fn=self._fetch_by_ids,
         )
-
-        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
-        if not top_ids:
-            return []
-
-        results = await self._fetch_by_ids(top_ids)
-        reranked = await self._reranker.rerank(
-            layer="L4",
-            results=results,
-            query=conditions.content_query,
-            fused_scores=dict(fused),
-        )
-        return reranked[:conditions.limit]
 
     async def _bm25_path(self, query: str, limit: int) -> List[str]:
         try:
