@@ -23,6 +23,7 @@ _MOMENTARY_TRAITS = {"annoyance", "irritation", "frustration"}
 _SNAPSHOT_HISTORY_LIMIT = 5
 DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD = 300
 DEFAULT_L2_STEADY_STATE_MAX_WAIT_SECONDS = 45.0
+DEFAULT_FUTURE_INTENT_TTL_SECONDS = 30 * 24 * 3600  # 30 days
 logger = get_logger(__name__)
 
 
@@ -468,6 +469,8 @@ class L2CognitionStore:
         observed_at: float,
         source_type: str,
         extraction_method: str = "rule",
+        evidence_text: str = "",
+        expires_at: float | None = None,
     ) -> str:
         """Insert or refresh a knowledge-graph edge.
 
@@ -482,6 +485,11 @@ class L2CognitionStore:
         normalized_object_id = _normalize_store_entity_ref(object_id, normalized_object_type) or object_id
         normalized_fact_kind = str(fact_kind).strip() if fact_kind is not None else ""
         now = time.time()
+
+        # Auto-set TTL for future_intent edges
+        effective_expires_at = expires_at
+        if normalized_fact_kind == "future_intent" and effective_expires_at is None:
+            effective_expires_at = float(observed_at) + DEFAULT_FUTURE_INTENT_TTL_SECONDS
 
         # ── Same (S,O) interception: reuse existing synonymous edge ──
         effective_predicate = predicate
@@ -524,11 +532,13 @@ class L2CognitionStore:
                     )
 
         triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{subject_id}:{effective_predicate}:{normalized_object_id}')}"
+        effective_evidence_text = str(evidence_text).strip() if evidence_text else ""
+        natural_summary = effective_evidence_text or f"{subject_id} {effective_predicate} {normalized_object_id}"
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, fact_kind FROM knowledge_graph WHERE triple_id = ?",
+                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, fact_kind, evidence_text FROM knowledge_graph WHERE triple_id = ?",
                 (triple_id,),
             ) as cursor:
                 existing = await cursor.fetchone()
@@ -542,12 +552,19 @@ class L2CognitionStore:
                 old_confidence = float(existing["confidence"])
                 accumulated_confidence = _accumulate_confidence(old_confidence, float(confidence))
                 effective_fact_kind = normalized_fact_kind or str(existing["fact_kind"] or "").strip() or "explicit_fact"
+                # Keep the longer evidence_text
+                existing_evidence_text = str(existing["evidence_text"] or "")
+                if len(effective_evidence_text) <= len(existing_evidence_text):
+                    effective_evidence_text = existing_evidence_text
+                    natural_summary = effective_evidence_text or f"{subject_id} {effective_predicate} {normalized_object_id}"
                 await db.execute(
                     """
                     UPDATE knowledge_graph
                     SET fact_kind = ?, confidence = ?, evidence_event_ids = ?, observation_count = ?,
                         last_observed_at = ?, last_confirmed_at = ?, source_type = ?,
-                        extraction_method = ?, updated_at = ?
+                        extraction_method = ?, evidence_text = ?, natural_summary = ?,
+                        embedding_status = 'pending', expires_at = COALESCE(?, expires_at),
+                        updated_at = ?
                     WHERE triple_id = ?
                     """,
                     (
@@ -559,6 +576,9 @@ class L2CognitionStore:
                         float(observed_at),
                         source_type,
                         extraction_method,
+                        effective_evidence_text,
+                        natural_summary,
+                        effective_expires_at,
                         now,
                         triple_id,
                     ),
@@ -570,8 +590,9 @@ class L2CognitionStore:
                         triple_id, subject_id, subject_type, predicate, object_id, object_type,
                         fact_kind, confidence, evidence_event_ids, observation_count, first_observed_at,
                         last_observed_at, last_confirmed_at, source_type, extraction_method,
+                        evidence_text, natural_summary, embedding_status, expires_at,
                         status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'active', ?, ?)
                     """,
                     (
                         triple_id,
@@ -589,6 +610,9 @@ class L2CognitionStore:
                         float(observed_at),
                         source_type,
                         extraction_method,
+                        effective_evidence_text,
+                        natural_summary,
+                        effective_expires_at,
                         now,
                         now,
                     ),
@@ -622,6 +646,7 @@ class L2CognitionStore:
         evidence_event_ids: List[str],
         new_confidence: float,
         observed_at: float,
+        evidence_text: str = "",
     ) -> bool:
         """Accumulate confidence on an existing edge without creating a new triple.
 
@@ -632,7 +657,7 @@ class L2CognitionStore:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT confidence, evidence_event_ids, observation_count FROM knowledge_graph "
+                "SELECT confidence, evidence_event_ids, observation_count, evidence_text FROM knowledge_graph "
                 "WHERE triple_id = ? AND status = 'active'",
                 (triple_id,),
             ) as cursor:
@@ -646,12 +671,17 @@ class L2CognitionStore:
             )
             observation_count = int(existing["observation_count"]) + 1
             accumulated_confidence = _accumulate_confidence(float(existing["confidence"]), float(new_confidence))
+            # Keep the longer evidence_text
+            new_evidence_text = str(evidence_text).strip() if evidence_text else ""
+            existing_evidence_text = str(existing["evidence_text"] or "")
+            effective_evidence_text = new_evidence_text if len(new_evidence_text) > len(existing_evidence_text) else existing_evidence_text
 
             await db.execute(
                 """
                 UPDATE knowledge_graph
                 SET confidence = ?, evidence_event_ids = ?, observation_count = ?,
-                    last_observed_at = ?, last_confirmed_at = ?, updated_at = ?
+                    last_observed_at = ?, last_confirmed_at = ?,
+                    evidence_text = ?, embedding_status = 'pending', updated_at = ?
                 WHERE triple_id = ?
                 """,
                 (
@@ -660,6 +690,7 @@ class L2CognitionStore:
                     observation_count,
                     float(observed_at),
                     float(observed_at),
+                    effective_evidence_text,
                     now,
                     triple_id,
                 ),
@@ -2857,6 +2888,7 @@ class L2CognitionStore:
         }
 
     def _relation_row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
+        columns = set(row.keys()) if hasattr(row, "keys") else set()
         return {
             "triple_id": str(row["triple_id"]),
             "subject_id": str(row["subject_id"]),
@@ -2873,6 +2905,10 @@ class L2CognitionStore:
             "last_confirmed_at": float(row["last_confirmed_at"]) if row["last_confirmed_at"] else None,
             "source_type": row["source_type"],
             "extraction_method": row["extraction_method"],
+            "evidence_text": str(row["evidence_text"] or "") if "evidence_text" in columns else "",
+            "natural_summary": str(row["natural_summary"] or "") if "natural_summary" in columns else "",
+            "embedding_status": str(row["embedding_status"] or "pending") if "embedding_status" in columns else "pending",
+            "expires_at": float(row["expires_at"]) if "expires_at" in columns and row["expires_at"] else None,
             "status": str(row["status"]),
             "deprecated_by": row["deprecated_by"],
             "deprecated_at": float(row["deprecated_at"]) if row["deprecated_at"] else None,
@@ -2902,6 +2938,14 @@ class L2CognitionStore:
             await db.execute(
                 "ALTER TABLE knowledge_graph ADD COLUMN fact_kind TEXT NOT NULL DEFAULT 'explicit_fact'"
             )
+        if "evidence_text" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN evidence_text TEXT DEFAULT ''")
+        if "natural_summary" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN natural_summary TEXT DEFAULT ''")
+        if "embedding_status" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN embedding_status TEXT DEFAULT 'pending'")
+        if "expires_at" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN expires_at REAL")
 
 
 __all__ = ["L2CognitionStore"]

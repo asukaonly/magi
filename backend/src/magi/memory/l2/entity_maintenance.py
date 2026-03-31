@@ -65,6 +65,7 @@ class L2EntityMaintenanceStats:
     fragment_entities_merged: int = 0
     fragment_groups_processed: int = 0
     orphans_pruned: int = 0
+    expired_future_intents: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -81,6 +82,7 @@ class L2EntityMaintenance:
         resolve_ghosts: bool = True,
         merge_fragments: bool = True,
         prune_orphans: bool = True,
+        expire_future_intents: bool = True,
     ) -> L2EntityMaintenanceStats:
         stats = L2EntityMaintenanceStats()
         if resolve_ghosts:
@@ -89,6 +91,8 @@ class L2EntityMaintenance:
             await self._merge_fragmented_entities(stats)
         if prune_orphans:
             await self._prune_orphan_low_mention_entities(stats, min_mentions=min_mentions_to_keep)
+        if expire_future_intents:
+            await self._expire_stale_future_intents(stats)
         if any(
             (
                 stats.ghost_edges_rewritten,
@@ -96,6 +100,7 @@ class L2EntityMaintenance:
                 stats.tom_entity_refs_rewritten,
                 stats.fragment_entities_merged,
                 stats.orphans_pruned,
+                stats.expired_future_intents,
             )
         ):
             logger.info(
@@ -107,6 +112,7 @@ class L2EntityMaintenance:
                 fragment_entities_merged=stats.fragment_entities_merged,
                 fragment_groups=stats.fragment_groups_processed,
                 orphans_pruned=stats.orphans_pruned,
+                expired_future_intents=stats.expired_future_intents,
             )
         return stats
 
@@ -551,4 +557,21 @@ class L2EntityMaintenance:
             await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (entity_id,))
             await db.execute("DELETE FROM entity_mentions WHERE resolved_entity_id = ?", (entity_id,))
             await db.execute("DELETE FROM entity_catalog WHERE entity_id = ?", (entity_id,))
+            await db.commit()
+
+    async def _expire_stale_future_intents(self, stats: L2EntityMaintenanceStats) -> None:
+        """Mark expired future_intent edges as 'expired'."""
+        now = time.time()
+        async with sqlite_connection_async(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE knowledge_graph
+                SET status = 'expired', updated_at = ?
+                WHERE fact_kind = 'future_intent'
+                  AND expires_at IS NOT NULL AND expires_at < ?
+                  AND status = 'active'
+                """,
+                (now, now),
+            )
+            stats.expired_future_intents = cursor.rowcount
             await db.commit()

@@ -165,3 +165,65 @@ async def test_prune_orphan_single_mention_no_graph() -> None:
         async with sqlite_connection_async(db_path) as db:
             async with db.execute("SELECT COUNT(*) FROM entity_catalog WHERE entity_id = ?", ("person:nobody",)) as cur:
                 assert (await cur.fetchone())[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_expire_stale_future_intents():
+    """Expired future_intent edges should be marked as 'expired' by maintenance."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "l2.db")
+        await _init_schema(db_path)
+
+        now = time.time()
+        past_expires = now - 100  # expired 100 seconds ago
+        future_expires = now + 86400  # expires tomorrow
+
+        store = L2CognitionStore(db_path=db_path)
+        await store.initialize()
+
+        # Insert an edge that has already expired
+        tid_expired = await store.upsert_knowledge_edge(
+            subject_id="user:u1",
+            subject_type="user",
+            predicate="PLANS_TO",
+            object_id="activity:travel",
+            object_type="activity",
+            fact_kind="future_intent",
+            evidence_event_ids=["evt-1"],
+            confidence=0.8,
+            observed_at=now - 86400 * 31,
+            source_type="chat",
+            expires_at=past_expires,
+        )
+
+        # Insert an edge that hasn't expired yet
+        tid_active = await store.upsert_knowledge_edge(
+            subject_id="user:u1",
+            subject_type="user",
+            predicate="PLANS_TO",
+            object_id="activity:concert",
+            object_type="activity",
+            fact_kind="future_intent",
+            evidence_event_ids=["evt-2"],
+            confidence=0.8,
+            observed_at=now - 100,
+            source_type="chat",
+            expires_at=future_expires,
+        )
+
+        maint = L2EntityMaintenance(db_path=db_path)
+        stats = await maint.run(
+            resolve_ghosts=False,
+            merge_fragments=False,
+            prune_orphans=False,
+        )
+
+        assert stats.expired_future_intents == 1
+
+        edge_expired = await store.get_relationship(triple_id=tid_expired)
+        assert edge_expired is not None
+        assert edge_expired["status"] == "expired"
+
+        edge_active = await store.get_relationship(triple_id=tid_active)
+        assert edge_active is not None
+        assert edge_active["status"] == "active"

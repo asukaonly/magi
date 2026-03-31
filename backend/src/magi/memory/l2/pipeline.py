@@ -49,6 +49,7 @@ from .entity_catalog import L2EntityCatalog
 from .extraction_profiles import ExtractionProfile, resolve_extraction_profile
 from .llm_service import L2LLMService
 from .ontology import (
+    PREDICATE_REGISTRY,
     coerce_unknown_entity_type,
     is_leaf_fact_duplicate,
     validate_assertion_candidate,
@@ -1041,6 +1042,64 @@ class L2Pipeline:
         if self._cognition_store is not None:
             existing_graph_edges, existing_assertions = await self._load_existing_graph_context(focal_entities)
 
+        # ── Fast-track: skip Phase 2 when Phase 1 output is simple ──
+        if self._can_fast_track(
+            phase1_result=phase1_result,
+            resolved_mentions=resolved_mentions,
+            existing_graph_edges=existing_graph_edges,
+            profile=extraction_profile,
+            policy=policy,
+        ):
+            fast_track_candidates = self._fast_track_claims_to_candidates(
+                phase1_result=phase1_result,
+                event=stored_event,
+                evidence_event_ids=batch_event_ids,
+                resolved_mentions=resolved_mentions,
+                catalog_name_index=catalog_name_index,
+                profile=extraction_profile,
+            )
+            facet_candidates = self._build_structured_facet_candidates(
+                event=stored_event,
+                evidence_event_ids=batch_event_ids,
+            )
+            relation_count = 0
+            facet_count = 0
+            if self._cognition_store is not None:
+                for candidate in fast_track_candidates:
+                    await self._cognition_store.upsert_knowledge_edge(**candidate)
+                    relation_count += 1
+                for candidate in facet_candidates:
+                    await self._cognition_store.upsert_entity_facet(**candidate)
+                    facet_count += 1
+            touched_entity_ids = self._collect_touched_entities(fast_track_candidates, [])
+            logger.info(
+                "L2 fast-track: skipped Phase 2",
+                event_id=stored_event.event_id,
+                profile_id=extraction_profile.profile_id,
+                relation_count=relation_count,
+                direct_write_count=direct_write_count,
+                facet_count=facet_count,
+            )
+            return {
+                "relation_count": relation_count,
+                "assertion_count": 0,
+                "touched_entity_ids": touched_entity_ids,
+                "snapshot_refresh_entity_ids": [],
+                "skipped": False,
+                "evidence_class": classification.evidence_class,
+                "profile_id": extraction_profile.profile_id,
+                "mention_count": len(phase1_result.entities),
+                "direct_write_count": direct_write_count,
+                "corroborate_count": 0,
+                "graph_candidate_count": len(fast_track_candidates),
+                "assertion_candidate_count": 0,
+                "rejected_graph_candidate_count": 0,
+                "rejected_assertion_candidate_count": 0,
+                "contradiction_hint_count": 0,
+                "conflict_arbitration_decision": None,
+                "fast_tracked": True,
+            }
+
         # ── Phase 2: Integrate & Reason ──
         logger.info(
             "L2 Phase 2 integration started",
@@ -1585,6 +1644,7 @@ class L2Pipeline:
                     "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
                     "new_confidence": edge.confidence,
                     "observed_at": event.timestamp,
+                    "evidence_text": edge.evidence_text or "",
                 })
                 continue
 
@@ -1639,9 +1699,120 @@ class L2Pipeline:
                     "observed_at": event.timestamp,
                     "source_type": event.source,
                     "extraction_method": "llm_phase2_integration",
+                    "evidence_text": edge.evidence_text or "",
                 }
             )
         return prepared, corroborate_targets, rejected_count
+
+    def _can_fast_track(
+        self,
+        *,
+        phase1_result: L2Phase1Result,
+        resolved_mentions: list[ResolvedEntityMention],
+        existing_graph_edges: list[dict[str, Any]],
+        profile: ExtractionProfile,
+        policy: Any,
+    ) -> bool:
+        """Return True when Phase 1 output is simple enough to skip Phase 2."""
+        if not phase1_result.fact_claims:
+            return False
+        # If assertions are allowed, Phase 2 is needed to produce them
+        if policy.allow_assertion_write:
+            return False
+        # All predicates must be registered (no need for LLM reasoning about unknown predicates)
+        for claim in phase1_result.fact_claims:
+            if self._normalize_predicate(claim.predicate) not in PREDICATE_REGISTRY:
+                return False
+        # All entities must be resolved (no brand-new entities requiring Phase 2 reasoning)
+        for entity in phase1_result.entities:
+            if getattr(entity, "is_new", False):
+                return False
+        # No assertion-class output (assertions require Phase 2 reasoning)
+        if any(
+            claim.fact_kind and "assertion" in claim.fact_kind.lower()
+            for claim in phase1_result.fact_claims
+        ):
+            return False
+        # Check for potential conflicts with existing edges
+        existing_predicates_by_pair: dict[tuple[str, str], set[str]] = {}
+        for edge in existing_graph_edges:
+            pair = (str(edge.get("subject_id", "")), str(edge.get("object_id", "")))
+            existing_predicates_by_pair.setdefault(pair, set()).add(str(edge.get("predicate", "")))
+        for claim in phase1_result.fact_claims:
+            predicate = self._normalize_predicate(claim.predicate)
+            object_type = self._normalize_entity_type(claim.object_type)
+            object_id = self._resolve_phase2_object_id(
+                raw_object_ref=claim.object_ref,
+                object_type=object_type,
+                resolved_mentions=resolved_mentions,
+                catalog_name_index=None,
+            )
+            if not object_id:
+                return False
+            # Check profile constraints
+            if object_type not in profile.effective_structured_allowed_entity_types:
+                return False
+            if predicate not in profile.effective_structured_allowed_predicates:
+                return False
+        return True
+
+    def _fast_track_claims_to_candidates(
+        self,
+        *,
+        phase1_result: L2Phase1Result,
+        event: MemoryEvent,
+        evidence_event_ids: list[str],
+        resolved_mentions: list[ResolvedEntityMention],
+        catalog_name_index: dict[str, str] | None = None,
+        profile: ExtractionProfile,
+    ) -> list[dict[str, Any]]:
+        """Convert Phase 1 fact claims directly to graph candidates (no Phase 2)."""
+        candidates: list[dict[str, Any]] = []
+        for claim in phase1_result.fact_claims:
+            predicate = self._normalize_predicate(claim.predicate)
+            object_type = self._normalize_entity_type(claim.object_type)
+            if object_type not in profile.effective_structured_allowed_entity_types:
+                continue
+            if predicate not in profile.effective_structured_allowed_predicates:
+                continue
+            is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})
+            if not is_valid:
+                continue
+            subject_id = self._resolve_phase2_subject_id(event=event, subject_ref=claim.subject_ref)
+            if not subject_id:
+                continue
+            object_id = self._resolve_phase2_object_id(
+                raw_object_ref=claim.object_ref,
+                object_type=object_type,
+                resolved_mentions=resolved_mentions,
+                catalog_name_index=catalog_name_index,
+            )
+            if not object_id:
+                continue
+            if self._should_reject_preference_graph_candidate(
+                event=event,
+                subject_id=subject_id,
+                predicate=predicate,
+                object_id=object_id,
+                object_type=object_type,
+                raw_object_ref=claim.object_ref,
+            ):
+                continue
+            candidates.append({
+                "subject_id": subject_id,
+                "subject_type": claim.subject_type or "user",
+                "predicate": predicate,
+                "object_id": object_id,
+                "object_type": object_type,
+                "fact_kind": self._non_empty_text(claim.fact_kind) or "explicit_fact",
+                "evidence_event_ids": list(claim.supporting_event_ids or evidence_event_ids),
+                "confidence": claim.confidence,
+                "observed_at": event.timestamp,
+                "source_type": event.source,
+                "extraction_method": "llm_phase1_fast_track",
+                "evidence_text": claim.evidence_text or "",
+            })
+        return candidates
 
     def _build_structured_graph_candidates(
         self,

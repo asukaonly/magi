@@ -4186,3 +4186,152 @@ async def test_validate_phase2_graph_edges_routes_corroborates_to_targets():
         # It may also be rejected depending on resolution — that's fine
         # The key assertion is that corroborates is separated
         assert all(t.get("triple_id") != "triple_abc123" for t in prepared)
+
+
+@pytest.mark.asyncio
+async def test_can_fast_track_simple_claims():
+    """_can_fast_track should return True when all conditions are met."""
+    from magi.memory.l2.models import L2Phase1FactClaim, L2Phase1Result
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        phase1_result = L2Phase1Result(
+            entities=[],
+            fact_claims=[
+                L2Phase1FactClaim(
+                    subject_ref="user:u1",
+                    subject_type="user",
+                    predicate="LIKES",
+                    object_ref="food:ramen",
+                    object_type="food",
+                    fact_kind="explicit_fact",
+                    confidence=0.9,
+                ),
+            ],
+        )
+
+        class _NoAssertionPolicy:
+            allow_graph_write = True
+            allow_assertion_write = False
+            graph_scope = "full"
+
+        class _AssertionPolicy:
+            allow_graph_write = True
+            allow_assertion_write = True
+            graph_scope = "full"
+
+        class _FakeProfile:
+            allow_graph = True
+            effective_structured_allowed_entity_types = frozenset({"food"})
+            effective_structured_allowed_predicates = frozenset({"LIKES"})
+
+        # Simple graph-only claim → fast track
+        assert pipeline._can_fast_track(
+            phase1_result=phase1_result,
+            resolved_mentions=[],
+            existing_graph_edges=[],
+            profile=_FakeProfile(),
+            policy=_NoAssertionPolicy(),
+        ) is True
+
+        # Assertion write allowed → no fast track (Phase 2 needed for assertions)
+        assert pipeline._can_fast_track(
+            phase1_result=phase1_result,
+            resolved_mentions=[],
+            existing_graph_edges=[],
+            profile=_FakeProfile(),
+            policy=_AssertionPolicy(),
+        ) is False
+
+
+@pytest.mark.asyncio
+async def test_can_fast_track_rejects_unknown_predicate():
+    """_can_fast_track should return False when predicates are not registered."""
+    from magi.memory.l2.models import L2Phase1FactClaim, L2Phase1Result
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        phase1_result = L2Phase1Result(
+            entities=[],
+            fact_claims=[
+                L2Phase1FactClaim(
+                    subject_ref="user:u1",
+                    predicate="SOME_UNKNOWN_PREDICATE",
+                    object_ref="food:ramen",
+                    object_type="food",
+                    confidence=0.9,
+                ),
+            ],
+        )
+
+        class _FakePolicy:
+            allow_graph_write = True
+            allow_assertion_write = False
+            graph_scope = "full"
+
+        class _FakeProfile:
+            allow_graph = True
+            effective_structured_allowed_entity_types = frozenset({"food"})
+            effective_structured_allowed_predicates = frozenset({"SOME_UNKNOWN_PREDICATE"})
+
+        assert pipeline._can_fast_track(
+            phase1_result=phase1_result,
+            resolved_mentions=[],
+            existing_graph_edges=[],
+            profile=_FakeProfile(),
+            policy=_FakePolicy(),
+        ) is False
+
+
+@pytest.mark.asyncio
+async def test_fast_track_claims_to_candidates_produces_valid_output():
+    """_fast_track_claims_to_candidates should convert Phase 1 claims to graph candidates."""
+    from magi.memory.l2.models import L2Phase1FactClaim, L2Phase1Result
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        event = _make_memory_event(event_id="evt-ft", content="I like ramen")
+
+        phase1_result = L2Phase1Result(
+            entities=[],
+            fact_claims=[
+                L2Phase1FactClaim(
+                    subject_ref="user:u1",
+                    subject_type="user",
+                    predicate="LIKES",
+                    object_ref="food:ramen",
+                    object_type="food",
+                    fact_kind="explicit_fact",
+                    confidence=0.9,
+                    evidence_text="I like ramen",
+                    supporting_event_ids=["evt-ft"],
+                ),
+            ],
+        )
+
+        class _FakeProfile:
+            allow_graph = True
+            effective_structured_allowed_entity_types = frozenset({"food"})
+            effective_structured_allowed_predicates = frozenset({"LIKES"})
+
+        candidates = pipeline._fast_track_claims_to_candidates(
+            phase1_result=phase1_result,
+            event=event,
+            evidence_event_ids=["evt-ft"],
+            resolved_mentions=[],
+            catalog_name_index=None,
+            profile=_FakeProfile(),
+        )
+
+        assert len(candidates) == 1
+        c = candidates[0]
+        assert c["predicate"] == "LIKES"
+        assert c["object_id"] == "food:ramen"
+        assert c["extraction_method"] == "llm_phase1_fast_track"
+        assert c["evidence_text"] == "I like ramen"

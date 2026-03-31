@@ -1672,3 +1672,156 @@ async def test_corroborate_edge_missing_triple_returns_false(tmp_path):
     )
 
     assert result is False
+
+
+# ---------------------------------------------------------------------------
+# T4: evidence_text + natural_summary + embedding_status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upsert_edge_stores_evidence_text_and_natural_summary(tmp_path):
+    """New edges should persist evidence_text, natural_summary, and embedding_status='pending'."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    tid = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.8,
+        observed_at=1710000000.0,
+        source_type="chat",
+        evidence_text="I really love ramen",
+    )
+
+    edge = await store.get_relationship(triple_id=tid)
+    assert edge is not None
+    assert edge["evidence_text"] == "I really love ramen"
+    assert edge["natural_summary"] == "I really love ramen"
+    assert edge["embedding_status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_upsert_edge_generates_natural_summary_when_evidence_text_empty(tmp_path):
+    """When evidence_text is empty, natural_summary should be auto-generated from S/P/O."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    tid = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.8,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+
+    edge = await store.get_relationship(triple_id=tid)
+    assert edge is not None
+    assert edge["evidence_text"] == ""
+    assert "LIKES" in edge["natural_summary"]
+    assert "user:u1" in edge["natural_summary"]
+
+
+@pytest.mark.asyncio
+async def test_corroborate_keeps_longer_evidence_text(tmp_path):
+    """corroborate_edge should keep the longer evidence_text."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    tid = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.6,
+        observed_at=1710000000.0,
+        source_type="chat",
+        evidence_text="short",
+    )
+
+    await store.corroborate_edge(
+        triple_id=tid,
+        evidence_event_ids=["evt-2"],
+        new_confidence=0.5,
+        observed_at=1710001000.0,
+        evidence_text="this is a much longer evidence text describing the relationship",
+    )
+
+    edge = await store.get_relationship(triple_id=tid)
+    assert edge is not None
+    assert edge["evidence_text"] == "this is a much longer evidence text describing the relationship"
+
+
+# ---------------------------------------------------------------------------
+# T6: future_intent TTL expiry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_future_intent_auto_sets_expires_at(tmp_path):
+    """Edges with fact_kind='future_intent' should auto-populate expires_at."""
+    from magi.memory.l2.store import L2CognitionStore, DEFAULT_FUTURE_INTENT_TTL_SECONDS
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    observed = 1710000000.0
+    tid = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="PLANS_TO",
+        object_id="activity:travel-japan",
+        object_type="activity",
+        fact_kind="future_intent",
+        evidence_event_ids=["evt-1"],
+        confidence=0.8,
+        observed_at=observed,
+        source_type="chat",
+    )
+
+    edge = await store.get_relationship(triple_id=tid)
+    assert edge is not None
+    assert edge["expires_at"] is not None
+    assert abs(edge["expires_at"] - (observed + DEFAULT_FUTURE_INTENT_TTL_SECONDS)) < 1.0
+
+
+@pytest.mark.asyncio
+async def test_non_future_intent_does_not_set_expires_at(tmp_path):
+    """Edges with other fact_kinds should not auto-populate expires_at."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    tid = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        fact_kind="explicit_fact",
+        evidence_event_ids=["evt-1"],
+        confidence=0.8,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+
+    edge = await store.get_relationship(triple_id=tid)
+    assert edge is not None
+    assert edge["expires_at"] is None
