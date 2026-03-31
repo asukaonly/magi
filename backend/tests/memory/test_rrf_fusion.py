@@ -229,7 +229,7 @@ class TestL1HandlerTriplePath:
         # Monkeypatch BM25 to raise
         original_bm25 = handler._bm25_path
 
-        async def failing_bm25(query, limit):
+        async def failing_bm25(query, limit, *, user_id=None):
             raise RuntimeError("BM25 broken")
 
         handler._bm25_path = failing_bm25

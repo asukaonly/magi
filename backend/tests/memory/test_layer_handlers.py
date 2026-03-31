@@ -62,10 +62,10 @@ class TestL1Handler:
         handler = L1Handler(store)
         conds = L1Conditions(content_query="What was the first issue I had with my new car after its first service?", limit=2)
 
-        async def _bm25_path(_query, _limit):
+        async def _bm25_path(_query, _limit, *, user_id=None):
             return ["assistant-generic", "user-fact"]
 
-        async def _vector_path(_query, _limit):
+        async def _vector_path(_query, _limit, *, user_id=None):
             return []
 
         async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
@@ -110,10 +110,10 @@ class TestL1Handler:
         handler = L1Handler(store)
         conds = L1Conditions(content_query="Where did I mention the GPS issue?", limit=1)
 
-        async def _bm25_path(_query, _limit):
+        async def _bm25_path(_query, _limit, *, user_id=None):
             return ["user-fact"]
 
-        async def _vector_path(_query, _limit):
+        async def _vector_path(_query, _limit, *, user_id=None):
             return []
 
         async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
@@ -151,10 +151,10 @@ class TestL1Handler:
             limit=3,
         )
 
-        async def _bm25_path(_query, _limit):
+        async def _bm25_path(_query, _limit, *, user_id=None):
             return ["assistant-generic", "user-workshop", "user-webinar"]
 
-        async def _vector_path(_query, _limit):
+        async def _vector_path(_query, _limit, *, user_id=None):
             return []
 
         async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
@@ -211,10 +211,10 @@ class TestL1Handler:
             limit=1,
         )
 
-        async def _bm25_path(_query, _limit):
+        async def _bm25_path(_query, _limit, *, user_id=None):
             return ["user-workshop"]
 
-        async def _vector_path(_query, _limit):
+        async def _vector_path(_query, _limit, *, user_id=None):
             return []
 
         async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
@@ -273,10 +273,10 @@ class TestL1Handler:
             },
         ]
 
-        async def _bm25_path(_query, _limit):
+        async def _bm25_path(_query, _limit, *, user_id=None):
             return []
 
-        async def _vector_path(_query, _limit):
+        async def _vector_path(_query, _limit, *, user_id=None):
             return []
 
         async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):

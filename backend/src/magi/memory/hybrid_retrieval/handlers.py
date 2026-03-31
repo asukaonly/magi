@@ -174,8 +174,8 @@ class L1Handler(RRFSearchHandler):
         return await self._rrf_execute(
             content_query=conditions.content_query,
             limit=conditions.limit,
-            bm25_coro=self._bm25_path(conditions.content_query, fetch_k),
-            vector_coro=self._vector_path(conditions.content_query, fetch_k),
+            bm25_coro=self._bm25_path(conditions.content_query, fetch_k, user_id=user_id),
+            vector_coro=self._vector_path(conditions.content_query, fetch_k, user_id=user_id),
             keyword_coro=self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id),
             hydrate_coro_fn=lambda ids: self._fetch_and_filter(
                 event_ids=ids, conditions=conditions, time_range=time_range,
@@ -184,20 +184,40 @@ class L1Handler(RRFSearchHandler):
             time_range=time_range,
         )
 
-    async def _bm25_path(self, query: str, limit: int) -> List[str]:
-        """BM25 search via FTS5."""
+    async def _bm25_path(self, query: str, limit: int, *, user_id: Optional[str] = None) -> List[str]:
+        """BM25 search via FTS5, optionally scoped to *user_id*."""
         try:
-            hits = await self._store.bm25_search(query, limit=limit)
+            hits = await self._store.bm25_search(query, limit=limit, user_id=user_id)
             return [event_id for event_id, _score in hits]
         except Exception as exc:
             logger.warning("BM25 path failed: %s", exc)
             return []
 
-    async def _vector_path(self, query: str, limit: int) -> List[str]:
-        """Vector similarity search via sqlite-vec."""
+    async def _vector_path(self, query: str, limit: int, *, user_id: Optional[str] = None) -> List[str]:
+        """Vector similarity search via sqlite-vec.
+
+        Resolves chunk-level entity IDs returned by the vector index back to
+        event IDs.  When *user_id* is provided, only events belonging to that
+        user are returned (via a post-filter against ``fact_events``).
+        """
         try:
             hits = await self._store._semantic_search_event_hits(query=query, limit=limit)
-            return [hit.entity_id for hit in hits]
+            if not hits:
+                return []
+
+            # Resolve chunk_ids (e.g. "evt_xxx::chunk-0") → event_ids ("evt_xxx")
+            seen: set[str] = set()
+            event_ids: List[str] = []
+            for hit in hits:
+                eid = hit.entity_id.split("::")[0] if "::" in hit.entity_id else hit.entity_id
+                if eid not in seen:
+                    seen.add(eid)
+                    event_ids.append(eid)
+
+            if user_id and event_ids:
+                event_ids = await self._filter_ids_by_user(event_ids, user_id)
+
+            return event_ids
         except Exception as exc:
             logger.warning("Vector path failed: %s", exc)
             return []
@@ -240,6 +260,22 @@ class L1Handler(RRFSearchHandler):
         except Exception as exc:
             logger.warning("Keyword path failed: %s", exc)
             return []
+
+    async def _filter_ids_by_user(self, event_ids: List[str], user_id: str) -> List[str]:
+        """Return the subset of *event_ids* that belong to *user_id*."""
+        if not event_ids:
+            return []
+        placeholders = ", ".join("?" for _ in event_ids)
+        query = (
+            f"SELECT event_id FROM fact_events"
+            f" WHERE event_id IN ({placeholders}) AND user_id = ? AND deleted_at IS NULL"
+        )
+        args = [*event_ids, user_id]
+        async with sqlite_connection_async(self._store.db_path) as db:
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        valid = {str(row[0]) for row in rows}
+        return [eid for eid in event_ids if eid in valid]
 
     async def _fetch_and_filter(
         self,

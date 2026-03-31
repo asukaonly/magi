@@ -735,11 +735,15 @@ class L1EventStore:
         query: str,
         *,
         limit: int = 20,
+        user_id: str | None = None,
     ) -> List[Tuple[str, float]]:
         """Search L1 events via FTS5 BM25 ranking.
 
         Returns a list of (event_id, bm25_score) tuples ordered by relevance.
         Lower bm25 scores indicate higher relevance in SQLite FTS5.
+
+        When *user_id* is provided the results are scoped to events owned by
+        that user via a JOIN with the fact_events table.
         """
         await self.initialize()
         tokenized = tokenize_for_fts(query)
@@ -750,10 +754,10 @@ class L1EventStore:
             return []
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             try:
-                rows = await self._run_bm25_query(db, escaped, limit=limit)
+                rows = await self._run_bm25_query(db, escaped, limit=limit, user_id=user_id)
                 if not rows:
                     for fallback_query in self._build_relaxed_fts_queries(query):
-                        rows = await self._run_bm25_query(db, fallback_query, limit=limit)
+                        rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id)
                         if rows:
                             break
                 return [(str(row[0]), float(row[1])) for row in rows]
@@ -767,8 +771,28 @@ class L1EventStore:
         match_query: str,
         *,
         limit: int,
+        user_id: str | None = None,
     ) -> list[tuple[Any, Any]]:
-        """Execute a single FTS5 BM25 query."""
+        """Execute a single FTS5 BM25 query.
+
+        When *user_id* is provided the FTS5 results are joined with
+        ``fact_events`` so only events belonging to that user are ranked.
+        """
+        if user_id:
+            async with db.execute(
+                """
+                SELECT fts.event_id, bm25(l1_events_fts) AS score
+                FROM l1_events_fts fts
+                JOIN fact_events fe ON fe.event_id = fts.event_id
+                WHERE l1_events_fts MATCH ?
+                  AND fe.user_id = ?
+                  AND fe.deleted_at IS NULL
+                ORDER BY score
+                LIMIT ?
+                """,
+                (match_query, user_id, limit),
+            ) as cursor:
+                return await cursor.fetchall()
         async with db.execute(
             """
             SELECT event_id, bm25(l1_events_fts) AS score
