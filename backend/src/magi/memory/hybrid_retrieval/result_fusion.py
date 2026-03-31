@@ -118,8 +118,20 @@ class ResultFusion:
         payload.l0_workbench = truncate_to_budget(payload.l0_workbench, l0_budget, char_per_token)
         remaining -= estimate_tokens(payload.l0_workbench, char_per_token)
 
-        # L2: full
+        # Reserve a minimum budget for L1 so heavy L2 data cannot zero it out.
+        l1_minimum_tokens = remaining * 0.25
+        l2_ceiling = remaining - l1_minimum_tokens
+
+        # L2: up to ceiling (remaining minus L1 minimum reserve)
         l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
+        l2_tokens = estimate_tokens(l2_all, char_per_token)
+        if l2_tokens > l2_ceiling:
+            payload.l2_entity_cards = truncate_to_budget(payload.l2_entity_cards, l2_ceiling * 0.3, char_per_token)
+            l2_ceiling_left = l2_ceiling - estimate_tokens(payload.l2_entity_cards, char_per_token)
+            payload.l2_relationships = truncate_to_budget(payload.l2_relationships, l2_ceiling_left * 0.6, char_per_token)
+            l2_ceiling_left -= estimate_tokens(payload.l2_relationships, char_per_token)
+            payload.l2_assertions = truncate_to_budget(payload.l2_assertions, l2_ceiling_left, char_per_token)
+            l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
         remaining -= estimate_tokens(l2_all, char_per_token)
 
         # L4: up to 20% of remaining

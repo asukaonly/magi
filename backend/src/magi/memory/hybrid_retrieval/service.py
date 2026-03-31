@@ -170,6 +170,16 @@ class HybridRetrievalService:
                 for plan in rule_decision.plans
                 if not plan.is_fallback and self._plan_signature(plan) not in {self._plan_signature(existing) for existing in primary_plans}
             ]
+            # When L1 events are empty, also include L1 fallback plans from
+            # the rule engine so the backstop does not rely solely on L2 data.
+            if not payload.l1_events:
+                rule_l1_fallback_plans = [
+                    plan
+                    for plan in rule_decision.plans
+                    if plan.is_fallback and getattr(plan, "layer", "") == "L1"
+                    and self._plan_signature(plan) not in {self._plan_signature(existing) for existing in primary_plans}
+                ]
+                rule_primary_plans.extend(rule_l1_fallback_plans)
             if rule_primary_plans:
                 rule_primary_results = await asyncio.gather(
                     *[
