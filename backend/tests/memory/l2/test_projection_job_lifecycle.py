@@ -72,3 +72,56 @@ async def test_extract_worker_marks_projection_jobs_running_before_completion():
     ]
     assert cognition_store.completed_calls == [["evt-proj-1"]]
     assert cognition_store.failed_calls == []
+
+
+class _ZombieSkipCognitionStore(_RecordingCognitionStore):
+    """Returns 0 from mark_projection_jobs_running to simulate a stale batch."""
+
+    async def mark_projection_jobs_running(self, event_ids, *, consumer_name: str) -> int:  # type: ignore[no-untyped-def]
+        ids = list(event_ids)
+        self.running_calls.append((ids, consumer_name))
+        return 0  # Simulates all events already completed/not-queued
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_skips_stale_batch_when_no_rows_transitioned():
+    """Worker must skip extraction when mark_projection_jobs_running returns 0."""
+    cognition_store = _ZombieSkipCognitionStore()
+    pipeline = L2Pipeline(
+        cognition_store=cognition_store,
+        l1_store=SimpleNamespace(),
+        entity_catalog=SimpleNamespace(),
+        llm_service=SimpleNamespace(),
+    )
+
+    extract_called = False
+
+    async def _fake_extract_and_persist(job: L2BatchJob):  # type: ignore[no-untyped-def]
+        nonlocal extract_called
+        extract_called = True
+        return {"relation_count": 0, "assertion_count": 0}
+
+    pipeline._extract_and_persist = _fake_extract_and_persist  # type: ignore[method-assign]
+
+    job = L2BatchJob(
+        job_id="projection:zombie-job",
+        bucket_key="owner:zombie",
+        events=[{"event_id": "evt-zombie-1", "content": "hi", "timestamp": 1710000000.0}],
+        flush_reason="projection_ready",
+        estimated_tokens=2,
+        session_id=None,
+        user_id=None,
+    )
+
+    await pipeline._extract_queue.put(job)
+    await pipeline._extract_queue.put(None)
+
+    await pipeline._run_extract_worker()
+
+    assert extract_called is False, "Extraction must be skipped for stale batch"
+    assert cognition_store.running_calls == [
+        (["evt-zombie-1"], pipeline._projection_consumer_name),
+    ]
+    assert cognition_store.completed_calls == []
+    assert cognition_store.failed_calls == []
+    assert pipeline._stats.extract_skipped == 1

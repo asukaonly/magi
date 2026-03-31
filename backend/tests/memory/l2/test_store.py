@@ -1146,6 +1146,40 @@ async def test_l2_projection_jobs_support_enqueue_claim_complete_and_stats(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_mark_projection_jobs_running_only_transitions_queued(tmp_path):
+    """mark_projection_jobs_running must not overwrite completed/failed rows."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.enqueue_projection_job(
+        event_id="evt-already-done",
+        source="chat",
+        event_type="UserMessage",
+    )
+    claimed = await store.claim_projection_jobs(consumer_name="w1", limit=1)
+    assert len(claimed) == 1
+
+    await store.mark_projection_jobs_running(["evt-already-done"], consumer_name="w1")
+    await store.complete_projection_jobs(["evt-already-done"])
+
+    stats = await store.get_projection_backlog_stats()
+    assert stats["completed"] == 1
+    assert stats["running"] == 0
+
+    # A stale duplicate batch tries to mark the same event running again.
+    affected = await store.mark_projection_jobs_running(
+        ["evt-already-done"], consumer_name="w2",
+    )
+    assert affected == 0
+
+    stats = await store.get_projection_backlog_stats()
+    assert stats["completed"] == 1
+    assert stats["running"] == 0
+
+
+@pytest.mark.asyncio
 async def test_l2_projection_jobs_support_fail_and_stale_requeue(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 

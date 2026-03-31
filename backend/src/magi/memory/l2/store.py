@@ -1400,6 +1400,7 @@ class L2CognitionStore:
                     started_at = ?,
                     updated_at = ?
                 WHERE event_id IN ({placeholders})
+                  AND status = 'queued'
                 """,
                 (
                     consumer_name,

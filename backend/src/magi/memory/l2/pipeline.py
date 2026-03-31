@@ -627,10 +627,19 @@ class L2Pipeline:
                     queue_size=self._extract_queue.qsize(),
                 )
                 if job.event_ids:
-                    await self._cognition_store.mark_projection_jobs_running(
+                    transitioned = await self._cognition_store.mark_projection_jobs_running(
                         job.event_ids,
                         consumer_name=self._projection_consumer_name,
                     )
+                    if transitioned == 0:
+                        self._stats.extract_skipped += 1
+                        logger.info(
+                            "L2 extract skipped (stale batch)",
+                            job_id=job.job_id,
+                            event_ids=job.event_ids,
+                            queue_size=self._extract_queue.qsize(),
+                        )
+                        continue
                 result = await self._extract_and_persist(job)
                 if job.event_ids:
                     await self._cognition_store.complete_projection_jobs(job.event_ids)
