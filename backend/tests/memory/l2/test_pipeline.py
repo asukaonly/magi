@@ -4118,3 +4118,71 @@ class TestCatalogFindByCanonicalName:
             await catalog.initialize()
             results = await catalog.find_by_canonical_name("NonExistent")
             assert results == []
+
+
+# ── T2: _validate_phase2_graph_edges corroborates handling ──
+
+
+@pytest.mark.asyncio
+async def test_validate_phase2_graph_edges_routes_corroborates_to_targets():
+    """Phase 2 edges with relationship_to_existing=corroborates should be
+    separated into corroborate_targets instead of graph candidates."""
+    from magi.memory.l2.models import L2Phase2GraphEdge
+    from magi.memory.l2.pipeline import L2Pipeline
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+        event = _make_memory_event(event_id="evt-1", content="test")
+
+        class _FakeProfile:
+            allow_graph = True
+            effective_structured_allowed_entity_types = frozenset({"food", "software"})
+            effective_structured_allowed_predicates = frozenset({"LIKES", "USES"})
+
+        class _FakePolicy:
+            allow_graph_write = True
+            graph_scope = "full"
+
+        edges = [
+            L2Phase2GraphEdge(
+                subject_ref="user:u1",
+                subject_type="user",
+                predicate="LIKES",
+                object_ref="food:pizza",
+                object_type="food",
+                confidence=0.8,
+                relationship_to_existing="corroborates",
+                related_existing_triple_id="triple_abc123",
+                supporting_event_ids=["evt-1"],
+            ),
+            L2Phase2GraphEdge(
+                subject_ref="user:u1",
+                subject_type="user",
+                predicate="USES",
+                object_ref="software:vim",
+                object_type="software",
+                confidence=0.7,
+                relationship_to_existing="new",
+                related_existing_triple_id=None,
+                supporting_event_ids=["evt-1"],
+            ),
+        ]
+
+        prepared, corroborate_targets, rejected = pipeline._validate_phase2_graph_edges(
+            event=event,
+            profile=_FakeProfile(),
+            policy=_FakePolicy(),
+            resolved_mentions=[],
+            evidence_event_ids=["evt-1"],
+            phase2_edges=edges,
+            catalog_name_index=None,
+        )
+
+        assert len(corroborate_targets) == 1
+        assert corroborate_targets[0]["triple_id"] == "triple_abc123"
+        assert corroborate_targets[0]["new_confidence"] == 0.8
+        # The "new" edge should be in prepared (if it passes other validation)
+        # It may also be rejected depending on resolution — that's fine
+        # The key assertion is that corroborates is separated
+        assert all(t.get("triple_id") != "triple_abc123" for t in prepared)

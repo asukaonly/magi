@@ -1485,3 +1485,190 @@ async def test_claim_ready_projection_jobs_merges_low_frequency_owners_in_catch_
     }
     assert {item["event_id"] for item in claimed} == expected_event_ids
     assert all(item["effective_batch_owner"] == "chrome_history:Default:catchup:2" for item in claimed)
+
+
+# ── T1: Same (S,O) write interception ──
+
+
+@pytest.mark.asyncio
+async def test_same_pair_synonymous_predicate_merges_to_existing(tmp_path):
+    """When LIKES already exists for (user, food:ramen), a new INTERESTED_IN
+    for the same pair should reuse the LIKES edge instead of creating a new one."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    # First write: LIKES
+    tid1 = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.7,
+        observed_at=1710000000.0,
+        source_type="chat",
+        extraction_method="llm_phase2_integration",
+    )
+
+    # Second write: INTERESTED_IN (synonymous with LIKES in the affinity group)
+    tid2 = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="INTERESTED_IN",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-2"],
+        confidence=0.6,
+        observed_at=1710001000.0,
+        source_type="chat",
+        extraction_method="llm_phase2_integration",
+    )
+
+    # Should be merged into same edge
+    assert tid1 == tid2
+
+    edges = await store.get_relationships(subject_id="user:u1", status="active")
+    assert len(edges) == 1
+    assert edges[0]["predicate"] == "LIKES"
+    assert edges[0]["observation_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_same_pair_different_group_predicates_coexist(tmp_path):
+    """USES and LIKES for the same (S,O) pair should NOT merge because they
+    belong to different synonym groups."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    tid1 = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="USES",
+        object_id="software:vscode",
+        object_type="software",
+        evidence_event_ids=["evt-1"],
+        confidence=0.8,
+        observed_at=1710000000.0,
+        source_type="chat",
+        extraction_method="llm_phase2_integration",
+    )
+
+    tid2 = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="software:vscode",
+        object_type="software",
+        evidence_event_ids=["evt-2"],
+        confidence=0.7,
+        observed_at=1710001000.0,
+        source_type="chat",
+        extraction_method="llm_phase2_integration",
+    )
+
+    assert tid1 != tid2
+
+    edges = await store.get_relationships(subject_id="user:u1", status="active")
+    assert len(edges) == 2
+
+
+@pytest.mark.asyncio
+async def test_same_pair_opposite_predicates_do_not_merge(tmp_path):
+    """LIKES and DISLIKES for the same (S,O) pair should NOT merge because
+    they have an antonym relationship, not a synonym one."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    tid1 = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:cilantro",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.7,
+        observed_at=1710000000.0,
+        source_type="chat",
+        extraction_method="llm_phase2_integration",
+    )
+
+    tid2 = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="DISLIKES",
+        object_id="food:cilantro",
+        object_type="food",
+        evidence_event_ids=["evt-2"],
+        confidence=0.8,
+        observed_at=1710001000.0,
+        source_type="chat",
+        extraction_method="llm_phase2_integration",
+    )
+
+    # Different groups → different edges (conflict resolution handles deprecation separately)
+    assert tid1 != tid2
+
+
+# ── T2: corroborate_edge ──
+
+
+@pytest.mark.asyncio
+async def test_corroborate_edge_accumulates_confidence(tmp_path):
+    """corroborate_edge should increase observation_count and confidence."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    tid = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:sushi",
+        object_type="food",
+        evidence_event_ids=["evt-1"],
+        confidence=0.6,
+        observed_at=1710000000.0,
+        source_type="chat",
+        extraction_method="llm_phase2_integration",
+    )
+
+    result = await store.corroborate_edge(
+        triple_id=tid,
+        evidence_event_ids=["evt-2"],
+        new_confidence=0.5,
+        observed_at=1710001000.0,
+    )
+
+    assert result is True
+
+    edge = await store.get_relationship(triple_id=tid)
+    assert edge is not None
+    assert edge["observation_count"] == 2
+    assert edge["confidence"] > 0.6  # Noisy-OR accumulation
+    assert "evt-2" in edge["evidence_event_ids"]
+
+
+@pytest.mark.asyncio
+async def test_corroborate_edge_missing_triple_returns_false(tmp_path):
+    """corroborate_edge on a non-existent triple should return False."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    result = await store.corroborate_edge(
+        triple_id="triple_nonexistent",
+        evidence_event_ids=["evt-1"],
+        new_confidence=0.5,
+        observed_at=1710000000.0,
+    )
+
+    assert result is False

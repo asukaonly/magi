@@ -127,6 +127,35 @@ _PREDICATE_COMPATIBILITY: dict[str, frozenset[str]] = {
 }
 
 
+_PREDICATE_SYNONYM_GROUPS: dict[str, str] = {
+    "LIKES": "affinity",
+    "INTERESTED_IN": "affinity",
+    "FOLLOWS": "follow",
+    "DISLIKES": "aversion",
+    "USES": "usage",
+    "WORKS_WITH": "usage",
+    "VISITED": "visit",
+    "ATTENDED": "visit",
+    "WORKS_AT": "membership",
+    "MEMBER_OF": "membership",
+    "KNOWS": "acquaintance",
+    "FAMILY_OF": "family",
+    "PROFICIENT_IN": "skill_level",
+}
+
+
+def get_predicate_synonym_group(predicate: str) -> str | None:
+    """Return the synonym group for a predicate, or ``None`` if ungrouped."""
+    return _PREDICATE_SYNONYM_GROUPS.get(predicate.strip().upper())
+
+
+def are_predicates_synonymous(a: str, b: str) -> bool:
+    """Return whether two predicates belong to the same synonym group."""
+    ga = get_predicate_synonym_group(a)
+    gb = get_predicate_synonym_group(b)
+    return ga is not None and ga == gb
+
+
 def normalize_entity_type(raw_type: str | None) -> str | None:
     """Normalize a raw entity type into the canonical ontology."""
 
@@ -229,7 +258,9 @@ __all__ = [
     "ENTITY_TYPE_ALIASES",
     "ENTITY_TYPE_REGISTRY",
     "PREDICATE_REGISTRY",
+    "are_predicates_synonymous",
     "coerce_unknown_entity_type",
+    "get_predicate_synonym_group",
     "is_leaf_fact_duplicate",
     "is_predicate_compatible",
     "is_valid_entity_type",

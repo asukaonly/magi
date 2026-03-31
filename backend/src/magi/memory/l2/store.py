@@ -15,7 +15,7 @@ from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent, TomDepth
 from .graph_conflicts import DEFAULT_GRAPH_CONFLICT_RULES, GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix, iter_opposite_predicates
 from .models import ContradictionHint, L2KnowledgeEdgeWrite, L2TomAssertionWrite, ReconciledTraitOutcome
-from .ontology import coerce_unknown_entity_type
+from .ontology import are_predicates_synonymous, coerce_unknown_entity_type
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
@@ -469,14 +469,61 @@ class L2CognitionStore:
         source_type: str,
         extraction_method: str = "rule",
     ) -> str:
-        """Insert or refresh a knowledge-graph edge."""
+        """Insert or refresh a knowledge-graph edge.
+
+        When a synonymous predicate already exists for the same (subject, object)
+        pair, the existing edge is reused instead of creating a new one.  This
+        prevents predicate drift where the same fact gets stored multiple times
+        under slightly different predicates (e.g. LIKES vs INTERESTED_IN).
+        """
         await self.initialize()
         normalized_subject_type = _normalize_store_entity_type(subject_type) or subject_type
         normalized_object_type = _normalize_store_entity_type(object_type) or object_type
         normalized_object_id = _normalize_store_entity_ref(object_id, normalized_object_type) or object_id
         normalized_fact_kind = str(fact_kind).strip() if fact_kind is not None else ""
         now = time.time()
-        triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{subject_id}:{predicate}:{normalized_object_id}')}"
+
+        # ── Same (S,O) interception: reuse existing synonymous edge ──
+        effective_predicate = predicate
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            # Check for active edges with the same (subject, object) pair
+            async with db.execute(
+                "SELECT triple_id, predicate, observation_count FROM knowledge_graph "
+                "WHERE subject_id = ? AND object_id = ? AND status = 'active'",
+                (subject_id, normalized_object_id),
+            ) as cursor:
+                same_pair_edges = await cursor.fetchall()
+
+            if same_pair_edges:
+                # Look for an exact predicate match first, then a synonymous one
+                exact_match = None
+                synonym_match = None
+                for row in same_pair_edges:
+                    existing_pred = str(row["predicate"])
+                    if existing_pred == predicate:
+                        exact_match = row
+                        break
+                    if synonym_match is None and are_predicates_synonymous(existing_pred, predicate):
+                        # Pick the one with the highest observation_count as canonical
+                        if synonym_match is None or int(row["observation_count"]) > int(synonym_match["observation_count"]):
+                            synonym_match = row
+
+                if exact_match is not None:
+                    # Exact predicate exists — normal upsert path below will handle it
+                    pass
+                elif synonym_match is not None:
+                    # Synonymous predicate exists — reuse its predicate to prevent drift
+                    effective_predicate = str(synonym_match["predicate"])
+                    logger.debug(
+                        "L2 same-pair interception: reusing synonymous predicate",
+                        subject_id=subject_id,
+                        object_id=normalized_object_id,
+                        requested_predicate=predicate,
+                        canonical_predicate=effective_predicate,
+                    )
+
+        triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{subject_id}:{effective_predicate}:{normalized_object_id}')}"
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -530,7 +577,7 @@ class L2CognitionStore:
                         triple_id,
                         subject_id,
                         normalized_subject_type,
-                        predicate,
+                        effective_predicate,
                         normalized_object_id,
                         normalized_object_type,
                         normalized_fact_kind or "explicit_fact",
@@ -550,7 +597,7 @@ class L2CognitionStore:
                 db=db,
                 triple_id=triple_id,
                 subject_id=subject_id,
-                predicate=predicate,
+                predicate=effective_predicate,
                 object_id=normalized_object_id,
                 observed_at=float(observed_at),
                 now=now,
@@ -560,13 +607,72 @@ class L2CognitionStore:
             "L2 knowledge edge upserted",
             triple_id=triple_id,
             subject_id=subject_id,
-            predicate=predicate,
+            predicate=effective_predicate,
             object_id=normalized_object_id,
             confidence=float(confidence),
             source_type=source_type,
             extraction_method=extraction_method,
         )
         return triple_id
+
+    async def corroborate_edge(
+        self,
+        *,
+        triple_id: str,
+        evidence_event_ids: List[str],
+        new_confidence: float,
+        observed_at: float,
+    ) -> bool:
+        """Accumulate confidence on an existing edge without creating a new triple.
+
+        Returns ``True`` if the edge was found and updated, ``False`` otherwise.
+        """
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT confidence, evidence_event_ids, observation_count FROM knowledge_graph "
+                "WHERE triple_id = ? AND status = 'active'",
+                (triple_id,),
+            ) as cursor:
+                existing = await cursor.fetchone()
+
+            if not existing:
+                return False
+
+            merged_evidence = sorted(
+                set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
+            )
+            observation_count = int(existing["observation_count"]) + 1
+            accumulated_confidence = _accumulate_confidence(float(existing["confidence"]), float(new_confidence))
+
+            await db.execute(
+                """
+                UPDATE knowledge_graph
+                SET confidence = ?, evidence_event_ids = ?, observation_count = ?,
+                    last_observed_at = ?, last_confirmed_at = ?, updated_at = ?
+                WHERE triple_id = ?
+                """,
+                (
+                    accumulated_confidence,
+                    json.dumps(merged_evidence, ensure_ascii=False),
+                    observation_count,
+                    float(observed_at),
+                    float(observed_at),
+                    now,
+                    triple_id,
+                ),
+            )
+            await db.commit()
+
+        logger.debug(
+            "L2 knowledge edge corroborated",
+            triple_id=triple_id,
+            new_observation_count=observation_count,
+            accumulated_confidence=accumulated_confidence,
+        )
+        return True
 
     async def upsert_entity_facet(
         self,

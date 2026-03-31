@@ -133,3 +133,40 @@ def test_validator_allows_higher_order_assertion_alongside_graph_fact():
     )
 
     assert duplicate is False
+
+
+# ── _PREDICATE_SYNONYM_GROUPS ──
+
+
+def test_are_predicates_synonymous_same_group():
+    from magi.memory.l2.ontology import are_predicates_synonymous
+
+    assert are_predicates_synonymous("LIKES", "INTERESTED_IN") is True
+    assert are_predicates_synonymous("USES", "WORKS_WITH") is True
+    assert are_predicates_synonymous("VISITED", "ATTENDED") is True
+
+
+def test_are_predicates_synonymous_different_group():
+    from magi.memory.l2.ontology import are_predicates_synonymous
+
+    # LIKES (affinity) vs DISLIKES (aversion) – different groups
+    assert are_predicates_synonymous("LIKES", "DISLIKES") is False
+    # USES (usage) vs LIKES (affinity) – different groups
+    assert are_predicates_synonymous("USES", "LIKES") is False
+
+
+def test_are_predicates_synonymous_ungrouped():
+    from magi.memory.l2.ontology import are_predicates_synonymous
+
+    # HAS_METRIC is not in any synonym group
+    assert are_predicates_synonymous("HAS_METRIC", "LIKES") is False
+    # Two ungrouped predicates
+    assert are_predicates_synonymous("CREATES", "OWNS") is False
+
+
+def test_get_predicate_synonym_group():
+    from magi.memory.l2.ontology import get_predicate_synonym_group
+
+    assert get_predicate_synonym_group("LIKES") == "affinity"
+    assert get_predicate_synonym_group("DISLIKES") == "aversion"
+    assert get_predicate_synonym_group("HAS_METRIC") is None

@@ -935,6 +935,26 @@ class L2Pipeline:
         # Inject structured entity hints as Phase 1 context (not materialized)
         self._inject_structured_entity_hints(stored_event, existing_entities)
 
+        # ── Pre-Phase 1: Direct-write admissible structured graph hints ──
+        catalog_name_index = await self._build_catalog_name_index()
+        direct_write_candidates, _direct_rejected = self._build_structured_graph_candidates(
+            event=stored_event,
+            profile=extraction_profile,
+            policy=policy,
+            evidence_event_ids=batch_event_ids,
+            catalog_name_index=catalog_name_index,
+        )
+        direct_write_count = 0
+        if direct_write_candidates and self._cognition_store is not None:
+            for candidate in direct_write_candidates:
+                await self._cognition_store.upsert_knowledge_edge(**candidate)
+                direct_write_count += 1
+            logger.debug(
+                "L2 structured hints direct-written before Phase 1",
+                event_id=stored_event.event_id,
+                direct_write_count=direct_write_count,
+            )
+
         # ── Phase 1: Extract & Resolve ──
         logger.info(
             "L2 Phase 1 extraction started",
@@ -952,7 +972,8 @@ class L2Pipeline:
             context_messages=context_messages,
             extraction_instructions=extraction_profile.extraction_instructions,
         )
-        self._inject_structured_graph_hints(stored_event, phase1_result)
+        # Structured graph hints are already direct-written before Phase 1 (T3).
+        # They will appear in existing_graph_edges loaded for Phase 2.
 
         # Register Phase 1 entities in the entity catalog
         resolved_mentions: list[ResolvedEntityMention] = []
@@ -974,14 +995,28 @@ class L2Pipeline:
         )
 
         if not phase1_result.has_content:
+            # Even when Phase 1 is empty, persist any structured
+            # facets that accompanied the direct-written graph hints.
+            facet_candidates = self._build_structured_facet_candidates(
+                event=stored_event,
+                evidence_event_ids=batch_event_ids,
+            )
+            facet_count = 0
+            if facet_candidates and self._cognition_store is not None:
+                for candidate in facet_candidates:
+                    await self._cognition_store.upsert_entity_facet(**candidate)
+                    facet_count += 1
+
             logger.info(
                 "L2 Phase 1 returned empty result, skipping Phase 2",
                 event_id=stored_event.event_id,
                 profile_id=extraction_profile.profile_id,
                 evidence_class=classification.evidence_class,
+                direct_write_count=direct_write_count,
+                facet_count=facet_count,
             )
             return {
-                "relation_count": 0,
+                "relation_count": direct_write_count,
                 "assertion_count": 0,
                 "touched_entity_ids": [],
                 "snapshot_refresh_entity_ids": [],
@@ -989,6 +1024,7 @@ class L2Pipeline:
                 "evidence_class": classification.evidence_class,
                 "profile_id": extraction_profile.profile_id,
                 "mention_count": len(phase1_result.entities),
+                "direct_write_count": direct_write_count,
                 "graph_candidate_count": 0,
                 "assertion_candidate_count": 0,
                 "rejected_graph_candidate_count": 0,
@@ -1023,7 +1059,7 @@ class L2Pipeline:
 
         # ── Validate and prepare Phase 2 outputs ──
         catalog_name_index = await self._build_catalog_name_index()
-        graph_candidates, rejected_graph_candidate_count = self._validate_phase2_graph_edges(
+        graph_candidates, corroborate_targets, rejected_graph_candidate_count = self._validate_phase2_graph_edges(
             event=stored_event,
             profile=extraction_profile,
             policy=policy,
@@ -1103,11 +1139,17 @@ class L2Pipeline:
                 )
 
         relation_count = 0
+        corroborate_count = 0
         facet_count = 0
         assertion_count = 0
         for candidate in graph_candidates:
             await self._cognition_store.upsert_knowledge_edge(**candidate)
             relation_count += 1
+
+        for target in corroborate_targets:
+            updated = await self._cognition_store.corroborate_edge(**target)
+            if updated:
+                corroborate_count += 1
 
         for candidate in facet_candidates:
             await self._cognition_store.upsert_entity_facet(**candidate)
@@ -1125,6 +1167,7 @@ class L2Pipeline:
             event_id=stored_event.event_id,
             profile_id=extraction_profile.profile_id,
             relation_count=relation_count,
+            corroborate_count=corroborate_count,
             facet_count=facet_count,
             assertion_count=assertion_count,
             contradiction_hint_count=len(contradiction_hints),
@@ -1155,6 +1198,8 @@ class L2Pipeline:
             "mention_count": len(phase1_result.entities),
             "resolved_context_ref_count": len(phase1_result.resolved_refs),
             "graph_candidate_count": len(graph_candidates),
+            "direct_write_count": direct_write_count,
+            "corroborate_count": corroborate_count,
             "assertion_candidate_count": len(assertion_candidates),
             "rejected_graph_candidate_count": rejected_graph_candidate_count,
             "rejected_assertion_candidate_count": rejected_assertion_candidate_count,
@@ -1517,14 +1562,32 @@ class L2Pipeline:
         evidence_event_ids: list[str],
         phase2_edges: list[L2Phase2GraphEdge],
         catalog_name_index: dict[str, str] | None = None,
-    ) -> tuple[list[dict[str, Any]], int]:
-        """Validate Phase 2 graph edges against ontology and profile constraints."""
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        """Validate Phase 2 graph edges against ontology and profile constraints.
+
+        Returns:
+            A 3-tuple of (prepared_candidates, corroborate_targets, rejected_count).
+            corroborate_targets are edges where Phase 2 indicated ``corroborates``
+            against an existing triple — these should accumulate confidence
+            rather than create new edges.
+        """
         if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
-            return [], 0
+            return [], [], 0
 
         prepared: list[dict[str, Any]] = []
+        corroborate_targets: list[dict[str, Any]] = []
         rejected_count = 0
         for edge in phase2_edges:
+            # Handle corroborates: accumulate confidence on existing edge
+            if edge.relationship_to_existing == "corroborates" and edge.related_existing_triple_id:
+                corroborate_targets.append({
+                    "triple_id": edge.related_existing_triple_id,
+                    "evidence_event_ids": list(edge.supporting_event_ids or evidence_event_ids),
+                    "new_confidence": edge.confidence,
+                    "observed_at": event.timestamp,
+                })
+                continue
+
             object_type = self._normalize_entity_type(edge.object_type)
             predicate = self._normalize_predicate(edge.predicate)
             if object_type not in profile.effective_structured_allowed_entity_types:
@@ -1578,7 +1641,7 @@ class L2Pipeline:
                     "extraction_method": "llm_phase2_integration",
                 }
             )
-        return prepared, rejected_count
+        return prepared, corroborate_targets, rejected_count
 
     def _build_structured_graph_candidates(
         self,
