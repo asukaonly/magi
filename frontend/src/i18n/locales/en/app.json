@@ -1023,15 +1023,21 @@
     "plugins": {
       "photo-library": {
         "name": "Photo Library",
-        "description": "Local photo library ingestion for the timeline",
+        "description": "Scan a local photo directory, extract EXIF metadata, and ingest into the timeline",
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
           "sync_mode": { "manual": "Manual", "interval": "Interval" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
-          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
-          "fetch_page_content": { "true": "Yes", "false": "No" }
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" }
         },
-        "sections": { "general": "General", "storage": "Storage", "analysis": "Analysis" }
+        "fields": {
+          "enabled": { "label": "Enable", "description": "Turn on photo library sync for the timeline." },
+          "source_path": { "label": "Photo Directory", "description": "Local directory containing photos to scan." },
+          "sync_mode": { "label": "Sync Mode", "description": "How photo library should be synchronized." },
+          "sync_interval_minutes": { "label": "Sync Interval (minutes)", "description": "Polling interval used for interval-based sync." },
+          "max_items_per_sync": { "label": "Max Items Per Sync", "description": "Maximum number of photos to process per sync run." },
+          "default_retention_mode": { "label": "Retention Mode", "description": "How raw photo data should be handled." }
+        },
+        "sections": { "general": "General", "storage": "Storage" }
       },
       "core-tools": {
         "name": "Core Tools",

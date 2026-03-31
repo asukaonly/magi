@@ -1023,15 +1023,21 @@
     "plugins": {
       "photo-library": {
         "name": "照片库",
-        "description": "本地照片库接入时间线",
+        "description": "扫描本地照片目录，提取 EXIF 元数据并接入时间线",
         "options": {
           "enabled": { "true": "启用", "false": "停用" },
           "sync_mode": { "manual": "手动", "interval": "定时" },
-          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
-          "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
-          "fetch_page_content": { "true": "是", "false": "否" }
+          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" }
         },
-        "sections": { "general": "常规", "storage": "存储", "analysis": "分析" }
+        "fields": {
+          "enabled": { "label": "启用", "description": "开启照片库同步。" },
+          "source_path": { "label": "照片目录", "description": "要扫描的本地照片所在目录。" },
+          "sync_mode": { "label": "同步方式", "description": "选择手动触发还是定时自动同步。" },
+          "sync_interval_minutes": { "label": "定时间隔（分钟）", "description": "定时同步时的拉取间隔。" },
+          "max_items_per_sync": { "label": "单次最大数量", "description": "每次同步最多处理的照片数量。" },
+          "default_retention_mode": { "label": "保留模式", "description": "照片原始数据的处理方式。" }
+        },
+        "sections": { "general": "常规", "storage": "存储" }
       },
       "core-tools": {
         "name": "核心工具",

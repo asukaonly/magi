@@ -1,0 +1,11 @@
+{
+  "photo_library": {
+    "name": "照片库",
+    "description": "扫描本地照片目录，提取 EXIF 元数据并接入时间线"
+  },
+  "summary": {
+    "basic": "{filename}",
+    "with_camera": "{filename} — {camera}",
+    "with_camera_params": "{filename} — {camera} {params}"
+  }
+}
