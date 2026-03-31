@@ -274,9 +274,17 @@ class L1Handler:
 class L2Handler:
     """Execute L2 knowledge graph queries from structured conditions."""
 
-    def __init__(self, l2_store: Any, entity_catalog: Any | None = None) -> None:
+    def __init__(
+        self,
+        l2_store: Any,
+        entity_catalog: Any | None = None,
+        embedding_service: Any | None = None,
+        edge_vector_index: Any | None = None,
+    ) -> None:
         self._store = l2_store
         self._entity_catalog = entity_catalog
+        self._embedding_service = embedding_service
+        self._edge_vector_index = edge_vector_index
 
     async def execute(
         self,
@@ -380,6 +388,19 @@ class L2Handler:
                     )
                     results["relationships"] = rels
 
+        edge_vector_supplement_count = 0
+        if conditions.include_relationships and conditions.content_query:
+            vector_edges = await self._supplement_edge_vector_search(
+                content_query=conditions.content_query,
+                existing_relationships=results["relationships"],
+                status_filters=status_filters,
+                predicates=predicates,
+                limit=conditions.limit,
+            )
+            if vector_edges:
+                results["relationships"].extend(vector_edges)
+                edge_vector_supplement_count = len(vector_edges)
+
         results["trace"] = {
             "content_query": conditions.content_query,
             "requested_entities": [
@@ -405,6 +426,7 @@ class L2Handler:
             "entity_card_count": len(results["entity_cards"]),
             "relationship_count": len(results["relationships"]),
             "assertion_count": len(results["assertions"]),
+            "edge_vector_supplement_count": edge_vector_supplement_count,
         }
         logger.info(
             "L2 retrieval executed | content_query=%r requested_entities=%s resolved_entities=%s subject_hint=%s "
@@ -702,6 +724,42 @@ class L2Handler:
             object_types=object_types if self._allows_object_type_filter(entity_type=entity_type, direction=direction) else None,
             limit=limit,
         )
+
+    async def _supplement_edge_vector_search(
+        self,
+        *,
+        content_query: str,
+        existing_relationships: list[dict[str, Any]],
+        status_filters: list[str] | None,
+        predicates: list[str] | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Return additional edges found via vector similarity that are not already present."""
+        if self._embedding_service is None or self._edge_vector_index is None:
+            return []
+        query_text = content_query.strip()
+        if not query_text:
+            return []
+        try:
+            embedding = await self._embedding_service.embed_text(query_text)
+            if embedding is None:
+                return []
+            candidates = await self._store.search_edges_by_embedding(
+                vector_index=self._edge_vector_index,
+                embedding=embedding,
+                limit=limit,
+                status_filters=status_filters,
+                predicates=predicates,
+            )
+        except Exception as exc:
+            logger.debug("Edge vector supplement failed: %s", exc)
+            return []
+        if not candidates:
+            return []
+
+        existing_ids = {str(r.get("triple_id") or "") for r in existing_relationships}
+        novel = [c for c in candidates if str(c.get("triple_id") or "") not in existing_ids]
+        return novel
 
     async def _resolve_entities(
         self,

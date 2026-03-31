@@ -75,7 +75,7 @@ class HybridRetrievalService:
         # Build handlers from available stores
         self._l1 = L1Handler(unified_memory.l1, self._config) if unified_memory.l1 else None
         self._l2 = (
-            L2Handler(unified_memory.l2, entity_catalog=getattr(unified_memory, "l2_entity_catalog", None))
+            self._build_l2_handler(unified_memory)
             if unified_memory.l2
             else None
         )
@@ -324,12 +324,36 @@ class HybridRetrievalService:
         """Refresh layer handlers in case stores are initialized after service construction."""
         self._l1 = L1Handler(self._memory.l1, self._config) if getattr(self._memory, "l1", None) else None
         self._l2 = (
-            L2Handler(self._memory.l2, entity_catalog=getattr(self._memory, "l2_entity_catalog", None))
+            self._build_l2_handler(self._memory)
             if getattr(self._memory, "l2", None)
             else None
         )
         self._l3 = L3Handler(self._memory.l3, self._config) if getattr(self._memory, "l3", None) else None
         self._l4 = L4Handler(self._memory.l4, self._config) if getattr(self._memory, "l4", None) else None
+
+    @staticmethod
+    def _build_l2_handler(memory: Any) -> L2Handler:
+        """Construct L2Handler with embedding infra when available."""
+        catalog = getattr(memory, "l2_entity_catalog", None)
+        embedding_service = getattr(catalog, "_embedding_service", None) if catalog else None
+        edge_vector_index = None
+        if embedding_service is not None:
+            from ..sqlite_vec_index import SqliteVecIndex
+
+            db_path = str(getattr(catalog, "db_path", ""))
+            if db_path:
+                edge_vector_index = SqliteVecIndex(
+                    db_path=db_path,
+                    registry_table="l2_edge_vectors",
+                    entity_column="entity_id",
+                    vec_table_prefix="l2_edge_vec",
+                )
+        return L2Handler(
+            memory.l2,
+            entity_catalog=catalog,
+            embedding_service=embedding_service,
+            edge_vector_index=edge_vector_index,
+        )
 
     def _refresh_runtime_config(self) -> None:
         """Refresh retrieval config from the runtime getter if one is available."""

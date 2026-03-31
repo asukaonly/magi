@@ -1189,3 +1189,89 @@ class TestExecutePlan:
         plan = LayerQueryPlan(layer="L2", conditions=L2Conditions())
         result = await execute_plan(plan)
         assert result == {"entity_cards": [], "relationships": []}
+
+
+class TestL2HandlerEdgeVectorSupplement:
+    """Test _supplement_edge_vector_search in L2Handler."""
+
+    @pytest.mark.asyncio
+    async def test_adds_novel_edges_from_vector_search(self):
+        store = AsyncMock()
+        store.batch_get_relationships.return_value = {
+            "user:u1": [{"triple_id": "t1", "predicate": "LIKES"}]
+        }
+        store.batch_get_tom_snapshots.return_value = []
+        store.batch_list_tom_assertions.return_value = {}
+        store.search_edges_by_embedding.return_value = [
+            {"triple_id": "t2", "predicate": "LIKES", "vector_distance": 0.1},
+        ]
+
+        embedding_service = AsyncMock()
+        embedding_service.embed_text.return_value = AsyncMock(vector=[0.1] * 8)
+
+        edge_index = AsyncMock()
+
+        handler = L2Handler(
+            store,
+            embedding_service=embedding_service,
+            edge_vector_index=edge_index,
+        )
+        conds = L2Conditions(
+            entities=["user:u1"],
+            include_relationships=True,
+            content_query="what food does user like",
+        )
+        results = await handler.execute(conds)
+        # Should include both SQL edge and vector edge
+        assert len(results["relationships"]) == 2
+        assert results["trace"]["edge_vector_supplement_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_embedding_service(self):
+        store = AsyncMock()
+        store.batch_get_relationships.return_value = {
+            "user:u1": [{"triple_id": "t1", "predicate": "LIKES"}]
+        }
+        store.batch_get_tom_snapshots.return_value = []
+        store.batch_list_tom_assertions.return_value = {}
+
+        handler = L2Handler(store)
+        conds = L2Conditions(
+            entities=["user:u1"],
+            include_relationships=True,
+            content_query="what food does user like",
+        )
+        results = await handler.execute(conds)
+        assert results["trace"]["edge_vector_supplement_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_existing_edges(self):
+        store = AsyncMock()
+        store.batch_get_relationships.return_value = {
+            "user:u1": [{"triple_id": "existing-1", "predicate": "LIKES"}]
+        }
+        store.batch_get_tom_snapshots.return_value = []
+        store.batch_list_tom_assertions.return_value = {}
+        # Vector search returns the same triple that SQL already found
+        store.search_edges_by_embedding.return_value = [
+            {"triple_id": "existing-1", "predicate": "LIKES", "vector_distance": 0.05},
+        ]
+
+        embedding_service = AsyncMock()
+        embedding_service.embed_text.return_value = AsyncMock(vector=[0.1] * 8)
+        edge_index = AsyncMock()
+
+        handler = L2Handler(
+            store,
+            embedding_service=embedding_service,
+            edge_vector_index=edge_index,
+        )
+        conds = L2Conditions(
+            entities=["user:u1"],
+            include_relationships=True,
+            content_query="food preference",
+        )
+        results = await handler.execute(conds)
+        # Duplicate should be filtered out
+        assert len(results["relationships"]) == 1
+        assert results["trace"]["edge_vector_supplement_count"] == 0

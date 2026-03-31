@@ -2159,3 +2159,94 @@ async def test_batch_get_tom_snapshots_empty_input_returns_empty(tmp_path):
 
     result = await store.batch_get_tom_snapshots(entities=[])
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_search_edges_by_embedding_returns_filtered_edges(tmp_path):
+    """search_edges_by_embedding queries vector index and returns matching edges."""
+    from dataclasses import dataclass
+    from unittest.mock import AsyncMock
+
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    # Insert two edges
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1", subject_type="user",
+        predicate="LIKES", object_id="food:sushi", object_type="food",
+        evidence_event_ids=["e1"], confidence=0.8, source_type="llm",
+        extraction_method="phase2", evidence_text="User loves sushi",
+        observed_at=1000.0,
+    )
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1", subject_type="user",
+        predicate="DISLIKES", object_id="food:natto", object_type="food",
+        evidence_event_ids=["e2"], confidence=0.7, source_type="llm",
+        extraction_method="phase2", evidence_text="User hates natto",
+        observed_at=1000.0,
+    )
+
+    # Manually deprecate the natto edge and get triple IDs
+    async with aiosqlite.connect(str(tmp_path / "l2.db")) as conn:
+        conn.row_factory = aiosqlite.Row
+        rows = [dict(r) async for r in await conn.execute(
+            "SELECT triple_id, predicate FROM knowledge_graph ORDER BY predicate"
+        )]
+        assert len(rows) == 2
+        natto_row = next(r for r in rows if r["predicate"] == "DISLIKES")
+        sushi_row = next(r for r in rows if r["predicate"] == "LIKES")
+        await conn.execute(
+            "UPDATE knowledge_graph SET status = 'deprecated' WHERE triple_id = ?",
+            (natto_row["triple_id"],),
+        )
+        await conn.commit()
+
+    sushi_triple = sushi_row["triple_id"]
+    natto_triple = natto_row["triple_id"]
+
+    @dataclass
+    class FakeHit:
+        entity_id: str
+        distance: float
+
+    @dataclass
+    class FakeEmbedding:
+        model_name: str = "test"
+        dimension: int = 8
+        vector: list = None
+
+    # Return both triple IDs from vector search
+    mock_index = AsyncMock()
+    mock_index.search.return_value = [
+        FakeHit(entity_id=sushi_triple, distance=0.1),
+        FakeHit(entity_id=natto_triple, distance=0.3),
+    ]
+
+    # Only active edges should return
+    results = await store.search_edges_by_embedding(
+        vector_index=mock_index,
+        embedding=FakeEmbedding(),
+        limit=10,
+        status_filters=["active"],
+    )
+    assert len(results) == 1
+    assert results[0]["triple_id"] == sushi_triple
+    assert results[0]["evidence_text"] == "User loves sushi"
+    assert results[0]["vector_distance"] == 0.1
+
+
+@pytest.mark.asyncio
+async def test_search_edges_by_embedding_returns_empty_without_index(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    results = await store.search_edges_by_embedding(
+        vector_index=None,
+        embedding=None,
+        limit=10,
+    )
+    assert results == []
