@@ -9,6 +9,13 @@ import type {
 } from '@/api';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 
+export const createClientTurnId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `turn_${crypto.randomUUID()}`;
+  }
+  return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+};
+
 export type ChatMessageKind = 'user' | 'assistant' | 'status';
 
 export interface ChatTimelineMessage {

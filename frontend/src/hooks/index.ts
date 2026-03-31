@@ -2,7 +2,6 @@
  * Custom hooks barrel export.
  */
 
-export { useChat, type UseChatOptions, type UseChatReturn } from './useChat';
 export {
   usePersonality,
   type UsePersonalityOptions,

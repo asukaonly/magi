@@ -28,6 +28,7 @@ import {
   normalizeTraceSnapshot,
   normalizeTraceSummary,
   shouldShowTraceEntry,
+  createClientTurnId,
   type ChatTimelineMessage,
   type ChatTimelineMessageLabel,
   type ChatTimelineReplyPreview,
@@ -236,13 +237,6 @@ const assistantMarkdownComponents: Components = {
     </a>
   ),
   strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-};
-
-const createClientTurnId = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `turn_${crypto.randomUUID()}`;
-  }
-  return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 };
 
 const createDraftAttachmentId = (): string => {

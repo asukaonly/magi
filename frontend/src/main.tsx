@@ -3,6 +3,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
+import { useTranslation } from 'react-i18next';
 import App from './App';
 import './index.css';
 import './i18n';
@@ -15,6 +16,7 @@ import { initializeTheme } from './stores/theme';
 initializeTheme();
 
 const RuntimeBootstrap: React.FC = () => {
+  const { t } = useTranslation('app');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,7 +54,7 @@ const RuntimeBootstrap: React.FC = () => {
   if (error) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
-        <h1 className="text-xl font-semibold">Backend startup failed</h1>
+        <h1 className="text-xl font-semibold">{t('bootstrap.startupFailed')}</h1>
         <p className="max-w-xl text-sm text-muted-foreground">{error}</p>
         <button
           className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
@@ -62,7 +64,7 @@ const RuntimeBootstrap: React.FC = () => {
           }}
           type="button"
         >
-          Retry
+          {t('bootstrap.retry')}
         </button>
       </div>
     );
@@ -70,7 +72,7 @@ const RuntimeBootstrap: React.FC = () => {
 
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <p className="text-sm text-muted-foreground">Starting Magi backend...</p>
+      <p className="text-sm text-muted-foreground">{t('bootstrap.starting')}</p>
     </div>
   );
 };
