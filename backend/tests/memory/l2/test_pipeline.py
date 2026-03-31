@@ -3411,6 +3411,132 @@ async def test_extract_worker_persists_structured_graph_hints_without_phase2_edg
 
 
 @pytest.mark.asyncio
+async def test_structured_hint_not_double_written_when_phase2_runs():
+    """Structured hints written before Phase 1 must not be re-persisted after Phase 2.
+
+    Before the fix, _build_structured_graph_candidates was called twice in the
+    Phase 2 path: once for the direct-write before Phase 1, and again after
+    Phase 2 where the results were merged and written a second time.  The second
+    upsert triggered Noisy-OR confidence accumulation (e.g. 0.85 → ~0.98) and
+    incremented observation_count — inflating both metrics.
+    """
+    from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
+
+    hint_confidence = 0.85
+
+    # Phase 1 must return content so pipeline proceeds past the "empty Phase 1"
+    # early-return.  The external_observation policy (allow_assertion_write=True)
+    # blocks the fast-track path, so Phase 2 will run.
+    responses = [
+        json.dumps(
+            {
+                "entities": [
+                    {"mention": "GitHub", "entity_ref": "software:github", "entity_type": "software"},
+                ],
+                "fact_claims": [
+                    {
+                        "predicate": "USES",
+                        "subject_ref": "user:self",
+                        "object_ref": "software:github",
+                        "object_type": "software",
+                        "confidence": hint_confidence,
+                    },
+                ],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "resolved"},
+            }
+        ),
+        # Phase 2 returns no new graph edges — the only graph write should be
+        # the single direct-write of the structured hint before Phase 1.
+        json.dumps(
+            {
+                "graph_edges": [],
+                "refinements": [],
+                "assertion_candidates": [],
+                "contradiction_hints": [],
+            }
+        ),
+    ]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
+        )
+        await store.initialize()
+        try:
+            event = MemoryEvent(
+                event_id="evt-double-write-check-1",
+                correlation_id="evt-double-write-check-1",
+                timestamp=time.time(),
+                created_at=time.time(),
+                event_type="SENSOR_EVENT",
+                source="chrome_history",
+                source_item_id="chrome:item-dw-1",
+                memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+                ingest_target=IngestTarget.L1_ONLY,
+                cognition_eligible=True,
+                tom_depth=TomDepth.TOPOLOGY_ONLY,
+                retention_class=RetentionClass.COMPRESSIBLE,
+                session_id=None,
+                turn_id=None,
+                user_id="u1",
+                task_id=None,
+                content="GitHub profile page",
+                author_type="external",
+                content_type="observation",
+                importance_score=0.6,
+                level=EventLevel.INFO.value,
+                metadata_json={
+                    "structured_graph_hints": [
+                        {
+                            "subject_ref": "user:self",
+                            "subject_type": "user",
+                            "predicate": "USES",
+                            "object_ref": "software:github",
+                            "object_type": "software",
+                            "fact_kind": "interaction_evidence",
+                            "confidence": hint_confidence,
+                            "evidence_text": "Visited GitHub profile page",
+                        }
+                    ]
+                },
+            )
+
+            await store.ingest_event(event)
+
+            for _ in range(80):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.02)
+
+            assert store.l2 is not None
+            relationships = await store.l2.get_relationships(subject_id="user:u1")
+
+            hint_edges = [
+                e for e in relationships
+                if e["predicate"] == "USES" and e["object_id"] == "software:github"
+            ]
+            assert len(hint_edges) == 1, f"Expected one USES edge, got {len(hint_edges)}"
+
+            edge = hint_edges[0]
+            assert edge["confidence"] == pytest.approx(hint_confidence, abs=0.01), (
+                f"Structured hint confidence should stay at {hint_confidence}, "
+                f"got {edge['confidence']} — double-write would inflate via Noisy-OR"
+            )
+            assert edge["observation_count"] == 1, (
+                f"Structured hint should be observed once, "
+                f"got {edge['observation_count']} — indicates double-write"
+            )
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_extract_worker_persists_category_facets_from_structured_graph_hints():
     from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
 

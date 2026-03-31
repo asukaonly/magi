@@ -1129,28 +1129,23 @@ class L2Pipeline:
             phase2_edges=phase2_result.graph_edges,
             catalog_name_index=catalog_name_index,
         )
-        structured_graph_candidates, rejected_structured_graph_candidate_count = self._build_structured_graph_candidates(
-            event=stored_event,
-            profile=extraction_profile,
-            policy=policy,
-            evidence_event_ids=batch_event_ids,
-            catalog_name_index=catalog_name_index,
-        )
         facet_candidates = self._build_structured_facet_candidates(
             event=stored_event,
             evidence_event_ids=batch_event_ids,
         )
-        graph_candidates = self._merge_graph_candidates(
+
+        # Include direct-written candidates in assertion dedup context
+        # but do NOT rebuild or re-persist them (already written before Phase 1)
+        assertion_dedup_context = self._merge_graph_candidates(
             graph_candidates,
-            structured_graph_candidates,
+            direct_write_candidates,
         )
-        rejected_graph_candidate_count += rejected_structured_graph_candidate_count
 
         assertion_candidates, rejected_assertion_candidate_count = self._validate_phase2_assertions(
             event=stored_event,
             profile=extraction_profile,
             policy=policy,
-            graph_candidates=graph_candidates,
+            graph_candidates=assertion_dedup_context,
             default_event_ids=batch_event_ids,
             phase2_assertions=phase2_result.assertion_candidates,
         )
@@ -1236,7 +1231,9 @@ class L2Pipeline:
         )
 
         conflict_arbitration_decision = conflict_arbitration.decision if conflict_arbitration is not None else None
-        touched_entity_ids = self._collect_touched_entities(graph_candidates, assertion_candidates)
+        touched_entity_ids = self._collect_touched_entities(
+            graph_candidates + direct_write_candidates, assertion_candidates
+        )
         # Also include focal entity if contradiction hints were applied (triggers reconcile → L3 summaries)
         if contradiction_hints:
             self_entity_id = self._resolve_self_entity_id(stored_event)
