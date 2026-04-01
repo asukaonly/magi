@@ -806,6 +806,55 @@ class ScheduleRepository:
             job_id=str(row[8]) if row[8] is not None else None,
         )
 
+    async def list_executions(
+        self,
+        *,
+        schedule_id: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        """Return recent execution records, optionally filtered by schedule_id."""
+        if schedule_id:
+            query = (
+                "SELECT execution_id, schedule_id, target_type, target_key, manual, "
+                "status, started_at, finished_at, duration_ms, result_message, error, "
+                "stats_json, next_cursor, watermark_ts, scheduler_job_id, created_at "
+                "FROM schedule_executions WHERE schedule_id = ? "
+                "ORDER BY started_at DESC LIMIT ?"
+            )
+            params: tuple[object, ...] = (schedule_id, limit)
+        else:
+            query = (
+                "SELECT execution_id, schedule_id, target_type, target_key, manual, "
+                "status, started_at, finished_at, duration_ms, result_message, error, "
+                "stats_json, next_cursor, watermark_ts, scheduler_job_id, created_at "
+                "FROM schedule_executions ORDER BY started_at DESC LIMIT ?"
+            )
+            params = (limit,)
+        async with self._connect() as db:
+            cursor = await db.execute(query, params)
+            rows = await cursor.fetchall()
+        results: list[dict[str, object]] = []
+        for row in rows:
+            results.append({
+                "execution_id": str(row[0]),
+                "schedule_id": str(row[1]),
+                "target_type": str(row[2]),
+                "target_key": str(row[3]),
+                "manual": bool(row[4]),
+                "status": str(row[5]),
+                "started_at": float(row[6]) if row[6] is not None else None,
+                "finished_at": float(row[7]) if row[7] is not None else None,
+                "duration_ms": float(row[8]) if row[8] is not None else None,
+                "result_message": str(row[9]) if row[9] is not None else None,
+                "error": str(row[10]) if row[10] is not None else None,
+                "stats": json.loads(str(row[11]) or "{}"),
+                "next_cursor": str(row[12]) if row[12] is not None else None,
+                "watermark_ts": float(row[13]) if row[13] is not None else None,
+                "scheduler_job_id": str(row[14]) if row[14] is not None else None,
+                "created_at": float(row[15]) if row[15] is not None else None,
+            })
+        return results
+
     def _row_to_sensor_sync_job(self, row: aiosqlite.Row) -> dict[str, object]:
         return {
             "job_id": str(row["job_id"]),

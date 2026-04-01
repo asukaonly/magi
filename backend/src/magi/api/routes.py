@@ -107,6 +107,13 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/avatar/upload": {"POST"},
         "/{preset_id}": {"GET"},
     },
+    "schedules": {
+        "/": {"GET", "POST"},
+        "/executions/recent": {"GET"},
+        "/{schedule_id}": {"GET", "PATCH", "DELETE"},
+        "/{schedule_id}/trigger": {"POST"},
+        "/{schedule_id}/executions": {"GET"},
+    },
 }
 
 
@@ -140,6 +147,7 @@ def register_api_routes(app: FastAPI) -> None:
         sensors_router,
         timeline_router,
         plugins_router,
+        schedules_router,
     )
 
     app.include_router(
@@ -200,4 +208,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]),
         prefix="/api/plugins",
         tags=["Plugins"],
+    )
+    app.include_router(
+        _build_public_router(schedules_router, _PUBLIC_ROUTE_METHODS["schedules"]),
+        prefix="/api/schedules",
+        tags=["Schedules"],
     )
