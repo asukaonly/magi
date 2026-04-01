@@ -552,11 +552,11 @@
           "placeholder": "选择预设模型"
         },
         "embedding_local_model_dir_path": {
-          "label": "模型目录路径",
+          "label": "模型目录",
           "placeholder": "/path/to/your/onnx-model-dir"
         },
         "embedding_local_idle_timeout": {
-          "label": "空闲卸载时间（秒）"
+          "label": "空闲卸载时间（分钟）"
         },
         "embedding_local_managed_cache_path": {
           "label": "本地模型缓存目录",
@@ -722,7 +722,7 @@
         "reranker_disabled": "未启用",
         "embedding_local_model_source": {
           "managed": "预设模型",
-          "external": "自定义目录"
+          "external": "自定义模型"
         }
       }
     },

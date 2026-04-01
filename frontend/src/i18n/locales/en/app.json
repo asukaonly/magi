@@ -552,11 +552,11 @@
           "placeholder": "Select a preset model"
         },
         "embedding_local_model_dir_path": {
-          "label": "Model directory path",
+          "label": "Model directory",
           "placeholder": "/path/to/your/onnx-model-dir"
         },
         "embedding_local_idle_timeout": {
-          "label": "Idle unload time (seconds)"
+          "label": "Idle unload time (minutes)"
         },
         "embedding_local_managed_cache_path": {
           "label": "Local model cache directory",
@@ -722,7 +722,7 @@
         "reranker_disabled": "Disabled",
         "embedding_local_model_source": {
           "managed": "Preset model",
-          "external": "Custom directory"
+          "external": "Custom model"
         }
       }
     },
