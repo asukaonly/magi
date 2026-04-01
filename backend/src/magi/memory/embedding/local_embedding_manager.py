@@ -272,9 +272,28 @@ class LocalEmbeddingManager:
         }
         if "token_type_ids" in input_names:
             feeds["token_type_ids"] = np.zeros_like(input_ids)
+        if "position_ids" in input_names:
+            batch_size, seq_len = input_ids.shape
+            feeds["position_ids"] = np.broadcast_to(
+                np.arange(seq_len, dtype=np.int64)[np.newaxis, :],
+                (batch_size, seq_len),
+            ).copy()
 
-        # Run inference
-        outputs = session.run(None, feeds)
+        # Decoder-only models (e.g. Qwen3) may require empty past KV-cache inputs.
+        kv_inputs = sorted(n for n in input_names if n.startswith("past_key_values."))
+        if kv_inputs:
+            batch_size = input_ids.shape[0]
+            num_kv_heads = int(self._model_config.get("num_key_value_heads", 8))
+            head_dim = int(self._model_config.get("head_dim", 128))
+            empty_kv = np.zeros(
+                (batch_size, num_kv_heads, 0, head_dim), dtype=np.float32
+            )
+            for kv_name in kv_inputs:
+                feeds[kv_name] = empty_kv
+
+        # Run inference — request only hidden states, skip KV-cache outputs
+        output_names = [session.get_outputs()[0].name]
+        outputs = session.run(output_names, feeds)
         hidden_states = outputs[0]  # (batch, seq_len, hidden_dim)
 
         # Pooling

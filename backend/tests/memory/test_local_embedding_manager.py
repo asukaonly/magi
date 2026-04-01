@@ -154,6 +154,11 @@ class TestEncodeSyncPooling:
                 self.ids = ids
                 self.attention_mask = mask
 
+        class FakeInput:
+            """Mimics onnxruntime NodeArg with a .name attribute."""
+            def __init__(self, name: str):
+                self.name = name
+
         tokenizer = MagicMock()
         # Two texts: "hello" (3 real tokens) and "hi" (2 real tokens), padded to len 3
         tokenizer.encode_batch.return_value = [
@@ -174,9 +179,15 @@ class TestEncodeSyncPooling:
         session = MagicMock()
         session.run.return_value = [hidden]
         session.get_inputs.return_value = [
-            MagicMock(name="input_ids"),
-            MagicMock(name="attention_mask"),
+            FakeInput("input_ids"),
+            FakeInput("attention_mask"),
         ]
+
+        class FakeOutput:
+            def __init__(self, name: str):
+                self.name = name
+
+        session.get_outputs.return_value = [FakeOutput("last_hidden_state")]
         mgr._session = session
         mgr._model_config = {"max_position_embeddings": 512}
         return mgr
@@ -232,6 +243,58 @@ class TestEncodeSyncPooling:
         arr = np.array(result)
         norms = np.linalg.norm(arr, axis=1)
         np.testing.assert_allclose(norms, [1.0, 1.0], atol=1e-6)
+
+    def test_decoder_model_provides_position_ids_and_kv_cache(self):
+        """Decoder-only models (e.g. Qwen3) need position_ids + empty KV-cache."""
+        import numpy as np
+
+        mgr = self._make_mgr_with_session("last_token", normalize=False)
+
+        class FakeInput:
+            def __init__(self, name: str):
+                self.name = name
+
+        class FakeOutput:
+            def __init__(self, name: str):
+                self.name = name
+
+        # Simulate decoder-only model inputs
+        mgr._session.get_inputs.return_value = [
+            FakeInput("input_ids"),
+            FakeInput("attention_mask"),
+            FakeInput("position_ids"),
+            FakeInput("past_key_values.0.key"),
+            FakeInput("past_key_values.0.value"),
+            FakeInput("past_key_values.1.key"),
+            FakeInput("past_key_values.1.value"),
+        ]
+        mgr._session.get_outputs.return_value = [FakeOutput("last_hidden_state")]
+        mgr._model_config = {
+            "max_position_embeddings": 512,
+            "num_key_value_heads": 4,
+            "head_dim": 64,
+        }
+
+        result = mgr._encode_sync(["hello", "hi"])
+
+        # Verify run was called with all required feeds
+        call_args = mgr._session.run.call_args
+        feeds = call_args[0][1]
+        assert "position_ids" in feeds
+        assert "past_key_values.0.key" in feeds
+        assert "past_key_values.1.value" in feeds
+        # position_ids should be [0, 1, 2] for seq_len=3
+        np.testing.assert_array_equal(feeds["position_ids"][0], [0, 1, 2])
+        # KV-cache should be empty (past_sequence_length=0)
+        assert feeds["past_key_values.0.key"].shape == (2, 4, 0, 64)
+
+    def test_only_first_output_requested(self):
+        """session.run should request only hidden states, not KV-cache outputs."""
+        mgr = self._make_mgr_with_session("cls", normalize=False)
+        mgr._encode_sync(["hello", "hi"])
+        call_args = mgr._session.run.call_args
+        output_names = call_args[0][0]
+        assert output_names == ["last_hidden_state"]
 
 
 class TestShutdown:
