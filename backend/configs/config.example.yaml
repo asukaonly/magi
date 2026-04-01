@@ -17,6 +17,13 @@ agent:
 
   memory:
     db_path: "~/.magi/data/memories"
+    embedding:
+      mode: "remote"  # "remote" or "local"
+      local:
+        model_source: "managed"  # "managed" or "external"
+        managed_model_id: null
+        model_dir_path: null
+        idle_timeout_seconds: 1800
     reranker:
       enabled: false
       backend: "heuristic"
