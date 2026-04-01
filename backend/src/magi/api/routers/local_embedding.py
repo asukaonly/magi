@@ -307,7 +307,6 @@ async def _download_model_task(meta: LocalEmbeddingModelMeta, model_dir: Path) -
                 repo_id,
                 local_dir=str(model_dir),
                 allow_patterns=allow_patterns,
-                resume_download=True,
                 etag_timeout=_DOWNLOAD_ETAG_TIMEOUT,
             )
 
