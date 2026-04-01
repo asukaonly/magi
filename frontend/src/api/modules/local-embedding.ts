@@ -26,8 +26,8 @@ export interface DiscoveredModel {
 
 export interface DownloadStatusResponse {
   model_id: string;
-  status: 'idle' | 'downloading' | 'completed' | 'failed';
-  progress: number | null;
+  status: 'idle' | 'downloading' | 'completed' | 'failed' | 'not_found';
+  progress_pct: number | null;
   error: string | null;
 }
 

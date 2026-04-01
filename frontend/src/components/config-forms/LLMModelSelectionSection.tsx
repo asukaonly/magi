@@ -103,7 +103,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       try {
         const status = await localEmbeddingApi.getDownloadStatus(downloadingModelId);
         if (status.status === 'downloading') {
-          setDownloadProgress(status.progress ?? null);
+          setDownloadProgress(status.progress_pct ?? null);
         } else if (status.status === 'completed') {
           setDownloadingModelId(null);
           setDownloadProgress(null);
@@ -368,7 +368,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                         <Button type="button" variant="outline" size="sm" disabled>
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           {tApp('settings.memory.fields.embedding_local_download.downloading')}
-                          {downloadProgress !== null ? ` ${Math.round(downloadProgress * 100)}%` : ''}
+                          {downloadProgress !== null ? ` ${Math.round(downloadProgress)}%` : ''}
                         </Button>
                       ) : (
                         <Button
