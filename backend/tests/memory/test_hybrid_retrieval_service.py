@@ -317,7 +317,7 @@ class TestServiceLayerRouting:
 
         assert len(result.l2_relationships) == 1
         _, kwargs = l2.batch_get_relationships.call_args
-        assert kwargs["predicates"] == ["LIKES", "DISLIKES", "INTERESTED_IN"]
+        assert kwargs["predicates"] == ["DISLIKES", "FOLLOWS", "INTERESTED_IN", "LIKES"]
         assert kwargs["status_filters"] == ["active", "conflicted"]
 
     @pytest.mark.asyncio

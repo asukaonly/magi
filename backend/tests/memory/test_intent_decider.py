@@ -290,24 +290,44 @@ class TestLayerRouting:
 # -----------------------------------------------------------------------
 
 
-class TestKeywordRouting:
-    def test_l2_relationship_zh(self, decider: RuleBasedIntentDecider):
+class TestDefaultRouting:
+    """Without explicit hints, rule engine defaults to L1 primary + L2 fallback."""
+
+    def test_default_l1_l2(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="tell me about cats")
+        result = decider.evaluate(inp)
+        assert result.plans[0].layer == "L1"
+        assert result.plans[1].layer == "L2"
+        assert not result.plans[0].is_fallback
+        assert result.plans[1].is_fallback
+
+    def test_relationship_query_defaults_to_l1(self, decider: RuleBasedIntentDecider):
+        """Without recall_intent_hint, relationship keywords no longer route to L2."""
         inp = IntentDeciderInput(query="我和小明的关系是什么")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
-        assert isinstance(result.plans[0].conditions, L2Conditions)
+        assert result.plans[0].layer == "L1"
+        assert result.plans[1].layer == "L2"
 
-    def test_l2_preference_profile_zh(self, decider: RuleBasedIntentDecider):
+    def test_preference_query_defaults_to_l1(self, decider: RuleBasedIntentDecider):
+        """Without recall_intent_hint, preference keywords no longer route to L2."""
         inp = IntentDeciderInput(query="我讨厌什么天气")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
-        assert isinstance(result.plans[0].conditions, L2Conditions)
+        assert result.plans[0].layer == "L1"
 
-    def test_l2_preference_keyword_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="用户天气偏好是什么")
+    def test_summary_query_defaults_to_l1(self, decider: RuleBasedIntentDecider):
+        """Without query_mode_hint, summary keywords no longer route to L3."""
+        inp = IntentDeciderInput(query="帮我总结一下上周")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
-        assert isinstance(result.plans[0].conditions, L2Conditions)
+        assert result.plans[0].layer == "L1"
+
+    def test_browsing_l1(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我看了什么网页")
+        result = decider.evaluate(inp)
+        assert result.plans[0].layer == "L1"
+
+
+class TestSemanticFrameEnrichment:
+    """Semantic frame enrichment via enrich_l2_conditions (recall_intent_hint routes to L2)."""
 
     def test_l2_creator_affinity_semantic_frame_for_bilibili_query(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我B站喜欢哪些up主", recall_intent_hint="preference_recall")
@@ -437,42 +457,6 @@ class TestKeywordRouting:
         assert conditions.semantic_frame.answer_kind == "software"
         assert conditions.semantic_frame.answer_shape == "boolean"
         assert conditions.semantic_frame.constraints == []
-
-    def test_l2_who_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="who is John")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
-
-    def test_l3_summary_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="帮我总结一下上周")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L3"
-        assert isinstance(result.plans[0].conditions, L3Conditions)
-
-    def test_l4_strategy_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="上次怎么修复的这个bug")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L4"
-        assert isinstance(result.plans[0].conditions, L4Conditions)
-
-    def test_l4_how_to_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="how to deploy the app")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L4"
-
-    def test_l1_browsing_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我看了什么网页")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L1"
-
-    def test_default_l1_l3(self, decider: RuleBasedIntentDecider):
-        """When no signals match, should default to L1 primary + L3 fallback."""
-        inp = IntentDeciderInput(query="tell me about cats")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L1"
-        assert result.plans[1].layer == "L3"
-        assert not result.plans[0].is_fallback
-        assert result.plans[1].is_fallback
 
 
 # -----------------------------------------------------------------------

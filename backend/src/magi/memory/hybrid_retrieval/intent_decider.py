@@ -35,11 +35,6 @@ from .models import (
     TimeRange,
 )
 from .rule_specs import (
-    L1_SIGNAL_KEYWORDS,
-    L2_SIGNAL_KEYWORDS,
-    L3_SIGNAL_KEYWORDS,
-    L4_SIGNAL_KEYWORDS,
-    contains_any,
     extract_entities,
     infer_answer_kind,
     infer_answer_shape,
@@ -341,7 +336,12 @@ class RuleBasedIntentDecider:
     # -----------------------------------------------------------------------
 
     def _route_layers(self, inp: IntentDeciderInput) -> list[LayerQueryPlan]:
-        """Determine which layers to query based on keyword signals."""
+        """Determine which layers to query.
+
+        Routing is handled by the LLM intent decider when available.
+        The rule engine only uses explicit hints (recall_intent, query_mode)
+        and falls back to L1 primary + L2 fallback as a safe default.
+        """
         # 1. If recall_intent hint is set, use it as the strongest routing signal.
         if inp.recall_intent_hint and inp.recall_intent_hint in _RECALL_INTENT_LAYER_MAP:
             primary_layer, fallback_layer = _RECALL_INTENT_LAYER_MAP[inp.recall_intent_hint]
@@ -358,38 +358,12 @@ class RuleBasedIntentDecider:
                 self._make_plan(fallback_layer, inp, is_fallback=True),
             ]
 
-        query_lower = inp.query.lower()
-        source_filters, domain_filters = self._infer_source_domain(query_lower, inp)
+        source_filters, domain_filters = self._infer_source_domain(inp.query.lower(), inp)
 
-        # 3. Check keyword signals
-        if contains_any(query_lower, L2_SIGNAL_KEYWORDS):
-            return [
-                self._make_plan("L2", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
-                self._make_plan("L1", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
-            ]
-
-        if contains_any(query_lower, L3_SIGNAL_KEYWORDS):
-            return [
-                self._make_plan("L3", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
-                self._make_plan("L1", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
-            ]
-
-        if contains_any(query_lower, L4_SIGNAL_KEYWORDS):
-            return [
-                self._make_plan("L4", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
-                self._make_plan("L1", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
-            ]
-
-        if contains_any(query_lower, L1_SIGNAL_KEYWORDS):
-            return [
-                self._make_plan("L1", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
-                self._make_plan("L3", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
-            ]
-
-        # 4. Default: L1 primary + L3 fallback
+        # 3. Default: L1 primary + L2 fallback
         return [
             self._make_plan("L1", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
-            self._make_plan("L3", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
+            self._make_plan("L2", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
         ]
 
     def _make_plan(
@@ -414,22 +388,15 @@ class RuleBasedIntentDecider:
                 limit=10,
             )
         elif layer == "L2":
-            entities = self._extract_entities(inp.query)
-            subject_hint = self._infer_subject_hint(inp)
-            predicate_family = self._infer_predicate_family(inp)
             conditions = L2Conditions(
                 content_query=inp.query,
-                entities=entities if entities else None,
-                subject_hint=subject_hint,
-                predicate_family=predicate_family,
-                semantic_frame=self._infer_semantic_frame(
-                    query=inp.query,
-                    subject_hint=subject_hint,
-                    predicate_family=predicate_family,
-                ),
                 include_tom_snapshot=True,
                 include_relationships=True,
                 include_assertions=True,
+            )
+            enrich_l2_conditions(
+                conditions, inp.query,
+                recall_intent_hint=inp.recall_intent_hint,
             )
         elif layer == "L3":
             conditions = L3Conditions(
@@ -461,121 +428,6 @@ class RuleBasedIntentDecider:
             return inp.source_filters or None, inp.domain_filters or None
 
         return infer_source_domain_filters(query_lower)
-
-    def _extract_entities(self, query: str) -> list[str]:
-        """Extract high-confidence entity surface forms for common software/platform names."""
-        return extract_entities(query)
-
-    def _infer_subject_hint(self, inp: IntentDeciderInput) -> str:
-        """Infer whether the query subject is the current user or an explicit entity.
-
-        The rule-based path cannot reliably distinguish "我喜欢什么" (self) from
-        "我妈喜欢什么" (explicit).  Accurate subject detection is delegated to
-        the LLM intent decider.  Here we apply a safe default: preference and
-        profile queries in a personal-AI context are overwhelmingly about the
-        user, so we return "self" for those families.
-        """
-        family = self._infer_predicate_family(inp)
-        if family in {"preference", "profile_fact"}:
-            return "self"
-        if inp.recall_intent_hint == "relationship_recall":
-            return "self"
-        return "none"
-
-    def _infer_predicate_family(self, inp: IntentDeciderInput) -> str:
-        """Infer the broad predicate family for L2 graph planning."""
-        if inp.recall_intent_hint == "preference_recall":
-            return "preference"
-        if inp.recall_intent_hint == "profile_fact_recall":
-            return "profile_fact"
-        if inp.recall_intent_hint == "relationship_recall":
-            return "relationship"
-
-        query = inp.query.lower()
-        if any(token in query for token in (
-            "喜欢", "讨厌", "不喜欢", "偏好", "爱吃", "常喝", "反感", "最烦", "最爱",
-            "like", "likes", "dislike", "dislikes", "enjoy", "hate", "love", "favorite", "prefer",
-        )):
-            return "preference"
-        if any(token in query for token in (
-            "关系", "认识", "谁", "他是谁", "怎么认识",
-            "relationship", "know", "knows", "friend",
-        )):
-            return "relationship"
-        if any(token in query for token in (
-            "设置", "默认", "资料", "事实",
-            "setting", "settings", "profile",
-        )):
-            return "profile_fact"
-        if any(token in query for token in (
-            "访问", "浏览", "去过", "看过",
-            "visit", "visited", "browse", "browsed",
-        )):
-            return "activity"
-        return "unknown"
-
-    def _infer_semantic_frame(
-        self,
-        *,
-        query: str,
-        subject_hint: str,
-        predicate_family: str,
-    ) -> L2SemanticFrame | None:
-        query_lower = query.lower()
-        query_family = self._infer_query_family(predicate_family=predicate_family)
-        answer_kind = self._infer_answer_kind(query_lower)
-        if query_family == "lookup" and answer_kind == "unknown":
-            return None
-
-        constraints = self._infer_semantic_constraints(query, answer_kind=answer_kind)
-        return L2SemanticFrame(
-            query_family=query_family,
-            subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
-            answer_kind=answer_kind,
-            answer_unit=self._infer_answer_unit(answer_kind),
-            answer_shape=self._infer_answer_shape(query_lower),
-            polarity=self._infer_polarity(query_lower),
-            entity_mentions=self._extract_entities(query),
-            constraints=constraints,
-            ranking_mode="affinity" if query_family == "affinity" else "confidence",
-        )
-
-    @staticmethod
-    def _infer_query_family(*, predicate_family: str) -> str:
-        if predicate_family == "preference":
-            return "affinity"
-        if predicate_family == "relationship":
-            return "relationship"
-        if predicate_family == "profile_fact":
-            return "profile"
-        if predicate_family == "activity":
-            return "activity"
-        return "lookup"
-
-    @staticmethod
-    def _infer_answer_kind(query_lower: str) -> str:
-        return infer_answer_kind(query_lower)
-
-    @staticmethod
-    def _infer_answer_unit(answer_kind: str) -> str:
-        if answer_kind == "creator":
-            return "identity"
-        if answer_kind == "place":
-            return "place"
-        if answer_kind == "topic":
-            return "topic"
-        return "mixed"
-
-    @staticmethod
-    def _infer_answer_shape(query_lower: str) -> str:
-        return infer_answer_shape(query_lower)
-
-    @staticmethod
-    def _infer_polarity(query_lower: str) -> str:
-        return infer_polarity(query_lower)
-
-    def _infer_semantic_constraints(self, query: str, *, answer_kind: str) -> list[SemanticConstraint]:
-        return infer_semantic_constraints(query, answer_kind=answer_kind)
 
     # -----------------------------------------------------------------------
     # Helpers
@@ -609,13 +461,143 @@ class RuleBasedIntentDecider:
 
 
 # ---------------------------------------------------------------------------
+# L2 condition enrichment (shared by rule engine and LLM post-processing)
+# ---------------------------------------------------------------------------
+
+
+def enrich_l2_conditions(
+    conditions: L2Conditions,
+    query: str,
+    *,
+    recall_intent_hint: str | None = None,
+) -> None:
+    """Fill missing L2 structural fields using rule-based inference.
+
+    Modifies *conditions* in-place.  Only fills fields that are still at
+    their default/empty values so that explicitly-set values are preserved.
+    """
+    if not conditions.entities:
+        conditions.entities = extract_entities(query) or None
+
+    if not conditions.subject_hint or conditions.subject_hint == "none":
+        family = conditions.predicate_family or "unknown"
+        if family == "unknown":
+            family = _infer_predicate_family(query, recall_intent_hint=recall_intent_hint)
+            conditions.predicate_family = family
+        if family in {"preference", "profile_fact"}:
+            conditions.subject_hint = "self"
+        elif recall_intent_hint == "relationship_recall":
+            conditions.subject_hint = "self"
+        else:
+            conditions.subject_hint = "none"
+
+    if not conditions.predicate_family or conditions.predicate_family == "unknown":
+        conditions.predicate_family = _infer_predicate_family(
+            query, recall_intent_hint=recall_intent_hint,
+        )
+
+    if conditions.semantic_frame is None:
+        conditions.semantic_frame = _infer_semantic_frame(
+            query=query,
+            subject_hint=conditions.subject_hint or "none",
+            predicate_family=conditions.predicate_family or "unknown",
+        )
+
+
+def _infer_predicate_family(
+    query: str,
+    *,
+    recall_intent_hint: str | None = None,
+) -> str:
+    """Infer the broad predicate family for L2 graph planning."""
+    if recall_intent_hint == "preference_recall":
+        return "preference"
+    if recall_intent_hint == "profile_fact_recall":
+        return "profile_fact"
+    if recall_intent_hint == "relationship_recall":
+        return "relationship"
+
+    q = query.lower()
+    if any(token in q for token in (
+        "喜欢", "讨厌", "不喜欢", "偏好", "爱吃", "常喝", "反感", "最烦", "最爱",
+        "like", "likes", "dislike", "dislikes", "enjoy", "hate", "love", "favorite", "prefer",
+    )):
+        return "preference"
+    if any(token in q for token in (
+        "关系", "认识", "谁", "他是谁", "怎么认识",
+        "relationship", "know", "knows", "friend",
+    )):
+        return "relationship"
+    if any(token in q for token in (
+        "设置", "默认", "资料", "事实",
+        "setting", "settings", "profile",
+    )):
+        return "profile_fact"
+    if any(token in q for token in (
+        "访问", "浏览", "去过", "看过",
+        "visit", "visited", "browse", "browsed",
+    )):
+        return "activity"
+    return "unknown"
+
+
+def _infer_semantic_frame(
+    *,
+    query: str,
+    subject_hint: str,
+    predicate_family: str,
+) -> L2SemanticFrame | None:
+    """Infer a semantic frame for L2 graph search from query text."""
+    query_lower = query.lower()
+    query_family = _infer_query_family(predicate_family)
+    answer_kind = infer_answer_kind(query_lower)
+    if query_family == "lookup" and answer_kind == "unknown":
+        return None
+
+    constraints = infer_semantic_constraints(query, answer_kind=answer_kind)
+    return L2SemanticFrame(
+        query_family=query_family,
+        subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
+        answer_kind=answer_kind,
+        answer_unit=_infer_answer_unit(answer_kind),
+        answer_shape=infer_answer_shape(query_lower),
+        polarity=infer_polarity(query_lower),
+        entity_mentions=extract_entities(query),
+        constraints=constraints,
+        ranking_mode="affinity" if query_family == "affinity" else "confidence",
+    )
+
+
+def _infer_query_family(predicate_family: str) -> str:
+    if predicate_family == "preference":
+        return "affinity"
+    if predicate_family == "relationship":
+        return "relationship"
+    if predicate_family == "profile_fact":
+        return "profile"
+    if predicate_family == "activity":
+        return "activity"
+    return "lookup"
+
+
+def _infer_answer_unit(answer_kind: str) -> str:
+    if answer_kind == "creator":
+        return "identity"
+    if answer_kind == "place":
+        return "place"
+    if answer_kind == "topic":
+        return "topic"
+    return "mixed"
+
+
+# ---------------------------------------------------------------------------
 # LLMIntentDecider
 # ---------------------------------------------------------------------------
 
 _LLM_SYSTEM_PROMPT = """\
 You are a fast memory-retrieval planning agent.
 
-Your task is to analyze the user's query, decide which memory layers should be queried, and produce layer-specific retrieval plans.
+Analyze the user's query, decide which memory layers to query, and produce a concise retrieval phrase for each layer.
 
 Memory layers:
 - L1 (Event Stream): specific past events, chat logs, browser history, activities.
@@ -623,49 +605,28 @@ Memory layers:
 - L3 (Reflection Summaries): period summaries, topic reviews, high-level insights.
 - L4 (Procedural Memory): tool usage experience, workflows, strategies, best practices.
 
-General rules:
-- Output language for all free-text fields must match the user's query language.
-- Do not hallucinate examples or expand the query with invented details.
-- Keep retrieval text tight and answer-oriented.
+Rules:
+- content_query language must match the user's query language.
+- Do not hallucinate or expand the query with invented details.
+- Keep content_query tight and answer-oriented.
 - Time range parsing is handled elsewhere. Do not output time ranges.
-- You may return multiple layer plans.
-- Plans with is_fallback=true run only when primary retrieval is insufficient.
-
-Layer-specific rules:
-- For L1, L3, and L4:
-  - Use content_query as a concise retrieval phrase for vector/text search.
-  - Keep quoted titles verbatim.
-  - Do not replace a quoted title with a broad topic.
-  - Do not replace a named item with a broad topic.
-- For L2:
-  - Use content_query as a compact graph-oriented retrieval phrase.
-  - Extract entities as surface-form entity mentions from the query when possible.
-  - Entities are mention hints, not canonical database IDs.
-  - Do not put generic self references like "I", "me", "user", or "我" into entities.
-  - When the grammatical subject is the current user, set subject_hint to "self".
-  - When another explicit person or entity is the subject, set subject_hint to "explicit".
-  - Otherwise set subject_hint to "none".
-  - Use predicate_family instead of guessing one exact graph edge when the intent is broad.
-  - Allowed predicate_family values: "preference", "relationship", "profile_fact", "activity", "unknown".
-  - When the query semantics are clearer than predicate_family alone, populate semantic_frame.
-  - semantic_frame should describe query_family, subject_scope, answer_kind, answer_unit, answer_shape, polarity, and constraints.
-  - Use target platform constraints for phrases like "B站上的 up 主" instead of turning the platform into an exact relationship object_id.
+- You may return multiple layer plans. Plans with is_fallback=true run only when primary retrieval is insufficient.
+- Keep quoted titles verbatim. Do not replace a named item with a broad topic.
 
 Routing guidance:
 - Questions about preferences, profile facts, relationships, or long-lived personal attributes should prefer L2.
 - Questions about specific events, order, attendance, browsing, or chat history should prefer L1.
 - Questions asking for summaries, recaps, or reflections should prefer L3.
 - Questions asking how something was done before should prefer L4.
-- For comparison questions, keep both candidate events explicit in the plan.
+- For comparison questions, produce separate plans with each candidate as content_query.
 - For temporal-distance questions, produce anchor-specific content_query text for each event anchor.
-- Do not collapse both anchors into one generic topic query.
-- If the user asks about event order, duration, or "how many days/weeks before/after", prefer L1 as the primary layer unless the query is clearly asking for a summary or procedure.
+- If the user asks about event order, duration, or "how many days/weeks before/after", prefer L1.
 
 Examples:
 - Query: Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?
-  Good L1 content_query values: "Effective Time Management workshop", "Data Analysis using Python webinar"
-- Query: How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?
-  Good L1 content_query values: "Effective Communication in the Workplace workshop", "team meeting preparing for"
+  Good plans: L1 content_query="Effective Time Management workshop", L1 content_query="Data Analysis using Python webinar"
+- Query: How many days before the team meeting did I attend the 'Effective Communication' workshop?
+  Good plans: L1 content_query="Effective Communication workshop", L1 content_query="team meeting"
 
 Return JSON only:
 {
@@ -673,31 +634,7 @@ Return JSON only:
     {
       "layer": "L1" | "L2" | "L3" | "L4",
       "is_fallback": false | true,
-      "content_query": "string",
-      "entities": ["string"],
-      "subject_hint": "self" | "explicit" | "none",
-      "predicate_family": "preference" | "relationship" | "profile_fact" | "activity" | "unknown",
-      "semantic_frame": {
-        "query_family": "affinity" | "relationship" | "profile" | "activity" | "lookup",
-        "subject_scope": "self" | "explicit" | "none",
-        "answer_kind": "creator" | "place" | "topic" | "person" | "software" | "unknown",
-        "answer_unit": "identity" | "presence" | "place" | "topic" | "mixed",
-        "answer_shape": "list" | "single" | "boolean",
-        "polarity": "positive" | "negative" | "neutral" | "any",
-        "entity_mentions": ["string"],
-        "constraints": [
-          {
-            "scope": "target" | "interaction",
-            "facet": "platform" | "located_in" | "category",
-            "raw_value": "string",
-            "resolved_entity_id": "optional entity id",
-            "resolved_facet_value": "optional normalized value"
-          }
-        ],
-        "ranking_mode": "affinity" | "confidence" | "recency"
-      },
-      "source_filters": ["chat", "chrome_history", "profile", "terminal", "git"],
-      "domain_filters": ["user_authored", "external_activity", "system_generated"]
+      "content_query": "string"
     }
   ],
   "reasoning": "brief explanation"
@@ -746,7 +683,7 @@ class LLMIntentDecider:
             decision = self._parse_response(raw)
             if decision is None:
                 return None
-            return self._validate_decision(inp.query, decision)
+            return self._validate_decision(inp.query, decision, recall_intent_hint=inp.recall_intent_hint)
         except Exception:
             elapsed_ms = (time.monotonic() - t0) * 1000
             logger.warning(
@@ -780,30 +717,14 @@ class LLMIntentDecider:
 
             content_query = item.get("content_query", "")
             is_fallback = bool(item.get("is_fallback", False))
-            entities = item.get("entities") or []
-            source_filters = item.get("source_filters") or None
-            domain_filters = item.get("domain_filters") or None
-            subject_hint = str(item.get("subject_hint") or "none").strip().lower()
-            predicate_family = str(item.get("predicate_family") or "unknown").strip().lower()
-            if subject_hint not in _VALID_SUBJECT_HINTS:
-                subject_hint = "none"
-            if predicate_family not in _VALID_PREDICATE_FAMILIES:
-                predicate_family = "unknown"
-            semantic_frame = self._parse_semantic_frame(item.get("semantic_frame"))
 
             if layer == "L1":
                 conditions = L1Conditions(
                     content_query=content_query,
-                    source_filters=source_filters,
-                    domain_filters=domain_filters,
                 )
             elif layer == "L2":
                 conditions = L2Conditions(
                     content_query=content_query,
-                    entities=entities if entities else None,
-                    subject_hint=subject_hint,
-                    predicate_family=predicate_family,
-                    semantic_frame=semantic_frame,
                     include_tom_snapshot=True,
                     include_relationships=True,
                     include_assertions=True,
@@ -823,73 +744,26 @@ class LLMIntentDecider:
         reasoning = data.get("reasoning", "")
         return IntentDecision(plans=plans, reasoning=reasoning, source="llm")
 
-    def _validate_decision(self, original_query: str, decision: IntentDecision) -> IntentDecision:
-        """Lightly narrow over-broad L1 content queries without changing routing."""
+    def _validate_decision(
+        self,
+        original_query: str,
+        decision: IntentDecision,
+        *,
+        recall_intent_hint: str | None = None,
+    ) -> IntentDecision:
+        """Post-process LLM decision: validate L1 queries and enrich L2 conditions."""
         for plan in decision.plans:
-            if plan.layer != "L1" or not isinstance(plan.conditions, L1Conditions):
-                continue
-            plan.conditions.content_query = self._validate_l1_content_query(
-                original_query=original_query,
-                content_query=plan.conditions.content_query,
-            )
-        return decision
-
-    def _parse_semantic_frame(self, payload: Any) -> L2SemanticFrame | None:
-        if not isinstance(payload, dict):
-            return None
-        query_family = str(payload.get("query_family") or "lookup").strip().lower()
-        subject_scope = str(payload.get("subject_scope") or "none").strip().lower()
-        answer_kind = str(payload.get("answer_kind") or "unknown").strip().lower()
-        answer_unit = str(payload.get("answer_unit") or "mixed").strip().lower()
-        answer_shape = str(payload.get("answer_shape") or "list").strip().lower()
-        polarity = str(payload.get("polarity") or "any").strip().lower()
-        ranking_mode = str(payload.get("ranking_mode") or "affinity").strip().lower()
-        if query_family not in _VALID_QUERY_FAMILIES:
-            query_family = "lookup"
-        if subject_scope not in _VALID_SUBJECT_HINTS:
-            subject_scope = "none"
-        if answer_kind not in _VALID_ANSWER_KINDS:
-            answer_kind = "unknown"
-        if answer_unit not in _VALID_ANSWER_UNITS:
-            answer_unit = "mixed"
-        if answer_shape not in _VALID_ANSWER_SHAPES:
-            answer_shape = "list"
-        if polarity not in _VALID_POLARITIES:
-            polarity = "any"
-        if ranking_mode not in {"affinity", "confidence", "recency"}:
-            ranking_mode = "affinity"
-
-        constraints: list[SemanticConstraint] = []
-        for item in payload.get("constraints") or []:
-            if not isinstance(item, dict):
-                continue
-            scope = str(item.get("scope") or "target").strip().lower()
-            facet = str(item.get("facet") or "").strip().lower()
-            raw_value = str(item.get("raw_value") or "").strip()
-            if scope not in _VALID_CONSTRAINT_SCOPES or facet not in _VALID_CONSTRAINT_FACETS or not raw_value:
-                continue
-            constraints.append(
-                SemanticConstraint(
-                    scope=scope,
-                    facet=facet,
-                    raw_value=raw_value,
-                    resolved_entity_id=str(item.get("resolved_entity_id") or "").strip() or None,
-                    resolved_facet_value=str(item.get("resolved_facet_value") or "").strip() or None,
+            if plan.layer == "L1" and isinstance(plan.conditions, L1Conditions):
+                plan.conditions.content_query = self._validate_l1_content_query(
+                    original_query=original_query,
+                    content_query=plan.conditions.content_query,
                 )
-            )
-
-        entity_mentions = [str(item).strip() for item in payload.get("entity_mentions") or [] if str(item).strip()]
-        return L2SemanticFrame(
-            query_family=query_family,
-            subject_scope=subject_scope,
-            answer_kind=answer_kind,
-            answer_unit=answer_unit,
-            answer_shape=answer_shape,
-            polarity=polarity,
-            entity_mentions=entity_mentions,
-            constraints=constraints,
-            ranking_mode=ranking_mode,
-        )
+            elif plan.layer == "L2" and isinstance(plan.conditions, L2Conditions):
+                enrich_l2_conditions(
+                    plan.conditions, original_query,
+                    recall_intent_hint=recall_intent_hint,
+                )
+        return decision
 
     @staticmethod
     def _validate_l1_content_query(*, original_query: str, content_query: str) -> str:

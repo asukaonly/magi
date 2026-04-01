@@ -7,25 +7,10 @@ from typing import Sequence
 
 from .models import SemanticConstraint
 
-L2_SIGNAL_KEYWORDS = [
-    "关系", "认识", "谁是", "谁", "人物", "联系人",
-    "偏好", "喜好", "喜欢", "讨厌", "不喜欢", "画像", "倾向",
-    "relationship", "who is", "who", "person", "contact",
-    "preference", "preferences", "profile", "tendency",
-    "like", "likes", "dislike", "dislikes",
-]
-L3_SIGNAL_KEYWORDS = [
-    "总结", "回顾", "小结", "概要", "复盘",
-    "summary", "review", "recap", "overview",
-]
-L4_SIGNAL_KEYWORDS = [
-    "怎么做", "上次怎么", "经验", "技巧", "最佳实践", "方法", "策略",
-    "how to", "best practice", "experience", "strategy", "technique",
-]
-L1_SIGNAL_KEYWORDS = [
-    "浏览", "看了", "聊了", "发了", "搜了", "打开了", "访问了",
-    "browsed", "viewed", "chatted", "searched", "opened", "visited",
-]
+# Layer routing keywords removed — routing is now handled entirely by the
+# LLM intent decider, with a simple default fallback (L1 primary + L2
+# fallback) when the LLM is unavailable.  Keyword-based routing suffered
+# from semantic ambiguity (e.g. "画像" matching L2 even for L1 queries).
 
 SOURCE_DOMAIN_SIGNAL_SPECS: list[tuple[list[str], list[str], list[str]]] = [
     (["浏览", "browsing", "网页", "webpage", "browser"], ["chrome_history"], ["external_activity"]),
