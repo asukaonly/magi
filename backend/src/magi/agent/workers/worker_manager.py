@@ -839,6 +839,12 @@ class WorkerAgentManager(Tool):
                 response_preview=str(payload.get("response_preview") or "")[:240] or None,
             )
         )
+        # Broadcast trace_update so frontend sees real-time worker progress.
+        await self._publish_trace_update_notification({
+            "user_id": run_state.user_id,
+            "session_id": run_state.session_id,
+            "turn_id": run_state.turn_id,
+        })
 
     def _build_trace_emitter(self) -> TraceEventEmitter | None:
         if self._message_bus is None:
