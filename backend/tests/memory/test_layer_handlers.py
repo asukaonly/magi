@@ -516,8 +516,6 @@ class TestL2Handler:
                 subject_scope="self",
                 answer_kind="creator",
                 answer_unit="identity",
-                answer_shape="list",
-                polarity="positive",
                 constraints=[
                     SemanticConstraint(
                         scope="target",
@@ -591,8 +589,6 @@ class TestL2Handler:
                 subject_scope="self",
                 answer_kind="creator",
                 answer_unit="identity",
-                answer_shape="list",
-                polarity="positive",
                 constraints=[
                     SemanticConstraint(
                         scope="target",
@@ -652,8 +648,6 @@ class TestL2Handler:
                 subject_scope="self",
                 answer_kind="creator",
                 answer_unit="identity",
-                answer_shape="list",
-                polarity="positive",
                 constraints=[
                     SemanticConstraint(
                         scope="interaction",
@@ -701,8 +695,6 @@ class TestL2Handler:
                 subject_scope="self",
                 answer_kind="topic",
                 answer_unit="topic",
-                answer_shape="list",
-                polarity="positive",
             ),
         )
 
@@ -756,8 +748,6 @@ class TestL2Handler:
                 subject_scope="self",
                 answer_kind="place",
                 answer_unit="place",
-                answer_shape="list",
-                polarity="positive",
                 constraints=[
                     SemanticConstraint(
                         scope="target",
@@ -836,8 +826,6 @@ class TestL2Handler:
                 subject_scope="self",
                 answer_kind="place",
                 answer_unit="place",
-                answer_shape="list",
-                polarity="positive",
                 constraints=[
                     SemanticConstraint(
                         scope="target",
@@ -923,8 +911,6 @@ class TestL2Handler:
                 subject_scope="self",
                 answer_kind="place",
                 answer_unit="place",
-                answer_shape="list",
-                polarity="positive",
                 constraints=[
                     SemanticConstraint(
                         scope="interaction",
@@ -994,8 +980,6 @@ class TestL2Handler:
                 subject_scope="self",
                 answer_kind="software",
                 answer_unit="mixed",
-                answer_shape="boolean",
-                polarity="positive",
                 entity_mentions=["B站"],
             ),
         )
@@ -1346,8 +1330,6 @@ class TestL2HandlerCreatorAffinityFallback:
                 subject_scope="self",
                 answer_kind="creator",
                 answer_unit="identity",
-                answer_shape="list",
-                polarity="positive",
                 constraints=[],  # no platform constraint
             ),
         )
@@ -1393,8 +1375,6 @@ class TestL2HandlerSoftwareAffinityFallback:
                 subject_scope="self",
                 answer_kind="software",
                 answer_unit="mixed",
-                answer_shape="list",
-                polarity="positive",
                 entity_mentions=["软件"],
             ),
         )
@@ -1437,8 +1417,6 @@ class TestL2HandlerPlaceAffinityFallback:
                 subject_scope="self",
                 answer_kind="place",
                 answer_unit="place",
-                answer_shape="list",
-                polarity="positive",
                 constraints=[],  # no location constraint
             ),
         )

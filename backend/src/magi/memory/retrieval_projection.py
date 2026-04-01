@@ -197,15 +197,6 @@ def _infer_answer_kind(*, payload: RetrievalPayload, request: RetrievalQuery) ->
     if findings_answer_kind is not None:
         return findings_answer_kind
 
-    query_lower = str(request.query or "").strip().lower()
-    if any(token in query_lower for token in ("up主", "up", "博主", "youtuber", "主播", "creator", "频道", "channel")):
-        return "creator"
-    if any(token in query_lower for token in ("咖啡馆", "餐厅", "店", "饭馆", "cafe", "restaurant", "shop")):
-        return "place"
-    if any(token in query_lower for token in ("题材", "主题", "topic")):
-        return "topic"
-    if any(token in query_lower for token in ("软件", "网站", "app", "平台", "b站", "bilibili", "youtube")):
-        return "software"
     return "unknown"
 
 

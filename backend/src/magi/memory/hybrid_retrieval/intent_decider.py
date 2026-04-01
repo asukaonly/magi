@@ -34,10 +34,7 @@ from .models import (
     SemanticConstraint,
     TimeRange,
 )
-from .rule_specs import (
-    infer_semantic_constraints,
-    infer_source_domain_filters,
-)
+
 
 logger = logging.getLogger(__name__)
 
@@ -416,12 +413,10 @@ class RuleBasedIntentDecider:
         query_lower: str,
         inp: IntentDeciderInput,
     ) -> tuple[Optional[list[str]], Optional[list[str]]]:
-        """Infer source and domain filters from query keywords."""
-        # If caller already specified, use those
+        """Return caller-provided source/domain filters, or (None, None)."""
         if inp.source_filters or inp.domain_filters:
             return inp.source_filters or None, inp.domain_filters or None
-
-        return infer_source_domain_filters(query_lower)
+        return None, None
 
     # -----------------------------------------------------------------------
     # Helpers
@@ -503,35 +498,18 @@ def _infer_predicate_family(
     *,
     recall_intent_hint: str | None = None,
 ) -> str:
-    """Infer the broad predicate family for L2 graph planning."""
+    """Infer the broad predicate family for L2 graph planning.
+
+    Only uses the explicit *recall_intent_hint* supplied by the caller.
+    Keyword-based inference was removed to avoid brittle whack-a-mole
+    heuristics; the LLM intent decider now handles classification.
+    """
     if recall_intent_hint == "preference_recall":
         return "preference"
     if recall_intent_hint == "profile_fact_recall":
         return "profile_fact"
     if recall_intent_hint == "relationship_recall":
         return "relationship"
-
-    q = query.lower()
-    if any(token in q for token in (
-        "喜欢", "讨厌", "不喜欢", "偏好", "爱吃", "常喝", "反感", "最烦", "最爱",
-        "like", "likes", "dislike", "dislikes", "enjoy", "hate", "love", "favorite", "prefer",
-    )):
-        return "preference"
-    if any(token in q for token in (
-        "关系", "认识", "谁", "他是谁", "怎么认识",
-        "relationship", "know", "knows", "friend",
-    )):
-        return "relationship"
-    if any(token in q for token in (
-        "设置", "默认", "资料", "事实",
-        "setting", "settings", "profile",
-    )):
-        return "profile_fact"
-    if any(token in q for token in (
-        "访问", "浏览", "去过", "看过",
-        "visit", "visited", "browse", "browsed",
-    )):
-        return "activity"
     return "unknown"
 
 
@@ -541,20 +519,18 @@ def _infer_semantic_frame(
     subject_hint: str,
     predicate_family: str,
 ) -> L2SemanticFrame | None:
-    """Infer a semantic frame for L2 graph search from query text."""
-    query_lower = query.lower()
+    """Infer a minimal semantic frame for L2 graph search."""
     query_family = _infer_query_family(predicate_family)
     if query_family == "lookup":
         return None
 
-    constraints = infer_semantic_constraints(query)
     return L2SemanticFrame(
         query_family=query_family,
         subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
         answer_kind="unknown",
         answer_unit="mixed",
         entity_mentions=[],
-        constraints=constraints,
+        constraints=[],
         ranking_mode="affinity" if query_family == "affinity" else "confidence",
     )
 

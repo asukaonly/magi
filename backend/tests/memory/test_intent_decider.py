@@ -355,7 +355,7 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.answer_kind == "unknown"
         assert conditions.semantic_frame.answer_unit == "mixed"
 
-    def test_l2_place_affinity_location_interaction_scope(
+    def test_l2_place_affinity_semantic_frame_no_rule_constraints(
         self,
         decider: RuleBasedIntentDecider,
     ):
@@ -365,12 +365,7 @@ class TestSemanticFrameEnrichment:
         conditions = result.plans[0].conditions
         assert isinstance(conditions, L2Conditions)
         assert conditions.semantic_frame is not None
-        location_constraints = [
-            c for c in conditions.semantic_frame.constraints if c.facet == "located_in"
-        ]
-        assert len(location_constraints) == 1
-        assert location_constraints[0].scope == "interaction"
-        assert location_constraints[0].raw_value == "杭州"
+        assert conditions.semantic_frame.constraints == []
 
     def test_l2_topic_affinity_semantic_frame_for_topic_query(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我喜欢什么题材", recall_intent_hint="preference_recall")
@@ -413,27 +408,6 @@ class TestSemanticFrameEnrichment:
 
 
 class TestSourceDomainInference:
-    def test_browser_signal_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我浏览了哪些网站")
-        result = decider.evaluate(inp)
-        l1_plan = result.plans[0]
-        assert isinstance(l1_plan.conditions, L1Conditions)
-        assert "chrome_history" in (l1_plan.conditions.source_filters or [])
-
-    def test_chat_signal_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="chat history from today")
-        result = decider.evaluate(inp)
-        l1_plan = result.plans[0]
-        assert isinstance(l1_plan.conditions, L1Conditions)
-        assert "chat" in (l1_plan.conditions.source_filters or [])
-
-    def test_terminal_signal(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="终端里运行了什么命令")
-        result = decider.evaluate(inp)
-        l1_plan = result.plans[0]
-        assert isinstance(l1_plan.conditions, L1Conditions)
-        assert "terminal" in (l1_plan.conditions.source_filters or [])
-
     def test_caller_filters_preserved(self, decider: RuleBasedIntentDecider):
         """Caller-provided filters should take precedence over inference."""
         inp = IntentDeciderInput(
@@ -446,6 +420,14 @@ class TestSourceDomainInference:
         assert isinstance(l1_plan.conditions, L1Conditions)
         assert l1_plan.conditions.source_filters == ["custom_source"]
         assert l1_plan.conditions.domain_filters == ["custom_domain"]
+
+    def test_no_keyword_source_inference(self, decider: RuleBasedIntentDecider):
+        """Without caller-provided filters, rule engine returns no source filters."""
+        inp = IntentDeciderInput(query="我浏览了哪些网站")
+        result = decider.evaluate(inp)
+        l1_plan = result.plans[0]
+        assert isinstance(l1_plan.conditions, L1Conditions)
+        assert l1_plan.conditions.source_filters is None
 
 
 # -----------------------------------------------------------------------

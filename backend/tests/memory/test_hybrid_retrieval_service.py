@@ -312,6 +312,7 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我讨厌什么天气",
+                recall_intent="preference_recall",
             )
         )
 
@@ -392,6 +393,7 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我讨厌什么天气",
+                recall_intent="preference_recall",
             )
         )
 
@@ -420,6 +422,7 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我和魔都是什么关系",
+                recall_intent="relationship_recall",
             )
         )
 
@@ -590,6 +593,7 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我讨厌什么天气",
+                recall_intent="preference_recall",
                 user_id="local_user",
             )
         )
@@ -622,6 +626,7 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我讨厌什么天气",
+                recall_intent="preference_recall",
                 user_id="local_user",
             )
         )
