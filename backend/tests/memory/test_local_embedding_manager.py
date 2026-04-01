@@ -138,6 +138,102 @@ class TestEmbed:
         assert result[3] is None
 
 
+class TestEncodeSyncPooling:
+    """Test _encode_sync pooling strategies with mocked session/tokenizer."""
+
+    def _make_mgr_with_session(self, pooling: str, normalize: bool = True):
+        import numpy as np
+
+        mgr = LocalEmbeddingManager(_make_config())
+        mgr._pooling = pooling
+        mgr._normalize = normalize
+
+        # Fake tokenizer
+        class FakeEncoding:
+            def __init__(self, ids, mask):
+                self.ids = ids
+                self.attention_mask = mask
+
+        tokenizer = MagicMock()
+        # Two texts: "hello" (3 real tokens) and "hi" (2 real tokens), padded to len 3
+        tokenizer.encode_batch.return_value = [
+            FakeEncoding([10, 20, 30], [1, 1, 1]),
+            FakeEncoding([40, 50, 0], [1, 1, 0]),
+        ]
+        mgr._tokenizer = tokenizer
+
+        # Fake session producing hidden_states (batch=2, seq_len=3, dim=4)
+        hidden = np.array([
+            [[1.0, 0.0, 0.0, 0.0],
+             [0.0, 2.0, 0.0, 0.0],
+             [0.0, 0.0, 3.0, 0.0]],
+            [[4.0, 0.0, 0.0, 0.0],
+             [0.0, 5.0, 0.0, 0.0],
+             [0.0, 0.0, 6.0, 0.0]],
+        ], dtype=np.float32)
+        session = MagicMock()
+        session.run.return_value = [hidden]
+        session.get_inputs.return_value = [
+            MagicMock(name="input_ids"),
+            MagicMock(name="attention_mask"),
+        ]
+        mgr._session = session
+        mgr._model_config = {"max_position_embeddings": 512}
+        return mgr
+
+    def test_cls_pooling(self):
+        import numpy as np
+
+        mgr = self._make_mgr_with_session("cls", normalize=False)
+        result = mgr._encode_sync(["hello", "hi"])
+        arr = np.array(result)
+        # CLS = first token
+        assert arr.shape == (2, 4)
+        np.testing.assert_allclose(arr[0], [1.0, 0.0, 0.0, 0.0])
+        np.testing.assert_allclose(arr[1], [4.0, 0.0, 0.0, 0.0])
+
+    def test_mean_pooling(self):
+        import numpy as np
+
+        mgr = self._make_mgr_with_session("mean", normalize=False)
+        result = mgr._encode_sync(["hello", "hi"])
+        arr = np.array(result)
+        # "hello": mask=[1,1,1], mean of 3 rows
+        np.testing.assert_allclose(arr[0], [1 / 3, 2 / 3, 3 / 3, 0.0], atol=1e-6)
+        # "hi": mask=[1,1,0], mean of first 2 rows only
+        np.testing.assert_allclose(arr[1], [4 / 2, 5 / 2, 0.0, 0.0], atol=1e-6)
+
+    def test_last_token_pooling(self):
+        import numpy as np
+
+        mgr = self._make_mgr_with_session("last_token", normalize=False)
+        result = mgr._encode_sync(["hello", "hi"])
+        arr = np.array(result)
+        # "hello": mask=[1,1,1], last valid index = 2
+        np.testing.assert_allclose(arr[0], [0.0, 0.0, 3.0, 0.0])
+        # "hi": mask=[1,1,0], last valid index = 1
+        np.testing.assert_allclose(arr[1], [0.0, 5.0, 0.0, 0.0])
+
+    def test_last_token_sets_left_padding(self):
+        mgr = self._make_mgr_with_session("last_token", normalize=False)
+        mgr._encode_sync(["hello", "hi"])
+        mgr._tokenizer.enable_padding.assert_called_with(direction="left")
+
+    def test_cls_sets_right_padding(self):
+        mgr = self._make_mgr_with_session("cls", normalize=False)
+        mgr._encode_sync(["hello", "hi"])
+        mgr._tokenizer.enable_padding.assert_called_with(direction="right")
+
+    def test_normalize_produces_unit_vectors(self):
+        import numpy as np
+
+        mgr = self._make_mgr_with_session("cls", normalize=True)
+        result = mgr._encode_sync(["hello", "hi"])
+        arr = np.array(result)
+        norms = np.linalg.norm(arr, axis=1)
+        np.testing.assert_allclose(norms, [1.0, 1.0], atol=1e-6)
+
+
 class TestShutdown:
     """Test clean shutdown."""
 

@@ -47,6 +47,22 @@ models:
     recommended: true
     description: "High-quality multilingual model (74 languages, 768d), Dec 2024, Apache 2.0"
 
+  - id: qwen3-embedding-0.6b
+    label: "Qwen3 Embedding 0.6B"
+    repo: "Qwen/Qwen3-Embedding-0.6B"
+    onnx_repo: "onnx-community/Qwen3-Embedding-0.6B-ONNX"
+    dimension: 1024
+    max_tokens: 8192
+    pooling: last_token
+    normalize: true
+    size_mb: 585
+    size_fp32_mb: 2300
+    quantized: true
+    languages:
+      - multi
+    recommended: true
+    description: "Qwen3 decoder-only embedding (100+ languages, 1024d), Jun 2025, Apache 2.0"
+
   - id: bge-small-en-v1.5
     label: "BGE Small English v1.5"
     repo: "BAAI/bge-small-en-v1.5"

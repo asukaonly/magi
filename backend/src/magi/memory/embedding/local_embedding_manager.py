@@ -250,7 +250,10 @@ class LocalEmbeddingManager:
             return []
 
         # Tokenize with padding
-        tokenizer.enable_padding()
+        if self._pooling == "last_token":
+            tokenizer.enable_padding(direction="left")
+        else:
+            tokenizer.enable_padding(direction="right")
         tokenizer.enable_truncation(
             max_length=self._model_config.get("max_position_embeddings", 512)
         )
@@ -277,6 +280,14 @@ class LocalEmbeddingManager:
         # Pooling
         if self._pooling == "cls":
             embeddings = hidden_states[:, 0, :]
+        elif self._pooling == "last_token":
+            # Last valid token pooling for decoder-only models (e.g. Qwen3-Embedding).
+            # With left-padding, the last non-pad token is at the position
+            # indicated by (sum of attention_mask - 1).
+            seq_lengths = attention_mask.sum(axis=1).astype(int) - 1
+            embeddings = hidden_states[
+                np.arange(hidden_states.shape[0]), seq_lengths, :
+            ]
         else:
             # Mean pooling
             mask = attention_mask[:, :, np.newaxis].astype(np.float32)
