@@ -3,20 +3,12 @@
 from __future__ import annotations
 
 from magi.memory.hybrid_retrieval.rule_specs import (
-    extract_answer_object_mentions,
     extract_location_constraint,
     infer_source_domain_filters,
-    infer_answer_kind,
     infer_answer_shape,
     infer_polarity,
     infer_semantic_constraints,
 )
-
-
-def test_infer_answer_kind_uses_central_keyword_specs() -> None:
-    assert infer_answer_kind("我喜欢哪些频道") == "creator"
-    assert infer_answer_kind("我喜欢什么题材") == "topic"
-    assert infer_answer_kind("上次我看的主播他说的主题是什么") == "topic"
 
 
 def test_infer_answer_shape_uses_central_query_specs() -> None:
@@ -44,15 +36,6 @@ def test_infer_semantic_constraints_extracts_location() -> None:
     assert [(item.scope, item.facet, item.raw_value) for item in place_constraints] == [
         ("interaction", "located_in", "杭州"),
     ]
-
-
-def test_extract_answer_object_mentions_prefers_answer_object_over_context_mentions() -> None:
-    mentions = extract_answer_object_mentions("上次我看的主播他说的主题是什么")
-    assert mentions == ["主题"]
-
-
-def test_infer_answer_kind_uses_answer_object_mentions_first() -> None:
-    assert infer_answer_kind("上次我看的主播他说的主题是什么") == "topic"
 
 
 def test_extract_location_constraint_distinguishes_target_and_interaction_scope() -> None:

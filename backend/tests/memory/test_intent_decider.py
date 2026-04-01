@@ -339,8 +339,8 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame is not None
         assert conditions.semantic_frame.query_family == "affinity"
         assert conditions.semantic_frame.subject_scope == "self"
-        assert conditions.semantic_frame.answer_kind == "creator"
-        assert conditions.semantic_frame.answer_unit == "identity"
+        assert conditions.semantic_frame.answer_kind == "unknown"
+        assert conditions.semantic_frame.answer_unit == "mixed"
         assert conditions.semantic_frame.answer_shape == "list"
 
     def test_l2_place_affinity_semantic_frame_with_location(self, decider: RuleBasedIntentDecider):
@@ -353,8 +353,8 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame is not None
         assert conditions.semantic_frame.query_family == "affinity"
         assert conditions.semantic_frame.subject_scope == "self"
-        assert conditions.semantic_frame.answer_kind == "place"
-        assert conditions.semantic_frame.answer_unit == "place"
+        assert conditions.semantic_frame.answer_kind == "unknown"
+        assert conditions.semantic_frame.answer_unit == "mixed"
         assert conditions.semantic_frame.answer_shape == "list"
 
     def test_l2_place_affinity_location_interaction_scope(
@@ -384,8 +384,8 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame is not None
         assert conditions.semantic_frame.query_family == "affinity"
         assert conditions.semantic_frame.subject_scope == "self"
-        assert conditions.semantic_frame.answer_kind == "topic"
-        assert conditions.semantic_frame.answer_unit == "topic"
+        assert conditions.semantic_frame.answer_kind == "unknown"
+        assert conditions.semantic_frame.answer_unit == "mixed"
         assert conditions.semantic_frame.answer_shape == "list"
 
     def test_l2_topic_affinity_semantic_frame_for_creator_topic_question(self, decider: RuleBasedIntentDecider):
@@ -396,7 +396,7 @@ class TestSemanticFrameEnrichment:
         conditions = result.plans[0].conditions
         assert isinstance(conditions, L2Conditions)
         assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.answer_kind == "topic"
+        assert conditions.semantic_frame.answer_kind == "unknown"
         assert conditions.semantic_frame.answer_shape == "list"
 
     def test_l2_affinity_boolean_query(self, decider: RuleBasedIntentDecider):

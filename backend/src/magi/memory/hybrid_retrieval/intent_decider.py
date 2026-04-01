@@ -35,7 +35,6 @@ from .models import (
     TimeRange,
 )
 from .rule_specs import (
-    infer_answer_kind,
     infer_answer_shape,
     infer_polarity,
     infer_semantic_constraints,
@@ -549,16 +548,15 @@ def _infer_semantic_frame(
     """Infer a semantic frame for L2 graph search from query text."""
     query_lower = query.lower()
     query_family = _infer_query_family(predicate_family)
-    answer_kind = infer_answer_kind(query_lower)
-    if query_family == "lookup" and answer_kind == "unknown":
+    if query_family == "lookup":
         return None
 
     constraints = infer_semantic_constraints(query)
     return L2SemanticFrame(
         query_family=query_family,
         subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
-        answer_kind=answer_kind,
-        answer_unit=_infer_answer_unit(answer_kind),
+        answer_kind="unknown",
+        answer_unit="mixed",
         answer_shape=infer_answer_shape(query_lower),
         polarity=infer_polarity(query_lower),
         entity_mentions=[],
@@ -579,14 +577,7 @@ def _infer_query_family(predicate_family: str) -> str:
     return "lookup"
 
 
-def _infer_answer_unit(answer_kind: str) -> str:
-    if answer_kind == "creator":
-        return "identity"
-    if answer_kind == "place":
-        return "place"
-    if answer_kind == "topic":
-        return "topic"
-    return "mixed"
+
 
 
 # ---------------------------------------------------------------------------

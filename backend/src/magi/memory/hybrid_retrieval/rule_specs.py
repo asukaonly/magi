@@ -12,6 +12,10 @@ from .models import SemanticConstraint
 # fallback) when the LLM is unavailable.  Keyword-based routing suffered
 # from semantic ambiguity (e.g. "画像" matching L2 even for L1 queries).
 
+# Answer-kind keyword tables removed — answer_kind inference is handled by
+# the LLM semantic frame.  Keyword-based inference suffered from the same
+# "whack-a-mole" coverage problem as routing keywords.
+
 SOURCE_DOMAIN_SIGNAL_SPECS: list[tuple[list[str], list[str], list[str]]] = [
     (["浏览", "browsing", "网页", "webpage", "browser"], ["chrome_history"], ["external_activity"]),
     (["聊天", "对话", "chat", "conversation"], ["chat"], ["user_authored"]),
@@ -21,28 +25,10 @@ SOURCE_DOMAIN_SIGNAL_SPECS: list[tuple[list[str], list[str], list[str]]] = [
     (["音乐", "听了", "music", "listened"], ["music"], ["external_activity"]),
 ]
 
-CREATOR_KEYWORDS = ("up主", "博主", "youtuber", "主播", "creator", "频道", "channel")
-PLACE_KEYWORDS = ("咖啡馆", "餐厅", "店", "饭馆", "cafe", "restaurant", "shop")
-TOPIC_KEYWORDS = ("题材", "主题", "topic")
-SOFTWARE_KEYWORDS = ("软件", "网站", "app", "平台")
-PERSON_KEYWORDS = ("谁", "person")
-
 NEGATIVE_POLARITY_KEYWORDS = ("讨厌", "不喜欢", "dislike", "hate")
 POSITIVE_POLARITY_KEYWORDS = ("喜欢", "偏好", "关注", "常看", "love", "like", "prefer")
 
 _BOOLEAN_TRAILING_PATTERN = re.compile(r"(?<!什)(吗|么)\s*[?？]?\s*$")
-_TOPIC_PRIMARY_PATTERNS = (
-    re.compile(r"(什么|哪些|哪种|哪类).*(题材|主题|topic)", re.IGNORECASE),
-    re.compile(r"(题材|主题|topic).*(是什么|是啥|有哪些|有哪|是什么样)", re.IGNORECASE),
-)
-_CREATOR_PRIMARY_PATTERNS = (
-    re.compile(r"(哪些|什么|谁|哪几个).*(up主|主播|博主|youtuber|creator|频道|channel)", re.IGNORECASE),
-    re.compile(r"(up主|主播|博主|youtuber|creator|频道|channel).*(是谁|有哪些|有什么)", re.IGNORECASE),
-)
-_PLACE_PRIMARY_PATTERNS = (
-    re.compile(r"(什么|哪些|哪家|哪几个).*(咖啡馆|餐厅|店|饭馆|cafe|restaurant|shop)", re.IGNORECASE),
-    re.compile(r"(咖啡馆|餐厅|店|饭馆|cafe|restaurant|shop).*(是哪|有哪些|有什么)", re.IGNORECASE),
-)
 _INTERACTION_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})的时候喜欢去")
 _TARGET_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去")
 
@@ -52,64 +38,7 @@ def contains_any(text: str, tokens: Sequence[str]) -> bool:
     return any(token in text for token in tokens)
 
 
-def extract_answer_object_mentions(query: str) -> list[str]:
-    """Extract explicit mentions that likely denote the answer object itself."""
-    query_lower = query.lower()
-    mentions: list[str] = []
-    if any(pattern.search(query_lower) for pattern in _TOPIC_PRIMARY_PATTERNS):
-        mentions.extend([token for token in TOPIC_KEYWORDS if token in query_lower or token in query])
-    elif any(pattern.search(query_lower) for pattern in _CREATOR_PRIMARY_PATTERNS):
-        mentions.extend([token for token in CREATOR_KEYWORDS if token in query_lower or token in query])
-    elif any(pattern.search(query_lower) for pattern in _PLACE_PRIMARY_PATTERNS):
-        mentions.extend([token for token in PLACE_KEYWORDS if token in query_lower or token in query])
-
-    deduped: list[str] = []
-    for mention in mentions:
-        if mention not in deduped:
-            deduped.append(mention)
-    return deduped
-
-
-def _answer_kind_from_mentions(mentions: Sequence[str]) -> str | None:
-    if any(mention in CREATOR_KEYWORDS for mention in mentions):
-        return "creator"
-    if any(mention in PLACE_KEYWORDS for mention in mentions):
-        return "place"
-    if any(mention in TOPIC_KEYWORDS for mention in mentions):
-        return "topic"
-    if any(mention in SOFTWARE_KEYWORDS for mention in mentions):
-        return "software"
-    if any(mention in PERSON_KEYWORDS for mention in mentions):
-        return "person"
-    return None
-
-
-def infer_answer_kind(query_lower: str) -> str:
-    """Infer the answer object kind from a normalized query string."""
-    query_lower = query_lower.lower()
-    answer_object_kind = _answer_kind_from_mentions(extract_answer_object_mentions(query_lower))
-    if answer_object_kind is not None:
-        return answer_object_kind
-    if any(pattern.search(query_lower) for pattern in _TOPIC_PRIMARY_PATTERNS):
-        return "topic"
-    if any(pattern.search(query_lower) for pattern in _CREATOR_PRIMARY_PATTERNS):
-        return "creator"
-    if any(pattern.search(query_lower) for pattern in _PLACE_PRIMARY_PATTERNS):
-        return "place"
-    if contains_any(query_lower, CREATOR_KEYWORDS):
-        return "creator"
-    if contains_any(query_lower, PLACE_KEYWORDS):
-        return "place"
-    if contains_any(query_lower, TOPIC_KEYWORDS):
-        return "topic"
-    if contains_any(query_lower, SOFTWARE_KEYWORDS):
-        return "software"
-    if contains_any(query_lower, PERSON_KEYWORDS):
-        return "person"
-    return "unknown"
-
-
-# “什么” must not match inside “为什么” (why vs. what).
+# "什么" must not match inside "为什么" (why vs. what).
 _LIST_QUERY_PATTERN = re.compile(
     r"哪些|(?<!为)什么|谁|哪几个|which|what", re.IGNORECASE,
 )
