@@ -491,10 +491,10 @@ class L2CognitionStore:
         effective_predicate = predicate
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            # Check for active edges with the same (subject, object) pair
+            # Check for active/archived edges with the same (subject, object) pair
             async with db.execute(
                 "SELECT triple_id, predicate, observation_count FROM knowledge_graph "
-                "WHERE subject_id = ? AND object_id = ? AND status = 'active'",
+                "WHERE subject_id = ? AND object_id = ? AND status IN ('active', 'archived')",
                 (subject_id, normalized_object_id),
             ) as cursor:
                 same_pair_edges = await cursor.fetchall()
@@ -560,7 +560,7 @@ class L2CognitionStore:
                         last_observed_at = ?, last_confirmed_at = ?, source_type = ?,
                         extraction_method = ?, evidence_text = ?, natural_summary = ?,
                         embedding_status = 'pending', expires_at = COALESCE(?, expires_at),
-                        updated_at = ?
+                        updated_at = ?, status = 'active'
                     WHERE triple_id = ?
                     """,
                     (

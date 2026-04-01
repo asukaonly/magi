@@ -861,3 +861,163 @@ async def test_concurrent_run_is_skipped():
             assert stats.orphans_pruned == 0
         finally:
             maint._run_lock.release()
+
+
+# ── Archive stale edges ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_archive_stale_low_confidence_edges():
+    """Edges with low confidence and old updated_at should be archived."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        now = time.time()
+        old_ts = now - 100 * 86400  # 100 days ago
+
+        async with sqlite_connection_async(db_path) as db:
+            # Low confidence + old → should be archived
+            await db.execute(
+                """
+                INSERT INTO knowledge_graph(
+                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                    confidence, evidence_event_ids, observation_count,
+                    first_observed_at, last_observed_at, created_at, updated_at, status, fact_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "triple_archive_low", "user:self", "user", "LIKES", "food:sushi", "food",
+                    0.2, "[]", 3,
+                    old_ts, old_ts, old_ts, old_ts, "active", "explicit_fact",
+                ),
+            )
+            # Single observation + very old → should be archived
+            await db.execute(
+                """
+                INSERT INTO knowledge_graph(
+                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                    confidence, evidence_event_ids, observation_count,
+                    first_observed_at, last_observed_at, created_at, updated_at, status, fact_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "triple_archive_single", "user:self", "user", "KNOWS", "person:bob", "person",
+                    0.8, "[]", 1,
+                    now - 200 * 86400, now - 200 * 86400, now - 200 * 86400, now - 200 * 86400,
+                    "active", "explicit_fact",
+                ),
+            )
+            # Recent high-confidence → should stay active
+            await db.execute(
+                """
+                INSERT INTO knowledge_graph(
+                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                    confidence, evidence_event_ids, observation_count,
+                    first_observed_at, last_observed_at, created_at, updated_at, status, fact_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "triple_keep_active", "user:self", "user", "USES", "software:vscode", "software",
+                    0.9, "[]", 5,
+                    now, now, now, now, "active", "explicit_fact",
+                ),
+            )
+            # future_intent should NOT be archived (has its own TTL)
+            await db.execute(
+                """
+                INSERT INTO knowledge_graph(
+                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                    confidence, evidence_event_ids, observation_count,
+                    first_observed_at, last_observed_at, created_at, updated_at, status, fact_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "triple_future", "user:self", "user", "WANTS_TO", "activity:travel", "activity",
+                    0.1, "[]", 1,
+                    old_ts, old_ts, old_ts, old_ts, "active", "future_intent",
+                ),
+            )
+            await db.commit()
+
+        maint = L2EntityMaintenance(db_path=db_path)
+        stats = await maint.run(
+            resolve_ghosts=False, merge_fragments=False, prune_orphans=False,
+            expire_future_intents=False, expire_decayed_assertions=False,
+            reconcile_stale=False, consolidate_open_predicates=False,
+            embed_edges=False,
+        )
+        assert stats.edges_archived == 2
+
+        async with sqlite_connection_async(db_path) as db:
+            async with db.execute(
+                "SELECT triple_id, status FROM knowledge_graph ORDER BY triple_id"
+            ) as cur:
+                rows = {r[0]: r[1] for r in await cur.fetchall()}
+
+        assert rows["triple_archive_low"] == "archived"
+        assert rows["triple_archive_single"] == "archived"
+        assert rows["triple_keep_active"] == "active"
+        assert rows["triple_future"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_archived_edge_warms_back_on_new_evidence():
+    """An archived edge should become active again when upsert_knowledge_edge receives new evidence."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        now = time.time()
+        old_ts = now - 100 * 86400
+
+        # Compute the same triple_id that upsert_knowledge_edge will use
+        import uuid as _uuid
+        triple_id = f"triple_{_uuid.uuid5(_uuid.NAMESPACE_DNS, 'user:self:LIKES:food:ramen')}"
+
+        # Insert an archived edge directly
+        async with sqlite_connection_async(db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO knowledge_graph(
+                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                    confidence, evidence_event_ids, observation_count,
+                    first_observed_at, last_observed_at, created_at, updated_at, status, fact_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    triple_id, "user:self", "user", "LIKES", "food:ramen", "food",
+                    0.2, json.dumps(["e_old"]), 2,
+                    old_ts, old_ts, old_ts, old_ts, "archived", "explicit_fact",
+                ),
+            )
+            await db.commit()
+
+        store = L2CognitionStore(db_path=db_path)
+        await store.initialize()
+
+        # Upsert with the same (subject, predicate, object) — should warm back
+        await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:ramen",
+            object_type="food",
+            confidence=0.7,
+            evidence_event_ids=["e_new"],
+            observed_at=now,
+            source_type="test",
+        )
+
+        async with sqlite_connection_async(db_path) as db:
+            db.row_factory = None
+            async with db.execute(
+                "SELECT status, observation_count, confidence FROM knowledge_graph WHERE triple_id = ?",
+                (triple_id,),
+            ) as cur:
+                row = await cur.fetchone()
+
+        assert row is not None
+        assert row[0] == "active", f"Expected 'active' but got '{row[0]}'"
+        assert row[1] == 3  # was 2, +1
+        assert row[2] > 0.2  # confidence should have increased

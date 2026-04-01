@@ -82,6 +82,7 @@ class L2EntityMaintenanceStats:
     entities_reconciled: int = 0
     snapshots_refreshed: int = 0
     open_predicates_consolidated: int = 0
+    edges_archived: int = 0
     edges_embedded: int = 0
     errors: list[str] = field(default_factory=list)
 
@@ -93,6 +94,12 @@ class L2EntityMaintenance:
     RECONCILE_STALE_THRESHOLD: float = 3600  # 1 hour
     RECONCILE_BATCH_SIZE: int = 100
     RECONCILE_MAX_TOTAL: int = 500
+
+    # Archive thresholds: edges below this confidence AND not updated within
+    # the staleness window are moved from 'active' to 'archived'.
+    ARCHIVE_CONFIDENCE_THRESHOLD: float = 0.3
+    ARCHIVE_STALENESS_SECONDS: float = 90 * 86400   # 90 days
+    ARCHIVE_SINGLE_OBS_STALENESS: float = 180 * 86400  # 180 days for observation_count == 1
 
     def __init__(
         self,
@@ -123,6 +130,7 @@ class L2EntityMaintenance:
         expire_decayed_assertions: bool = True,
         reconcile_stale: bool = True,
         consolidate_open_predicates: bool = True,
+        archive_stale_edges: bool = True,
         embed_edges: bool = True,
     ) -> L2EntityMaintenanceStats:
         if self._run_lock.locked():
@@ -138,6 +146,7 @@ class L2EntityMaintenance:
                 expire_decayed_assertions=expire_decayed_assertions,
                 reconcile_stale=reconcile_stale,
                 consolidate_open_predicates=consolidate_open_predicates,
+                archive_stale_edges=archive_stale_edges,
                 embed_edges=embed_edges,
             )
 
@@ -152,6 +161,7 @@ class L2EntityMaintenance:
         expire_decayed_assertions: bool,
         reconcile_stale: bool,
         consolidate_open_predicates: bool,
+        archive_stale_edges: bool,
         embed_edges: bool,
     ) -> L2EntityMaintenanceStats:
         stats = L2EntityMaintenanceStats()
@@ -169,6 +179,8 @@ class L2EntityMaintenance:
             await self._reconcile_stale_entities(stats)
         if consolidate_open_predicates:
             await self._consolidate_open_predicates(stats)
+        if archive_stale_edges:
+            await self._archive_stale_edges(stats)
         if embed_edges:
             await self._embed_pending_edges(stats)
         if any(
@@ -183,6 +195,7 @@ class L2EntityMaintenance:
                 stats.entities_reconciled,
                 stats.snapshots_refreshed,
                 stats.open_predicates_consolidated,
+                stats.edges_archived,
                 stats.edges_embedded,
             )
         ):
@@ -200,6 +213,7 @@ class L2EntityMaintenance:
                 entities_reconciled=stats.entities_reconciled,
                 snapshots_refreshed=stats.snapshots_refreshed,
                 open_predicates_consolidated=stats.open_predicates_consolidated,
+                edges_archived=stats.edges_archived,
                 edges_embedded=stats.edges_embedded,
             )
         return stats
@@ -897,6 +911,41 @@ class L2EntityMaintenance:
             if consolidated:
                 await db.commit()
             stats.open_predicates_consolidated = consolidated
+
+    async def _archive_stale_edges(self, stats: L2EntityMaintenanceStats) -> None:
+        """Move low-confidence stale edges from 'active' to 'archived'.
+
+        Criteria (both must be true):
+        - ``confidence < ARCHIVE_CONFIDENCE_THRESHOLD`` AND ``updated_at`` older
+          than ``ARCHIVE_STALENESS_SECONDS``, OR
+        - ``observation_count == 1`` AND ``updated_at`` older than
+          ``ARCHIVE_SINGLE_OBS_STALENESS``.
+
+        ``future_intent`` edges are skipped (they have their own TTL expiry).
+        """
+        now = time.time()
+        cutoff_low_conf = now - self.ARCHIVE_STALENESS_SECONDS
+        cutoff_single_obs = now - self.ARCHIVE_SINGLE_OBS_STALENESS
+
+        async with sqlite_connection_async(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE knowledge_graph
+                SET status = 'archived', updated_at = ?
+                WHERE status = 'active'
+                  AND fact_kind != 'future_intent'
+                  AND (
+                      (confidence < ? AND updated_at < ?)
+                      OR
+                      (observation_count = 1 AND updated_at < ?)
+                  )
+                """,
+                (now, self.ARCHIVE_CONFIDENCE_THRESHOLD, cutoff_low_conf, cutoff_single_obs),
+            )
+            archived = cursor.rowcount
+            if archived:
+                await db.commit()
+            stats.edges_archived = archived
 
     async def _embed_pending_edges(
         self,
