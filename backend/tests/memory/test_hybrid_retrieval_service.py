@@ -449,7 +449,6 @@ class TestServiceLayerRouting:
             subject_scope="self",
             answer_kind="place",
             answer_unit="place",
-            polarity="positive",
             constraints=[
                 SemanticConstraint(
                     scope="interaction",
@@ -515,7 +514,6 @@ class TestServiceLayerRouting:
             subject_scope="self",
             answer_kind="creator",
             answer_unit="identity",
-            polarity="positive",
             constraints=[
                 SemanticConstraint(
                     scope="interaction",

@@ -5,15 +5,8 @@ from __future__ import annotations
 from magi.memory.hybrid_retrieval.rule_specs import (
     extract_location_constraint,
     infer_source_domain_filters,
-    infer_polarity,
     infer_semantic_constraints,
 )
-
-
-def test_infer_polarity_uses_central_keyword_specs() -> None:
-    assert infer_polarity("我不喜欢什么题材") == "negative"
-    assert infer_polarity("我关注哪些up主") == "positive"
-    assert infer_polarity("我看了什么网页") == "any"
 
 
 def test_infer_semantic_constraints_extracts_location() -> None:

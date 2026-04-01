@@ -56,8 +56,6 @@ class TestLayerConditions:
                 subject_scope="self",
                 answer_kind="creator",
                 answer_unit="identity",
-                answer_shape="list",
-                polarity="positive",
             )
         )
         payload = asdict(c)

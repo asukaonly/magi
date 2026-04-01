@@ -35,7 +35,6 @@ from .models import (
     TimeRange,
 )
 from .rule_specs import (
-    infer_polarity,
     infer_semantic_constraints,
     infer_source_domain_filters,
 )
@@ -117,7 +116,6 @@ _VALID_PREDICATE_FAMILIES = {"preference", "relationship", "profile_fact", "acti
 _VALID_QUERY_FAMILIES = {"affinity", "relationship", "profile", "activity", "lookup"}
 _VALID_ANSWER_KINDS = {"creator", "place", "topic", "person", "software", "unknown"}
 _VALID_ANSWER_UNITS = {"identity", "presence", "place", "topic", "mixed"}
-_VALID_POLARITIES = {"positive", "negative", "neutral", "any"}
 _VALID_CONSTRAINT_SCOPES = {"target", "interaction"}
 _VALID_CONSTRAINT_FACETS = {"platform", "located_in", "category"}
 
@@ -555,7 +553,6 @@ def _infer_semantic_frame(
         subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
         answer_kind="unknown",
         answer_unit="mixed",
-        polarity=infer_polarity(query_lower),
         entity_mentions=[],
         constraints=constraints,
         ranking_mode="affinity" if query_family == "affinity" else "confidence",
@@ -616,7 +613,6 @@ L2 plan fields:
   - "query_family": affinity | relationship | profile | activity | lookup
   - "answer_kind": creator | place | topic | person | software | unknown
   - "answer_unit": identity | presence | place | topic | mixed
-  - "polarity": positive | negative | neutral | any
   - "constraints": array of {scope, facet, raw_value, resolved_entity_id?, resolved_facet_value?}
 
 Return JSON only:
@@ -662,7 +658,6 @@ def _parse_semantic_frame(raw: dict | None) -> L2SemanticFrame | None:
             subject_scope=raw.get("subject_scope", "none"),
             answer_kind=raw.get("answer_kind", "unknown"),
             answer_unit=raw.get("answer_unit", "mixed"),
-            polarity=raw.get("polarity", "any"),
             entity_mentions=raw.get("entity_mentions") or [],
             constraints=constraints,
             ranking_mode=raw.get("ranking_mode", "confidence"),

@@ -118,8 +118,6 @@ class TestLLMParsing:
                         "subject_scope": "self",
                         "answer_kind": "creator",
                         "answer_unit": "identity",
-                        "answer_shape": "list",
-                        "polarity": "positive",
                         "constraints": [
                             {
                                 "scope": "target",
@@ -157,8 +155,6 @@ class TestLLMParsing:
                         "subject_scope": "self",
                         "answer_kind": "place",
                         "answer_unit": "place",
-                        "answer_shape": "list",
-                        "polarity": "positive",
                         "constraints": [
                             {
                                 "scope": "target",
@@ -203,8 +199,6 @@ class TestLLMParsing:
                         "subject_scope": "self",
                         "answer_kind": "place",
                         "answer_unit": "place",
-                        "answer_shape": "list",
-                        "polarity": "positive",
                         "constraints": [
                             {
                                 "scope": "interaction",
@@ -251,8 +245,6 @@ class TestLLMParsing:
                         "subject_scope": "self",
                         "answer_kind": "creator",
                         "answer_unit": "identity",
-                        "answer_shape": "list",
-                        "polarity": "positive",
                         "constraints": [
                             {
                                 "scope": "interaction",
@@ -292,7 +284,6 @@ class TestLLMParsing:
                         "subject_scope": "self",
                         "answer_kind": "topic",
                         "answer_unit": "topic",
-                        "polarity": "positive",
                         "constraints": [],
                     },
                 }

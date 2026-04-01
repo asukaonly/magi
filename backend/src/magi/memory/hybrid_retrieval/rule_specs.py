@@ -25,9 +25,6 @@ SOURCE_DOMAIN_SIGNAL_SPECS: list[tuple[list[str], list[str], list[str]]] = [
     (["音乐", "听了", "music", "listened"], ["music"], ["external_activity"]),
 ]
 
-NEGATIVE_POLARITY_KEYWORDS = ("讨厌", "不喜欢", "dislike", "hate")
-POSITIVE_POLARITY_KEYWORDS = ("喜欢", "偏好", "关注", "常看", "love", "like", "prefer")
-
 _INTERACTION_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})的时候喜欢去")
 _TARGET_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去")
 
@@ -35,16 +32,6 @@ _TARGET_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢�
 def contains_any(text: str, tokens: Sequence[str]) -> bool:
     """Return whether the text contains any token."""
     return any(token in text for token in tokens)
-
-
-def infer_polarity(query_lower: str) -> str:
-    """Infer query polarity from lexical cues."""
-    query_lower = query_lower.lower()
-    if contains_any(query_lower, NEGATIVE_POLARITY_KEYWORDS):
-        return "negative"
-    if contains_any(query_lower, POSITIVE_POLARITY_KEYWORDS):
-        return "positive"
-    return "any"
 
 
 def infer_source_domain_filters(query: str) -> tuple[list[str] | None, list[str] | None]:
