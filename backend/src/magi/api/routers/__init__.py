@@ -16,6 +16,7 @@ from .sensors import sensors_router
 from .timeline import timeline_router
 from .plugins import plugins_router
 from .schedules import schedules_router
+from .tasks import tasks_router
 
 __all__ = [
     "tools_router",
@@ -31,4 +32,5 @@ __all__ = [
     "timeline_router",
     "plugins_router",
     "schedules_router",
+    "tasks_router",
 ]

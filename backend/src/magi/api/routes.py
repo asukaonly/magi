@@ -114,6 +114,11 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{schedule_id}/trigger": {"POST"},
         "/{schedule_id}/executions": {"GET"},
     },
+    "tasks": {
+        "/": {"GET", "POST"},
+        "/{task_id}": {"GET", "PATCH", "DELETE"},
+        "/orchestration/{orchestration_id}": {"GET"},
+    },
 }
 
 
@@ -148,6 +153,7 @@ def register_api_routes(app: FastAPI) -> None:
         timeline_router,
         plugins_router,
         schedules_router,
+        tasks_router,
     )
 
     app.include_router(
@@ -213,4 +219,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(schedules_router, _PUBLIC_ROUTE_METHODS["schedules"]),
         prefix="/api/schedules",
         tags=["Schedules"],
+    )
+    app.include_router(
+        _build_public_router(tasks_router, _PUBLIC_ROUTE_METHODS["tasks"]),
+        prefix="/api/tasks",
+        tags=["Tasks"],
     )
