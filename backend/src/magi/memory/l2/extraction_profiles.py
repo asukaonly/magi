@@ -168,6 +168,14 @@ def _default_profile_id_for_event(event: MemoryEvent) -> str:
         return "timeline.chrome_history"
     if source in {"timeline", "calendar"}:
         return "timeline.calendar"
+    _sensor_profile_map = {
+        "netease_music": "timeline.netease_music",
+        "git_activity": "timeline.git_activity",
+        "terminal_history": "timeline.terminal_history",
+        "screen_time": "timeline.screen_time",
+    }
+    if source in _sensor_profile_map:
+        return _sensor_profile_map[source]
     return "chat.user_message"
 
 

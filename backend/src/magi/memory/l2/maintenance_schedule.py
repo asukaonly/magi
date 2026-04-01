@@ -57,6 +57,7 @@ async def handle_l2_entity_maintenance(
         db_path=db_path,
         embedding_service=embedding_service,
         edge_vector_index=edge_vector_index,
+        cognition_store=getattr(getattr(unified, "l2_pipeline", None), "_cognition_store", None),
     )
     try:
         stats = await maint.run(min_mentions_to_keep=int(l2_cfg.maintenance_min_mentions))

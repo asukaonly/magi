@@ -22,6 +22,8 @@ _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
 _MOMENTARY_TRAITS = {"annoyance", "irritation", "frustration"}
 _SNAPSHOT_HISTORY_LIMIT = 5
+_MOOD_TRAJECTORY_FAMILIES = {"mood", "stress", "engagement"}
+_MOOD_TRAJECTORY_LIMIT = 20
 DEFAULT_FUTURE_INTENT_TTL_SECONDS = 30 * 24 * 3600  # 30 days
 logger = get_logger(__name__)
 
@@ -386,6 +388,8 @@ class L2CognitionStore:
             "last_evolution_at": "REAL",
             "active_record_ids": "TEXT",
             "superseded_record_ids": "TEXT",
+            "emerging_signals": "TEXT",
+            "mood_trajectory": "TEXT",
         }
         for column_name, column_type in required_columns.items():
             if column_name in existing_columns:
@@ -885,6 +889,39 @@ class L2CognitionStore:
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [self._assertion_row_to_dict(row) for row in rows]
+
+    async def expire_session_decay_assertions(
+        self,
+        *,
+        entity_ids: List[str],
+    ) -> int:
+        """Mark tentative ``session_decay`` assertions as expired for the given entities.
+
+        Called at session end so that ephemeral mood / engagement signals do
+        not linger beyond the conversation that produced them.  Assertions
+        that have already been promoted to *stable* or *corroborated* with
+        multi-evidence backing are left untouched — only *tentative* ones
+        are expired because they lack sufficient evidence to persist.
+        """
+        if not entity_ids:
+            return 0
+        await self.initialize()
+        now = time.time()
+        placeholders = ", ".join("?" for _ in entity_ids)
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"""
+                UPDATE tom_trait_assertions
+                SET validation_state = 'expired', expires_at = ?, updated_at = ?
+                WHERE entity_id IN ({placeholders})
+                  AND decay_policy = 'session_decay'
+                  AND validation_state = 'tentative'
+                """,
+                (now, now, *entity_ids),
+            )
+            count = cursor.rowcount
+            await db.commit()
+        return count
 
     async def get_tom_snapshot(self, *, entity_id: str, entity_type: str) -> Optional[Dict[str, Any]]:
         """Fetch the current stable snapshot for an entity."""
@@ -1689,6 +1726,13 @@ class L2CognitionStore:
             and not self._is_assertion_expired(item)
             and item.get("user_feedback") != "rejected"
         ]
+        tentative_assertions = [
+            item
+            for item in assertions
+            if item["validation_state"] == "tentative"
+            and not self._is_assertion_expired(item)
+            and item.get("user_feedback") != "rejected"
+        ]
         if not assertions and not outgoing and not incoming and not superseded_outgoing and not superseded_incoming:
             return None
 
@@ -1700,6 +1744,8 @@ class L2CognitionStore:
             assertions=active_assertions,
             expired_assertions=expired_assertions,
             stable_assertions=stable_assertions,
+            tentative_assertions=tentative_assertions,
+            all_raw_assertions=assertions,
             outgoing_relations=outgoing,
             incoming_relations=incoming,
             superseded_outgoing_relations=superseded_outgoing,
@@ -2030,6 +2076,8 @@ class L2CognitionStore:
         assertions: List[Dict[str, Any]],
         expired_assertions: List[Dict[str, Any]],
         stable_assertions: List[Dict[str, Any]],
+        tentative_assertions: List[Dict[str, Any]] | None = None,
+        all_raw_assertions: List[Dict[str, Any]] | None = None,
         outgoing_relations: List[Dict[str, Any]],
         incoming_relations: List[Dict[str, Any]],
         superseded_outgoing_relations: List[Dict[str, Any]],
@@ -2071,11 +2119,43 @@ class L2CognitionStore:
             elif trait_name not in {"stress_level", "mood", "engagement"}:
                 core_traits[trait_name] = assertion["trait_value"]
 
+        # Enrich preferences from taste_profile / preference_profile assertions
+        _PREF_FAMILIES = {"taste_profile", "preference_profile"}
+        for assertion in assertions:
+            family = assertion.get("trait_family", "")
+            if family not in _PREF_FAMILIES:
+                continue
+            t_name = str(assertion.get("trait_name", ""))
+            if t_name.startswith("preference."):
+                continue  # already handled above via stable_by_trait
+            confidence = float(assertion.get("confidence_score", 0))
+            evidence_count = len(assertion.get("evidence_events", []) or [])
+            affinity = round(min(1.0, confidence * (1 + 0.1 * min(evidence_count, 5))), 2)
+            preferences[t_name] = {
+                "value": assertion["trait_value"],
+                "affinity": affinity,
+                "family": family,
+            }
+
         for relation in outgoing_relations:
             if relation["predicate"] == "LIKES":
-                preferences[relation["object_id"]] = "like"
+                confidence = float(relation.get("confidence", 0.5))
+                obs_count = int(relation.get("observation_count", 1))
+                affinity = round(min(1.0, confidence * (1 + 0.1 * min(obs_count, 5))), 2)
+                preferences[relation["object_id"]] = {
+                    "value": "like",
+                    "affinity": affinity,
+                    "family": "graph",
+                }
             elif relation["predicate"] == "DISLIKES":
-                preferences[relation["object_id"]] = "dislike"
+                confidence = float(relation.get("confidence", 0.5))
+                obs_count = int(relation.get("observation_count", 1))
+                affinity = round(min(1.0, confidence * (1 + 0.1 * min(obs_count, 5))), 2)
+                preferences[relation["object_id"]] = {
+                    "value": "dislike",
+                    "affinity": -affinity,
+                    "family": "graph",
+                }
 
         relationship_topology = {
             "outgoing_count": len(outgoing_relations),
@@ -2103,6 +2183,18 @@ class L2CognitionStore:
             "stable_assertion_count": len(stable_assertions),
             "relation_count": len(outgoing_relations) + len(incoming_relations),
         }
+        emerging_signals: list[dict[str, Any]] = []
+        for item in (tentative_assertions or []):
+            emerging_signals.append({
+                "trait_family": item.get("trait_family", ""),
+                "trait_name": item["trait_name"],
+                "trait_value": item["trait_value"],
+                "confidence": float(item.get("confidence_score", 0)),
+                "evidence_count": len(item.get("evidence_events", []) or []),
+                "first_inferred_at": float(item.get("first_inferred_at", 0)),
+                "last_validated_at": float(item.get("last_validated_at", 0)),
+            })
+
         update_source_assertion_ids = [item["assertion_id"] for item in assertions]
         last_interaction_at = max(
             [float(item["last_validated_at"]) for item in assertions] + [now]
@@ -2117,6 +2209,29 @@ class L2CognitionStore:
             ) as cursor:
                 existing = await cursor.fetchone()
             existing_snapshot = self._snapshot_row_to_dict(existing) if existing else None
+
+            # Build mood trajectory: accumulate from previous snapshot, append current state
+            prev_trajectory: list[dict[str, Any]] = (
+                list(existing_snapshot.get("mood_trajectory", [])) if existing_snapshot else []
+            )
+            for item in (all_raw_assertions or assertions):
+                family = item.get("trait_family")
+                if family not in _MOOD_TRAJECTORY_FAMILIES:
+                    continue
+                if self._is_assertion_expired(item):
+                    continue
+                val = str(item["trait_value"])
+                same_family = [e for e in prev_trajectory if e.get("family") == family]
+                if same_family and str(same_family[-1].get("value")) == val:
+                    continue
+                prev_trajectory.append({
+                    "family": family,
+                    "value": val,
+                    "confidence": float(item.get("confidence_score", 0)),
+                    "at": float(item.get("last_validated_at", 0)),
+                })
+            prev_trajectory.sort(key=lambda e: e["at"])
+            mood_trajectory = prev_trajectory[-_MOOD_TRAJECTORY_LIMIT:]
 
             evolution_payload = self._build_snapshot_evolution_payload(
                 existing_snapshot=existing_snapshot,
@@ -2151,6 +2266,8 @@ class L2CognitionStore:
                 evolution_payload["last_evolution_at"],
                 json.dumps(evolution_payload["active_record_ids"], ensure_ascii=False),
                 json.dumps(evolution_payload["superseded_record_ids"], ensure_ascii=False),
+                json.dumps(emerging_signals, ensure_ascii=False),
+                json.dumps(mood_trajectory, ensure_ascii=False),
             )
 
             if existing:
@@ -2164,6 +2281,7 @@ class L2CognitionStore:
                         last_updated_at = ?, update_source_assertion_ids = ?,
                         core_traits_history = ?, preferences_history = ?, relationship_history = ?,
                         last_evolution_at = ?, active_record_ids = ?, superseded_record_ids = ?,
+                        emerging_signals = ?, mood_trajectory = ?,
                         snapshot_version = snapshot_version + 1
                     WHERE snapshot_id = ?
                     """,
@@ -2179,8 +2297,9 @@ class L2CognitionStore:
                         interaction_count, last_interaction_at, last_updated_at,
                         update_source_assertion_ids, core_traits_history, preferences_history,
                         relationship_history, last_evolution_at, active_record_ids,
-                        superseded_record_ids, snapshot_version, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        superseded_record_ids, emerging_signals, mood_trajectory,
+                        snapshot_version, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         f"snapshot_{uuid.uuid4().hex}",
@@ -2481,6 +2600,8 @@ class L2CognitionStore:
         current_time = float(now if now is not None else time.time())
         return float(expires_at) <= current_time
 
+    _TEMPORARY_STATE_TRAITS = frozenset({"stress_level", "mood", "engagement"})
+
     def _derive_reconcile_state(
         self,
         *,
@@ -2491,25 +2612,36 @@ class L2CognitionStore:
         trait_name: str,
         user_feedback: Optional[str] = None,
     ) -> tuple[str, float, str]:
+        is_temporary = trait_name in self._TEMPORARY_STATE_TRAITS
+
         # User-rejected assertions stay rejected.
         if user_feedback == "rejected":
             return ("user_rejected", 0.10, "volatile_pattern")
 
         # User-confirmed assertions are promoted to stable with a confidence floor.
         if user_feedback == "confirmed":
-            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "stable_trait"
+            stability_kind = "temporary_state" if is_temporary else "stable_trait"
             return ("stable", max(current_confidence, 0.85), stability_kind)
 
         if current_state == "contradicted":
             return ("contradicted", min(current_confidence, 0.35), "volatile_pattern")
 
+        # Temporary-state traits (mood, stress, engagement) are inherently
+        # short-lived observations.  A single piece of evidence is enough to
+        # treat them as corroborated so that they appear in snapshots and are
+        # actionable until they expire or are contradicted.
+        if is_temporary:
+            if evidence_count >= 3 and time_span_hours >= 24.0:
+                return ("stable", max(current_confidence, 0.82), "temporary_state")
+            if evidence_count >= 1:
+                return ("corroborated", max(current_confidence, 0.50), "temporary_state")
+
         if evidence_count >= 3 and time_span_hours >= 24.0:
-            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "stable_trait"
+            stability_kind = "stable_trait"
             return ("stable", max(current_confidence, 0.82), stability_kind)
 
         if evidence_count >= 2:
-            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "volatile_pattern"
-            return ("corroborated", max(current_confidence, 0.58), stability_kind)
+            return ("corroborated", max(current_confidence, 0.58), "volatile_pattern")
 
         return ("tentative", min(current_confidence, 0.3), "volatile_pattern")
 
@@ -2758,6 +2890,8 @@ class L2CognitionStore:
             "superseded_record_ids": (
                 json.loads(row["superseded_record_ids"] or "[]") if "superseded_record_ids" in columns else []
             ),
+            "emerging_signals": json.loads(row["emerging_signals"] or "[]") if "emerging_signals" in columns else [],
+            "mood_trajectory": json.loads(row["mood_trajectory"] or "[]") if "mood_trajectory" in columns else [],
             "snapshot_version": int(row["snapshot_version"] or 1),
             "created_at": float(row["created_at"]),
         }

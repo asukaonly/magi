@@ -468,7 +468,8 @@ class L2Handler:
                 content_query=conditions.content_query,
                 existing_relationships=results["relationships"],
                 status_filters=status_filters,
-                predicates=predicates,
+                predicates=None,
+                predicate_boost_groups=self._collect_boost_groups(predicates),
                 limit=conditions.limit,
             )
             if vector_edges:
@@ -589,7 +590,13 @@ class L2Handler:
             platform_constraint = self._find_constraint(semantic_frame.constraints, scope="interaction", facet="platform")
         platform_entity_id = platform_constraint.resolved_entity_id if platform_constraint else None
         if not platform_entity_id:
-            return None
+            return await self._store.get_relationships(
+                subject_id=f"user:{user_id}",
+                predicates=self._predicates_for_semantic_frame(semantic_frame),
+                object_types=["presence", "person"],
+                status_filters=status_filters,
+                limit=conditions.limit,
+            )
 
         topology_edges = await self._store.get_relationships(
             predicates=["ON_PLATFORM"],
@@ -673,7 +680,13 @@ class L2Handler:
             )
 
         if not target_location_entity_id:
-            return None
+            return await self._store.get_relationships(
+                subject_id=f"user:{user_id}",
+                predicates=self._predicates_for_semantic_frame(semantic_frame),
+                object_types=["place"],
+                status_filters=status_filters,
+                limit=conditions.limit,
+            )
 
         topology_edges = await self._store.get_relationships(
             predicates=["LOCATED_IN"],
@@ -721,7 +734,13 @@ class L2Handler:
             resolved_entities=resolved_entities,
         )
         if not target_entity_id:
-            return None
+            return await self._store.get_relationships(
+                subject_id=f"user:{user_id}",
+                predicates=self._predicates_for_semantic_frame(semantic_frame),
+                object_types=["software"],
+                status_filters=status_filters,
+                limit=conditions.limit,
+            )
         return await self._store.get_relationships(
             subject_id=f"user:{user_id}",
             object_id=target_entity_id,
@@ -799,6 +818,20 @@ class L2Handler:
             limit=limit,
         )
 
+    @staticmethod
+    def _collect_boost_groups(predicates: list[str] | None) -> set[str] | None:
+        """Collect synonym groups from predicates for soft re-ranking."""
+        if not predicates:
+            return None
+        from ...memory.l2.ontology import get_predicate_synonym_group
+
+        groups: set[str] = set()
+        for pred in predicates:
+            group = get_predicate_synonym_group(pred)
+            if group:
+                groups.add(group)
+        return groups or None
+
     async def _supplement_edge_vector_search(
         self,
         *,
@@ -806,9 +839,15 @@ class L2Handler:
         existing_relationships: list[dict[str, Any]],
         status_filters: list[str] | None,
         predicates: list[str] | None,
+        predicate_boost_groups: set[str] | None = None,
         limit: int,
     ) -> list[dict[str, Any]]:
-        """Return additional edges found via vector similarity that are not already present."""
+        """Return additional edges found via vector similarity that are not already present.
+
+        Predicates are NOT used as hard filters.  Instead, edges whose
+        predicate belongs to one of *predicate_boost_groups* receive a
+        distance bonus so they rank higher.
+        """
         if self._embedding_service is None or self._edge_vector_index is None:
             return []
         query_text = content_query.strip()
@@ -830,6 +869,17 @@ class L2Handler:
             return []
         if not candidates:
             return []
+
+        if predicate_boost_groups:
+            from ...memory.l2.ontology import get_predicate_synonym_group
+
+            for edge in candidates:
+                group = get_predicate_synonym_group(str(edge.get("predicate") or ""))
+                if group and group in predicate_boost_groups:
+                    dist = edge.get("vector_distance")
+                    if dist is not None:
+                        edge["vector_distance"] = dist * 0.7
+            candidates.sort(key=lambda e: e.get("vector_distance") or float("inf"))
 
         existing_ids = {str(r.get("triple_id") or "") for r in existing_relationships}
         novel = [c for c in candidates if str(c.get("triple_id") or "") not in existing_ids]
@@ -892,15 +942,12 @@ class L2Handler:
             seen.add(entity_id)
         return resolved
 
-    _FAMILY_PREDICATES: dict[str, list[str]] = {
-        "preference": ["LIKES", "DISLIKES", "INTERESTED_IN"],
-        "relationship": ["KNOWS", "FAMILY_OF", "INTERACTED_WITH", "MEMBER_OF"],
-    }
+    @staticmethod
+    def _predicates_for_family(family: str) -> list[str] | None:
+        """Derive predicate list from predicate_family via the canonical ontology."""
+        from ...memory.l2.ontology import predicates_for_family
 
-    @classmethod
-    def _predicates_for_family(cls, family: str) -> list[str] | None:
-        """Derive predicate list from predicate_family set by the intent decider."""
-        return list(cls._FAMILY_PREDICATES[family]) if family in cls._FAMILY_PREDICATES else None
+        return predicates_for_family(family)
 
     @staticmethod
     def _predicates_for_semantic_frame(semantic_frame: L2SemanticFrame) -> list[str]:

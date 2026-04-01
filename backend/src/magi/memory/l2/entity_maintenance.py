@@ -7,7 +7,10 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .store import L2CognitionStore
 
 import aiosqlite
 
@@ -74,6 +77,9 @@ class L2EntityMaintenanceStats:
     fragment_groups_processed: int = 0
     orphans_pruned: int = 0
     expired_future_intents: int = 0
+    expired_assertions: int = 0
+    entities_reconciled: int = 0
+    snapshots_refreshed: int = 0
     open_predicates_consolidated: int = 0
     edges_embedded: int = 0
     errors: list[str] = field(default_factory=list)
@@ -82,16 +88,25 @@ class L2EntityMaintenanceStats:
 class L2EntityMaintenance:
     """Best-effort cleanup: ghost graph refs, same-name type merges, low-mention orphans."""
 
+    # Reconcile entities whose assertions haven't been updated in this many seconds.
+    RECONCILE_STALE_THRESHOLD: float = 3600  # 1 hour
+
     def __init__(
         self,
         *,
         db_path: str,
         embedding_service: Any | None = None,
         edge_vector_index: SqliteVecIndex | None = None,
+        cognition_store: L2CognitionStore | None = None,
     ) -> None:
         self._db_path = db_path
         self._embedding_service = embedding_service
         self._edge_vector_index = edge_vector_index
+        self._cognition_store = cognition_store
+
+    # Default TTLs (seconds) for decay policies that lack an explicit expires_at.
+    FAST_DECAY_TTL: float = 4 * 3600       # 4 hours
+    SESSION_DECAY_TTL: float = 24 * 3600   # 24 hours
 
     async def run(
         self,
@@ -101,6 +116,8 @@ class L2EntityMaintenance:
         merge_fragments: bool = True,
         prune_orphans: bool = True,
         expire_future_intents: bool = True,
+        expire_decayed_assertions: bool = True,
+        reconcile_stale: bool = True,
         consolidate_open_predicates: bool = True,
         embed_edges: bool = True,
     ) -> L2EntityMaintenanceStats:
@@ -113,6 +130,10 @@ class L2EntityMaintenance:
             await self._prune_orphan_low_mention_entities(stats, min_mentions=min_mentions_to_keep)
         if expire_future_intents:
             await self._expire_stale_future_intents(stats)
+        if expire_decayed_assertions:
+            await self._expire_decayed_assertions(stats)
+        if reconcile_stale:
+            await self._reconcile_stale_entities(stats)
         if consolidate_open_predicates:
             await self._consolidate_open_predicates(stats)
         if embed_edges:
@@ -125,6 +146,9 @@ class L2EntityMaintenance:
                 stats.fragment_entities_merged,
                 stats.orphans_pruned,
                 stats.expired_future_intents,
+                stats.expired_assertions,
+                stats.entities_reconciled,
+                stats.snapshots_refreshed,
                 stats.open_predicates_consolidated,
                 stats.edges_embedded,
             )
@@ -139,6 +163,9 @@ class L2EntityMaintenance:
                 fragment_groups=stats.fragment_groups_processed,
                 orphans_pruned=stats.orphans_pruned,
                 expired_future_intents=stats.expired_future_intents,
+                expired_assertions=stats.expired_assertions,
+                entities_reconciled=stats.entities_reconciled,
+                snapshots_refreshed=stats.snapshots_refreshed,
                 open_predicates_consolidated=stats.open_predicates_consolidated,
                 edges_embedded=stats.edges_embedded,
             )
@@ -604,6 +631,90 @@ class L2EntityMaintenance:
             stats.expired_future_intents = cursor.rowcount
             await db.commit()
 
+    async def _expire_decayed_assertions(self, stats: L2EntityMaintenanceStats) -> None:
+        """Expire assertions whose decay policy indicates they have outlived their TTL.
+
+        - ``fast_decay`` (annoyance, irritation, frustration): expire after
+          ``FAST_DECAY_TTL`` seconds since last update.
+        - ``session_decay`` (mood, engagement): expire after
+          ``SESSION_DECAY_TTL`` seconds since last update.
+        - Assertions that already have an explicit ``expires_at`` in the past
+          are also marked expired.
+        """
+        now = time.time()
+        fast_cutoff = now - self.FAST_DECAY_TTL
+        session_cutoff = now - self.SESSION_DECAY_TTL
+        async with sqlite_connection_async(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE tom_trait_assertions
+                SET validation_state = 'expired', updated_at = ?
+                WHERE validation_state NOT IN ('expired', 'user_rejected', 'contradicted')
+                  AND (
+                    (expires_at IS NOT NULL AND expires_at < ?)
+                    OR (decay_policy = 'fast_decay' AND updated_at < ?)
+                    OR (decay_policy = 'session_decay' AND updated_at < ?)
+                  )
+                """,
+                (now, now, fast_cutoff, session_cutoff),
+            )
+            stats.expired_assertions = cursor.rowcount
+            await db.commit()
+
+    async def _reconcile_stale_entities(self, stats: L2EntityMaintenanceStats) -> None:
+        """Re-reconcile entities whose assertions haven't been reviewed recently.
+
+        Finds entities with non-terminal assertions older than
+        ``RECONCILE_STALE_THRESHOLD`` and runs rule-based reconciliation +
+        snapshot refresh for each.  This catches assertions that may have
+        accumulated enough evidence to promote since the last online
+        reconciliation pass.
+        """
+        store = self._cognition_store
+        if store is None:
+            from .store import L2CognitionStore
+            store = L2CognitionStore(db_path=self._db_path)
+            await store.initialize()
+
+        stale_cutoff = time.time() - self.RECONCILE_STALE_THRESHOLD
+        async with sqlite_connection_async(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT DISTINCT entity_id, entity_type
+                FROM tom_trait_assertions
+                WHERE validation_state IN ('tentative', 'corroborated')
+                  AND updated_at < ?
+                ORDER BY updated_at ASC
+                LIMIT 100
+                """,
+                (stale_cutoff,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        for row in rows:
+            entity_id = str(row["entity_id"])
+            entity_type = str(row["entity_type"])
+            try:
+                outcomes = await store.reconcile_entity(
+                    entity_id=entity_id,
+                    entity_type=entity_type,
+                )
+                if outcomes:
+                    stats.entities_reconciled += 1
+                    await store.refresh_entity_snapshot(
+                        entity_id=entity_id,
+                        entity_type=entity_type,
+                    )
+                    stats.snapshots_refreshed += 1
+            except Exception as exc:
+                stats.errors.append(f"reconcile {entity_id}: {exc}")
+                logger.warning(
+                    "L2 maintenance reconcile failed for entity",
+                    entity_id=entity_id,
+                    error=str(exc),
+                )
+
     async def _consolidate_open_predicates(self, stats: L2EntityMaintenanceStats) -> None:
         """Rewrite non-core predicates to their core synonym when a mapping exists.
 
@@ -688,9 +799,14 @@ class L2EntityMaintenance:
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT triple_id, subject_id, predicate, object_id, evidence_text, natural_summary "
-                "FROM knowledge_graph WHERE embedding_status = 'pending' AND status = 'active' "
-                "ORDER BY updated_at DESC LIMIT ?",
+                "SELECT kg.triple_id, kg.subject_id, kg.predicate, kg.object_id, "
+                "kg.evidence_text, kg.natural_summary, "
+                "sc.canonical_name AS subject_name, oc.canonical_name AS object_name "
+                "FROM knowledge_graph kg "
+                "LEFT JOIN entity_catalog sc ON sc.entity_id = kg.subject_id "
+                "LEFT JOIN entity_catalog oc ON oc.entity_id = kg.object_id "
+                "WHERE kg.embedding_status = 'pending' AND kg.status = 'active' "
+                "ORDER BY kg.updated_at DESC LIMIT ?",
                 (batch_limit,),
             ) as cur:
                 rows = await cur.fetchall()
@@ -706,6 +822,8 @@ class L2EntityMaintenance:
                 object_id=str(row["object_id"]),
                 evidence_text=row["evidence_text"],
                 natural_summary=row["natural_summary"],
+                subject_name=row["subject_name"],
+                object_name=row["object_name"],
             )
             if not text.strip():
                 continue

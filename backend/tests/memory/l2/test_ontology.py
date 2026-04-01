@@ -213,3 +213,70 @@ def test_open_predicate_confidence_penalty():
     from magi.memory.l2.ontology import OPEN_PREDICATE_CONFIDENCE_PENALTY
 
     assert OPEN_PREDICATE_CONFIDENCE_PENALTY == 0.7
+
+
+# ── FAMILY_TO_PREDICATES & expand_predicate_group ──
+
+
+def test_family_to_predicates_covers_all_retrieval_families():
+    from magi.memory.l2.ontology import FAMILY_TO_PREDICATES
+
+    assert "preference" in FAMILY_TO_PREDICATES
+    assert "relationship" in FAMILY_TO_PREDICATES
+    assert "activity" in FAMILY_TO_PREDICATES
+    assert "profile_fact" in FAMILY_TO_PREDICATES
+
+
+def test_preference_family_includes_follows():
+    from magi.memory.l2.ontology import FAMILY_TO_PREDICATES
+
+    assert "FOLLOWS" in FAMILY_TO_PREDICATES["preference"]
+
+
+def test_activity_family_includes_uses_and_visited():
+    from magi.memory.l2.ontology import FAMILY_TO_PREDICATES
+
+    assert "USES" in FAMILY_TO_PREDICATES["activity"]
+    assert "VISITED" in FAMILY_TO_PREDICATES["activity"]
+
+
+def test_expand_predicate_group_adds_synonyms():
+    from magi.memory.l2.ontology import expand_predicate_group
+
+    expanded = expand_predicate_group(["LIKES"])
+    assert "INTERESTED_IN" in expanded  # same "affinity" group
+    assert "LIKES" in expanded
+
+
+def test_expand_predicate_group_preserves_non_grouped():
+    from magi.memory.l2.ontology import expand_predicate_group
+
+    expanded = expand_predicate_group(["LIKES", "CREATES"])
+    assert "CREATES" in expanded
+    assert "LIKES" in expanded
+    assert "INTERESTED_IN" in expanded
+
+
+def test_expand_predicate_group_expands_usage_group():
+    from magi.memory.l2.ontology import expand_predicate_group
+
+    expanded = expand_predicate_group(["USES"])
+    assert "WORKS_WITH" in expanded
+    assert "USES" in expanded
+
+
+def test_predicates_for_family_returns_expanded_set():
+    from magi.memory.l2.ontology import predicates_for_family
+
+    preds = predicates_for_family("activity")
+    assert preds is not None
+    assert "USES" in preds
+    assert "WORKS_WITH" in preds  # expanded from USES synonym group
+    assert "VISITED" in preds
+    assert "ATTENDED" in preds  # expanded from VISITED synonym group
+
+
+def test_predicates_for_family_returns_none_for_unknown():
+    from magi.memory.l2.ontology import predicates_for_family
+
+    assert predicates_for_family("nonexistent") is None

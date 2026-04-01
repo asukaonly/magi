@@ -390,7 +390,7 @@ class TestL2Handler:
         assert relationship_kwargs["entity_ids"] == ["user:u1"]
         assert relationship_kwargs["object_types"] == ["weather_state"]
         assert relationship_kwargs.get("target_object_id") is None
-        assert relationship_kwargs["predicates"] == ["LIKES", "DISLIKES", "INTERESTED_IN"]
+        assert relationship_kwargs["predicates"] == ["DISLIKES", "FOLLOWS", "INTERESTED_IN", "LIKES"]
         assert results["trace"]["query_frame"]["chosen_subject_entity_id"] == "user:u1"
         assert results["trace"]["query_frame"]["subject_binding_source"] == "self_anchor"
 
@@ -1275,3 +1275,177 @@ class TestL2HandlerEdgeVectorSupplement:
         # Duplicate should be filtered out
         assert len(results["relationships"]) == 1
         assert results["trace"]["edge_vector_supplement_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_soft_reranking_boosts_matching_synonym_group(self):
+        """Edges whose predicate matches a synonym group get distance * 0.7."""
+        store = AsyncMock()
+        store.batch_get_relationships.return_value = {
+            "user:u1": []
+        }
+        store.batch_get_tom_snapshots.return_value = []
+        store.batch_list_tom_assertions.return_value = {}
+        # Two novel edges: one with LIKES (in "affinity" group), one unrelated
+        store.search_edges_by_embedding.return_value = [
+            {"triple_id": "t-unrelated", "predicate": "CREATED_BY", "vector_distance": 0.10},
+            {"triple_id": "t-affinity", "predicate": "LIKES", "vector_distance": 0.12},
+        ]
+
+        embedding_service = AsyncMock()
+        embedding_service.embed_text.return_value = AsyncMock(vector=[0.1] * 8)
+        edge_index = AsyncMock()
+
+        handler = L2Handler(
+            store,
+            embedding_service=embedding_service,
+            edge_vector_index=edge_index,
+        )
+        conds = L2Conditions(
+            entities=["user:u1"],
+            include_relationships=True,
+            content_query="what does user like",
+            predicate_family="preference",
+        )
+        results = await handler.execute(conds)
+
+        edges = results["relationships"]
+        assert len(edges) == 2
+        # After boost, t-affinity distance = 0.12 * 0.7 = 0.084, so it should rank first
+        assert edges[0]["triple_id"] == "t-affinity"
+        assert edges[1]["triple_id"] == "t-unrelated"
+
+
+class TestL2HandlerCreatorAffinityFallback:
+    """Test that creator affinity falls back when no platform constraint exists."""
+
+    @pytest.mark.asyncio
+    async def test_creator_affinity_fallback_no_platform(self):
+        """When no platform constraint, should query by object_types instead of returning None."""
+        store = AsyncMock()
+        store.get_relationships.return_value = [
+            {
+                "triple_id": "follow-1",
+                "subject_id": "user:u1",
+                "subject_type": "user",
+                "predicate": "FOLLOWS",
+                "object_id": "presence:bilibili:creator_1",
+                "object_type": "presence",
+            }
+        ]
+
+        handler = L2Handler(store, entity_catalog=AsyncMock())
+        conds = L2Conditions(
+            content_query="我喜欢哪些UP主",
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="creator",
+                answer_unit="identity",
+                answer_shape="list",
+                polarity="positive",
+                constraints=[],  # no platform constraint
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        _, relationship_kwargs = store.get_relationships.call_args
+        assert relationship_kwargs["subject_id"] == "user:u1"
+        assert relationship_kwargs["object_types"] == ["presence", "person"]
+        assert len(results["relationships"]) == 1
+
+
+class TestL2HandlerSoftwareAffinityFallback:
+    """Test that software affinity falls back when no target entity can be resolved."""
+
+    @pytest.mark.asyncio
+    async def test_software_affinity_fallback_no_target(self):
+        store = AsyncMock()
+        store.get_relationships.return_value = [
+            {
+                "triple_id": "sw-1",
+                "subject_id": "user:u1",
+                "subject_type": "user",
+                "predicate": "USES",
+                "object_id": "software:vscode",
+                "object_type": "software",
+            }
+        ]
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = []  # nothing resolves
+
+        handler = L2Handler(store, entity_catalog=entity_catalog)
+        conds = L2Conditions(
+            content_query="我平时用什么软件",
+            entities=["软件"],
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="software",
+                answer_unit="mixed",
+                answer_shape="list",
+                polarity="positive",
+                entity_mentions=["软件"],
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        _, relationship_kwargs = store.get_relationships.call_args
+        assert relationship_kwargs["subject_id"] == "user:u1"
+        assert relationship_kwargs["object_types"] == ["software"]
+        assert len(results["relationships"]) == 1
+
+
+class TestL2HandlerPlaceAffinityFallback:
+    """Test that place affinity falls back when no location constraint exists."""
+
+    @pytest.mark.asyncio
+    async def test_place_affinity_fallback_no_location(self):
+        store = AsyncMock()
+        store.get_relationships.return_value = [
+            {
+                "triple_id": "visit-1",
+                "subject_id": "user:u1",
+                "subject_type": "user",
+                "predicate": "VISITED",
+                "object_id": "place:cafe-xyz",
+                "object_type": "place",
+            }
+        ]
+
+        handler = L2Handler(store, entity_catalog=AsyncMock())
+        conds = L2Conditions(
+            content_query="我喜欢去哪些地方",
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=False,
+            semantic_frame=L2SemanticFrame(
+                query_family="affinity",
+                subject_scope="self",
+                answer_kind="place",
+                answer_unit="place",
+                answer_shape="list",
+                polarity="positive",
+                constraints=[],  # no location constraint
+            ),
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        _, relationship_kwargs = store.get_relationships.call_args
+        assert relationship_kwargs["subject_id"] == "user:u1"
+        assert relationship_kwargs["object_types"] == ["place"]
+        assert len(results["relationships"]) == 1

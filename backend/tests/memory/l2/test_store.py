@@ -640,12 +640,14 @@ async def test_refresh_entity_snapshot_excludes_deprecated_preference_and_keeps_
     second_snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
 
     assert first_snapshot is not None
-    assert first_snapshot["preferences"]["food:sushi"] == "like"
+    assert first_snapshot["preferences"]["food:sushi"]["value"] == "like"
+    assert first_snapshot["preferences"]["food:sushi"]["affinity"] > 0
     assert second_snapshot is not None
-    assert second_snapshot["preferences"]["food:sushi"] == "dislike"
+    assert second_snapshot["preferences"]["food:sushi"]["value"] == "dislike"
+    assert second_snapshot["preferences"]["food:sushi"]["affinity"] < 0
     assert second_snapshot["preferences_history"][0]["field"] == "food:sushi"
-    assert second_snapshot["preferences_history"][0]["from"] == "like"
-    assert second_snapshot["preferences_history"][0]["to"] == "dislike"
+    assert second_snapshot["preferences_history"][0]["from"]["value"] == "like"
+    assert second_snapshot["preferences_history"][0]["to"]["value"] == "dislike"
 
 
 @pytest.mark.asyncio
@@ -2250,3 +2252,663 @@ async def test_search_edges_by_embedding_returns_empty_without_index(tmp_path):
         limit=10,
     )
     assert results == []
+
+
+# -----------------------------------------------------------------------
+# A1: Temporary-state traits get corroborated with single evidence
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_temporary_trait_corroborated_with_single_evidence(tmp_path):
+    """Stress/mood/engagement should reach 'corroborated' with just 1 evidence."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message(
+        "I feel really stressed about the deadline.",
+        correlation_id="evt-temp-1",
+        timestamp=1710000000.0,
+    )
+    await _apply_rule_candidates(store, event)
+
+    # Reconciliation promotes temporary traits with single evidence
+    await store.reconcile_entity(entity_id="user:u1", entity_type="user")
+
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    assert len(assertions) == 1
+    assert assertions[0]["trait_name"] == "stress_level"
+    # With A1 change, single evidence should promote to corroborated
+    assert assertions[0]["validation_state"] == "corroborated"
+    assert assertions[0]["confidence_score"] >= 0.50
+
+
+@pytest.mark.asyncio
+async def test_temporary_trait_corroborated_appears_in_snapshot(tmp_path):
+    """A corroborated temporary trait should appear in the entity snapshot."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    event = await _build_user_message(
+        "I have been stressed about work.",
+        correlation_id="evt-snap-temp-1",
+        timestamp=1710000000.0,
+    )
+    await _apply_rule_candidates(store, event)
+
+    # Reconcile to promote temporary trait
+    await store.reconcile_entity(entity_id="user:u1", entity_type="user")
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+    # Corroborated stress_level should now appear in snapshot
+    stress = snapshot.get("current_stress_level")
+    if stress is None:
+        stress = (snapshot.get("core_traits") or {}).get("stress_level")
+    assert stress is not None
+
+
+@pytest.mark.asyncio
+async def test_non_temporary_trait_still_requires_multiple_evidence(tmp_path):
+    """Non-temporary traits (e.g. preference_profile) still need >=2 evidence."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    # Directly insert a non-temporary assertion with 1 evidence
+    now = time.time()
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "preference_profile",
+        "trait_name": "preference.coffee",
+        "trait_value": "likes_dark_roast",
+        "confidence_score": 0.25,
+        "validation_state": "tentative",
+        "temporal_scope": "stable",
+        "decay_policy": "evidence_only",
+        "evidence_events": ["evt-pref-1"],
+        "volatility_index": 0.3,
+        "source_domain": "chat",
+        "inference_depth": "defensive_psychology",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    outcomes = await store.reconcile_entity(
+        entity_id="user:u1",
+        entity_type="user",
+        evidence_timestamps={"evt-pref-1": 1710000000.0},
+    )
+    assert len(outcomes) == 1
+    # Single evidence for a non-temporary trait stays tentative
+    assert outcomes[0].status == "tentative"
+
+
+# -----------------------------------------------------------------------
+# B2: expire_session_decay_assertions
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_expire_session_decay_assertions_expires_tentative(tmp_path):
+    """Session-end should expire tentative session_decay assertions."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "happy",
+        "confidence_score": 0.25,
+        "validation_state": "tentative",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-mood-1"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "defensive_psychology",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    expired_count = await store.expire_session_decay_assertions(entity_ids=["user:u1"])
+    assert expired_count == 1
+
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    assert assertions[0]["validation_state"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_expire_session_decay_does_not_touch_corroborated(tmp_path):
+    """Corroborated session_decay assertions should survive session end."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "happy",
+        "confidence_score": 0.60,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-mood-1", "evt-mood-2"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "defensive_psychology",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    expired_count = await store.expire_session_decay_assertions(entity_ids=["user:u1"])
+    assert expired_count == 0
+
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    assert assertions[0]["validation_state"] == "corroborated"
+
+
+# -----------------------------------------------------------------------
+# C1: Emerging signals in snapshot
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_snapshot_includes_emerging_signals(tmp_path):
+    """Tentative assertions should appear in snapshot.emerging_signals."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    # Insert a tentative assertion (single evidence, won't promote without reconcile)
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "preference_profile",
+        "trait_name": "preference.coffee",
+        "trait_value": "likes_strong_coffee",
+        "confidence_score": 0.25,
+        "validation_state": "tentative",
+        "temporal_scope": "persistent",
+        "decay_policy": "",
+        "evidence_events": ["evt-1"],
+        "volatility_index": 0.3,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    # Also insert a corroborated assertion so snapshot isn't empty
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "happy",
+        "confidence_score": 0.60,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-2", "evt-3"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    # Tentative assertion should appear in emerging_signals
+    emerging = snapshot.get("emerging_signals", [])
+    assert len(emerging) == 1
+    assert emerging[0]["trait_name"] == "preference.coffee"
+    assert emerging[0]["trait_value"] == "likes_strong_coffee"
+    assert emerging[0]["confidence"] == pytest.approx(0.25, abs=0.01)
+    assert emerging[0]["evidence_count"] == 1
+
+    # Corroborated assertion should NOT appear in emerging_signals
+    assert all(s["trait_name"] != "mood" for s in emerging)
+
+    # But mood should appear in the active snapshot data
+    assert snapshot["current_mood"] == "happy"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_emerging_signals_empty_when_no_tentative(tmp_path):
+    """Snapshot should have empty emerging_signals when all assertions are confirmed."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "focused",
+        "confidence_score": 0.60,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-1", "evt-2"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+    assert snapshot.get("emerging_signals", []) == []
+
+
+@pytest.mark.asyncio
+async def test_snapshot_mood_trajectory_tracks_temporal_assertions(tmp_path):
+    """Mood trajectory should collect mood/stress/engagement assertions sorted by time."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    # Insert assertions from different temporal families at different times.
+    # Note: upsert deduplicates by (entity_id, trait_name, target_entity_id),
+    # so each entry must have a distinct trait_name.
+    for i, (family, name, value, offset) in enumerate([
+        ("mood", "mood", "calm", -1800),                    # 30min ago
+        ("stress", "stress_level", "high", -3600),           # 1h ago
+        ("engagement", "engagement", "focused", -600),       # 10min ago
+    ]):
+        await store.upsert_assertion_candidate({
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": family,
+            "trait_name": name,
+            "trait_value": value,
+            "confidence_score": 0.60,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": [f"evt-{i}"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now + offset,
+            "last_validated_at": now + offset,
+        })
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    trajectory = snapshot.get("mood_trajectory", [])
+    assert len(trajectory) == 3
+
+    # Should be sorted by time ascending (oldest first)
+    assert trajectory[0]["family"] == "stress"
+    assert trajectory[0]["value"] == "high"
+    assert trajectory[1]["family"] == "mood"
+    assert trajectory[1]["value"] == "calm"
+    assert trajectory[2]["family"] == "engagement"
+    assert trajectory[2]["value"] == "focused"
+
+    # All should have confidence and timestamp
+    for entry in trajectory:
+        assert "confidence" in entry
+        assert "at" in entry
+        assert entry["confidence"] == pytest.approx(0.60, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_mood_trajectory_includes_expired_assertions(tmp_path):
+    """Mood trajectory should accumulate entries across snapshot refreshes, preserving history."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    # First: insert a mood=sad assertion and snapshot
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "sad",
+        "confidence_score": 0.70,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-1"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now - 3600,
+        "last_validated_at": now - 3600,
+    })
+    snap1 = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snap1 is not None
+    assert len(snap1.get("mood_trajectory", [])) == 1
+    assert snap1["mood_trajectory"][0]["value"] == "sad"
+
+    # Second: update the same assertion to mood=happy and snapshot again
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "happy",
+        "confidence_score": 0.80,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-2"],
+        "volatility_index": 0.3,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+    snap2 = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snap2 is not None
+
+    trajectory = snap2.get("mood_trajectory", [])
+    # Should have accumulated both mood states across the two refreshes
+    assert len(trajectory) == 2
+    assert trajectory[0]["value"] == "sad"
+    assert trajectory[1]["value"] == "happy"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_mood_trajectory_excludes_non_temporal_families(tmp_path):
+    """Non-temporal families like preference_profile should not appear in mood_trajectory."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+
+    # Insert a preference assertion (not a temporal family)
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "preference_profile",
+        "trait_name": "preference.coffee",
+        "trait_value": "likes_strong_coffee",
+        "confidence_score": 0.90,
+        "validation_state": "stable",
+        "temporal_scope": "persistent",
+        "decay_policy": "",
+        "evidence_events": ["evt-1", "evt-2", "evt-3"],
+        "volatility_index": 0.1,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    # Insert a mood assertion so snapshot isn't trivial
+    await store.upsert_assertion_candidate({
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "mood",
+        "trait_name": "mood",
+        "trait_value": "content",
+        "confidence_score": 0.60,
+        "validation_state": "corroborated",
+        "temporal_scope": "session",
+        "decay_policy": "session_decay",
+        "evidence_events": ["evt-4"],
+        "volatility_index": 0.5,
+        "source_domain": "chat",
+        "inference_depth": "direct",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+    })
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    trajectory = snapshot.get("mood_trajectory", [])
+    # Only mood assertion, not preference_profile
+    assert len(trajectory) == 1
+    assert trajectory[0]["family"] == "mood"
+    assert all(e["family"] in {"mood", "stress", "engagement"} for e in trajectory)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
+    """Mood trajectory should keep only the most recent entries when exceeding limit."""
+    from magi.memory.l2.store import L2CognitionStore, _MOOD_TRAJECTORY_LIMIT
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    count = _MOOD_TRAJECTORY_LIMIT + 5
+
+    # Simulate accumulation by alternating mood values and refreshing each time
+    for i in range(count):
+        await store.upsert_assertion_candidate({
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": f"mood_{i}",
+            "confidence_score": 0.60,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": [f"evt-{i}"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now + i * 600,
+            "last_validated_at": now + i * 600,
+        })
+        await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+
+    snapshot = await store.get_tom_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    trajectory = snapshot.get("mood_trajectory", [])
+    assert len(trajectory) == _MOOD_TRAJECTORY_LIMIT
+
+    # Should contain the most recent entries
+    assert trajectory[-1]["value"] == f"mood_{count - 1}"
+    assert trajectory[0]["value"] == f"mood_{count - _MOOD_TRAJECTORY_LIMIT}"
+
+
+# ---------------------------------------------------------------------------
+# Preference enrichment from taste_profile / preference_profile assertions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preferences_enriched_from_taste_profile_assertions(tmp_path):
+    """taste_profile assertions should appear in snapshot preferences with affinity."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "taste_profile",
+            "trait_name": "jazz_affinity",
+            "trait_value": "enjoys jazz guitar",
+            "confidence_score": 0.75,
+            "evidence_events": ["evt-jazz-1", "evt-jazz-2", "evt-jazz-3"],
+            "volatility_index": 0.3,
+            "source_domain": "sensor",
+            "inference_depth": "direct",
+            "validation_state": "stable",
+            "first_inferred_at": now - 3600,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "persistent",
+            "decay_policy": "none",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": None,
+        }
+    )
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    pref = snapshot["preferences"].get("jazz_affinity")
+    assert pref is not None
+    assert pref["value"] == "enjoys jazz guitar"
+    assert pref["family"] == "taste_profile"
+    # affinity = min(1.0, 0.75 * (1 + 0.1 * 3)) = 0.75 * 1.3 = 0.975
+    assert 0.9 < pref["affinity"] <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preferences_enriched_from_preference_profile_assertions(tmp_path):
+    """preference_profile assertions should also appear in preferences with affinity."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "preference_profile",
+            "trait_name": "communication_style",
+            "trait_value": "concise",
+            "confidence_score": 0.60,
+            "evidence_events": ["evt-style-1"],
+            "volatility_index": 0.2,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "validation_state": "stable",
+            "first_inferred_at": now - 7200,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "persistent",
+            "decay_policy": "none",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": None,
+        }
+    )
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    pref = snapshot["preferences"].get("communication_style")
+    assert pref is not None
+    assert pref["value"] == "concise"
+    assert pref["family"] == "preference_profile"
+    # affinity = min(1.0, 0.60 * (1 + 0.1 * 1)) = 0.60 * 1.1 = 0.66
+    assert 0.6 < pref["affinity"] < 0.7
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preference_affinity_computation(tmp_path):
+    """Affinity must scale with confidence and evidence count, capped at 1.0."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    # High confidence + many evidence → capped at 1.0
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "taste_profile",
+            "trait_name": "coffee_preference",
+            "trait_value": "strong espresso",
+            "confidence_score": 0.95,
+            "evidence_events": [f"evt-coffee-{i}" for i in range(10)],
+            "volatility_index": 0.1,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "validation_state": "stable",
+            "first_inferred_at": now - 86400,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "persistent",
+            "decay_policy": "none",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": None,
+        }
+    )
+
+    # Low confidence + single evidence → low affinity
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "taste_profile",
+            "trait_name": "tea_preference",
+            "trait_value": "green tea",
+            "confidence_score": 0.30,
+            "evidence_events": ["evt-tea-1"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "validation_state": "stable",
+            "first_inferred_at": now - 600,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "persistent",
+            "decay_policy": "none",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": None,
+        }
+    )
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot is not None
+
+    coffee = snapshot["preferences"]["coffee_preference"]
+    # 0.95 * (1 + 0.1 * 5) = 0.95 * 1.5 = 1.425 → capped at 1.0
+    assert coffee["affinity"] == 1.0
+
+    tea = snapshot["preferences"]["tea_preference"]
+    # 0.30 * (1 + 0.1 * 1) = 0.30 * 1.1 = 0.33
+    assert tea["affinity"] == 0.33
