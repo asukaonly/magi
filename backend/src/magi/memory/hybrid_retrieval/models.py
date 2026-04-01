@@ -231,6 +231,13 @@ class RetrievalConfig:
     # Vector search filtering
     vector_max_distance: float = 0.7  # cosine distance cap (1 - similarity)
 
+    # ManifestSelector (cross-layer LLM ranking post-fusion)
+    manifest_selector_enabled: bool = False
+    manifest_selector_top_k: int = 20
+    manifest_selector_max_output: int = 10
+    manifest_selector_timeout_seconds: float = 8.0
+    manifest_selector_candidate_max_chars: int = 400
+
     # Token estimation
     token_estimator: Literal["char_ratio"] = "char_ratio"
     char_per_token_ratio: float = 3.0

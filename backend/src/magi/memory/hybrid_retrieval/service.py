@@ -26,6 +26,7 @@ from .models import (
     RetrievalPayload,
     RetrievalQuery,
 )
+from .manifest_selector import ManifestSelector
 from .result_fusion import ResultFusion
 from .timeline_condense import build_timeline_summary
 
@@ -71,6 +72,7 @@ class HybridRetrievalService:
         self._config_getter = config_getter
         self._llm_provider_bridge = llm_provider_bridge
         self._result_fusion = ResultFusion(self._config)
+        self._manifest_selector = ManifestSelector(self._config)
 
         # Build handlers from available stores
         self._l1 = L1Handler(unified_memory.l1, self._config) if unified_memory.l1 else None
@@ -308,6 +310,13 @@ class HybridRetrievalService:
 
         # 5. Result fusion (dedup + token budget)
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
+
+        # 6. Cross-layer manifest selection (optional LLM step)
+        if self._config.manifest_selector_enabled:
+            payload = await self._manifest_selector.select(
+                payload, query=request.query, llm_bridge=self._llm_provider_bridge,
+            )
+
         payload.l1_evidence_bundles = await self._build_l1_evidence_bundles(
             payload.l1_events,
             query=request.query,
@@ -374,6 +383,7 @@ class HybridRetrievalService:
             return
         self._config = next_config
         self._result_fusion = ResultFusion(self._config)
+        self._manifest_selector = ManifestSelector(self._config)
 
     def _augment_primary_plans(
         self,
