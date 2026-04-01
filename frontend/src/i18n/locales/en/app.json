@@ -1030,12 +1030,30 @@
           "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" }
         },
         "fields": {
-          "enabled": { "label": "Enable", "description": "Turn on photo library sync for the timeline." },
-          "source_path": { "label": "Photo Directory", "description": "Local directory containing photos to scan." },
-          "sync_mode": { "label": "Sync Mode", "description": "How photo library should be synchronized." },
-          "sync_interval_minutes": { "label": "Sync Interval (minutes)", "description": "Polling interval used for interval-based sync." },
-          "max_items_per_sync": { "label": "Max Items Per Sync", "description": "Maximum number of photos to process per sync run." },
-          "default_retention_mode": { "label": "Retention Mode", "description": "How raw photo data should be handled." }
+          "enabled": {
+            "label": "Enable",
+            "description": "Turn on photo library sync for the timeline."
+          },
+          "source_path": {
+            "label": "Photo Directory",
+            "description": "Local directory containing photos to scan."
+          },
+          "sync_mode": {
+            "label": "Sync Mode",
+            "description": "How photo library should be synchronized."
+          },
+          "sync_interval_minutes": {
+            "label": "Sync Interval (minutes)",
+            "description": "Polling interval used for interval-based sync."
+          },
+          "max_items_per_sync": {
+            "label": "Max Items Per Sync",
+            "description": "Maximum number of photos to process per sync run."
+          },
+          "default_retention_mode": {
+            "label": "Retention Mode",
+            "description": "How raw photo data should be handled."
+          }
         },
         "sections": { "general": "General", "storage": "Storage" }
       },
