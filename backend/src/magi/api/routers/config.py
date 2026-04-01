@@ -161,8 +161,21 @@ class MemoryRerankerConfigModel(BaseModel):
     remote: MemoryRerankerRemoteConfigModel = Field(default_factory=MemoryRerankerRemoteConfigModel)
 
 
+class EmbeddingLocalConfigModel(BaseModel):
+    model_source: str = Field(default="managed")
+    managed_model_id: Optional[str] = Field(default=None)
+    model_dir_path: Optional[str] = Field(default=None)
+    idle_timeout_seconds: int = Field(default=1800, ge=60)
+
+
+class EmbeddingConfigModel(BaseModel):
+    mode: str = Field(default="remote")
+    local: EmbeddingLocalConfigModel = Field(default_factory=EmbeddingLocalConfigModel)
+
+
 class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default="~/.magi/data/memory")
+    embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
     reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
     l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
     l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
@@ -410,6 +423,15 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
     memory_cfg = runtime_config.agent.memory
     return MemoryConfigModel(
         db_path=memory_cfg.db_path,
+        embedding=EmbeddingConfigModel(
+            mode=getattr(memory_cfg.embedding.mode, "value", str(memory_cfg.embedding.mode)),
+            local=EmbeddingLocalConfigModel(
+                model_source=getattr(memory_cfg.embedding.local.model_source, "value", str(memory_cfg.embedding.local.model_source)),
+                managed_model_id=memory_cfg.embedding.local.managed_model_id,
+                model_dir_path=memory_cfg.embedding.local.model_dir_path,
+                idle_timeout_seconds=memory_cfg.embedding.local.idle_timeout_seconds,
+            ),
+        ),
         reranker=MemoryRerankerConfigModel(
             enabled=memory_cfg.reranker.enabled,
             backend=memory_cfg.reranker.backend,
@@ -823,6 +845,11 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
         "agent.memory.db_path": config.memory.db_path,
+        "agent.memory.embedding.mode": config.memory.embedding.mode,
+        "agent.memory.embedding.local.model_source": config.memory.embedding.local.model_source,
+        "agent.memory.embedding.local.managed_model_id": config.memory.embedding.local.managed_model_id,
+        "agent.memory.embedding.local.model_dir_path": config.memory.embedding.local.model_dir_path,
+        "agent.memory.embedding.local.idle_timeout_seconds": config.memory.embedding.local.idle_timeout_seconds,
         "agent.memory.reranker.enabled": config.memory.reranker.enabled,
         "agent.memory.reranker.backend": config.memory.reranker.backend,
         "agent.memory.reranker.mode": config.memory.reranker.mode,

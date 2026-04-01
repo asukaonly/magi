@@ -73,7 +73,10 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
             llm=SimpleNamespace(
                 selections={},
                 model_runtime_overrides={},
-            )
+            ),
+            memory=SimpleNamespace(
+                embedding=SimpleNamespace(mode="remote"),
+            ),
         ),
     )
     monkeypatch.setattr(
@@ -130,7 +133,10 @@ async def test_embedding_limit_uses_embedding_family_key(monkeypatch: pytest.Mon
                     "embedding": SimpleNamespace(provider_id="openai", model="text-embedding-3-small"),
                 },
                 model_runtime_overrides={},
-            )
+            ),
+            memory=SimpleNamespace(
+                embedding=SimpleNamespace(mode="remote"),
+            ),
         ),
     )
     monkeypatch.setattr(

@@ -506,7 +506,8 @@
           "embeddingModelTitle": "Current embedding model",
           "embeddingModelDescription": "Semantic retrieval in L1 and L3 depends on the embedding model configured here.",
           "embeddingModelEmpty": "No embedding model is configured yet. Select one first under Model Configuration > Model Selection.",
-          "rerankerDescription": "Optionally add a retrieval reranker stage for higher precision on top candidates. If the LLM configuration is incomplete, runtime can fall back to heuristic reranking."
+          "rerankerDescription": "Optionally add a retrieval reranker stage for higher precision on top candidates. If the LLM configuration is incomplete, runtime can fall back to heuristic reranking.",
+          "embeddingDescription": "Choose between a remote model service or a local ONNX model for vector generation. Local models load on first use and auto-unload after idle."
         },
         "workbench": {
           "description": "Configure short-lived workbench memory retention and recovery cadence so runtime context can be checkpointed and replayed safely."
@@ -538,6 +539,39 @@
           "description": "Set the local directory that stores memory databases and vector indexes. Vector writes always use the async sqlite path.",
           "placeholder": "~/.magi/data/memories",
           "summary_hint": "Includes the L1 event store and the shared memory database."
+        },
+        "embedding_mode": {
+          "label": "Embedding mode",
+          "description": "Choose between a remote API service or a local ONNX model for generating vector embeddings."
+        },
+        "embedding_local_model_source": {
+          "label": "Local model source"
+        },
+        "embedding_local_managed_model_id": {
+          "label": "Preset model",
+          "placeholder": "Select a preset model"
+        },
+        "embedding_local_model_dir_path": {
+          "label": "Model directory path",
+          "placeholder": "/path/to/your/onnx-model-dir"
+        },
+        "embedding_local_idle_timeout": {
+          "label": "Idle unload time (seconds)"
+        },
+        "embedding_local_managed_cache_path": {
+          "label": "Local model cache directory",
+          "description": "Managed local embedding model assets are stored under ~/.magi/cache/models/embed/."
+        },
+        "embedding_local_download": {
+          "label": "Download model",
+          "downloading": "Downloading…",
+          "downloaded": "Downloaded",
+          "download": "Download",
+          "delete": "Delete",
+          "size": "Size",
+          "dimension": "Dimension",
+          "languages": "Languages",
+          "recommended": "Recommended"
         },
         "reranker_enabled": {
           "label": "Enable LLM reranking",
@@ -685,7 +719,11 @@
           "managed": "Managed cache",
           "external": "External file"
         },
-        "reranker_disabled": "Disabled"
+        "reranker_disabled": "Disabled",
+        "embedding_local_model_source": {
+          "managed": "Preset model",
+          "external": "Custom directory"
+        }
       }
     },
     "options": {

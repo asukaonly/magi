@@ -93,6 +93,13 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{plugin_id}/settings": {"GET", "PUT"},
         "/{plugin_id}/settings/resources/{resource_name}": {"GET"},
     },
+    "local_embedding": {
+        "/models": {"GET"},
+        "/models/{model_id}/download": {"POST"},
+        "/models/{model_id}/status": {"GET"},
+        "/models/{model_id}": {"DELETE"},
+        "/discovered": {"GET"},
+    },
     "personality_config": {
         "/": {"GET"},
         "/current": {"GET", "PUT"},
@@ -154,6 +161,7 @@ def register_api_routes(app: FastAPI) -> None:
         plugins_router,
         schedules_router,
         tasks_router,
+        local_embedding_router,
     )
 
     app.include_router(
@@ -224,4 +232,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(tasks_router, _PUBLIC_ROUTE_METHODS["tasks"]),
         prefix="/api/tasks",
         tags=["Tasks"],
+    )
+    app.include_router(
+        _build_public_router(local_embedding_router, _PUBLIC_ROUTE_METHODS["local_embedding"]),
+        prefix="/api/local-embedding",
+        tags=["Local Embedding"],
     )

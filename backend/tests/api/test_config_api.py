@@ -75,7 +75,10 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l1.vectors_enabled is True
     assert config.memory.l3.vectors_enabled is True
     assert "async_embeddings" not in config.memory.model_dump(mode="json")
-    assert "embedding" not in config.memory.model_dump(mode="json")
+    assert config.memory.embedding.mode == "remote"
+    assert config.memory.embedding.local.model_source == "managed"
+    assert config.memory.embedding.local.idle_timeout_seconds == 1800
+    assert "backend" not in config.memory.embedding.model_dump(mode="json")
 
 
 def test_system_config_defaults_include_close_to_tray_enabled_preference():
@@ -257,7 +260,8 @@ def test_build_system_config_hides_internal_memory_vector_backend_settings():
     payload = config.model_dump(mode="json")
 
     assert "async_embeddings" not in payload["memory"]
-    assert "embedding" not in payload["memory"]
+    assert "embedding" in payload["memory"]
+    assert "backend" not in payload["memory"]["embedding"]
 
 
 def test_build_update_paths_persists_model_metadata_overrides():

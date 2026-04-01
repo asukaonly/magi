@@ -1,0 +1,93 @@
+# Preset local embedding models for ONNX Runtime inference.
+#
+# Each entry defines a model that can be downloaded and used locally.
+# Models are stored under ~/.magi/cache/models/embed/{id}/
+#
+# Required files in each model directory:
+#   model.onnx or model_quantized.onnx  — ONNX model weights
+#   tokenizer.json                       — HuggingFace fast tokenizer
+#   config.json                          — Model config (hidden_size, etc.)
+#
+# Users can also place custom ONNX models in the embed directory manually.
+
+models:
+  - id: bge-small-zh-v1.5
+    label: "BGE Small Chinese v1.5"
+    repo: "BAAI/bge-small-zh-v1.5"
+    onnx_repo: "aapot/bge-small-zh-v1.5-onnx"
+    dimension: 512
+    max_tokens: 512
+    pooling: cls
+    normalize: true
+    size_mb: 24
+    size_fp32_mb: 96
+    quantized: true
+    languages:
+      - zh
+      - en
+    recommended: true
+    description: "Lightweight Chinese-English model, recommended for personal use"
+
+  - id: bge-small-en-v1.5
+    label: "BGE Small English v1.5"
+    repo: "BAAI/bge-small-en-v1.5"
+    onnx_repo: "aapot/bge-small-en-v1.5-onnx"
+    dimension: 384
+    max_tokens: 512
+    pooling: cls
+    normalize: true
+    size_mb: 33
+    size_fp32_mb: 134
+    quantized: true
+    languages:
+      - en
+    recommended: false
+    description: "Lightweight English embedding model"
+
+  - id: gte-small
+    label: "GTE Small"
+    repo: "thenlper/gte-small"
+    onnx_repo: "nickmuchi/gte-small-onnx"
+    dimension: 384
+    max_tokens: 512
+    pooling: mean
+    normalize: true
+    size_mb: 17
+    size_fp32_mb: 67
+    quantized: true
+    languages:
+      - en
+    recommended: false
+    description: "Smallest and fastest English model"
+
+  - id: multilingual-e5-small
+    label: "Multilingual E5 Small"
+    repo: "intfloat/multilingual-e5-small"
+    onnx_repo: "intfloat/multilingual-e5-small"
+    dimension: 384
+    max_tokens: 512
+    pooling: mean
+    normalize: true
+    size_mb: 118
+    size_fp32_mb: 471
+    quantized: true
+    languages:
+      - multi
+    recommended: false
+    description: "Small multilingual model supporting 100+ languages"
+
+  - id: bge-m3
+    label: "BGE M3 (Multilingual)"
+    repo: "BAAI/bge-m3"
+    onnx_repo: "BAAI/bge-m3"
+    dimension: 1024
+    max_tokens: 8192
+    pooling: cls
+    normalize: true
+    size_mb: 550
+    size_fp32_mb: 2200
+    quantized: true
+    languages:
+      - multi
+    recommended: false
+    description: "High-quality multilingual model, powerful but large (550MB)"
