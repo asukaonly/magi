@@ -20,6 +20,25 @@ from ...utils.runtime import RuntimePaths
 logger = logging.getLogger(__name__)
 
 
+def _find_onnx_model(model_dir: Path) -> Path | None:
+    """Find the best ONNX model file, checking root and onnx/ subdirectory.
+
+    Priority: model_quantized.onnx > model_int8.onnx > model.onnx > first *.onnx
+    """
+    for base in [model_dir, model_dir / "onnx"]:
+        if not base.is_dir():
+            continue
+        for name in ["model_quantized.onnx", "model_int8.onnx", "model.onnx"]:
+            candidate = base / name
+            if candidate.exists():
+                return candidate
+        # Fallback: any .onnx file in this directory
+        fallback = sorted(base.glob("*.onnx"))
+        if fallback:
+            return fallback[0]
+    return None
+
+
 class LocalEmbeddingManager:
     """Manages local ONNX embedding model lifecycle with lazy loading and idle unloading.
 
@@ -127,16 +146,10 @@ class LocalEmbeddingManager:
                 f"Please download the model first."
             )
 
-        # Resolve model file — prefer quantized
-        quantized_path = model_dir / "model_quantized.onnx"
-        fp32_path = model_dir / "model.onnx"
-        model_path = quantized_path if quantized_path.exists() else fp32_path
-        if not model_path.exists():
-            # Try finding any .onnx file
-            onnx_files = sorted(model_dir.glob("*.onnx"))
-            if not onnx_files:
-                raise FileNotFoundError(f"No ONNX model found in {model_dir}")
-            model_path = onnx_files[0]
+        # Resolve model file — prefer quantized, check both root and onnx/ subdir
+        model_path = _find_onnx_model(model_dir)
+        if model_path is None:
+            raise FileNotFoundError(f"No ONNX model found in {model_dir}")
 
         tokenizer_path = model_dir / "tokenizer.json"
         if not tokenizer_path.exists():

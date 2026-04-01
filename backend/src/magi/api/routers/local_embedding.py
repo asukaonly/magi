@@ -223,7 +223,7 @@ async def discover_external_models() -> list[DiscoveredModel]:
         if normalized_name in preset_ids:
             continue
 
-        has_onnx = any(entry.glob("*.onnx"))
+        has_onnx = any(entry.glob("*.onnx")) or any(entry.glob("onnx/*.onnx"))
         has_tokenizer = (entry / "tokenizer.json").exists()
         has_config = (entry / "config.json").exists()
         dimension = None
@@ -255,7 +255,7 @@ def _is_model_downloaded(model_dir: Path) -> bool:
     """Check if a model directory has the required files."""
     if not model_dir.exists():
         return False
-    has_onnx = any(model_dir.glob("*.onnx"))
+    has_onnx = any(model_dir.glob("*.onnx")) or any(model_dir.glob("onnx/*.onnx"))
     has_tokenizer = (model_dir / "tokenizer.json").exists()
     return has_onnx and has_tokenizer
 
@@ -280,6 +280,9 @@ async def _download_model_task(meta: LocalEmbeddingModelMeta, model_dir: Path) -
     repo_id = meta.onnx_repo or meta.repo
     allow_patterns = [
         "*.onnx",
+        "onnx/*.onnx",
+        "*.onnx_data",
+        "onnx/*.onnx_data",
         "tokenizer.json",
         "tokenizer_config.json",
         "config.json",
