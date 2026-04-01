@@ -571,7 +571,8 @@
           "size": "大小",
           "dimension": "维度",
           "languages": "语言",
-          "recommended": "推荐"
+          "recommended": "推荐",
+          "downloadFailed": "模型下载失败"
         },
         "reranker_enabled": {
           "label": "启用 LLM 精排",

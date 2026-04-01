@@ -571,7 +571,8 @@
           "size": "Size",
           "dimension": "Dimension",
           "languages": "Languages",
-          "recommended": "Recommended"
+          "recommended": "Recommended",
+          "downloadFailed": "Model download failed"
         },
         "reranker_enabled": {
           "label": "Enable LLM reranking",

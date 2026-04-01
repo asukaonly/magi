@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Download, FolderOpen, Info, Loader2, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 
 import { SelectField } from '@/components/config-forms/fields';
 import { resolveProviderModels, type EmbeddingConfig, type LLMConfig, type LLMProviderRegistry, type LLMScenario } from '@/api/modules/config';
@@ -85,6 +86,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const [presetModels, setPresetModels] = useState<LocalEmbeddingModelInfo[]>([]);
   const [downloadingModelId, setDownloadingModelId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const refreshPresetModels = useCallback(() => {
     localEmbeddingApi.listModels().then(setPresetModels).catch(() => {});
@@ -111,6 +113,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         } else if (status.status === 'failed') {
           setDownloadingModelId(null);
           setDownloadProgress(null);
+          setDownloadError(status.error ?? tApp('settings.memory.fields.embedding_local_download.downloadFailed'));
+          toast.error(status.error ?? tApp('settings.memory.fields.embedding_local_download.downloadFailed'));
         }
       } catch {
         // Ignore polling errors
@@ -122,6 +126,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const handleDownloadModel = useCallback(async (modelId: string) => {
     setDownloadingModelId(modelId);
     setDownloadProgress(0);
+    setDownloadError(null);
     try {
       await localEmbeddingApi.downloadModel(modelId);
     } catch {
@@ -352,6 +357,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   if (!selectedModel) return null;
                   const isDownloading = downloadingModelId === selectedModel.id;
                   return (
+                    <>
                     <div className="flex items-center gap-2">
                       {selectedModel.downloaded ? (
                         <Button
@@ -388,6 +394,13 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                         </span>
                       )}
                     </div>
+                    {downloadError && !isDownloading && !selectedModel.downloaded && (
+                      <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        {downloadError}
+                      </p>
+                    )}
+                    </>
                   );
                 })() : null}
               </>

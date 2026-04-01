@@ -260,8 +260,13 @@ def _is_model_downloaded(model_dir: Path) -> bool:
     return has_onnx and has_tokenizer
 
 
+_DOWNLOAD_MAX_RETRIES = 3
+_DOWNLOAD_ETAG_TIMEOUT = 30
+_DOWNLOAD_READ_TIMEOUT = 60
+
+
 async def _download_model_task(meta: LocalEmbeddingModelMeta, model_dir: Path) -> None:
-    """Background task to download a model from HuggingFace."""
+    """Background task to download a model from HuggingFace with retry."""
     model_id = meta.id
     try:
         from huggingface_hub import snapshot_download
@@ -272,50 +277,70 @@ async def _download_model_task(meta: LocalEmbeddingModelMeta, model_dir: Path) -
         }
         return
 
-    try:
-        _download_progress[model_id] = {"pct": 5.0, "error": None}
+    repo_id = meta.onnx_repo or meta.repo
+    allow_patterns = [
+        "*.onnx",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "config.json",
+        "special_tokens_map.json",
+        "vocab.txt",
+        "sentencepiece.bpe.model",
+    ]
 
-        # Download ONNX model from the onnx_repo
-        repo_id = meta.onnx_repo or meta.repo
-        allow_patterns = [
-            "*.onnx",
-            "tokenizer.json",
-            "tokenizer_config.json",
-            "config.json",
-            "special_tokens_map.json",
-            "vocab.txt",
-            "sentencepiece.bpe.model",
-        ]
+    last_exc: Exception | None = None
+    for attempt in range(1, _DOWNLOAD_MAX_RETRIES + 1):
+        try:
+            _download_progress[model_id] = {"pct": 5.0, "error": None}
 
-        logger.info("Downloading embedding model %s from %s", model_id, repo_id)
-        _download_progress[model_id] = {"pct": 10.0, "error": None}
+            logger.info(
+                "Downloading embedding model %s from %s (attempt %d/%d)",
+                model_id, repo_id, attempt, _DOWNLOAD_MAX_RETRIES,
+            )
+            _download_progress[model_id] = {"pct": 10.0, "error": None}
 
-        local_path = await asyncio.to_thread(
-            snapshot_download,
-            repo_id,
-            local_dir=str(model_dir),
-            allow_patterns=allow_patterns,
-        )
+            local_path = await asyncio.to_thread(
+                snapshot_download,
+                repo_id,
+                local_dir=str(model_dir),
+                allow_patterns=allow_patterns,
+                resume_download=True,
+                etag_timeout=_DOWNLOAD_ETAG_TIMEOUT,
+            )
 
-        _download_progress[model_id] = {"pct": 90.0, "error": None}
+            _download_progress[model_id] = {"pct": 90.0, "error": None}
 
-        # Verify essential files
-        if not _is_model_downloaded(model_dir):
-            _download_progress[model_id] = {
-                "pct": None,
-                "error": f"Download completed but required files missing in {local_path}",
-            }
+            # Verify essential files
+            if not _is_model_downloaded(model_dir):
+                _download_progress[model_id] = {
+                    "pct": None,
+                    "error": f"Download completed but required files missing in {local_path}",
+                }
+                return
+
+            _download_progress[model_id] = {"pct": 100.0, "error": None}
+            logger.info("Embedding model %s downloaded to %s", model_id, model_dir)
             return
 
-        _download_progress[model_id] = {"pct": 100.0, "error": None}
-        logger.info("Embedding model %s downloaded to %s", model_id, model_dir)
+        except asyncio.CancelledError:
+            _download_progress[model_id] = {"pct": None, "error": "cancelled"}
+            if model_dir.exists():
+                shutil.rmtree(str(model_dir), ignore_errors=True)
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _DOWNLOAD_MAX_RETRIES:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Download attempt %d/%d for %s failed: %s — retrying in %ds",
+                    attempt, _DOWNLOAD_MAX_RETRIES, model_id, exc, wait,
+                )
+                _download_progress[model_id] = {
+                    "pct": None,
+                    "error": f"Retry {attempt}/{_DOWNLOAD_MAX_RETRIES}: {exc}",
+                }
+                await asyncio.sleep(wait)
 
-    except asyncio.CancelledError:
-        _download_progress[model_id] = {"pct": None, "error": "cancelled"}
-        # Clean up partial download
-        if model_dir.exists():
-            shutil.rmtree(str(model_dir), ignore_errors=True)
-        raise
-    except Exception as exc:
-        logger.error("Failed to download embedding model %s: %s", model_id, exc)
-        _download_progress[model_id] = {"pct": None, "error": str(exc)}
+    # All retries exhausted
+    logger.error("Failed to download embedding model %s after %d attempts: %s", model_id, _DOWNLOAD_MAX_RETRIES, last_exc)
+    _download_progress[model_id] = {"pct": None, "error": str(last_exc)}
