@@ -173,6 +173,9 @@ class L0WorkingMemoryStore:
                 merged = dict(existing.get("metadata", {}))
                 merged.update(metadata)
                 existing["metadata"] = merged
+            self._goal_stack.setdefault(session_id, [])
+            self._active_entities.setdefault(session_id, {})
+            self._temporary_tactics.setdefault(session_id, {})
             return existing
 
         # Evict the least-recently-active session when at capacity
