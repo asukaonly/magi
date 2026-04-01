@@ -21,27 +21,14 @@ SOURCE_DOMAIN_SIGNAL_SPECS: list[tuple[list[str], list[str], list[str]]] = [
     (["音乐", "听了", "music", "listened"], ["music"], ["external_activity"]),
 ]
 
-CREATOR_KEYWORDS = ("up主", "up", "博主", "youtuber", "主播", "creator", "频道", "channel")
+CREATOR_KEYWORDS = ("up主", "博主", "youtuber", "主播", "creator", "频道", "channel")
 PLACE_KEYWORDS = ("咖啡馆", "餐厅", "店", "饭馆", "cafe", "restaurant", "shop")
 TOPIC_KEYWORDS = ("题材", "主题", "topic")
-SOFTWARE_KEYWORDS = ("软件", "网站", "app", "平台", "b站", "bilibili", "youtube")
-PERSON_KEYWORDS = ("谁", "人", "person")
+SOFTWARE_KEYWORDS = ("软件", "网站", "app", "平台")
+PERSON_KEYWORDS = ("谁", "person")
 
-LIST_QUERY_KEYWORDS = ("哪些", "什么", "谁", "哪几个", "which", "what")
 NEGATIVE_POLARITY_KEYWORDS = ("讨厌", "不喜欢", "dislike", "hate")
 POSITIVE_POLARITY_KEYWORDS = ("喜欢", "偏好", "关注", "常看", "love", "like", "prefer")
-
-ENTITY_SURFACE_SPECS: list[tuple[tuple[str, ...], str]] = [
-    (("B站", "b站", "bilibili"), "B站"),
-    (("youtube", "油管"), "YouTube"),
-]
-
-CATEGORY_FACET_MAP = {
-    "咖啡馆": "coffee_shop",
-    "咖啡店": "coffee_shop",
-    "餐厅": "restaurant",
-    "饭馆": "restaurant",
-}
 
 _BOOLEAN_TRAILING_PATTERN = re.compile(r"(?<!什)(吗|么)\s*[?？]?\s*$")
 _TOPIC_PRIMARY_PATTERNS = (
@@ -56,13 +43,6 @@ _PLACE_PRIMARY_PATTERNS = (
     re.compile(r"(什么|哪些|哪家|哪几个).*(咖啡馆|餐厅|店|饭馆|cafe|restaurant|shop)", re.IGNORECASE),
     re.compile(r"(咖啡馆|餐厅|店|饭馆|cafe|restaurant|shop).*(是哪|有哪些|有什么)", re.IGNORECASE),
 )
-_SOFTWARE_PRIMARY_PATTERNS = (
-    re.compile(r"(喜欢|常用|用).*(软件|网站|app|平台|b站|bilibili|youtube).*(吗|么|是否|是不是)?", re.IGNORECASE),
-)
-_BILIBILI_USAGE_PATTERN = re.compile(r"用\s*(B站|b站|bilibili)\s*(?:的时候)?", re.IGNORECASE)
-_BILIBILI_TIME_PATTERN = re.compile(r"在\s*(B站|b站|bilibili)\s*的时候", re.IGNORECASE)
-_YOUTUBE_USAGE_PATTERN = re.compile(r"用\s*(youtube|油管)\s*(?:的时候)?", re.IGNORECASE)
-_YOUTUBE_TIME_PATTERN = re.compile(r"(?:在|用)\s*(youtube|油管)\s*的时候", re.IGNORECASE)
 _INTERACTION_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})的时候喜欢去")
 _TARGET_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去")
 
@@ -82,8 +62,6 @@ def extract_answer_object_mentions(query: str) -> list[str]:
         mentions.extend([token for token in CREATOR_KEYWORDS if token in query_lower or token in query])
     elif any(pattern.search(query_lower) for pattern in _PLACE_PRIMARY_PATTERNS):
         mentions.extend([token for token in PLACE_KEYWORDS if token in query_lower or token in query])
-    elif any(pattern.search(query_lower) for pattern in _SOFTWARE_PRIMARY_PATTERNS):
-        mentions.extend([token for token in SOFTWARE_KEYWORDS if token in query_lower or token in query])
 
     deduped: list[str] = []
     for mention in mentions:
@@ -118,8 +96,6 @@ def infer_answer_kind(query_lower: str) -> str:
         return "creator"
     if any(pattern.search(query_lower) for pattern in _PLACE_PRIMARY_PATTERNS):
         return "place"
-    if any(pattern.search(query_lower) for pattern in _SOFTWARE_PRIMARY_PATTERNS):
-        return "software"
     if contains_any(query_lower, CREATOR_KEYWORDS):
         return "creator"
     if contains_any(query_lower, PLACE_KEYWORDS):
@@ -133,6 +109,12 @@ def infer_answer_kind(query_lower: str) -> str:
     return "unknown"
 
 
+# “什么” must not match inside “为什么” (why vs. what).
+_LIST_QUERY_PATTERN = re.compile(
+    r"哪些|(?<!为)什么|谁|哪几个|which|what", re.IGNORECASE,
+)
+
+
 def infer_answer_shape(query_lower: str) -> str:
     """Infer whether the query expects a list, single answer, or boolean."""
     query_lower = query_lower.lower()
@@ -140,7 +122,7 @@ def infer_answer_shape(query_lower: str) -> str:
         return "boolean"
     if _BOOLEAN_TRAILING_PATTERN.search(query_lower):
         return "boolean"
-    if contains_any(query_lower, LIST_QUERY_KEYWORDS):
+    if _LIST_QUERY_PATTERN.search(query_lower):
         return "list"
     return "single"
 
@@ -155,16 +137,6 @@ def infer_polarity(query_lower: str) -> str:
     return "any"
 
 
-def extract_entities(query: str) -> list[str]:
-    """Extract high-confidence entity surface forms for common software/platform names."""
-    query_lower = query.lower()
-    entities: list[str] = []
-    for aliases, entity_surface in ENTITY_SURFACE_SPECS:
-        if any(alias in query_lower or alias in query for alias in aliases):
-            entities.append(entity_surface)
-    return entities
-
-
 def infer_source_domain_filters(query: str) -> tuple[list[str] | None, list[str] | None]:
     """Infer source and domain filters from query text."""
     query_lower = query.lower()
@@ -172,22 +144,6 @@ def infer_source_domain_filters(query: str) -> tuple[list[str] | None, list[str]
         if contains_any(query_lower, keywords):
             return sources, domains
     return None, None
-
-
-def extract_platform_constraint(query: str, *, answer_kind: str) -> SemanticConstraint | None:
-    """Extract a platform constraint when the query contains platform hints."""
-    query_lower = query.lower()
-    if answer_kind == "software":
-        return None
-    if _BILIBILI_USAGE_PATTERN.search(query) or _BILIBILI_TIME_PATTERN.search(query):
-        return SemanticConstraint(scope="interaction", facet="platform", raw_value="b站")
-    if _YOUTUBE_USAGE_PATTERN.search(query) or _YOUTUBE_TIME_PATTERN.search(query):
-        return SemanticConstraint(scope="interaction", facet="platform", raw_value="youtube")
-    if "b站" in query_lower or "bilibili" in query_lower:
-        return SemanticConstraint(scope="target", facet="platform", raw_value="b站")
-    if "youtube" in query_lower or "油管" in query_lower:
-        return SemanticConstraint(scope="target", facet="platform", raw_value="youtube")
-    return None
 
 
 def extract_location_constraint(query: str) -> SemanticConstraint | None:
@@ -210,32 +166,10 @@ def extract_location_constraint(query: str) -> SemanticConstraint | None:
     return None
 
 
-def extract_category_constraint(query: str) -> SemanticConstraint | None:
-    """Extract a category facet constraint from the query."""
-    for label, facet_value in CATEGORY_FACET_MAP.items():
-        if label in query:
-            return SemanticConstraint(
-                scope="target",
-                facet="category",
-                raw_value=label,
-                resolved_facet_value=facet_value,
-            )
-    return None
-
-
-def infer_semantic_constraints(query: str, *, answer_kind: str) -> list[SemanticConstraint]:
+def infer_semantic_constraints(query: str) -> list[SemanticConstraint]:
     """Infer structured semantic constraints from query text."""
     constraints: list[SemanticConstraint] = []
-    platform_constraint = extract_platform_constraint(query, answer_kind=answer_kind)
-    if platform_constraint is not None:
-        constraints.append(platform_constraint)
-
     location_constraint = extract_location_constraint(query)
     if location_constraint is not None:
         constraints.append(location_constraint)
-
-    category_constraint = extract_category_constraint(query)
-    if category_constraint is not None:
-        constraints.append(category_constraint)
-
     return constraints

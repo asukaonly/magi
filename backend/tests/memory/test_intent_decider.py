@@ -329,8 +329,8 @@ class TestDefaultRouting:
 class TestSemanticFrameEnrichment:
     """Semantic frame enrichment via enrich_l2_conditions (recall_intent_hint routes to L2)."""
 
-    def test_l2_creator_affinity_semantic_frame_for_bilibili_query(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我B站喜欢哪些up主", recall_intent_hint="preference_recall")
+    def test_l2_creator_affinity_semantic_frame(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我喜欢哪些up主", recall_intent_hint="preference_recall")
         result = decider.evaluate(inp)
 
         assert result.plans[0].layer == "L2"
@@ -342,50 +342,8 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.answer_kind == "creator"
         assert conditions.semantic_frame.answer_unit == "identity"
         assert conditions.semantic_frame.answer_shape == "list"
-        assert conditions.semantic_frame.constraints[0].scope == "target"
-        assert conditions.semantic_frame.constraints[0].facet == "platform"
-        assert conditions.semantic_frame.constraints[0].raw_value == "b站"
 
-    def test_l2_creator_affinity_semantic_frame_uses_interaction_platform_for_bilibili_time_query(
-        self, decider: RuleBasedIntentDecider
-    ):
-        inp = IntentDeciderInput(query="我最近在B站的时候喜欢看哪些up主", recall_intent_hint="preference_recall")
-        result = decider.evaluate(inp)
-
-        assert result.plans[0].layer == "L2"
-        conditions = result.plans[0].conditions
-        assert isinstance(conditions, L2Conditions)
-        assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.answer_kind == "creator"
-        platform_constraints = [
-            constraint
-            for constraint in conditions.semantic_frame.constraints
-            if constraint.facet == "platform"
-        ]
-        assert len(platform_constraints) == 1
-        assert platform_constraints[0].scope == "interaction"
-        assert platform_constraints[0].raw_value == "b站"
-
-    def test_l2_creator_affinity_semantic_frame_uses_interaction_platform_for_bilibili_usage_query(
-        self, decider: RuleBasedIntentDecider
-    ):
-        inp = IntentDeciderInput(query="我用B站喜欢看哪些up主", recall_intent_hint="preference_recall")
-        result = decider.evaluate(inp)
-
-        assert result.plans[0].layer == "L2"
-        conditions = result.plans[0].conditions
-        assert isinstance(conditions, L2Conditions)
-        assert conditions.semantic_frame is not None
-        platform_constraints = [
-            constraint
-            for constraint in conditions.semantic_frame.constraints
-            if constraint.facet == "platform"
-        ]
-        assert len(platform_constraints) == 1
-        assert platform_constraints[0].scope == "interaction"
-        assert platform_constraints[0].raw_value == "b站"
-
-    def test_l2_place_affinity_semantic_frame_for_hangzhou_coffee_query(self, decider: RuleBasedIntentDecider):
+    def test_l2_place_affinity_semantic_frame_with_location(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我在杭州喜欢去哪些咖啡馆", recall_intent_hint="preference_recall")
         result = decider.evaluate(inp)
 
@@ -398,25 +356,23 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.answer_kind == "place"
         assert conditions.semantic_frame.answer_unit == "place"
         assert conditions.semantic_frame.answer_shape == "list"
-        assert [c.facet for c in conditions.semantic_frame.constraints] == ["located_in", "category"]
-        assert [c.raw_value for c in conditions.semantic_frame.constraints] == ["杭州", "咖啡馆"]
 
-    def test_l2_place_affinity_semantic_frame_uses_interaction_scope_for_hangzhou_time_query(
+    def test_l2_place_affinity_location_interaction_scope(
         self,
         decider: RuleBasedIntentDecider,
     ):
         inp = IntentDeciderInput(query="我在杭州的时候喜欢去哪些咖啡馆", recall_intent_hint="preference_recall")
         result = decider.evaluate(inp)
 
-        assert result.plans[0].layer == "L2"
         conditions = result.plans[0].conditions
         assert isinstance(conditions, L2Conditions)
         assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.answer_kind == "place"
-        assert [(c.scope, c.facet, c.raw_value) for c in conditions.semantic_frame.constraints] == [
-            ("interaction", "located_in", "杭州"),
-            ("target", "category", "咖啡馆"),
+        location_constraints = [
+            c for c in conditions.semantic_frame.constraints if c.facet == "located_in"
         ]
+        assert len(location_constraints) == 1
+        assert location_constraints[0].scope == "interaction"
+        assert location_constraints[0].raw_value == "杭州"
 
     def test_l2_topic_affinity_semantic_frame_for_topic_query(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我喜欢什么题材", recall_intent_hint="preference_recall")
@@ -443,20 +399,17 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.answer_kind == "topic"
         assert conditions.semantic_frame.answer_shape == "list"
 
-    def test_l2_software_affinity_semantic_frame_for_bilibili_boolean_query(self, decider: RuleBasedIntentDecider):
+    def test_l2_affinity_boolean_query(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我喜欢B站吗", recall_intent_hint="preference_recall")
         result = decider.evaluate(inp)
 
         assert result.plans[0].layer == "L2"
         conditions = result.plans[0].conditions
         assert isinstance(conditions, L2Conditions)
-        assert conditions.entities == ["B站"]
         assert conditions.semantic_frame is not None
         assert conditions.semantic_frame.query_family == "affinity"
         assert conditions.semantic_frame.subject_scope == "self"
-        assert conditions.semantic_frame.answer_kind == "software"
         assert conditions.semantic_frame.answer_shape == "boolean"
-        assert conditions.semantic_frame.constraints == []
 
 
 # -----------------------------------------------------------------------

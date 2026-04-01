@@ -35,7 +35,6 @@ from .models import (
     TimeRange,
 )
 from .rule_specs import (
-    extract_entities,
     infer_answer_kind,
     infer_answer_shape,
     infer_polarity,
@@ -477,7 +476,7 @@ def enrich_l2_conditions(
     their default/empty values so that explicitly-set values are preserved.
     """
     if not conditions.entities:
-        conditions.entities = extract_entities(query) or None
+        conditions.entities = None
 
     if not conditions.subject_hint or conditions.subject_hint == "none":
         family = conditions.predicate_family or "unknown"
@@ -554,7 +553,7 @@ def _infer_semantic_frame(
     if query_family == "lookup" and answer_kind == "unknown":
         return None
 
-    constraints = infer_semantic_constraints(query, answer_kind=answer_kind)
+    constraints = infer_semantic_constraints(query)
     return L2SemanticFrame(
         query_family=query_family,
         subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
@@ -562,7 +561,7 @@ def _infer_semantic_frame(
         answer_unit=_infer_answer_unit(answer_kind),
         answer_shape=infer_answer_shape(query_lower),
         polarity=infer_polarity(query_lower),
-        entity_mentions=extract_entities(query),
+        entity_mentions=[],
         constraints=constraints,
         ranking_mode="affinity" if query_family == "affinity" else "confidence",
     )
@@ -611,22 +610,27 @@ Rules:
 - Keep content_query tight and answer-oriented.
 - Time range parsing is handled elsewhere. Do not output time ranges.
 - You may return multiple layer plans. Plans with is_fallback=true run only when primary retrieval is insufficient.
-- Keep quoted titles verbatim. Do not replace a named item with a broad topic.
+- Keep quoted titles verbatim. Do not replace a quoted title with a broad topic.
+- For comparison questions, keep both candidate events explicit; produce separate L1 plans per candidate.
+- For temporal-distance questions, produce anchor-specific content_query text for each event anchor. Do not collapse both anchors into one generic topic query.
 
 Routing guidance:
 - Questions about preferences, profile facts, relationships, or long-lived personal attributes should prefer L2.
 - Questions about specific events, order, attendance, browsing, or chat history should prefer L1.
 - Questions asking for summaries, recaps, or reflections should prefer L3.
 - Questions asking how something was done before should prefer L4.
-- For comparison questions, produce separate plans with each candidate as content_query.
-- For temporal-distance questions, produce anchor-specific content_query text for each event anchor.
 - If the user asks about event order, duration, or "how many days/weeks before/after", prefer L1.
 
-Examples:
-- Query: Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?
-  Good plans: L1 content_query="Effective Time Management workshop", L1 content_query="Data Analysis using Python webinar"
-- Query: How many days before the team meeting did I attend the 'Effective Communication' workshop?
-  Good plans: L1 content_query="Effective Communication workshop", L1 content_query="team meeting"
+L2 plan fields:
+- For L2 plans about the user's own preferences/facts, set subject_hint to "self".
+- Allowed predicate_family values: preference, profile_fact, relationship, unknown.
+- Include a "semantic_frame" object with structured query semantics:
+  - "query_family": affinity | relationship | profile | activity | lookup
+  - "answer_kind": creator | place | topic | person | software | unknown
+  - "answer_unit": identity | presence | place | topic | mixed
+  - "answer_shape": list | single | boolean
+  - "polarity": positive | negative | neutral | any
+  - "constraints": array of {scope, facet, raw_value, resolved_entity_id?, resolved_facet_value?}
 
 Return JSON only:
 {
@@ -641,6 +645,44 @@ Return JSON only:
 }"""
 
 _VALID_LAYERS = {"L1", "L2", "L3", "L4"}
+
+_VALID_CONSTRAINT_SCOPES = {"target", "interaction"}
+_VALID_CONSTRAINT_FACETS = {"platform", "located_in", "category"}
+
+
+def _parse_semantic_frame(raw: dict | None) -> L2SemanticFrame | None:
+    """Parse an LLM-returned semantic_frame dict into a typed dataclass."""
+    if not raw or not isinstance(raw, dict):
+        return None
+    try:
+        constraints: list[SemanticConstraint] = []
+        for c in raw.get("constraints") or []:
+            if not isinstance(c, dict):
+                continue
+            scope = c.get("scope", "")
+            facet = c.get("facet", "")
+            if scope not in _VALID_CONSTRAINT_SCOPES or facet not in _VALID_CONSTRAINT_FACETS:
+                continue
+            constraints.append(SemanticConstraint(
+                scope=scope,
+                facet=facet,
+                raw_value=c.get("raw_value", ""),
+                resolved_entity_id=c.get("resolved_entity_id"),
+                resolved_facet_value=c.get("resolved_facet_value"),
+            ))
+        return L2SemanticFrame(
+            query_family=raw.get("query_family", "lookup"),
+            subject_scope=raw.get("subject_scope", "none"),
+            answer_kind=raw.get("answer_kind", "unknown"),
+            answer_unit=raw.get("answer_unit", "mixed"),
+            answer_shape=raw.get("answer_shape", "single"),
+            polarity=raw.get("polarity", "any"),
+            entity_mentions=raw.get("entity_mentions") or [],
+            constraints=constraints,
+            ranking_mode=raw.get("ranking_mode", "confidence"),
+        )
+    except (TypeError, KeyError):
+        return None
 
 
 class LLMIntentDecider:
@@ -725,6 +767,10 @@ class LLMIntentDecider:
             elif layer == "L2":
                 conditions = L2Conditions(
                     content_query=content_query,
+                    entities=item.get("entities") or None,
+                    subject_hint=item.get("subject_hint") or None,
+                    predicate_family=item.get("predicate_family") or None,
+                    semantic_frame=_parse_semantic_frame(item.get("semantic_frame")),
                     include_tom_snapshot=True,
                     include_relationships=True,
                     include_assertions=True,
