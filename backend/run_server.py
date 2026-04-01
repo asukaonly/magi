@@ -6,6 +6,9 @@ import argparse
 import sys
 import os
 
+# Suppress leaked-semaphore warning from HuggingFace tokenizers in forked processes
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 # Add src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
