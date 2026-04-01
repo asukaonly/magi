@@ -135,7 +135,6 @@ class L2SemanticFrame:
     subject_scope: Literal["self", "explicit", "none"]
     answer_kind: Literal["creator", "place", "topic", "person", "software", "unknown"]
     answer_unit: Literal["identity", "presence", "place", "topic", "mixed"]
-    answer_shape: Literal["list", "single", "boolean"]
     polarity: Literal["positive", "negative", "neutral", "any"]
     entity_mentions: List[str] = field(default_factory=list)
     constraints: List[SemanticConstraint] = field(default_factory=list)

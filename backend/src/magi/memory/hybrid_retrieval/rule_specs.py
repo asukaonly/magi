@@ -28,11 +28,6 @@ SOURCE_DOMAIN_SIGNAL_SPECS: list[tuple[list[str], list[str], list[str]]] = [
 NEGATIVE_POLARITY_KEYWORDS = ("讨厌", "不喜欢", "dislike", "hate")
 POSITIVE_POLARITY_KEYWORDS = ("喜欢", "偏好", "关注", "常看", "love", "like", "prefer")
 
-_BOOLEAN_TRAILING_PATTERN = re.compile(r"(?<!什)(吗|么)\s*[?？]?\s*$")
-_ENGLISH_BOOLEAN_START = re.compile(
-    r"^(do|does|did|is|am|are|was|were|have|has|had|can|could|will|would|shall|should)\s",
-    re.IGNORECASE,
-)
 _INTERACTION_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})的时候喜欢去")
 _TARGET_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去")
 
@@ -40,26 +35,6 @@ _TARGET_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢�
 def contains_any(text: str, tokens: Sequence[str]) -> bool:
     """Return whether the text contains any token."""
     return any(token in text for token in tokens)
-
-
-# "什么" must not match inside "为什么" (why vs. what).
-_LIST_QUERY_PATTERN = re.compile(
-    r"哪些|(?<!为)什么|谁|哪几个|which|what", re.IGNORECASE,
-)
-
-
-def infer_answer_shape(query_lower: str) -> str:
-    """Infer whether the query expects a list, single answer, or boolean."""
-    query_lower = query_lower.lower()
-    if "是否" in query_lower or "是不是" in query_lower:
-        return "boolean"
-    if _BOOLEAN_TRAILING_PATTERN.search(query_lower):
-        return "boolean"
-    if _ENGLISH_BOOLEAN_START.search(query_lower):
-        return "boolean"
-    if _LIST_QUERY_PATTERN.search(query_lower):
-        return "list"
-    return "single"
 
 
 def infer_polarity(query_lower: str) -> str:

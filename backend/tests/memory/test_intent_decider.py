@@ -341,7 +341,6 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.subject_scope == "self"
         assert conditions.semantic_frame.answer_kind == "unknown"
         assert conditions.semantic_frame.answer_unit == "mixed"
-        assert conditions.semantic_frame.answer_shape == "list"
 
     def test_l2_place_affinity_semantic_frame_with_location(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我在杭州喜欢去哪些咖啡馆", recall_intent_hint="preference_recall")
@@ -355,7 +354,6 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.subject_scope == "self"
         assert conditions.semantic_frame.answer_kind == "unknown"
         assert conditions.semantic_frame.answer_unit == "mixed"
-        assert conditions.semantic_frame.answer_shape == "list"
 
     def test_l2_place_affinity_location_interaction_scope(
         self,
@@ -386,7 +384,6 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.subject_scope == "self"
         assert conditions.semantic_frame.answer_kind == "unknown"
         assert conditions.semantic_frame.answer_unit == "mixed"
-        assert conditions.semantic_frame.answer_shape == "list"
 
     def test_l2_topic_affinity_semantic_frame_for_creator_topic_question(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="上次我看的主播他说的主题是什么", recall_intent_hint="preference_recall")
@@ -397,7 +394,6 @@ class TestSemanticFrameEnrichment:
         assert isinstance(conditions, L2Conditions)
         assert conditions.semantic_frame is not None
         assert conditions.semantic_frame.answer_kind == "unknown"
-        assert conditions.semantic_frame.answer_shape == "list"
 
     def test_l2_affinity_boolean_query(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我喜欢B站吗", recall_intent_hint="preference_recall")
@@ -409,7 +405,6 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame is not None
         assert conditions.semantic_frame.query_family == "affinity"
         assert conditions.semantic_frame.subject_scope == "self"
-        assert conditions.semantic_frame.answer_shape == "boolean"
 
 
 # -----------------------------------------------------------------------

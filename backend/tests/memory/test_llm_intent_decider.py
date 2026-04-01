@@ -292,7 +292,6 @@ class TestLLMParsing:
                         "subject_scope": "self",
                         "answer_kind": "topic",
                         "answer_unit": "topic",
-                        "answer_shape": "list",
                         "polarity": "positive",
                         "constraints": [],
                     },
@@ -308,7 +307,6 @@ class TestLLMParsing:
         assert isinstance(frame, L2SemanticFrame)
         assert frame.answer_kind == "topic"
         assert frame.answer_unit == "topic"
-        assert frame.answer_shape == "list"
 
     @pytest.mark.asyncio
     async def test_l3_layer(self, decider: LLMIntentDecider, mock_bridge):

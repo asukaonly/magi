@@ -5,32 +5,9 @@ from __future__ import annotations
 from magi.memory.hybrid_retrieval.rule_specs import (
     extract_location_constraint,
     infer_source_domain_filters,
-    infer_answer_shape,
     infer_polarity,
     infer_semantic_constraints,
 )
-
-
-def test_infer_answer_shape_uses_central_query_specs() -> None:
-    assert infer_answer_shape("我喜欢什么题材") == "list"
-    assert infer_answer_shape("我喜欢B站吗") == "boolean"
-    assert infer_answer_shape("上次我看的主播他说的主题是什么") == "list"
-    assert infer_answer_shape("我最喜欢的up主") == "single"
-
-
-def test_infer_answer_shape_english_boolean() -> None:
-    assert infer_answer_shape("do I like cats") == "boolean"
-    assert infer_answer_shape("Is Python my favorite language") == "boolean"
-    assert infer_answer_shape("Have I visited that place") == "boolean"
-    # list keywords still win over boolean start
-    assert infer_answer_shape("what do I like") == "list"
-
-
-def test_infer_answer_shape_excludes_why_from_list() -> None:
-    assert infer_answer_shape("为什么这个不行") == "single"
-    assert infer_answer_shape("你为什么喜欢猫") == "single"
-    # "什么" without "为" still triggers list
-    assert infer_answer_shape("你喜欢什么") == "list"
 
 
 def test_infer_polarity_uses_central_keyword_specs() -> None:
