@@ -18,6 +18,7 @@ for candidate in (REPO_ROOT, BACKEND_SRC):
     if candidate_text not in sys.path:
         sys.path.insert(0, candidate_text)
 
+from benchmark.common.paths import resolve_backend_url
 from benchmark.longmemeval.adapter import adapt_longmemeval_entry
 from benchmark.longmemeval.backend_client import BackendEvalService
 from benchmark.longmemeval.runner import load_longmemeval_rows, synthesize_hypothesis_from_hits
@@ -88,7 +89,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset", required=True, help="Path to a LongMemEval JSON dataset file.")
     parser.add_argument("--run-id", required=True, help="Existing run identifier used during replay.")
     parser.add_argument("--question-id", required=True, help="LongMemEval question id to debug.")
-    parser.add_argument("--backend-url", default="http://127.0.0.1:8000", help="Magi backend base URL.")
+    parser.add_argument("--backend-url", default=None, help="Magi backend base URL (auto-detected from ~/.magi/config/agent.yaml if omitted).")
     parser.add_argument(
         "--mode",
         default="auto",
@@ -133,7 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     build_result = build_single_query_payload(
         row=row,
-        eval_service=BackendEvalService(args.backend_url, timeout_seconds=args.request_timeout),
+        eval_service=BackendEvalService(args.backend_url or resolve_backend_url(), timeout_seconds=args.request_timeout),
         run_id=args.run_id,
         mode=args.mode,
         answer_with_llm=args.answer_with_llm,

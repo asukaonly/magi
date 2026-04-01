@@ -14,12 +14,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from benchmark.common.paths import build_run_output_dir
+from benchmark.common.paths import build_run_output_dir, resolve_backend_url
 from benchmark.longmemeval.evaluate_official import run_official_evaluation
 from benchmark.longmemeval.query_dataset import main as query_main
 from benchmark.longmemeval.replay_dataset import main as replay_main
 
-DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
+DEFAULT_BACKEND_URL: str | None = None  # resolved lazily from ~/.magi/config/agent.yaml
 DEFAULT_LONGMEMEVAL_ROOT = Path("/Users/asuka/code/LongMemEval")
 
 
@@ -61,6 +61,8 @@ def run_longmemeval_pipeline(
         run_id=run_id,
     )
 
+    resolved_backend_url = DEFAULT_BACKEND_URL or resolve_backend_url()
+
     replay_callable = replay_runner or _invoke_replay
     query_callable = query_runner or _invoke_query
     official_callable = official_eval_runner or run_official_evaluation
@@ -69,13 +71,13 @@ def run_longmemeval_pipeline(
         dataset_path=dataset,
         output_root=output,
         run_id=run_id,
-        backend_url=DEFAULT_BACKEND_URL,
+        backend_url=resolved_backend_url,
     )
     query_callable(
         dataset_path=dataset,
         output_root=output,
         run_id=run_id,
-        backend_url=DEFAULT_BACKEND_URL,
+        backend_url=resolved_backend_url,
     )
     official_artifacts = None
     if os.getenv("OPENAI_API_KEY"):
@@ -101,7 +103,7 @@ def run_longmemeval_pipeline(
     return {
         "run_id": run_id,
         "run_dir": str(run_dir),
-        "backend_url": DEFAULT_BACKEND_URL,
+        "backend_url": resolved_backend_url,
         "dataset": str(dataset),
         "official_eval": official_summary,
     }

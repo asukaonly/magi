@@ -6,8 +6,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from benchmark.common.paths import resolve_backend_url
 from benchmark.longmemeval.run_all import (
-    DEFAULT_BACKEND_URL,
     DEFAULT_LONGMEMEVAL_ROOT,
     format_run_id,
     resolve_longmemeval_root,
@@ -89,12 +89,13 @@ def test_run_all_executes_replay_query_and_official_eval_in_order(monkeypatch, t
     )
 
     assert [name for name, _ in calls] == ["replay", "query", "eval"]
-    assert calls[0][1]["backend_url"] == DEFAULT_BACKEND_URL
-    assert calls[1][1]["backend_url"] == DEFAULT_BACKEND_URL
+    expected_url = resolve_backend_url()
+    assert calls[0][1]["backend_url"] == expected_url
+    assert calls[1][1]["backend_url"] == expected_url
     assert calls[2][1]["run_id"] == run_id
     assert summary["run_id"] == run_id
     assert summary["run_dir"] == str(run_dir)
-    assert summary["backend_url"] == DEFAULT_BACKEND_URL
+    assert summary["backend_url"] == expected_url
     assert summary["official_eval"]["overall_accuracy"] == 0.8
 
 
