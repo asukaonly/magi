@@ -37,6 +37,8 @@ interface LLMFormProps {
   showAdvancedByDefault?: boolean;
   surface?: 'onboarding' | 'settings';
   showSectionIntro?: boolean;
+  embeddingConfig?: import('@/api/modules/config').EmbeddingConfig;
+  onEmbeddingConfigChange?: (updater: (draft: import('@/api/modules/config').EmbeddingConfig) => void) => void;
 }
 
 const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
@@ -499,6 +501,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
   showAdvancedByDefault = false,
   surface = 'onboarding',
   showSectionIntro = true,
+  embeddingConfig,
+  onEmbeddingConfigChange,
 }) => {
   const { t } = useTranslation('onboarding');
   const formCtx = useContext(FormContext);
@@ -1079,6 +1083,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onScenarioModelChange={handleScenarioModelChange}
           onScenarioEmbeddingDimensionChange={handleScenarioEmbeddingDimensionChange}
           onScenarioMaxConcurrencyChange={handleScenarioMaxConcurrencyChange}
+          embeddingConfig={embeddingConfig}
+          onEmbeddingConfigChange={onEmbeddingConfigChange}
         />
       ) : null}
 

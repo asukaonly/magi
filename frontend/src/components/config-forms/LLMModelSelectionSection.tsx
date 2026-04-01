@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { SelectField } from '@/components/config-forms/fields';
-import { resolveProviderModels, type LLMConfig, type LLMProviderRegistry, type LLMScenario } from '@/api/modules/config';
+import { resolveProviderModels, type EmbeddingConfig, type LLMConfig, type LLMProviderRegistry, type LLMScenario } from '@/api/modules/config';
+import type { LocalEmbeddingModelInfo } from '@/api/modules/local-embedding';
+import { localEmbeddingApi } from '@/api/modules/local-embedding';
 import { cn } from '@/lib/utils';
 
 interface LLMModelSelectionSectionProps {
@@ -31,6 +33,8 @@ interface LLMModelSelectionSectionProps {
     source?: 'model-sync' | 'manual'
   ) => void;
   onScenarioMaxConcurrencyChange: (scenario: LLMScenario, value: number | null) => void;
+  embeddingConfig?: EmbeddingConfig;
+  onEmbeddingConfigChange?: (updater: (draft: EmbeddingConfig) => void) => void;
 }
 
 const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
@@ -55,8 +59,11 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   onScenarioModelChange,
   onScenarioEmbeddingDimensionChange,
   onScenarioMaxConcurrencyChange,
+  embeddingConfig,
+  onEmbeddingConfigChange,
 }) => {
   const { t } = useTranslation('onboarding');
+  const { t: tApp } = useTranslation('app');
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
   const isSettingsSurface = surface === 'settings';
   const inputClassName = cn(
@@ -70,6 +77,14 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<LLMScenario, boolean>>(() =>
     Object.fromEntries(SCENARIOS.map((scenario) => [scenario, showAdvancedByDefault])) as Record<LLMScenario, boolean>
   );
+
+  const isLocalEmbeddingMode = embeddingConfig?.mode === 'local';
+  const [presetModels, setPresetModels] = useState<LocalEmbeddingModelInfo[]>([]);
+  useEffect(() => {
+    if (isLocalEmbeddingMode) {
+      localEmbeddingApi.listModels().then(setPresetModels).catch(() => {});
+    }
+  }, [isLocalEmbeddingMode]);
 
   // Collect all embedding models from all enabled providers
   const allEmbeddingModels = useMemo(() => {
@@ -246,16 +261,116 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                 <div className="space-y-1 mb-4">
                   <div className="flex items-center justify-between gap-3">
                     <h4 className="text-sm font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
-                    {activeEmbeddingModel && (
+                    {!isLocalEmbeddingMode && activeEmbeddingModel && (
                       <span className={providerBadgeClassName}>
                         {activeEmbeddingModel.providerName}
+                      </span>
+                    )}
+                    {isLocalEmbeddingMode && (
+                      <span className={providerBadgeClassName}>
+                        {tApp('settings.options.local')}
                       </span>
                     )}
                   </div>
                   <p className="text-xs leading-5 text-muted-foreground">{t(`llm.scenarios.${scenario}.desc`)}</p>
                 </div>
 
-                {allEmbeddingModels.length > 0 ? (
+                {embeddingConfig && onEmbeddingConfigChange ? (
+                  <label className="space-y-2 mb-3">
+                    <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_mode.label')}</span>
+                    <SelectField
+                      className="w-full"
+                      triggerClassName={inputClassName}
+                      value={embeddingConfig.mode}
+                      allowEmpty={false}
+                      options={[
+                        { label: tApp('settings.options.remote'), value: 'remote' },
+                        { label: tApp('settings.options.local'), value: 'local' },
+                      ]}
+                      onChange={(value) => onEmbeddingConfigChange((emb) => {
+                        emb.mode = value as typeof emb.mode;
+                      })}
+                    />
+                  </label>
+                ) : null}
+
+                {isLocalEmbeddingMode && embeddingConfig && onEmbeddingConfigChange ? (
+                  <div className="space-y-3">
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_model_source.label')}</span>
+                      <SelectField
+                        className="w-full"
+                        triggerClassName={inputClassName}
+                        value={embeddingConfig.local.model_source}
+                        allowEmpty={false}
+                        options={[
+                          { label: tApp('settings.memory.options.embedding_local_model_source.managed'), value: 'managed' },
+                          { label: tApp('settings.memory.options.embedding_local_model_source.external'), value: 'external' },
+                        ]}
+                        onChange={(value) => onEmbeddingConfigChange((emb) => {
+                          emb.local.model_source = value as typeof emb.local.model_source;
+                        })}
+                      />
+                    </label>
+
+                    {embeddingConfig.local.model_source === 'managed' ? (
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_managed_model_id.label')}</span>
+                        <SelectField
+                          className="w-full"
+                          triggerClassName={inputClassName}
+                          value={embeddingConfig.local.managed_model_id ?? ''}
+                          allowEmpty={false}
+                          placeholder={tApp('settings.memory.fields.embedding_local_managed_model_id.placeholder')}
+                          options={presetModels.map((m) => ({
+                            label: `${m.label}${m.recommended ? ` (${tApp('settings.memory.fields.embedding_local_download.recommended')})` : ''} — ${m.dimension}d, ${m.size_mb}MB`,
+                            value: m.id,
+                          }))}
+                          onChange={(value) => onEmbeddingConfigChange((emb) => {
+                            emb.local.managed_model_id = value || null;
+                          })}
+                        />
+                      </label>
+                    ) : (
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_model_dir_path.label')}</span>
+                        <input
+                          aria-label={tApp('settings.memory.fields.embedding_local_model_dir_path.label')}
+                          className={inputClassName}
+                          value={embeddingConfig.local.model_dir_path ?? ''}
+                          onChange={(event) => onEmbeddingConfigChange((emb) => {
+                            emb.local.model_dir_path = event.target.value || null;
+                          })}
+                          placeholder={tApp('settings.memory.fields.embedding_local_model_dir_path.placeholder')}
+                        />
+                      </label>
+                    )}
+
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_idle_timeout.label')}</span>
+                      <input
+                        aria-label={tApp('settings.memory.fields.embedding_local_idle_timeout.label')}
+                        className={inputClassName}
+                        type="number"
+                        min={60}
+                        step={60}
+                        value={String(embeddingConfig.local.idle_timeout_seconds)}
+                        onChange={(event) => {
+                          const nextValue = event.target.value.trim();
+                          onEmbeddingConfigChange((emb) => {
+                            emb.local.idle_timeout_seconds = nextValue ? Number(nextValue) : 1800;
+                          });
+                        }}
+                      />
+                    </label>
+
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {tApp('settings.memory.fields.embedding_local_managed_cache_path.description')}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {allEmbeddingModels.length > 0 ? (
                   <label className="space-y-2">
                     <span className="text-sm font-medium">{t('llm.fields.model')}</span>
                     <SelectField
@@ -323,6 +438,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                     />
                   </label>
                 ) : null}
+                  </>
+                )}
 
                 {renderAdvancedSettings(scenario)}
               </article>

@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen } from 'lucide-react';
 
 import type { SystemConfig } from '@/api/modules/config';
-import type { LocalEmbeddingModelInfo } from '@/api/modules/local-embedding';
-import { localEmbeddingApi } from '@/api/modules/local-embedding';
 import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +18,6 @@ interface MemorySettingsSectionProps {
 }
 
 const MANAGED_RERANKER_MODELS_PATH = '~/.magi/cache/models/rerank';
-const MANAGED_EMBEDDING_MODELS_PATH = '~/.magi/cache/models/embed';
 const MEMORY_RERANKER_LAYER_ORDER = ['L1', 'L3', 'L4'] as const;
 
 function MemorySectionShell({
@@ -118,25 +115,10 @@ export function MemoryGeneralSettingsSection({
   const embeddingSelection = draftConfig.llm?.selections?.embedding;
   const [pickingMemoryStoragePath, setPickingMemoryStoragePath] = useState(false);
   const memoryStoragePath = draftConfig.memory.db_path ?? '';
-  const embeddingConfig = draftConfig.memory.embedding;
   const rerankerConfig = draftConfig.memory.reranker;
   const managedModelPath = rerankerConfig.local.managed_model_id?.trim()
     ? `${MANAGED_RERANKER_MODELS_PATH}/${rerankerConfig.local.managed_model_id.trim()}`
     : `${MANAGED_RERANKER_MODELS_PATH}/<managed_model_id>`;
-
-  const [presetModels, setPresetModels] = useState<LocalEmbeddingModelInfo[]>([]);
-
-  useEffect(() => {
-    if (embeddingConfig.mode === 'local') {
-      localEmbeddingApi.listModels().then(setPresetModels).catch(() => {});
-    }
-  }, [embeddingConfig.mode]);
-
-  const patchEmbedding = (updater: (draft: SystemConfig['memory']['embedding']) => void) => {
-    patchDraftConfig((draft) => {
-      updater(draft.memory.embedding);
-    });
-  };
 
   const patchReranker = (updater: (draft: SystemConfig['memory']['reranker']) => void) => {
     patchDraftConfig((draft) => {
@@ -200,104 +182,6 @@ export function MemoryGeneralSettingsSection({
             </div>
           </div>
           <p className="mt-2 text-xs leading-6 text-muted-foreground">{t('settings.memory.fields.db_path.description')}</p>
-        </div>
-      </MemoryGroup>
-
-      <MemoryGroup>
-        <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-          <div className="space-y-4">
-            <LabeledSelectField
-              label={t('settings.memory.fields.embedding_mode.label')}
-              ariaLabel={t('settings.memory.fields.embedding_mode.label')}
-              value={embeddingConfig.mode}
-              options={[
-                { label: t('settings.options.remote'), value: 'remote' },
-                { label: t('settings.options.local'), value: 'local' },
-              ]}
-              onChange={(value) => patchEmbedding((emb) => {
-                emb.mode = value as typeof emb.mode;
-              })}
-            />
-            <p className="text-xs leading-6 text-muted-foreground">{t('settings.memory.fields.embedding_mode.description')}</p>
-          </div>
-
-          {embeddingConfig.mode === 'local' ? (
-            <div className="grid gap-6 border-t border-[hsl(var(--settings-subnav-border)/0.6)] py-4 lg:grid-cols-2">
-              <div className="space-y-4">
-                <LabeledSelectField
-                  label={t('settings.memory.fields.embedding_local_model_source.label')}
-                  ariaLabel={t('settings.memory.fields.embedding_local_model_source.label')}
-                  value={embeddingConfig.local.model_source}
-                  options={[
-                    {
-                      label: t('settings.memory.options.embedding_local_model_source.managed'),
-                      value: 'managed',
-                    },
-                    {
-                      label: t('settings.memory.options.embedding_local_model_source.external'),
-                      value: 'external',
-                    },
-                  ]}
-                  onChange={(value) => patchEmbedding((emb) => {
-                    emb.local.model_source = value as typeof emb.local.model_source;
-                  })}
-                />
-
-                {embeddingConfig.local.model_source === 'managed' ? (
-                  <LabeledSelectField
-                    label={t('settings.memory.fields.embedding_local_managed_model_id.label')}
-                    ariaLabel={t('settings.memory.fields.embedding_local_managed_model_id.label')}
-                    value={embeddingConfig.local.managed_model_id ?? ''}
-                    options={presetModels.map((m) => ({
-                      label: `${m.label}${m.recommended ? ` (${t('settings.memory.fields.embedding_local_download.recommended')})` : ''} — ${m.dimension}d, ${m.size_mb}MB`,
-                      value: m.id,
-                    }))}
-                    onChange={(value) => patchEmbedding((emb) => {
-                      emb.local.managed_model_id = value || null;
-                    })}
-                  />
-                ) : (
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium text-foreground">
-                      {t('settings.memory.fields.embedding_local_model_dir_path.label')}
-                    </span>
-                    <Input
-                      aria-label={t('settings.memory.fields.embedding_local_model_dir_path.label')}
-                      value={embeddingConfig.local.model_dir_path ?? ''}
-                      onChange={(event) => patchEmbedding((emb) => {
-                        emb.local.model_dir_path = event.target.value || null;
-                      })}
-                      placeholder={t('settings.memory.fields.embedding_local_model_dir_path.placeholder')}
-                    />
-                  </label>
-                )}
-
-                <NumberField
-                  label={t('settings.memory.fields.embedding_local_idle_timeout.label')}
-                  value={embeddingConfig.local.idle_timeout_seconds}
-                  min={60}
-                  step={60}
-                  onChange={(value) => patchEmbedding((emb) => {
-                    emb.local.idle_timeout_seconds = value;
-                  })}
-                />
-              </div>
-
-              <div className="space-y-3">
-                <MemoryMetricRow
-                  label={t('settings.memory.fields.embedding_local_managed_cache_path.label')}
-                  value={MANAGED_EMBEDDING_MODELS_PATH}
-                  hint={t('settings.memory.fields.embedding_local_managed_cache_path.description')}
-                />
-                {embeddingConfig.local.model_source === 'managed' && embeddingConfig.local.managed_model_id ? (
-                  <MemoryMetricRow
-                    label={t('settings.memory.fields.embedding_local_managed_model_id.label')}
-                    value={`${MANAGED_EMBEDDING_MODELS_PATH}/${embeddingConfig.local.managed_model_id}`}
-                  />
-                ) : null}
-              </div>
-            </div>
-          ) : null}
         </div>
       </MemoryGroup>
 

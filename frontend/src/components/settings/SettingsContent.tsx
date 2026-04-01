@@ -336,6 +336,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               onChange={(next) => patchDraftConfig((draft) => {
                 draft.llm = next;
               })}
+              embeddingConfig={draftConfig.memory.embedding}
+              onEmbeddingConfigChange={(updater) => patchDraftConfig((draft) => {
+                updater(draft.memory.embedding);
+              })}
             />
           </div>
         );
