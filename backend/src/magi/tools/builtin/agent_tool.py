@@ -186,6 +186,16 @@ class AgentTool(Tool):
                     required=False,
                 ),
                 ToolParameter(
+                    name="inherit_context",
+                    type=ParameterType.BOOLEAN,
+                    description=(
+                        "Pass a summary of the parent conversation to "
+                        "the worker so it can use surrounding context."
+                    ),
+                    required=False,
+                    default=False,
+                ),
+                ToolParameter(
                     name="retry_count",
                     type=ParameterType.INTEGER,
                     description="Retry attempt count for this worker launch",
