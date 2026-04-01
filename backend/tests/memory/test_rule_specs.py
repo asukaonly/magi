@@ -18,6 +18,14 @@ def test_infer_answer_shape_uses_central_query_specs() -> None:
     assert infer_answer_shape("我最喜欢的up主") == "single"
 
 
+def test_infer_answer_shape_english_boolean() -> None:
+    assert infer_answer_shape("do I like cats") == "boolean"
+    assert infer_answer_shape("Is Python my favorite language") == "boolean"
+    assert infer_answer_shape("Have I visited that place") == "boolean"
+    # list keywords still win over boolean start
+    assert infer_answer_shape("what do I like") == "list"
+
+
 def test_infer_answer_shape_excludes_why_from_list() -> None:
     assert infer_answer_shape("为什么这个不行") == "single"
     assert infer_answer_shape("你为什么喜欢猫") == "single"

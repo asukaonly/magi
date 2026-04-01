@@ -29,6 +29,10 @@ NEGATIVE_POLARITY_KEYWORDS = ("讨厌", "不喜欢", "dislike", "hate")
 POSITIVE_POLARITY_KEYWORDS = ("喜欢", "偏好", "关注", "常看", "love", "like", "prefer")
 
 _BOOLEAN_TRAILING_PATTERN = re.compile(r"(?<!什)(吗|么)\s*[?？]?\s*$")
+_ENGLISH_BOOLEAN_START = re.compile(
+    r"^(do|does|did|is|am|are|was|were|have|has|had|can|could|will|would|shall|should)\s",
+    re.IGNORECASE,
+)
 _INTERACTION_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})的时候喜欢去")
 _TARGET_LOCATION_PATTERN = re.compile(r"在([\u4e00-\u9fffA-Za-z]{2,12})喜欢去")
 
@@ -50,6 +54,8 @@ def infer_answer_shape(query_lower: str) -> str:
     if "是否" in query_lower or "是不是" in query_lower:
         return "boolean"
     if _BOOLEAN_TRAILING_PATTERN.search(query_lower):
+        return "boolean"
+    if _ENGLISH_BOOLEAN_START.search(query_lower):
         return "boolean"
     if _LIST_QUERY_PATTERN.search(query_lower):
         return "list"
