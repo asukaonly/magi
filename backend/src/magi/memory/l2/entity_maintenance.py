@@ -91,6 +91,8 @@ class L2EntityMaintenance:
 
     # Reconcile entities whose assertions haven't been updated in this many seconds.
     RECONCILE_STALE_THRESHOLD: float = 3600  # 1 hour
+    RECONCILE_BATCH_SIZE: int = 100
+    RECONCILE_MAX_TOTAL: int = 500
 
     def __init__(
         self,
@@ -738,9 +740,9 @@ class L2EntityMaintenance:
 
         Finds entities with non-terminal assertions older than
         ``RECONCILE_STALE_THRESHOLD`` and runs rule-based reconciliation +
-        snapshot refresh for each.  This catches assertions that may have
-        accumulated enough evidence to promote since the last online
-        reconciliation pass.
+        snapshot refresh for each.  Processes in batches of
+        ``RECONCILE_BATCH_SIZE`` up to ``RECONCILE_MAX_TOTAL`` entities per
+        maintenance run.
         """
         store = self._cognition_store
         if store is None:
@@ -749,43 +751,57 @@ class L2EntityMaintenance:
             await store.initialize()
 
         stale_cutoff = time.time() - self.RECONCILE_STALE_THRESHOLD
-        async with sqlite_connection_async(self._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
-                SELECT DISTINCT entity_id, entity_type
-                FROM tom_trait_assertions
-                WHERE validation_state IN ('tentative', 'corroborated')
-                  AND updated_at < ?
-                ORDER BY updated_at ASC
-                LIMIT 100
-                """,
-                (stale_cutoff,),
-            ) as cursor:
-                rows = await cursor.fetchall()
+        total_processed = 0
+        last_updated_at: float = 0.0
 
-        for row in rows:
-            entity_id = str(row["entity_id"])
-            entity_type = str(row["entity_type"])
-            try:
-                outcomes = await store.reconcile_entity(
-                    entity_id=entity_id,
-                    entity_type=entity_type,
-                )
-                if outcomes:
-                    stats.entities_reconciled += 1
-                    await store.refresh_entity_snapshot(
+        while total_processed < self.RECONCILE_MAX_TOTAL:
+            async with sqlite_connection_async(self._db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    """
+                    SELECT DISTINCT entity_id, entity_type, MIN(updated_at) AS min_updated
+                    FROM tom_trait_assertions
+                    WHERE validation_state IN ('tentative', 'corroborated')
+                      AND updated_at < ?
+                      AND updated_at > ?
+                    GROUP BY entity_id, entity_type
+                    ORDER BY min_updated ASC
+                    LIMIT ?
+                    """,
+                    (stale_cutoff, last_updated_at, self.RECONCILE_BATCH_SIZE),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+
+            if not rows:
+                break
+
+            for row in rows:
+                entity_id = str(row["entity_id"])
+                entity_type = str(row["entity_type"])
+                last_updated_at = float(row["min_updated"])
+                try:
+                    outcomes = await store.reconcile_entity(
                         entity_id=entity_id,
                         entity_type=entity_type,
                     )
-                    stats.snapshots_refreshed += 1
-            except Exception as exc:
-                stats.errors.append(f"reconcile {entity_id}: {exc}")
-                logger.warning(
-                    "L2 maintenance reconcile failed for entity",
-                    entity_id=entity_id,
-                    error=str(exc),
-                )
+                    if outcomes:
+                        stats.entities_reconciled += 1
+                        await store.refresh_entity_snapshot(
+                            entity_id=entity_id,
+                            entity_type=entity_type,
+                        )
+                        stats.snapshots_refreshed += 1
+                except Exception as exc:
+                    stats.errors.append(f"reconcile {entity_id}: {exc}")
+                    logger.warning(
+                        "L2 maintenance reconcile failed for entity",
+                        entity_id=entity_id,
+                        error=str(exc),
+                    )
+
+            total_processed += len(rows)
+            if len(rows) < self.RECONCILE_BATCH_SIZE:
+                break
 
     async def _consolidate_open_predicates(self, stats: L2EntityMaintenanceStats) -> None:
         """Rewrite non-core predicates to their core synonym when a mapping exists.
