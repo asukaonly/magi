@@ -85,7 +85,7 @@ class MemoryEmbeddingService:
     def _get_local_manager(self) -> Optional["LocalEmbeddingManager"]:
         """Return a cached LocalEmbeddingManager, rebuilding if config changed."""
         config = get_config()
-        local_cfg = config.memory.embedding.local
+        local_cfg = config.agent.memory.embedding.local
         cache_key = (
             str(local_cfg.model_source),
             str(local_cfg.managed_model_id or ""),
@@ -109,7 +109,7 @@ class MemoryEmbeddingService:
     def _is_local_mode(self) -> bool:
         """Check if local embedding mode is active."""
         config = get_config()
-        return config.memory.embedding.mode == EmbeddingMode.LOCAL
+        return config.agent.memory.embedding.mode == EmbeddingMode.LOCAL
 
     def get_active_profile(self, *, text_builder_version: str) -> Optional[EmbeddingProfile]:
         if self._is_local_mode():
