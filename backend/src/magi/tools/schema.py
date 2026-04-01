@@ -135,6 +135,7 @@ class ToolSchema(BaseModel):
     requires_auth: bool = Field(default=False, description="Whether authentication required")
     allowed_roles: List[str] = Field(default_factory=list, description="Allowed roles")
     dangerous: bool = Field(default=False, description="Whether dangerous operation")
+    feature_flags: List[str] = Field(default_factory=list, description="Required feature flags")
 
     # Metadata
     tags: List[str] = Field(default_factory=list, description="Tags")
@@ -148,6 +149,7 @@ class ToolExecutionContext(BaseModel):
     workspace: str = Field(default="./workspace", description="Working directory")
     env_vars: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
     permissions: List[str] = Field(default_factory=list, description="Permission list")
+    enabled_features: List[str] = Field(default_factory=list, description="Enabled feature flags")
 
 
 class ToolResult(BaseModel):

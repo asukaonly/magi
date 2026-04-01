@@ -169,7 +169,8 @@ class ToolRegistry:
     def list_tools(
         self,
         category: Optional[str] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        enabled_features: Optional[List[str]] = None,
     ) -> List[str]:
         """
         List tools with optional filters.
@@ -177,6 +178,8 @@ class ToolRegistry:
         Args:
             category: Filter by category.
             tags: Filter by tags.
+            enabled_features: If provided, exclude tools that require
+                feature flags not present in this list.
 
         Returns:
             List of tool names.
@@ -192,6 +195,14 @@ class ToolRegistry:
             tag_sets = [set(self._tag_index.get(tag, [])) for tag in tags]
             if tag_sets:
                 tools = list(set(tools) & set.intersection(*tag_sets))
+
+        # Filter by feature flags
+        if enabled_features is not None:
+            enabled_set = set(enabled_features)
+            tools = [
+                name for name in tools
+                if self._tool_passes_feature_gate(name, enabled_set)
+            ]
 
         return tools
 
@@ -214,17 +225,23 @@ class ToolRegistry:
 
         return info
 
-    def get_all_tools_info(self) -> List[Dict[str, Any]]:
+    def get_all_tools_info(self, enabled_features: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Get all tool info (includes skills).
+
+        Args:
+            enabled_features: If provided, exclude tools requiring
+                feature flags not present in this list.
 
         Returns:
             List of tool info dicts.
         """
-        tools_info = [
-            self.get_tool_info(tool_name)
-            for tool_name in self._tools.keys()
-        ]
+        enabled_set = set(enabled_features) if enabled_features is not None else None
+        tools_info = []
+        for tool_name in self._tools.keys():
+            if enabled_set is not None and not self._tool_passes_feature_gate(tool_name, enabled_set):
+                continue
+            tools_info.append(self.get_tool_info(tool_name))
 
         # Add skills info (metadata only)
         for skill_name, skill_metadata in self._skills.items():
@@ -257,6 +274,16 @@ class ToolRegistry:
     def bind_skill_indexer(self, skill_indexer) -> None:
         """Bind the skill indexer used for refresh operations."""
         self._skill_indexer = skill_indexer
+
+    def _tool_passes_feature_gate(self, tool_name: str, enabled_set: set[str]) -> bool:
+        """Return True if the tool's feature_flags are all satisfied."""
+        tool = self._tool_instances.get(tool_name)
+        if not tool:
+            return True
+        required = tool.get_schema().feature_flags
+        if not required:
+            return True
+        return all(f in enabled_set for f in required)
 
     def get_skill_names(self) -> List[str]:
         """
@@ -359,6 +386,18 @@ class ToolRegistry:
                     success=False,
                     error=f"Tool {tool_name} requires one of roles: {schema.allowed_roles}",
                     error_code=ToolErrorCode.ROLE_NOT_ALLOWED.value
+                )
+
+        # Check feature flags
+        if schema.feature_flags:
+            enabled = set(context.enabled_features)
+            missing = [f for f in schema.feature_flags if f not in enabled]
+            if missing:
+                logger.warning(f"Tool {tool_name} requires feature flags: {missing}")
+                return ToolResult(
+                    success=False,
+                    error=f"Tool {tool_name} requires feature flags: {missing}",
+                    error_code=ToolErrorCode.PERMISSION_DENIED.value
                 )
 
         # Validate parameters
