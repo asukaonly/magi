@@ -338,8 +338,24 @@ export interface MemoryRerankerConfig {
   remote: MemoryRerankerRemoteConfig;
 }
 
+export type EmbeddingMode = 'remote' | 'local';
+export type LocalEmbeddingModelSource = 'managed' | 'external';
+
+export interface LocalEmbeddingConfig {
+  model_source: LocalEmbeddingModelSource;
+  managed_model_id: string | null;
+  model_dir_path: string | null;
+  idle_timeout_seconds: number;
+}
+
+export interface EmbeddingConfig {
+  mode: EmbeddingMode;
+  local: LocalEmbeddingConfig;
+}
+
 export interface MemoryConfig {
   db_path?: string;
+  embedding: EmbeddingConfig;
   reranker: MemoryRerankerConfig;
   l0: MemoryL0Config;
   l1: MemoryL1Config;
@@ -472,6 +488,15 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
   memory: {
     db_path: '~/.magi/data/memories',
+    embedding: {
+      mode: 'remote',
+      local: {
+        model_source: 'managed',
+        managed_model_id: null,
+        model_dir_path: null,
+        idle_timeout_seconds: 1800,
+      },
+    },
     reranker: {
       enabled: false,
       backend: 'heuristic',

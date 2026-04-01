@@ -87,6 +87,11 @@ dev = [
     "ruff>=0.2.0",
     "mypy>=1.8.0",
 ]
+local-embedding = [
+    "onnxruntime>=1.17.0",
+    "tokenizers>=0.19.0",
+    "huggingface-hub>=0.20.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/your-org/magi"

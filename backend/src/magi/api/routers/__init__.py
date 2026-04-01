@@ -15,6 +15,7 @@ from .skills import skills_router
 from .sensors import sensors_router
 from .timeline import timeline_router
 from .plugins import plugins_router
+from .local_embedding import local_embedding_router
 
 __all__ = [
     "tools_router",
@@ -29,4 +30,5 @@ __all__ = [
     "sensors_router",
     "timeline_router",
     "plugins_router",
+    "local_embedding_router",
 ]

@@ -41,6 +41,7 @@ class RuntimePaths:
             self.cache_dir,
             self.models_cache_dir,
             self.reranker_models_dir,
+            self.embedding_models_dir,
             self.plugins_cache_dir,
             self.others_dir,
             self.logs_dir,
@@ -125,6 +126,11 @@ class RuntimePaths:
     def reranker_models_dir(self) -> Path:
         """Managed local reranker model cache directory."""
         return self.models_cache_dir / "rerank"
+
+    @property
+    def embedding_models_dir(self) -> Path:
+        """Managed local embedding model cache directory."""
+        return self.models_cache_dir / "embed"
 
     @property
     def others_dir(self) -> Path:
@@ -219,6 +225,13 @@ class RuntimePaths:
         if not normalized:
             raise ValueError("model_id is required")
         return self.reranker_models_dir / normalized
+
+    def managed_embedding_model_dir(self, model_id: str) -> Path:
+        """Return the managed cache directory for one embedding model."""
+        normalized = str(model_id or "").strip().replace("/", "_").replace("\\", "_")
+        if not normalized:
+            raise ValueError("model_id is required")
+        return self.embedding_models_dir / normalized
 
     def other_file(self, user_id: str) -> Path:
         """

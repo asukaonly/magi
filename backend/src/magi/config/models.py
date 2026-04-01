@@ -101,6 +101,18 @@ class EmbeddingBackend(str, Enum):
     OPENAI = "openai"
 
 
+class EmbeddingMode(str, Enum):
+    """Embedding execution mode."""
+    REMOTE = "remote"
+    LOCAL = "local"
+
+
+class LocalEmbeddingModelSource(str, Enum):
+    """How a local embedding model is referenced."""
+    MANAGED = "managed"
+    EXTERNAL = "external"
+
+
 class MemoryRerankerBackend(str, Enum):
     """Retrieval reranker backend."""
 
@@ -272,6 +284,17 @@ class LLMSettings(BaseModel):
 class EmbeddingSettings(BaseModel):
     """Embedding configuration. Note: embedding model is configured via LLM EMBEDDING scenario."""
     backend: EmbeddingBackend = Field(default=EmbeddingBackend.SQLITE_VEC)
+    mode: EmbeddingMode = Field(default=EmbeddingMode.REMOTE)
+    local: "LocalEmbeddingSettings" = Field(default_factory=lambda: LocalEmbeddingSettings())
+
+
+class LocalEmbeddingSettings(BaseModel):
+    """Local ONNX embedding model settings."""
+
+    model_source: LocalEmbeddingModelSource = Field(default=LocalEmbeddingModelSource.MANAGED)
+    managed_model_id: Optional[str] = Field(default=None)
+    model_dir_path: Optional[str] = Field(default=None)
+    idle_timeout_seconds: int = Field(default=1800, ge=60)
 
 
 class MemoryL0Settings(BaseModel):

@@ -506,7 +506,8 @@
           "embeddingModelTitle": "当前向量模型",
           "embeddingModelDescription": "L1 与 L3 的语义检索能力都会依赖这里配置的向量模型。",
           "embeddingModelEmpty": "当前还没有选择向量模型。请先到“大模型配置 > 模型选择”里配置 embedding 场景。",
-          "rerankerDescription": "可以在召回融合之后增加一个可选的精排阶段，进一步提升顶部候选的精度。如果 LLM 精排配置不完整，运行时可以回退到 heuristic 精排。"
+          "rerankerDescription": "可以在召回融合之后增加一个可选的精排阶段，进一步提升顶部候选的精度。如果 LLM 精排配置不完整，运行时可以回退到 heuristic 精排。",
+          "embeddingDescription": "选择使用远程模型服务还是本地 ONNX 模型来生成向量。本地模型会在首次使用时加载，空闲一段时间后自动卸载。"
         },
         "workbench": {
           "description": "配置短时工作台记忆的保留和异常恢复节奏，决定对话运行态如何被暂存与回放。"
@@ -538,6 +539,39 @@
           "description": "设置记忆数据库与向量索引所在的本地目录。向量写入固定走异步 sqlite 存储。",
           "placeholder": "~/.magi/data/memories",
           "summary_hint": "包含 L1 事件库与共享记忆数据库。"
+        },
+        "embedding_mode": {
+          "label": "向量生成模式",
+          "description": "选择使用远程 API 服务还是本地 ONNX 模型来生成向量嵌入。"
+        },
+        "embedding_local_model_source": {
+          "label": "本地模型来源"
+        },
+        "embedding_local_managed_model_id": {
+          "label": "预设模型",
+          "placeholder": "选择预设模型"
+        },
+        "embedding_local_model_dir_path": {
+          "label": "模型目录路径",
+          "placeholder": "/path/to/your/onnx-model-dir"
+        },
+        "embedding_local_idle_timeout": {
+          "label": "空闲卸载时间（秒）"
+        },
+        "embedding_local_managed_cache_path": {
+          "label": "本地模型缓存目录",
+          "description": "受管的本地向量模型资源统一保存在 ~/.magi/cache/models/embed/ 下。"
+        },
+        "embedding_local_download": {
+          "label": "下载模型",
+          "downloading": "下载中…",
+          "downloaded": "已下载",
+          "download": "下载",
+          "delete": "删除",
+          "size": "大小",
+          "dimension": "维度",
+          "languages": "语言",
+          "recommended": "推荐"
         },
         "reranker_enabled": {
           "label": "启用 LLM 精排",
@@ -685,7 +719,11 @@
           "managed": "受管缓存",
           "external": "外部文件"
         },
-        "reranker_disabled": "未启用"
+        "reranker_disabled": "未启用",
+        "embedding_local_model_source": {
+          "managed": "预设模型",
+          "external": "自定义目录"
+        }
       }
     },
     "options": {
