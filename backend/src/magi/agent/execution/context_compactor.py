@@ -217,6 +217,16 @@ class ContextCompactor:
         if input_tokens > 0:
             self._last_input_tokens = input_tokens
 
+    def get_usage(self) -> dict[str, int] | None:
+        """Return current context window usage snapshot, or *None* if unknown."""
+        if self._last_input_tokens is None or self._last_input_tokens <= 0:
+            return None
+        return {
+            "used_tokens": self._last_input_tokens,
+            "window_size": self.effective_window,
+            "threshold": self.compact_threshold,
+        }
+
     def _current_token_estimate(self, messages: List[Dict[str, Any]]) -> int:
         """Best-effort token count: prefer provider-reported, else estimate."""
         if self._last_input_tokens is not None and self._last_input_tokens > 0:

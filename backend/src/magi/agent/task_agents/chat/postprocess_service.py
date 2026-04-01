@@ -735,6 +735,14 @@ class ChatPostProcessService:
             session_id=session_id,
             turn_id=turn_id,
         )
+        context_usage = payload.get("context_usage")
+        if isinstance(context_usage, dict):
+            await self._emit_context_usage_notification(
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                context_usage=context_usage,
+            )
 
     async def _record_temporary_tactic(
         self,
@@ -1207,6 +1215,21 @@ class ChatPostProcessService:
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
+        )
+
+    async def _emit_context_usage_notification(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        context_usage: dict[str, Any],
+    ) -> None:
+        await self._runtime_notifier.emit_context_usage(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            context_usage=context_usage,
         )
 
     async def emit_execution_control_notification(

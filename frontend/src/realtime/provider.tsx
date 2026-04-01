@@ -11,6 +11,7 @@ import { DEFAULT_USER_CHANNEL } from '@/constants';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useConversationStore } from '@/stores/conversation-store';
+import { useContextUsageStore } from '@/stores/context-usage';
 import { useRealtimeStore } from '@/stores/realtime-store';
 import { RealtimeClient, type RealtimeMessage } from './client';
 
@@ -123,6 +124,19 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
         const summary = normalizeTraceSummary(payload.trace_summary);
         if (sessionId && turnId && summary) {
           conversationStore.upsertTraceSummary(sessionId, turnId, summary);
+        }
+        return;
+      }
+
+      if (eventName === 'context_usage' && message.data && typeof message.data === 'object') {
+        const payload = message.data as Record<string, unknown>;
+        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+        if (sessionId && typeof payload.used_tokens === 'number' && typeof payload.window_size === 'number') {
+          useContextUsageStore.getState().update(sessionId, {
+            used_tokens: payload.used_tokens as number,
+            window_size: payload.window_size as number,
+            threshold: (payload.threshold as number) || 0,
+          });
         }
         return;
       }

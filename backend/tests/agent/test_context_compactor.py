@@ -358,3 +358,44 @@ class TestEventEmission:
         c = ContextCompactor(context_window=32_000, on_event=bad_callback)
         # Should not raise
         await c._emit_event("stage", {})
+
+
+# ---------------------------------------------------------------------------
+# get_usage tests
+# ---------------------------------------------------------------------------
+
+class TestGetUsage:
+    def test_returns_none_when_no_tokens_recorded(self) -> None:
+        c = ContextCompactor(context_window=128_000)
+        assert c.get_usage() is None
+
+    def test_returns_none_for_zero_tokens(self) -> None:
+        c = ContextCompactor(context_window=128_000)
+        c.record_input_tokens(0)
+        assert c.get_usage() is None
+
+    def test_returns_snapshot_after_recording(self) -> None:
+        c = ContextCompactor(context_window=128_000)
+        c.record_input_tokens(50_000)
+        usage = c.get_usage()
+        assert usage is not None
+        assert usage["used_tokens"] == 50_000
+        assert usage["window_size"] == 128_000
+        assert usage["threshold"] == _compute_compact_threshold(128_000)
+
+    def test_updates_on_subsequent_calls(self) -> None:
+        c = ContextCompactor(context_window=64_000)
+        c.record_input_tokens(10_000)
+        u1 = c.get_usage()
+        c.record_input_tokens(30_000)
+        u2 = c.get_usage()
+        assert u1 is not None and u2 is not None
+        assert u1["used_tokens"] == 10_000
+        assert u2["used_tokens"] == 30_000
+
+    def test_uses_default_window_when_none(self) -> None:
+        c = ContextCompactor(context_window=None)
+        c.record_input_tokens(5_000)
+        usage = c.get_usage()
+        assert usage is not None
+        assert usage["window_size"] == c.effective_window

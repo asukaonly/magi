@@ -59,6 +59,11 @@ export interface WSTurnExecutionControlMessage {
   data: TurnExecutionControlData;
 }
 
+export interface WSContextUsageMessage {
+  type: 'context_usage';
+  data: ContextUsageData;
+}
+
 export interface WSAgentResponseMessage {
   type: 'agent_response';
   data: AgentResponseData;
@@ -139,6 +144,14 @@ export interface TurnExecutionControlData {
   label?: string | null;
 }
 
+export interface ContextUsageData {
+  session_id?: string;
+  turn_id?: string;
+  used_tokens: number;
+  window_size: number;
+  threshold: number;
+}
+
 // ============================================================================
 // Client Message Types (Client -> Server)
 // ============================================================================
@@ -182,6 +195,7 @@ export type WSServerMessage =
   | WSMessageSentMessage
   | WSExecutionTraceUpdateMessage
   | WSTurnExecutionControlMessage
+  | WSContextUsageMessage
   | WSAgentResponseMessage
   | WSErrorMessage;
 

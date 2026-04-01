@@ -93,6 +93,24 @@ class _FakeRuntimeTraceStore:
                 ),
                 "created_at_ms": 103,
             },
+            {
+                "notification_id": 5,
+                "channel": "context_usage",
+                "user_id": "local_user",
+                "session_id": "session-1",
+                "turn_id": "turn-1",
+                "payload_json": json.dumps(
+                    {
+                        "user_id": "local_user",
+                        "session_id": "session-1",
+                        "turn_id": "turn-1",
+                        "used_tokens": 45000,
+                        "window_size": 128000,
+                        "threshold": 96000,
+                    }
+                ),
+                "created_at_ms": 104,
+            },
         ]
 
     async def get_latest_notification_id(self) -> int:
@@ -150,3 +168,8 @@ async def test_websocket_bridge_polls_runtime_notifications(monkeypatch: pytest.
     assert broadcasts[2][1]["can_cancel"] is False
     assert broadcasts[3][0] == "turn_execution_control"
     assert broadcasts[3][1]["state"] == "cancelled"
+    assert broadcasts[4][0] == "context_usage"
+    assert broadcasts[4][1]["used_tokens"] == 45000
+    assert broadcasts[4][1]["window_size"] == 128000
+    assert broadcasts[4][1]["threshold"] == 96000
+    assert broadcasts[4][1]["session_id"] == "session-1"

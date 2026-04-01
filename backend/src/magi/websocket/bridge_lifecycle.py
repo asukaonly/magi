@@ -84,6 +84,8 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             return
         if notification.channel == "trace_update":
             await self._broadcast_trace_update(notification=notification)
+        if notification.channel == "context_usage":
+            await self._broadcast_context_usage(notification=notification, payload=payload)
 
     async def _broadcast_agent_response(
         self,
@@ -152,6 +154,31 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 "turn_id": turn_id,
                 "trace_summary": summary,
                 "trace_available": bool(summary.get("trace_available")),
+            },
+            room=f"user_{user_id}",
+        )
+
+    async def _broadcast_context_usage(
+        self,
+        *,
+        notification: RuntimeNotificationRecord,
+        payload: dict[str, object],
+    ) -> None:
+        user_id = str(notification.user_id or payload.get("user_id") or "").strip()
+        session_id = str(notification.session_id or payload.get("session_id") or "").strip()
+        turn_id = str(notification.turn_id or payload.get("turn_id") or "").strip()
+        if not user_id or not session_id:
+            return
+
+        await manager.broadcast(
+            "context_usage",
+            {
+                "user_id": user_id,
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "used_tokens": int(payload.get("used_tokens") or 0),
+                "window_size": int(payload.get("window_size") or 0),
+                "threshold": int(payload.get("threshold") or 0),
             },
             room=f"user_{user_id}",
         )

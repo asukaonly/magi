@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -103,6 +104,7 @@ class L2EntityMaintenance:
         self._embedding_service = embedding_service
         self._edge_vector_index = edge_vector_index
         self._cognition_store = cognition_store
+        self._run_lock = asyncio.Lock()
 
     # Default TTLs (seconds) for decay policies that lack an explicit expires_at.
     FAST_DECAY_TTL: float = 4 * 3600       # 4 hours
@@ -120,6 +122,35 @@ class L2EntityMaintenance:
         reconcile_stale: bool = True,
         consolidate_open_predicates: bool = True,
         embed_edges: bool = True,
+    ) -> L2EntityMaintenanceStats:
+        if self._run_lock.locked():
+            logger.info("L2 maintenance already running, skipping")
+            return L2EntityMaintenanceStats()
+        async with self._run_lock:
+            return await self._run_locked(
+                min_mentions_to_keep=min_mentions_to_keep,
+                resolve_ghosts=resolve_ghosts,
+                merge_fragments=merge_fragments,
+                prune_orphans=prune_orphans,
+                expire_future_intents=expire_future_intents,
+                expire_decayed_assertions=expire_decayed_assertions,
+                reconcile_stale=reconcile_stale,
+                consolidate_open_predicates=consolidate_open_predicates,
+                embed_edges=embed_edges,
+            )
+
+    async def _run_locked(
+        self,
+        *,
+        min_mentions_to_keep: int,
+        resolve_ghosts: bool,
+        merge_fragments: bool,
+        prune_orphans: bool,
+        expire_future_intents: bool,
+        expire_decayed_assertions: bool,
+        reconcile_stale: bool,
+        consolidate_open_predicates: bool,
+        embed_edges: bool,
     ) -> L2EntityMaintenanceStats:
         stats = L2EntityMaintenanceStats()
         if resolve_ghosts:
@@ -349,7 +380,12 @@ class L2EntityMaintenance:
         return (rewritten, merged)
 
     async def _rewrite_tom_entity_refs(self, stats: L2EntityMaintenanceStats) -> None:
-        """Remap tom_* tables for ids not in catalog (same slug rule as knowledge_graph)."""
+        """Remap tom_* tables for ids not in catalog (same slug rule as knowledge_graph).
+
+        Handles UNIQUE constraint conflicts by keeping the assertion with higher
+        confidence when both ghost and target share the same
+        ``(entity_id, entity_type, trait_name, target_entity_id)`` key.
+        """
         async with sqlite_connection_async(self._db_path) as db:
             async with db.execute(
                 """
@@ -364,19 +400,63 @@ class L2EntityMaintenance:
             if not target:
                 continue
             async with sqlite_connection_async(self._db_path) as db:
-                await db.execute(
-                    "UPDATE tom_trait_assertions SET entity_id = ? WHERE entity_id = ?",
-                    (target, ghost_id),
-                )
-                await db.execute(
-                    "UPDATE tom_trait_assertions SET target_entity_id = ? WHERE target_entity_id = ?",
-                    (target, ghost_id),
-                )
-                await db.execute(
-                    "UPDATE tom_snapshots SET entity_id = ? WHERE entity_id = ?",
-                    (target, ghost_id),
-                )
-                await db.commit()
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    # Delete ghost assertions that would conflict with existing target assertions,
+                    # keeping whichever has higher confidence.
+                    db.row_factory = aiosqlite.Row
+                    async with db.execute(
+                        """
+                        SELECT a.assertion_id AS ghost_aid, a.confidence_score AS ghost_conf,
+                               b.assertion_id AS target_aid, b.confidence_score AS target_conf
+                        FROM tom_trait_assertions a
+                        JOIN tom_trait_assertions b
+                          ON b.entity_id = ? AND a.entity_type = b.entity_type
+                             AND a.trait_name = b.trait_name AND a.target_entity_id = b.target_entity_id
+                        WHERE a.entity_id = ?
+                        """,
+                        (target, ghost_id),
+                    ) as cur:
+                        conflicts = await cur.fetchall()
+                    for conflict in conflicts:
+                        if float(conflict["ghost_conf"]) > float(conflict["target_conf"]):
+                            await db.execute(
+                                "DELETE FROM tom_trait_assertions WHERE assertion_id = ?",
+                                (conflict["target_aid"],),
+                            )
+                        else:
+                            await db.execute(
+                                "DELETE FROM tom_trait_assertions WHERE assertion_id = ?",
+                                (conflict["ghost_aid"],),
+                            )
+                    await db.execute(
+                        "UPDATE tom_trait_assertions SET entity_id = ? WHERE entity_id = ?",
+                        (target, ghost_id),
+                    )
+                    await db.execute(
+                        "UPDATE tom_trait_assertions SET target_entity_id = ? WHERE target_entity_id = ?",
+                        (target, ghost_id),
+                    )
+                    # tom_snapshots: delete ghost if target already has one.
+                    async with db.execute(
+                        "SELECT 1 FROM tom_snapshots WHERE entity_id = ? LIMIT 1",
+                        (target,),
+                    ) as cur:
+                        target_has_snapshot = await cur.fetchone() is not None
+                    if target_has_snapshot:
+                        await db.execute(
+                            "DELETE FROM tom_snapshots WHERE entity_id = ?",
+                            (ghost_id,),
+                        )
+                    else:
+                        await db.execute(
+                            "UPDATE tom_snapshots SET entity_id = ? WHERE entity_id = ?",
+                            (target, ghost_id),
+                        )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    raise
             stats.tom_entity_refs_rewritten += 1
 
     async def _merge_fragmented_entities(self, stats: L2EntityMaintenanceStats) -> None:
@@ -563,56 +643,48 @@ class L2EntityMaintenance:
                 candidates = [(str(r["entity_id"]), int(r["mention_count"])) for r in await cur.fetchall()]
 
         for entity_id, _mc in candidates:
-            if await self._entity_referenced_in_graph(entity_id):
-                continue
-            if await self._entity_referenced_in_tom(entity_id):
-                continue
             try:
-                await self._delete_entity_cascade(entity_id)
-                stats.orphans_pruned += 1
+                pruned = await self._check_and_delete_orphan(entity_id)
+                if pruned:
+                    stats.orphans_pruned += 1
             except Exception as exc:
                 stats.errors.append(f"prune {entity_id}: {exc}")
                 logger.warning("L2 orphan prune failed", entity_id=entity_id, error=str(exc))
 
-    async def _entity_referenced_in_graph(self, entity_id: str) -> bool:
+    async def _check_and_delete_orphan(self, entity_id: str) -> bool:
+        """Atomically verify entity is unreferenced and delete it."""
         async with sqlite_connection_async(self._db_path) as db:
-            async with db.execute(
-                """
-                SELECT 1 FROM knowledge_graph
-                WHERE subject_id = ? OR object_id = ?
-                LIMIT 1
-                """,
-                (entity_id, entity_id),
-            ) as cur:
-                row = await cur.fetchone()
-        return row is not None
-
-    async def _entity_referenced_in_tom(self, entity_id: str) -> bool:
-        async with sqlite_connection_async(self._db_path) as db:
-            async with db.execute(
-                """
-                SELECT 1 FROM tom_trait_assertions
-                WHERE entity_id = ? OR target_entity_id = ?
-                LIMIT 1
-                """,
-                (entity_id, entity_id),
-            ) as cur:
-                if await cur.fetchone():
-                    return True
-            async with db.execute(
-                "SELECT 1 FROM tom_snapshots WHERE entity_id = ? LIMIT 1",
-                (entity_id,),
-            ) as cur:
-                if await cur.fetchone():
-                    return True
-        return False
-
-    async def _delete_entity_cascade(self, entity_id: str) -> None:
-        async with sqlite_connection_async(self._db_path) as db:
-            await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (entity_id,))
-            await db.execute("DELETE FROM entity_mentions WHERE resolved_entity_id = ?", (entity_id,))
-            await db.execute("DELETE FROM entity_catalog WHERE entity_id = ?", (entity_id,))
-            await db.commit()
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT 1 FROM knowledge_graph WHERE subject_id = ? OR object_id = ? LIMIT 1",
+                    (entity_id, entity_id),
+                ) as cur:
+                    if await cur.fetchone():
+                        await db.rollback()
+                        return False
+                async with db.execute(
+                    "SELECT 1 FROM tom_trait_assertions WHERE entity_id = ? OR target_entity_id = ? LIMIT 1",
+                    (entity_id, entity_id),
+                ) as cur:
+                    if await cur.fetchone():
+                        await db.rollback()
+                        return False
+                async with db.execute(
+                    "SELECT 1 FROM tom_snapshots WHERE entity_id = ? LIMIT 1",
+                    (entity_id,),
+                ) as cur:
+                    if await cur.fetchone():
+                        await db.rollback()
+                        return False
+                await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (entity_id,))
+                await db.execute("DELETE FROM entity_mentions WHERE resolved_entity_id = ?", (entity_id,))
+                await db.execute("DELETE FROM entity_catalog WHERE entity_id = ?", (entity_id,))
+                await db.commit()
+                return True
+            except Exception:
+                await db.rollback()
+                raise
 
     async def _expire_stale_future_intents(self, stats: L2EntityMaintenanceStats) -> None:
         """Mark expired future_intent edges as 'expired'."""
@@ -722,18 +794,25 @@ class L2EntityMaintenance:
         check ``_PREDICATE_SYNONYM_GROUPS``. If the open predicate's synonym
         group contains a core predicate, rewrite the edge's predicate and
         recalculate its ``triple_id``.
+
+        When an existing edge with a synonymous core predicate already exists
+        for the same (subject, object) pair, evidence is merged into that edge
+        and the open-predicate edge is deleted.
         """
-        core_by_group: dict[str, str] = {}
-        for pred in PREDICATE_REGISTRY:
+        # Build group -> all core predicates mapping (sorted for determinism).
+        core_preds_by_group: dict[str, list[str]] = {}
+        for pred in sorted(PREDICATE_REGISTRY):
             group = get_predicate_synonym_group(pred)
-            if group and group not in core_by_group:
-                core_by_group[group] = pred
+            if group:
+                core_preds_by_group.setdefault(group, []).append(pred)
 
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             rows = await db.execute_fetchall(
                 """
-                SELECT triple_id, subject_id, predicate, object_id
+                SELECT triple_id, subject_id, predicate, object_id,
+                       evidence_event_ids, observation_count, confidence,
+                       first_observed_at, last_observed_at
                 FROM knowledge_graph
                 WHERE status = 'active'
                 """
@@ -745,36 +824,58 @@ class L2EntityMaintenance:
                 if predicate in PREDICATE_REGISTRY:
                     continue
                 group = get_predicate_synonym_group(predicate)
-                if group is None or group not in core_by_group:
+                if group is None or group not in core_preds_by_group:
                     continue
-                core_predicate = core_by_group[group]
-                new_triple_id = str(
-                    uuid.uuid5(
-                        uuid.NAMESPACE_URL,
-                        f"{row['subject_id']}:{core_predicate}:{row['object_id']}",
-                    )
-                )
+                core_predicates = core_preds_by_group[group]
+
+                # Look for an existing edge with ANY core predicate from
+                # the same synonym group for this (subject, object) pair.
+                placeholders = ",".join("?" * len(core_predicates))
                 existing = await db.execute_fetchall(
-                    "SELECT triple_id FROM knowledge_graph WHERE triple_id = ?",
-                    (new_triple_id,),
+                    f"""
+                    SELECT triple_id, predicate, evidence_event_ids,
+                           observation_count, confidence,
+                           first_observed_at, last_observed_at
+                    FROM knowledge_graph
+                    WHERE subject_id = ? AND object_id = ?
+                      AND predicate IN ({placeholders})
+                      AND triple_id != ? AND status = 'active'
+                    """,
+                    (row["subject_id"], row["object_id"], *core_predicates, row["triple_id"]),
                 )
                 if existing:
+                    dup = existing[0]
+                    dup_triple_id = str(dup["triple_id"])
+                    ev = _merge_evidence_json(str(row["evidence_event_ids"]), str(dup["evidence_event_ids"]))
+                    obs = int(row["observation_count"]) + int(dup["observation_count"])
+                    first_at = min(float(row["first_observed_at"]), float(dup["first_observed_at"]))
+                    last_at = max(float(row["last_observed_at"]), float(dup["last_observed_at"]))
+                    conf = max(float(row["confidence"]), float(dup["confidence"]))
                     await db.execute(
                         """
                         UPDATE knowledge_graph
-                        SET status = 'superseded', updated_at = ?
+                        SET evidence_event_ids = ?, observation_count = ?,
+                            first_observed_at = ?, last_observed_at = ?,
+                            confidence = ?, updated_at = ?
                         WHERE triple_id = ?
                         """,
-                        (now, row["triple_id"]),
+                        (ev, obs, first_at, last_at, conf, now, dup_triple_id),
+                    )
+                    await db.execute(
+                        "DELETE FROM knowledge_graph WHERE triple_id = ?",
+                        (row["triple_id"],),
                     )
                 else:
+                    # No existing edge — rename to first core predicate (alphabetically).
+                    target_predicate = core_predicates[0]
+                    new_triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{row['subject_id']}:{target_predicate}:{row['object_id']}')}"
                     await db.execute(
                         """
                         UPDATE knowledge_graph
                         SET predicate = ?, triple_id = ?, updated_at = ?
                         WHERE triple_id = ?
                         """,
-                        (core_predicate, new_triple_id, now, row["triple_id"]),
+                        (target_predicate, new_triple_id, now, row["triple_id"]),
                     )
                 consolidated += 1
             if consolidated:

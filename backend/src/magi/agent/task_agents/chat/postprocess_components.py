@@ -485,3 +485,35 @@ class ChatRuntimeNotifier:
                 created_at_ms=now_wall_ms(),
             )
         )
+
+    async def emit_context_usage(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        context_usage: dict[str, int],
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._runtime_trace_store is None or not normalized_turn_id:
+            return
+        payload = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": normalized_turn_id,
+            "used_tokens": context_usage.get("used_tokens", 0),
+            "window_size": context_usage.get("window_size", 0),
+            "threshold": context_usage.get("threshold", 0),
+            "timestamp": time.time(),
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="context_usage",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=normalized_turn_id,
+                payload_json=json.dumps(payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )

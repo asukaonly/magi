@@ -664,3 +664,200 @@ async def test_reconcile_stale_skips_recent_entities():
         # Not stale => should not be reconciled
         assert stats.entities_reconciled == 0
         assert stats.snapshots_refreshed == 0
+
+
+# -----------------------------------------------------------------------
+# Consolidate open predicates: evidence merge on duplicate
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_consolidate_open_predicates_merges_evidence_on_duplicate():
+    """When consolidation creates a duplicate triple, evidence should be merged, not lost."""
+    from unittest.mock import patch
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        store = L2CognitionStore(db_path=db_path)
+        now = time.time()
+
+        # Insert a core-predicate edge (LIKES)
+        tid_core = await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:ramen",
+            object_type="food",
+            evidence_event_ids=["evt-core-1"],
+            confidence=0.8,
+            observed_at=now - 100,
+            source_type="chat",
+        )
+
+        # Insert an open-predicate edge (ADORES) — not in PREDICATE_REGISTRY.
+        # We'll patch the synonym group to map it to "affinity" (same group as LIKES).
+        async with sqlite_connection_async(db_path) as db:
+            import uuid as _uuid
+            tid_open = str(_uuid.uuid5(_uuid.NAMESPACE_URL, "user:self:ADORES:food:ramen"))
+            await db.execute(
+                """
+                INSERT INTO knowledge_graph(
+                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                    confidence, evidence_event_ids, observation_count,
+                    first_observed_at, last_observed_at, created_at, updated_at, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (tid_open, "user:self", "user", "ADORES", "food:ramen", "food",
+                 0.6, json.dumps(["evt-open-1", "evt-open-2"]), 2,
+                 now, now, now, now, "active"),
+            )
+            await db.commit()
+
+        # Patch synonym group so ADORES maps to "affinity" group (which contains LIKES)
+        original_fn = __import__("magi.memory.l2.ontology", fromlist=["get_predicate_synonym_group"]).get_predicate_synonym_group
+
+        def patched_synonym_group(predicate: str) -> str | None:
+            if predicate.strip().upper() == "ADORES":
+                return "affinity"
+            return original_fn(predicate)
+
+        with patch("magi.memory.l2.entity_maintenance.get_predicate_synonym_group", side_effect=patched_synonym_group):
+            maint = L2EntityMaintenance(db_path=db_path)
+            stats = await maint.run(
+                resolve_ghosts=False,
+                merge_fragments=False,
+                prune_orphans=False,
+                expire_future_intents=False,
+                expire_decayed_assertions=False,
+                reconcile_stale=False,
+                embed_edges=False,
+            )
+
+        assert stats.open_predicates_consolidated == 1
+
+        # The core edge should have merged evidence
+        edge = await store.get_relationship(triple_id=tid_core)
+        assert edge is not None
+        evidence = edge["evidence_event_ids"]  # already deserialized by store
+        assert "evt-core-1" in evidence
+        assert "evt-open-1" in evidence
+        assert float(edge["confidence"]) == 0.8  # max(0.8, 0.6)
+
+        # The open edge should be deleted
+        open_edge = await store.get_relationship(triple_id=tid_open)
+        assert open_edge is None
+
+
+# -----------------------------------------------------------------------
+# Tom entity ref rewrite: UNIQUE conflict handling
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tom_ghost_rewrite_handles_unique_conflict():
+    """Rewriting ghost entity_id in tom_trait_assertions should handle UNIQUE conflicts."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.upsert_entity(
+            entity_id="person:alice-canon",
+            canonical_name="Alice",
+            entity_type="person",
+        )
+
+        ghost_id = _canonical_entity_id("person", "Alice")
+        assert ghost_id != "person:alice-canon"
+
+        store = L2CognitionStore(db_path=db_path)
+        await store.initialize()
+        now = time.time()
+
+        # Insert assertion for the ghost entity (higher confidence)
+        await store.upsert_assertion_candidate({
+            "entity_id": ghost_id,
+            "entity_type": "person",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "happy",
+            "confidence_score": 0.9,
+            "validation_state": "tentative",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-ghost"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        })
+
+        # Insert assertion for the target entity with same trait key (lower confidence)
+        await store.upsert_assertion_candidate({
+            "entity_id": "person:alice-canon",
+            "entity_type": "person",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "sad",
+            "confidence_score": 0.3,
+            "validation_state": "tentative",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-target"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        })
+
+        maint = L2EntityMaintenance(db_path=db_path)
+        stats = await maint.run(
+            merge_fragments=False,
+            prune_orphans=False,
+            expire_future_intents=False,
+            expire_decayed_assertions=False,
+            reconcile_stale=False,
+            consolidate_open_predicates=False,
+            embed_edges=False,
+        )
+
+        assert stats.tom_entity_refs_rewritten >= 1
+
+        # Only one assertion should remain for the canonical entity
+        assertions = await store.list_tom_assertions(entity_id="person:alice-canon")
+        assert len(assertions) == 1
+        # The ghost had higher confidence, so its value should win
+        assert assertions[0]["trait_value"] == "happy"
+        assert assertions[0]["confidence_score"] == 0.9
+
+
+# -----------------------------------------------------------------------
+# Concurrent run lock
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_run_is_skipped():
+    """A second concurrent run() call should be skipped while the first is running."""
+    import asyncio
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+
+        maint = L2EntityMaintenance(db_path=db_path)
+
+        # Acquire the lock manually to simulate a running maintenance
+        await maint._run_lock.acquire()
+        try:
+            # Second run should return immediately with empty stats
+            stats = await maint.run()
+            assert stats.ghost_edges_rewritten == 0
+            assert stats.fragment_entities_merged == 0
+            assert stats.orphans_pruned == 0
+        finally:
+            maint._run_lock.release()

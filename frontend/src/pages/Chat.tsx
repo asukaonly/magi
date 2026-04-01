@@ -21,6 +21,8 @@ import { pickDirectory } from '@/runtime/desktop';
 import { useRealtime } from '@/realtime/provider';
 import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
+import { ContextUsageRing } from '@/components/chat/ContextUsageRing';
+import { useContextUsageStore } from '@/stores/context-usage';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
   normalizeHistoryMessages,
@@ -415,6 +417,7 @@ export const ChatPage: React.FC = () => {
   const openDrawer = useChatTraceStore((state) => state.openDrawer);
   const closeDrawer = useChatTraceStore((state) => state.closeDrawer);
   const resetTraceStore = useChatTraceStore((state) => state.reset);
+  const updateContextUsage = useContextUsageStore((state) => state.update);
 
   const [inputValue, setInputValue] = useState('');
   const [aiName, setAiName] = useState<string>('AI');
@@ -948,6 +951,19 @@ export const ChatPage: React.FC = () => {
         return;
       }
 
+      if (eventName === 'context_usage' && data.data) {
+        const cu = data.data as Record<string, unknown>;
+        const sid = String(cu.session_id || currentSessionId || '').trim();
+        if (sid && typeof cu.used_tokens === 'number' && typeof cu.window_size === 'number') {
+          updateContextUsage(sid, {
+            used_tokens: cu.used_tokens as number,
+            window_size: cu.window_size as number,
+            threshold: (cu.threshold as number) || 0,
+          });
+        }
+        return;
+      }
+
       if (eventName === 'turn_ux_plan' && data.data) {
         handleTurnUxPlanEvent(data.data);
         return;
@@ -984,6 +1000,7 @@ export const ChatPage: React.FC = () => {
       receiveAgentResponse,
       requestHistory,
       send,
+      updateContextUsage,
     ]
   );
 
@@ -1988,16 +2005,17 @@ export const ChatPage: React.FC = () => {
             data-testid="chat-composer-toolbar"
             className="flex items-center justify-between px-4 pb-3 pt-1"
           >
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setAttachmentMenuOpen((open) => !open)}
-                aria-label={t('chat.attachments.add')}
-                title={t('chat.attachments.add')}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
+            <div className="flex items-center gap-1">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setAttachmentMenuOpen((open) => !open)}
+                  aria-label={t('chat.attachments.add')}
+                  title={t('chat.attachments.add')}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </button>
 
               {attachmentMenuOpen && (
                 <div className="absolute bottom-full left-0 mb-2 flex w-44 flex-col gap-1 rounded-xl border border-border/60 bg-background p-2 shadow-lg">
@@ -2020,6 +2038,8 @@ export const ChatPage: React.FC = () => {
                   </button>
                 </div>
               )}
+              </div>
+              <ContextUsageRing sessionId={currentSessionId} />
             </div>
             <button
               type="button"

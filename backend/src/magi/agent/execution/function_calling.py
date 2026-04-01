@@ -938,6 +938,9 @@ class FunctionCallingOrchestrator:
             self._context_compactor.record_input_tokens(
                 int(result["llm_trace"].get("input_tokens") or 0)
             )
+            context_usage = self._context_compactor.get_usage()
+            if context_usage is not None:
+                result["context_usage"] = context_usage
             if provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message
             if provider_response.tool_calls:
@@ -1044,6 +1047,9 @@ class FunctionCallingOrchestrator:
             self._context_compactor.record_input_tokens(
                 int(result["llm_trace"].get("input_tokens") or 0)
             )
+            context_usage = self._context_compactor.get_usage()
+            if context_usage is not None:
+                result["context_usage"] = context_usage
             if provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message
             if provider_response.tool_calls:
