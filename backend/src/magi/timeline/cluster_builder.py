@@ -10,6 +10,7 @@ class TimelineClusterBuilder:
     """Group nearby timeline events into semantic activity blocks."""
 
     _MAX_GAP_BY_SCALE = {
+        "month": 4.0 * 60.0 * 60.0,
         "week": 60.0 * 60.0,
         "day": 5.0 * 60.0,
         "hour": 60.0,

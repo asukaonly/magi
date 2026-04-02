@@ -59,3 +59,37 @@ async def test_cluster_builder_groups_adjacent_events_into_activity_blocks() -> 
     assert clusters[0]["representative_event_ids"] == ["evt-1", "evt-2"]
     assert clusters[0]["source_types"] == ["chat", "manual_journal"]
     assert clusters[0]["dominant_mode"] == "timeline"
+
+
+async def test_cluster_builder_groups_events_at_month_scale() -> None:
+    builder = TimelineClusterBuilder()
+
+    events = [
+        {
+            "event_id": "evt-a",
+            "timestamp": 1000.0,
+            "source": "chat",
+            "content": "Morning planning session.",
+            "metadata": {"timeline": {"tags": ["planning"], "entities": [{"label": "project"}]}},
+        },
+        {
+            "event_id": "evt-b",
+            "timestamp": 2000.0,  # 16 min later, same theme
+            "source": "chat",
+            "content": "Continued planning.",
+            "metadata": {"timeline": {"tags": ["planning"], "entities": [{"label": "project"}]}},
+        },
+        {
+            "event_id": "evt-c",
+            "timestamp": 20000.0,  # ~5h later, different theme
+            "source": "chrome_history",
+            "content": "Reading articles.",
+            "metadata": {"timeline": {"tags": ["reading"], "entities": [{"label": "browser"}]}},
+        },
+    ]
+
+    clusters = builder.build(events, scale="month")
+
+    assert len(clusters) == 2
+    assert clusters[0]["event_count"] == 2
+    assert clusters[1]["event_count"] == 1
