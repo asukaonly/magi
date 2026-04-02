@@ -75,18 +75,24 @@ def _extract_explicit_calendar_date_candidates(text: str) -> list[tuple[date, tu
 
     for month_name_match in re.finditer(
         r"\b(?P<month>january|february|march|april|may|june|july|august|september|october|november|december)\s+"
-        r"(?P<day>\d{1,2})(?:st|nd|rd|th)?\b",
+        r"(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(?P<year>\d{4}))?\b",
         content,
         flags=re.IGNORECASE,
     ):
         month = _MONTH_NAMES[str(month_name_match.group("month") or "").lower()]
         day = int(month_name_match.group("day"))
-        candidates.append((date(2000, month, day), month_name_match.span()))
+        year_str = month_name_match.group("year")
+        year = int(year_str) if year_str else 2000
+        candidates.append((date(year, month, day), month_name_match.span()))
 
-    for numeric_match in re.finditer(r"\b(?P<month>\d{1,2})[/-](?P<day>\d{1,2})\b", content):
+    for numeric_match in re.finditer(
+        r"\b(?P<month>\d{1,2})[/-](?P<day>\d{1,2})(?:[/-](?P<year>\d{4}))?\b", content
+    ):
+        year_str = numeric_match.group("year")
+        year = int(year_str) if year_str else 2000
         candidates.append(
             (
-                date(2000, int(numeric_match.group("month")), int(numeric_match.group("day"))),
+                date(year, int(numeric_match.group("month")), int(numeric_match.group("day"))),
                 numeric_match.span(),
             )
         )
@@ -125,6 +131,37 @@ def _extract_relative_week_date_candidates(
     return candidates
 
 
+def _extract_relative_month_date_candidates(
+    text: str,
+    *,
+    reference_date: date | None,
+) -> list[tuple[date, tuple[int, int]]]:
+    if reference_date is None:
+        return []
+    content = str(text or "")
+    candidates: list[tuple[date, tuple[int, int]]] = []
+    for match in re.finditer(r"\blast month\b", content, flags=re.IGNORECASE):
+        month = reference_date.month - 1 or 12
+        year = reference_date.year if reference_date.month > 1 else reference_date.year - 1
+        candidates.append((date(year, month, reference_date.day), match.span()))
+    for match in re.finditer(
+        r"\b(?P<count>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\s+ago\b",
+        content,
+        flags=re.IGNORECASE,
+    ):
+        count = _parse_relative_number(match.group("count"))
+        if count is None:
+            continue
+        month = reference_date.month - count
+        year = reference_date.year
+        while month < 1:
+            month += 12
+            year -= 1
+        day = min(reference_date.day, 28)
+        candidates.append((date(year, month, day), match.span()))
+    return candidates
+
+
 def _extract_anchor_calendar_date(
     text: str,
     anchor_tokens: set[str],
@@ -134,6 +171,7 @@ def _extract_anchor_calendar_date(
 ) -> date | None:
     candidates = _extract_explicit_calendar_date_candidates(text)
     candidates.extend(_extract_relative_week_date_candidates(text, reference_date=reference_date))
+    candidates.extend(_extract_relative_month_date_candidates(text, reference_date=reference_date))
     if not candidates:
         return None
     if len(candidates) == 1 or not anchor_tokens:
@@ -176,19 +214,31 @@ def resolve_temporal_distance_answer(
         unit = "day"
     elif re.search(r"\bhow many weeks?\b", lowered):
         unit = "week"
+    elif re.search(r"\bhow many months?\b", lowered):
+        unit = "month"
     elif "how long had i been" in lowered:
         unit = "duration_auto"
 
     if unit is None:
         return None
     anchor_queries = extract_temporal_distance_queries(question)
-    if len(anchor_queries) < 2 or not timeline_summary:
+    if not timeline_summary:
         return None
+
+    is_ago_question = bool(re.search(r"\bhow many\s+\w+\s+ago\b", lowered))
     reference_date = datetime.fromtimestamp(query_timestamp).date() if query_timestamp is not None else None
+
+    # "X ago" questions: single anchor + reference_date as second point
+    if is_ago_question and len(anchor_queries) == 1 and reference_date is not None:
+        anchor_queries_to_use = anchor_queries[:1]
+    elif len(anchor_queries) >= 2:
+        anchor_queries_to_use = anchor_queries[:2]
+    else:
+        return None
 
     chosen_dates: list[date] = []
     used_turn_ids: set[str] = set()
-    for anchor_query in anchor_queries[:2]:
+    for anchor_query in anchor_queries_to_use:
         anchor_tokens = set(extract_query_tokens(anchor_query))
         if not anchor_tokens:
             return None
@@ -227,6 +277,9 @@ def resolve_temporal_distance_answer(
             return None
         chosen_dates.append(chosen_date)
 
+    if len(chosen_dates) == 1 and is_ago_question and reference_date is not None:
+        chosen_dates.append(reference_date)
+
     if len(chosen_dates) != 2:
         return None
     delta_days = abs((chosen_dates[1] - chosen_dates[0]).days)
@@ -237,4 +290,10 @@ def resolve_temporal_distance_answer(
             return None
         delta_weeks = delta_days // 7
         return f"{delta_weeks} week" if delta_weeks == 1 else f"{delta_weeks} weeks"
+    if unit == "month":
+        earlier, later = sorted(chosen_dates)
+        delta_months = (later.year - earlier.year) * 12 + (later.month - earlier.month)
+        if delta_months < 1:
+            return None
+        return f"{delta_months} month" if delta_months == 1 else f"{delta_months} months"
     return None

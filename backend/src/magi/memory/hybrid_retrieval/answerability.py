@@ -98,6 +98,18 @@ _TEMPORAL_DISTANCE_PATTERNS = (
         r"how many\s+(?:day|week|month|year)s?\s+had\s+i\s+been\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"how many\s+(?:day|week|month|year)s?\s+ago\s+did\s+i\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"how many\s+(?:day|week|month|year)s?\s+ago\s+did\s+i\s+(?P<anchor_a>.+?)\??$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"how many\s+(?:day|week|month|year)s?\s+(?:passed|have\s+passed)\s+(?:between|since)\s+(?:the\s+)?(?:day\s+)?(?:i\s+)?(?P<anchor_a>.+?)\s+and\s+(?:the\s+)?(?:day\s+)?(?:i\s+)?(?P<anchor_b>.+?)\??$",
+        re.IGNORECASE,
+    ),
 )
 
 _TEMPORAL_ANCHOR_NOISE = {
@@ -261,7 +273,13 @@ def extract_temporal_distance_queries(text: str) -> list[str]:
             continue
         candidate_queries: list[str] = []
         for key in ("anchor_a", "anchor_b"):
-            anchor_query = _build_temporal_anchor_query(match.group(key))
+            try:
+                raw = match.group(key)
+            except IndexError:
+                continue
+            if raw is None:
+                continue
+            anchor_query = _build_temporal_anchor_query(raw)
             if anchor_query and anchor_query not in candidate_queries:
                 candidate_queries.append(anchor_query)
         return candidate_queries

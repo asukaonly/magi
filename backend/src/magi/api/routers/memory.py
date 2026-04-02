@@ -308,6 +308,9 @@ async def _synthesize_eval_answer(
         "Return only the final answer span with no explanation.\n"
         "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
         "When asked about order, count, duration, or time difference, reason over timestamps and content to derive the answer.\n"
+        "When asked 'how many' or 'total', scan ALL bundles and timeline entries, enumerate each item, then sum them up.\n"
+        "When asked about 'X ago' or relative dates ('last Tuesday'), compute the delta between the event timestamp and the question date.\n"
+        "When evidence spans multiple bundles, cross-reference and aggregate information across all of them.\n"
         "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete.\n"
         "Answer exactly 'unknown' only when the evidence contains nothing relevant at all."
     )
