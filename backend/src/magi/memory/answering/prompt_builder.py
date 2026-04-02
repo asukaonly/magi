@@ -16,6 +16,7 @@ class AnswerPromptPayload:
     prioritize_timeline: bool
     short_answer_instruction: str
     timeline_instruction: str
+    preference_instruction: str
 
 
 def should_prioritize_timeline(question: str, timeline_summary: list[dict[str, Any]] | None) -> bool:
@@ -39,6 +40,27 @@ def should_prioritize_timeline(question: str, timeline_summary: list[dict[str, A
 def should_request_short_issue_answer(question: str) -> bool:
     lowered = str(question or "").lower()
     return any(marker in lowered for marker in (" issue", " problem", " wrong with"))
+
+
+def is_preference_question(question: str) -> bool:
+    """Detect recommendation / suggestion / advice questions."""
+    lowered = str(question or "").lower()
+    preference_markers = (
+        "recommend",
+        "suggest",
+        "any tips",
+        "any advice",
+        "any ideas",
+        "what do you think",
+        "do you think it would be",
+        "do you think it might",
+        "do you think I should",
+        "what should I",
+        "any suggestions",
+        "documentary recommendations",
+        "any recommendations",
+    )
+    return any(marker in lowered for marker in preference_markers)
 
 
 def build_answer_prompt_payload(
@@ -111,6 +133,15 @@ def build_answer_prompt_payload(
             "Do not include dates, justification, or extra explanation.\n\n"
         )
 
+    preference_instruction = ""
+    if is_preference_question(question):
+        preference_instruction = (
+            "This is a recommendation/advice question. "
+            "Describe what the user would prefer based on their interests, habits, and context found in the evidence. "
+            "Start your answer with 'The user would prefer' and summarize their relevant preferences. "
+            "Do NOT answer 'unknown' for recommendation questions when the evidence contains any user context.\n\n"
+        )
+
     return AnswerPromptPayload(
         evidence_text=evidence_text,
         timeline_text=timeline_text,
@@ -118,4 +149,5 @@ def build_answer_prompt_payload(
         prioritize_timeline=prioritize_timeline,
         short_answer_instruction=short_answer_instruction,
         timeline_instruction=timeline_instruction,
+        preference_instruction=preference_instruction,
     )

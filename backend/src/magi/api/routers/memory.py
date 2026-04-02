@@ -321,6 +321,7 @@ async def _synthesize_eval_answer(
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
         f"{prompt_payload.timeline_instruction}"
         f"{prompt_payload.short_answer_instruction}"
+        f"{prompt_payload.preference_instruction}"
         f"Question:\n{question}\n\n"
         f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
         f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"

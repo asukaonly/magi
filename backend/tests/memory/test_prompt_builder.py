@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.memory.answering.prompt_builder import build_answer_prompt_payload
+from magi.memory.answering.prompt_builder import build_answer_prompt_payload, is_preference_question
 
 
 def test_build_answer_prompt_payload_prioritizes_timeline_for_temporal_questions():
@@ -107,3 +107,68 @@ def test_build_answer_prompt_payload_requests_short_issue_answer():
     assert payload.short_answer_instruction.startswith(
         "For issue or event questions, answer with the short issue name"
     )
+
+
+class TestIsPreferenceQuestion:
+    """Tests for preference / recommendation question detection."""
+
+    def test_recommend_keyword(self):
+        assert is_preference_question("Can you recommend a show or movie for me to watch tonight?")
+
+    def test_suggest_keyword(self):
+        assert is_preference_question("Can you suggest a hotel for my upcoming trip to Miami?")
+
+    def test_any_tips(self):
+        assert is_preference_question("My kitchen's becoming a bit of a mess again. Any tips for keeping it clean?")
+
+    def test_any_suggestions(self):
+        assert is_preference_question("I am planning another theme park weekend; do you have any suggestions?")
+
+    def test_what_do_you_think(self):
+        assert is_preference_question("I'm trying to decide whether to buy a NAS device now or wait. What do you think?")
+
+    def test_do_you_think_it_might(self):
+        assert is_preference_question("I've been sneezing quite a bit lately. Do you think it might be my living room?")
+
+    def test_documentary_recommendations(self):
+        assert is_preference_question("I've got some free time tonight, any documentary recommendations?")
+
+    def test_factual_question_not_detected(self):
+        assert not is_preference_question("What breed is my dog?")
+
+    def test_temporal_question_not_detected(self):
+        assert not is_preference_question("How many days ago did I attend the Maundy Thursday service?")
+
+    def test_counting_question_not_detected(self):
+        assert not is_preference_question("How many fish do I have in total?")
+
+
+def test_build_answer_prompt_payload_includes_preference_instruction():
+    payload = build_answer_prompt_payload(
+        question="Can you recommend a show or movie for me to watch tonight?",
+        hits=[
+            {
+                "event_id": "evt-comedy",
+                "session_id": "sess-comedy",
+                "content": "I really enjoy stand-up comedy specials, especially the storytelling style.",
+                "score": 0.9,
+                "turn_id": "sess-comedy:turn-2",
+            }
+        ],
+        evidence_bundles=[],
+        timeline_summary=[],
+    )
+
+    assert "The user would prefer" in payload.preference_instruction
+    assert "unknown" in payload.preference_instruction.lower()
+
+
+def test_build_answer_prompt_payload_no_preference_instruction_for_factual():
+    payload = build_answer_prompt_payload(
+        question="What is the name of my cat?",
+        hits=[],
+        evidence_bundles=[],
+        timeline_summary=[],
+    )
+
+    assert payload.preference_instruction == ""
