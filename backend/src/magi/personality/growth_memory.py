@@ -35,6 +35,7 @@ class MilestoneType(Enum):
     ACHIEVEMENT = "achievement"          # achievement
     PERSONALITY_CHANGE = "personality"   # Personality change
     SPECIAL = "special"                  # Special event
+    BOOTSTRAP_COMPLETED = "bootstrap_completed"  # Bootstrap dialogue completed
 
 
 class InteractionType(Enum):
