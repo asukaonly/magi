@@ -130,6 +130,7 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         self._staging_buckets: dict[str, L2PendingBatchBucket] = {}
         self._staging_lock = asyncio.Lock()
         self._session_touched_entities: dict[str, set[str]] = {}
+        self._entity_resolution_cache: dict[tuple[str, str | None], tuple[str | None, float | None]] = {}
         self._stats = L2PipelineStats()
         self._projection_consumer_name = f"l2-pipeline:{uuid.uuid4().hex[:8]}"
         self._projection_claim_limit = DEFAULT_L2_PROJECTION_CLAIM_LIMIT

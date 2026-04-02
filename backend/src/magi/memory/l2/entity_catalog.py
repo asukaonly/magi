@@ -348,9 +348,9 @@ class L2EntityCatalog:
             for row in rows
         ]
 
-    async def list_entities_by_type(self, *, entity_type: str, limit: int = 100) -> list[dict[str, Any]]:
+    async def list_entities_by_type(self, *, entity_type: str, limit: int = 100, order_by_recency: bool = False) -> list[dict[str, Any]]:
         await self.initialize()
-        return await self._list_entities(limit=limit, entity_type=_normalize_catalog_entity_type(entity_type))
+        return await self._list_entities(limit=limit, entity_type=_normalize_catalog_entity_type(entity_type), order_by_recency=order_by_recency)
 
     async def find_by_canonical_name(
         self,
@@ -725,6 +725,7 @@ class L2EntityCatalog:
         limit: int,
         entity_type: Optional[str] = None,
         entity_ids: list[str] | None = None,
+        order_by_recency: bool = False,
     ) -> list[dict[str, Any]]:
         query = """
             SELECT entity_id, canonical_name, entity_type, embedding_status, embedding_profile_id, last_embedded_at
@@ -741,7 +742,10 @@ class L2EntityCatalog:
             args.extend(entity_ids)
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        query += " ORDER BY entity_id ASC LIMIT ?"
+        if order_by_recency:
+            query += " ORDER BY updated_at DESC LIMIT ?"
+        else:
+            query += " ORDER BY entity_id ASC LIMIT ?"
         args.append(int(limit))
 
         async with sqlite_connection_async(self.db_path) as db:
