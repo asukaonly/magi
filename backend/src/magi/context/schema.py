@@ -36,6 +36,7 @@ class SelfMemoryContext:
     state_transition_rules: List[Dict[str, str]] = field(default_factory=list)  # STP behavioral rules
     scenario_prompt: Optional[str] = None  # Scenario behavior constraint prompt
     active_persona_layers: List[Dict[str, Any]] = field(default_factory=list)  # Unlocked persona layers
+    persona_journal_entries: List[Dict[str, Any]] = field(default_factory=list)  # Recent persona reflections
 
 
 @dataclass
