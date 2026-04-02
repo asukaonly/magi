@@ -510,6 +510,12 @@ class HybridRetrievalService:
         if actionable_count == 0:
             return "l2_entity_card_only"
 
+        # When the LLM routed entirely to L2 and L1 has no events, the
+        # knowledge graph data alone may be insufficient.  Trigger the
+        # backstop so L1 full-text search fills the conversation-context gap.
+        if not payload.l1_events:
+            return "l1_empty_with_l2_data"
+
         coverage_spans = extract_quoted_spans(query)
         missing_reason = "missing_quoted_coverage"
         if not coverage_spans:

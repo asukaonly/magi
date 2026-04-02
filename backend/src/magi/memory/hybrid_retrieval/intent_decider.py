@@ -581,6 +581,7 @@ Routing guidance:
 - Questions asking for summaries, recaps, or reflections should prefer L3.
 - Questions asking how something was done before should prefer L4.
 - If the user asks about event order, duration, or "how many days/weeks before/after", prefer L1.
+- When L2 is the primary layer, ALWAYS include an L1 plan as well (is_fallback=false). Knowledge graph entries may be incomplete; the original conversation in L1 provides essential supporting context for answering.
 
 L2 plan fields:
 - For L2 plans about the user's own preferences/facts, set subject_hint to "self".

@@ -1094,6 +1094,34 @@ class TestServiceFallback:
 
         assert reason == "missing_comparison_coverage"
 
+    def test_rule_backstop_triggers_when_l1_empty_but_l2_has_data(self):
+        """When the LLM routes entirely to L2, the backstop should trigger
+        so that L1 full-text search fills the conversation-context gap."""
+        payload = RetrievalPayload(
+            l1_events=[],
+            l2_relationships=[{"subject": "user", "predicate": "owns", "object": "hamster"}],
+            l2_assertions=[],
+        )
+        reason = HybridRetrievalService._rule_backstop_reason(
+            query="What is the name of my hamster?",
+            payload=payload,
+            decision_source="llm",
+        )
+        assert reason == "l1_empty_with_l2_data"
+
+    def test_rule_backstop_does_not_trigger_when_l1_has_events(self):
+        """When L1 already has events, no backstop is needed for L1 gap."""
+        payload = RetrievalPayload(
+            l1_events=[{"event_id": "e1", "content": "My hamster is named Biscuit"}],
+            l2_relationships=[{"subject": "user", "predicate": "owns", "object": "hamster"}],
+        )
+        reason = HybridRetrievalService._rule_backstop_reason(
+            query="What is the name of my hamster?",
+            payload=payload,
+            decision_source="llm",
+        )
+        assert reason is None
+
     @pytest.mark.asyncio
     async def test_comparison_backstop_runs_for_rule_fallback_when_primary_is_empty(self):
         mem = _make_memory()
