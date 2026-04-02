@@ -50,18 +50,19 @@ def build_answer_prompt_payload(
     evidence_bundles: list[dict[str, Any]] | None = None,
     timeline_summary: list[dict[str, Any]] | None = None,
 ) -> AnswerPromptPayload:
+    prioritize_timeline = should_prioritize_timeline(question, timeline_summary)
+
     evidence_blocks: list[str] = []
     for index, hit in enumerate(hits, start=1):
         content = str(hit.get("content") or "").strip()
         if not content:
             continue
-        content = _maybe_truncate_assistant_content(content, hit)
+        if prioritize_timeline:
+            content = _maybe_truncate_assistant_content(content, hit)
         session_id = str(hit.get("session_id") or "").strip() or "unknown-session"
         turn_id = str(hit.get("turn_id") or "").strip() or "unknown-turn"
         evidence_blocks.append(f"[{index}] session={session_id} turn={turn_id}\n{content}")
     evidence_text = "\n\n".join(evidence_blocks) if evidence_blocks else "(no evidence retrieved)"
-
-    prioritize_timeline = should_prioritize_timeline(question, timeline_summary)
     timeline_blocks: list[str] = []
     for index, item in enumerate(timeline_summary or [], start=1):
         timestamp = item.get("timestamp")
@@ -88,7 +89,7 @@ def build_answer_prompt_payload(
             content = str(event.get("content") or "").strip()
             if not content:
                 continue
-            if author_type == "assistant" and len(content) > _ASSISTANT_CONTENT_MAX_CHARS:
+            if prioritize_timeline and author_type == "assistant" and len(content) > _ASSISTANT_CONTENT_MAX_CHARS:
                 content = content[:_ASSISTANT_CONTENT_MAX_CHARS] + "..."
             lines.append(f"- t={timestamp} role={author_type} turn={turn_id}: {content}")
         bundle_blocks.append("\n".join(lines))

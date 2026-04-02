@@ -112,12 +112,12 @@ def test_build_answer_prompt_payload_requests_short_issue_answer():
     )
 
 
-def test_build_answer_prompt_payload_truncates_assistant_evidence():
+def test_build_answer_prompt_payload_truncates_assistant_evidence_for_temporal():
     long_assistant_content = "A" * 500
     short_user_content = "I visited Paris last summer."
 
     payload = build_answer_prompt_payload(
-        question="Where did I travel?",
+        question="Which trip happened first, Paris or Tokyo?",
         hits=[
             {
                 "event_id": "evt-1",
@@ -155,9 +155,19 @@ def test_build_answer_prompt_payload_truncates_assistant_evidence():
                 ],
             }
         ],
+        timeline_summary=[
+            {
+                "timestamp": 1.0,
+                "session_id": "sess-1",
+                "turn_id": "turn-1",
+                "author_type": "user",
+                "summary": "Visited Paris.",
+            },
+        ],
     )
 
-    # Assistant evidence in hits is truncated
+    assert payload.prioritize_timeline is True
+    # Assistant evidence in hits is truncated for temporal questions
     assert long_assistant_content not in payload.evidence_text
     assert "A" * 300 + "..." in payload.evidence_text
     # User evidence is kept intact
@@ -167,3 +177,39 @@ def test_build_answer_prompt_payload_truncates_assistant_evidence():
     assert "A" * 300 + "..." in payload.bundle_text
     # User content in bundles is kept intact
     assert short_user_content in payload.bundle_text
+
+
+def test_build_answer_prompt_payload_keeps_assistant_evidence_for_non_temporal():
+    long_assistant_content = "A" * 500
+
+    payload = build_answer_prompt_payload(
+        question="What travel tips did you give me?",
+        hits=[
+            {
+                "event_id": "evt-1",
+                "session_id": "sess-1",
+                "content": long_assistant_content,
+                "score": 0.9,
+                "turn_id": "turn-1",
+                "metadata": {"author_type": "assistant"},
+            },
+        ],
+        evidence_bundles=[
+            {
+                "session_id": "sess-1",
+                "events": [
+                    {
+                        "turn_id": "turn-1",
+                        "timestamp": 1.0,
+                        "author_type": "assistant",
+                        "content": long_assistant_content,
+                    },
+                ],
+            }
+        ],
+    )
+
+    assert payload.prioritize_timeline is False
+    # Assistant evidence is NOT truncated for non-temporal questions
+    assert long_assistant_content in payload.evidence_text
+    assert long_assistant_content in payload.bundle_text
