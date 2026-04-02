@@ -22,6 +22,15 @@ const windowSecondsByScale: Record<TimelineScale, number> = {
   hour: 60 * 60,
 };
 
+const formatWindowLabel = (start: number, end: number): string => {
+  const s = new Date(start * 1000);
+  const e = new Date(end * 1000);
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  const sf = s.toLocaleDateString(undefined, opts);
+  const ef = e.toLocaleDateString(undefined, opts);
+  return sf === ef ? sf : `${sf} – ${ef}`;
+};
+
 export const TimelinePage: React.FC = () => {
   const { t } = useTranslation('app');
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
@@ -87,18 +96,15 @@ export const TimelinePage: React.FC = () => {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="border-b border-border/60 px-6 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-primary">{t('timeline.hero.eyebrow')}</div>
-            <div className="space-y-1">
-              <h1 className="text-[clamp(1.75rem,2.6vw,2.2rem)] font-semibold tracking-tight text-foreground">
-                {t('timeline.title')}
-              </h1>
-              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('timeline.subtitle')}</p>
-            </div>
+      {/* Header */}
+      <header className="shrink-0 border-b border-border/40 px-6 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-lg font-semibold text-foreground">{t('timeline.title')}</h1>
+            <span className="hidden text-sm text-muted-foreground/60 sm:inline">
+              {formatWindowLabel(viewportStart, viewportEnd)}
+            </span>
           </div>
-
           <TimelineToolbar
             scale={scale}
             draftQuery={draftQuery}
@@ -111,28 +117,36 @@ export const TimelinePage: React.FC = () => {
                 setViewportStart(Math.floor(Date.now() / 1000) - windowSecondsByScale[item]);
               });
             }}
-            onPrevious={() => setViewportStart((value) => value - windowSecondsByScale[scale])}
-            onNext={() => setViewportStart((value) => value + windowSecondsByScale[scale])}
+            onPrevious={() => setViewportStart((v) => v - windowSecondsByScale[scale])}
+            onNext={() => setViewportStart((v) => v + windowSecondsByScale[scale])}
             onRefresh={() => void loadViewport('refresh')}
           />
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
+      {/* Main content */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
         <section className="min-h-0 overflow-y-auto px-6 py-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-          <div className="mt-4 space-y-4">
-            {loading ? (
-              <div className="flex h-full min-h-[220px] items-center justify-center gap-3 text-sm text-muted-foreground">
-                <LoadingSpinner className="h-4 w-4" />
-                {t('timeline.loading')}
-              </div>
-            ) : viewport ? (
-              <TimelineViewport scale={scale} viewport={viewport} onOpenContext={(anchorId) => void handleOpenContext(anchorId)} />
-            ) : null}
-          </div>
+          {loading ? (
+            <div className="flex min-h-[200px] items-center justify-center gap-2 text-sm text-muted-foreground">
+              <LoadingSpinner className="h-4 w-4" />
+              {t('timeline.loading')}
+            </div>
+          ) : viewport ? (
+            <TimelineViewport
+              scale={scale}
+              viewport={viewport}
+              onOpenContext={(anchorId) => void handleOpenContext(anchorId)}
+            />
+          ) : null}
         </section>
 
-        <TimelineContextDrawer selectedAnchorId={selectedAnchorId} loading={loadingContext} contextBundle={contextBundle} />
+        <TimelineContextDrawer
+          selectedAnchorId={selectedAnchorId}
+          loading={loadingContext}
+          contextBundle={contextBundle}
+          onClose={() => setSelectedAnchorId(null)}
+        />
       </div>
     </div>
   );

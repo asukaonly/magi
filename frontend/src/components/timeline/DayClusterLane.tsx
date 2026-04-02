@@ -2,83 +2,103 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { TimelineClusterBlock } from '@/api/modules/timeline';
-import { Button } from '@/components/ui/button';
 
 interface DayClusterLaneProps {
   clusters: TimelineClusterBlock[];
   onOpenContext: (anchorId: string) => void;
 }
 
-const formatDuration = (durationSeconds: number): string => {
-  const hours = Math.floor(durationSeconds / 3600);
-  const minutes = Math.floor((durationSeconds % 3600) / 60);
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  return `${minutes}m`;
+const formatDuration = (seconds: number): string => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 };
+
+const formatTimeRange = (start: number, end: number): string => {
+  const fmt = (ts: number) =>
+    new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }).format(
+      new Date(ts * 1000),
+    );
+  return `${fmt(start)}–${fmt(end)}`;
+};
+
+const MODE_COLORS: Record<string, string> = {
+  chrome_history: 'hsl(210 55% 58%)',
+  chat: 'hsl(280 45% 58%)',
+  git_activity: 'hsl(150 45% 45%)',
+  terminal_history: 'hsl(35 60% 50%)',
+  screen_time: 'hsl(340 50% 55%)',
+  calendar: 'hsl(190 50% 48%)',
+  photo_library: 'hsl(25 65% 55%)',
+  netease_music: 'hsl(0 60% 58%)',
+  manual_journal: 'hsl(45 55% 50%)',
+};
+
+const modeColor = (mode: string): string =>
+  MODE_COLORS[mode] || `hsl(${(mode.charCodeAt(0) * 37) % 360} 35% 55%)`;
 
 export const DayClusterLane: React.FC<DayClusterLaneProps> = ({ clusters, onOpenContext }) => {
   const { t } = useTranslation('app');
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-1">
       {clusters.map((cluster) => (
         <article
           key={cluster.block_id}
-          className="overflow-hidden rounded-[28px] border border-border/60 bg-[radial-gradient(circle_at_top_left,rgba(14,116,144,0.12),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(190,24,93,0.1),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.84))] p-5 shadow-[0_18px_60px_-36px_rgba(15,23,42,0.45)] transition-transform duration-200 hover:-translate-y-0.5"
+          role="button"
+          tabIndex={0}
+          className="group flex cursor-pointer gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-muted/40"
+          onClick={() => onOpenContext(cluster.block_id)}
+          onKeyDown={(e) => { if (e.key === 'Enter') onOpenContext(cluster.block_id); }}
         >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-border/60 bg-white/80 px-2.5 py-1 text-xs font-medium text-foreground">{cluster.dominant_mode}</span>
-                <span className="text-xs text-muted-foreground">{formatDuration(cluster.duration_seconds)}</span>
-                <span className="rounded-full bg-black/5 px-2.5 py-1 text-xs text-muted-foreground">{cluster.event_count} events</span>
-              </div>
-              <h2 className="text-xl font-semibold tracking-tight text-foreground">{cluster.label}</h2>
-              <p className="text-sm leading-6 text-muted-foreground">{cluster.summary}</p>
+          {/* Left: time + mode indicator */}
+          <div className="flex w-20 shrink-0 flex-col items-end pt-0.5">
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {formatTimeRange(cluster.time_start, cluster.time_end)}
+            </span>
+            <span className="mt-1 text-[11px] tabular-nums text-muted-foreground/60">
+              {formatDuration(cluster.duration_seconds)}
+            </span>
+          </div>
 
-              {cluster.state_snapshot ? (
-                <div className="grid gap-2 pt-1 sm:grid-cols-3">
-                  <div className="rounded-2xl bg-white/70 px-3 py-3">
-                    <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Valence</div>
-                    <div className="mt-1 text-lg font-semibold text-foreground">{Math.round((cluster.state_snapshot.valence || 0) * 100)}%</div>
-                  </div>
-                  <div className="rounded-2xl bg-white/70 px-3 py-3">
-                    <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Stress</div>
-                    <div className="mt-1 text-lg font-semibold text-foreground">{Math.round((cluster.state_snapshot.stress_level || 0) * 100)}%</div>
-                  </div>
-                  <div className="rounded-2xl bg-white/70 px-3 py-3">
-                    <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Engagement</div>
-                    <div className="mt-1 text-lg font-semibold text-foreground">{Math.round((cluster.state_snapshot.engagement || 0) * 100)}%</div>
-                  </div>
-                </div>
-              ) : null}
+          {/* Mode colour bar */}
+          <div className="flex w-1 shrink-0 flex-col items-center pt-1">
+            <div
+              className="h-full w-1 rounded-full"
+              style={{ backgroundColor: modeColor(cluster.dominant_mode), opacity: 0.6 }}
+            />
+          </div>
 
-              <div className="flex flex-wrap gap-2 pt-1">
-                {cluster.keywords.map((keyword) => (
-                  <span key={keyword} className="rounded-full bg-amber-100/80 px-3 py-1 text-xs font-medium text-amber-950">
-                    {keyword}
-                  </span>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {cluster.source_types.map((source) => (
-                  <span key={source} className="rounded-full border border-border/60 bg-white/80 px-3 py-1 text-xs text-muted-foreground">
-                    {source}
-                  </span>
-                ))}
-              </div>
+          {/* Content */}
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex items-baseline gap-2">
+              <h3 className="truncate text-sm font-medium text-foreground">{cluster.label}</h3>
+              <span className="shrink-0 text-xs text-muted-foreground/60">
+                {cluster.event_count} {t('timeline.cluster.events')}
+              </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              aria-label={`${t('timeline.actions.openContext')}:${cluster.block_id}`}
-              onClick={() => onOpenContext(cluster.block_id)}
-            >
-              {t('timeline.actions.openContext')}
-            </Button>
+
+            {cluster.summary && (
+              <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                {cluster.summary}
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-1.5">
+              {cluster.source_types.map((src) => (
+                <span
+                  key={src}
+                  className="rounded-md bg-secondary/60 px-1.5 py-0.5 text-[11px] text-secondary-foreground"
+                >
+                  {t(`timeline.sources.${src}`, src)}
+                </span>
+              ))}
+              {cluster.keywords.slice(0, 4).map((kw) => (
+                <span key={kw} className="text-[11px] text-muted-foreground/70">
+                  #{kw}
+                </span>
+              ))}
+            </div>
           </div>
         </article>
       ))}

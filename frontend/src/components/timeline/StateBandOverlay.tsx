@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { TimelineStateBand, TimelineStateMarker } from '@/api/modules/timeline';
 
@@ -8,97 +9,128 @@ interface StateBandOverlayProps {
   scale: 'month' | 'week' | 'day' | 'hour';
 }
 
-const clampPercent = (value: number | undefined): number => {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, Math.round(value * 100)));
+const clamp01 = (v: number | undefined): number => {
+  if (typeof v !== 'number' || Number.isNaN(v)) return 0;
+  return Math.max(0, Math.min(1, v));
 };
 
-const scaleLabelMap: Record<StateBandOverlayProps['scale'], string> = {
-  month: 'Monthly climate',
-  week: 'Weekly rhythm',
-  day: 'Daily arc',
-  hour: 'Hourly pulse',
+const pct = (v: number | undefined): number => Math.round(clamp01(v) * 100);
+
+/** Map valence (-1…1) to a muted HSL colour. */
+const valenceColor = (v: number): string => {
+  const hue = 200 - v * 180;
+  const sat = 12 + Math.abs(v) * 38;
+  const light = 52 - Math.abs(v) * 6;
+  return `hsl(${Math.round(hue)} ${Math.round(sat)}% ${Math.round(light)}%)`;
 };
 
-export const StateBandOverlay: React.FC<StateBandOverlayProps> = ({ bands, markers, scale }) => {
-  if (bands.length === 0 && markers.length === 0) {
-    return null;
-  }
+/** Tiny inline bar for a 0-1 metric. */
+const MetricBar: React.FC<{ value: number; color: string }> = ({ value, color }) => (
+  <div className="h-1 w-full rounded-full bg-foreground/[0.06]">
+    <div
+      className="h-full rounded-full transition-all duration-500"
+      style={{ width: `${Math.max(4, pct(value))}%`, backgroundColor: color }}
+    />
+  </div>
+);
 
-  const primaryBand = bands[0];
-  const bandGradient = bands.length > 0
-    ? `linear-gradient(90deg, rgba(14,116,144,0.18) 0%, rgba(190,24,93,0.16) ${Math.max(
-        24,
-        clampPercent(primaryBand?.stress_level)
-      )}%, rgba(202,138,4,0.2) 100%)`
-    : undefined;
+const MetricCell: React.FC<{ label: string; value: number; color: string }> = ({
+  label,
+  value,
+  color,
+}) => (
+  <div className="space-y-1.5">
+    <div className="flex items-baseline justify-between">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium tabular-nums text-foreground">{pct(value)}%</span>
+    </div>
+    <MetricBar value={value} color={color} />
+  </div>
+);
+
+export const StateBandOverlay: React.FC<StateBandOverlayProps> = ({ bands, markers, scale: _scale }) => {
+  const { t } = useTranslation('app');
+
+  const summary = useMemo(() => {
+    if (bands.length === 0) return null;
+    const avg = (fn: (b: TimelineStateBand) => number) =>
+      bands.reduce((s, b) => s + fn(b), 0) / bands.length;
+    return {
+      valence: avg((b) => b.valence),
+      stress: avg((b) => b.stress_level),
+      engagement: avg((b) => b.engagement),
+    };
+  }, [bands]);
+
+  if (bands.length === 0 && markers.length === 0) return null;
 
   return (
-    <section
-      className="overflow-hidden rounded-[28px] border border-border/60 bg-[radial-gradient(circle_at_top_left,rgba(190,24,93,0.08),transparent_34%),radial-gradient(circle_at_top_right,rgba(14,116,144,0.12),transparent_30%),linear-gradient(180deg,rgba(15,23,42,0.02),rgba(15,23,42,0.08))] p-5"
-      style={bandGradient ? { backgroundImage: `${bandGradient}, radial-gradient(circle at top left, rgba(190,24,93,0.08), transparent 34%), radial-gradient(circle at top right, rgba(14,116,144,0.12), transparent 30%), linear-gradient(180deg, rgba(15,23,42,0.02), rgba(15,23,42,0.08))` } : undefined}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-2">
-          <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{scaleLabelMap[scale]}</div>
-          <div className="flex flex-wrap items-center gap-2">
-            {primaryBand?.label ? (
-              <span className="rounded-full border border-white/40 bg-white/60 px-3 py-1 text-xs font-medium text-foreground shadow-sm backdrop-blur">
-                {primaryBand.label}
-              </span>
-            ) : null}
-            <span className="rounded-full bg-foreground/[0.04] px-3 py-1 text-xs text-muted-foreground">{bands.length} bands</span>
-            <span className="rounded-full bg-foreground/[0.04] px-3 py-1 text-xs text-muted-foreground">{markers.length} markers</span>
-          </div>
+    <section className="space-y-4">
+      {/* Metric summary */}
+      {summary && (
+        <div className="grid grid-cols-3 gap-3">
+          <MetricCell
+            label={t('timeline.metrics.valence')}
+            value={summary.valence}
+            color="hsl(var(--primary) / 0.65)"
+          />
+          <MetricCell
+            label={t('timeline.metrics.stress')}
+            value={summary.stress}
+            color="hsl(0 50% 58%)"
+          />
+          <MetricCell
+            label={t('timeline.metrics.engagement')}
+            value={summary.engagement}
+            color="hsl(152 40% 46%)"
+          />
         </div>
+      )}
 
-        <div className="grid min-w-[220px] flex-1 gap-2 sm:grid-cols-3">
-          <div className="rounded-2xl bg-white/60 px-3 py-3 backdrop-blur">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Valence</div>
-            <div className="mt-2 text-lg font-semibold text-foreground">{clampPercent(primaryBand?.valence)}%</div>
-          </div>
-          <div className="rounded-2xl bg-white/60 px-3 py-3 backdrop-blur">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Stress</div>
-            <div className="mt-2 text-lg font-semibold text-foreground">{clampPercent(primaryBand?.stress_level)}%</div>
-          </div>
-          <div className="rounded-2xl bg-white/60 px-3 py-3 backdrop-blur">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Engagement</div>
-            <div className="mt-2 text-lg font-semibold text-foreground">{clampPercent(primaryBand?.engagement)}%</div>
-          </div>
-        </div>
-      </div>
-
-      {bands.length > 0 ? (
-        <div className="mt-5 grid gap-2">
+      {/* Band strip visualization */}
+      {bands.length > 0 && (
+        <div className="space-y-1.5">
           {bands.map((band) => (
-            <div key={band.band_id} className="grid grid-cols-[120px_minmax(0,1fr)] items-center gap-3">
-              <div className="text-xs font-medium text-muted-foreground">{band.label}</div>
-              <div className="relative h-3 overflow-hidden rounded-full bg-black/5">
+            <div key={band.band_id} className="group flex items-center gap-3">
+              <span className="w-20 shrink-0 truncate text-xs text-muted-foreground">
+                {band.label}
+              </span>
+              <div className="relative flex h-2 flex-1 items-center rounded-sm bg-foreground/[0.04]">
                 <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,rgba(14,116,144,0.7),rgba(217,119,6,0.72),rgba(190,24,93,0.7))]"
-                  style={{ width: `${Math.max(18, clampPercent(band.engagement || band.valence))}%` }}
+                  className="absolute inset-y-0 left-0 rounded-sm transition-all duration-500"
+                  style={{
+                    width: `${Math.max(2, pct(band.engagement || band.valence))}%`,
+                    backgroundColor: valenceColor(band.valence),
+                    opacity: 0.5 + clamp01(band.confidence) * 0.4,
+                  }}
                 />
+                {band.stress_level > 0.6 && (
+                  <div
+                    className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-red-400/60"
+                    style={{ left: `${pct(band.stress_level)}%` }}
+                  />
+                )}
               </div>
+              <span className="w-8 text-right text-[11px] tabular-nums text-muted-foreground/60">
+                {pct(band.engagement)}
+              </span>
             </div>
           ))}
         </div>
-      ) : null}
+      )}
 
-      {markers.length > 0 ? (
-        <div className="mt-5 flex flex-wrap gap-3">
+      {/* State shift markers */}
+      {markers.length > 0 && (
+        <div className="flex flex-col gap-2 border-l-2 border-primary/20 pl-4">
           {markers.map((marker) => (
-            <div
-              key={marker.marker_id}
-              className="max-w-xl rounded-2xl border border-white/50 bg-white/70 px-4 py-3 text-sm text-muted-foreground shadow-sm backdrop-blur"
-            >
-              <div className="text-[11px] uppercase tracking-[0.14em] text-foreground/70">{marker.label}</div>
-              <div className="mt-1">{marker.summary}</div>
+            <div key={marker.marker_id} className="text-sm">
+              <span className="font-medium text-foreground">{marker.label}</span>
+              <span className="mx-1.5 text-muted-foreground/40">·</span>
+              <span className="text-muted-foreground">{marker.summary}</span>
             </div>
           ))}
         </div>
-      ) : null}
+      )}
     </section>
   );
 };

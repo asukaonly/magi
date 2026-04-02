@@ -108,9 +108,26 @@
       "emptyTitle": "Nothing on the timeline yet",
       "emptyBody": "Once Magi captures activity or you add a note, your memory timeline will start to take shape."
     },
+    "metrics": {
+      "valence": "Valence",
+      "stress": "Stress",
+      "engagement": "Engagement"
+    },
+    "highlights": {
+      "title": "Highlights"
+    },
+    "cluster": {
+      "events": "events"
+    },
+    "activity": {
+      "distribution": "Activity distribution"
+    },
+    "reflection": {
+      "patternSignal": "Pattern"
+    },
     "summary": {
-      "totalEvents": "Total events",
-      "clusterCount": "Cluster blocks"
+      "totalEvents": "events",
+      "clusterCount": "clusters"
     },
     "errors": {
       "loadFailed": "Failed to load timeline: {{message}}",

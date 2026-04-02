@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { TimelineViewportResponse } from '@/api/modules/timeline';
+import type { TimelineClusterBlock, TimelineViewportResponse } from '@/api/modules/timeline';
 import DayClusterLane from '@/components/timeline/DayClusterLane';
+import HighlightCards from '@/components/timeline/HighlightCards';
 import HourDetailLane from '@/components/timeline/HourDetailLane';
 import MonthOverviewLane from '@/components/timeline/MonthOverviewLane';
 import StateBandOverlay from '@/components/timeline/StateBandOverlay';
@@ -13,22 +14,55 @@ interface TimelineViewportProps {
   onOpenContext: (anchorId: string) => void;
 }
 
+/** Pick "highlight" clusters: high event_count or notable keywords. */
+const extractHighlights = (clusters: TimelineClusterBlock[], limit = 3): TimelineClusterBlock[] =>
+  [...clusters]
+    .sort((a, b) => b.event_count - a.event_count)
+    .slice(0, limit);
+
 export const TimelineViewport: React.FC<TimelineViewportProps> = ({ scale, viewport, onOpenContext }) => {
   const { t } = useTranslation('app');
 
+  const highlights = useMemo(
+    () => (scale === 'month' || scale === 'week') ? extractHighlights(viewport.clusters) : [],
+    [scale, viewport.clusters],
+  );
+
   return (
-    <>
-      <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
-        <span>{viewport.summary.event_count} {t('timeline.summary.totalEvents')}</span>
-        <span>{viewport.summary.cluster_count} {t('timeline.summary.clusterCount')}</span>
+    <div className="space-y-6">
+      {/* Summary counts */}
+      <div className="flex gap-4 text-xs text-muted-foreground">
+        <span>
+          <span className="font-medium tabular-nums text-foreground">{viewport.summary.event_count}</span>{' '}
+          {t('timeline.summary.totalEvents')}
+        </span>
+        <span>
+          <span className="font-medium tabular-nums text-foreground">{viewport.summary.cluster_count}</span>{' '}
+          {t('timeline.summary.clusterCount')}
+        </span>
       </div>
 
+      {/* State bands */}
       <StateBandOverlay bands={viewport.state_bands} markers={viewport.state_markers} scale={scale} />
 
-      {scale === 'month' ? <MonthOverviewLane reflections={viewport.reflections} stateBands={viewport.state_bands} /> : null}
-      {(scale === 'week' || scale === 'day') ? <DayClusterLane clusters={viewport.clusters} onOpenContext={onOpenContext} /> : null}
-      {scale === 'hour' ? <HourDetailLane rawEvents={viewport.raw_events} /> : null}
-    </>
+      {/* Highlights (month/week) */}
+      {highlights.length > 0 && (
+        <HighlightCards highlights={highlights} onOpenContext={onOpenContext} />
+      )}
+
+      {/* Scale-specific lanes */}
+      {scale === 'month' && (
+        <MonthOverviewLane
+          reflections={viewport.reflections}
+          stateBands={viewport.state_bands}
+          clusters={viewport.clusters}
+        />
+      )}
+      {(scale === 'week' || scale === 'day') && (
+        <DayClusterLane clusters={viewport.clusters} onOpenContext={onOpenContext} />
+      )}
+      {scale === 'hour' && <HourDetailLane rawEvents={viewport.raw_events} />}
+    </div>
   );
 };
 

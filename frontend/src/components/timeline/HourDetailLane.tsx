@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock3 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import type { TimelineRawEvent } from '@/api/modules/timeline';
 
@@ -7,32 +7,41 @@ interface HourDetailLaneProps {
   rawEvents: TimelineRawEvent[];
 }
 
-const formatTimestamp = (timestamp: number): string =>
-  new Intl.DateTimeFormat('en-US', {
+const formatTimestamp = (ts: number): string =>
+  new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).format(new Date(timestamp * 1000));
+  }).format(new Date(ts * 1000));
 
-export const HourDetailLane: React.FC<HourDetailLaneProps> = ({ rawEvents }) => (
-  <div className="space-y-4">
-    {rawEvents.map((event) => (
-      <article
-        key={event.event_id}
-        className="relative overflow-hidden rounded-[24px] border border-border/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.82))] p-5"
-      >
-        <div className="absolute left-0 top-5 h-16 w-1 rounded-r-full bg-[linear-gradient(180deg,rgba(14,116,144,0.8),rgba(190,24,93,0.8))]" />
-        <div className="flex items-center gap-2 pl-3 text-xs text-muted-foreground">
-          <Clock3 className="h-3.5 w-3.5" />
-          {formatTimestamp(event.timestamp)}
-          <span className="text-muted-foreground/60">•</span>
-          {event.source_type}
+export const HourDetailLane: React.FC<HourDetailLaneProps> = ({ rawEvents }) => {
+  const { t } = useTranslation('app');
+
+  return (
+    <div className="space-y-0.5">
+      {rawEvents.map((event) => (
+        <div
+          key={event.event_id}
+          className="group flex gap-4 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/40"
+        >
+          <span className="w-12 shrink-0 pt-0.5 text-right text-xs tabular-nums text-muted-foreground">
+            {formatTimestamp(event.timestamp)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm font-medium text-foreground">{event.title}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground/50">
+                {t(`timeline.sources.${event.source_type}`, event.source_type)}
+              </span>
+            </div>
+            {event.summary && (
+              <p className="mt-0.5 line-clamp-1 text-sm text-muted-foreground">{event.summary}</p>
+            )}
+          </div>
         </div>
-        <h2 className="mt-2 pl-3 text-lg font-semibold text-foreground">{event.title}</h2>
-        <p className="mt-2 pl-3 text-sm leading-6 text-muted-foreground">{event.summary}</p>
-      </article>
-    ))}
-  </div>
-);
+      ))}
+    </div>
+  );
+};
 
 export default HourDetailLane;

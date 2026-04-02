@@ -108,9 +108,26 @@
       "emptyTitle": "时间线上还没有内容",
       "emptyBody": "当 Magi 开始记录活动，或你补充一条笔记后，这里会逐渐形成你的记忆时间线。"
     },
+    "metrics": {
+      "valence": "情绪",
+      "stress": "压力",
+      "engagement": "参与度"
+    },
+    "highlights": {
+      "title": "亮点"
+    },
+    "cluster": {
+      "events": "事件"
+    },
+    "activity": {
+      "distribution": "活动分布"
+    },
+    "reflection": {
+      "patternSignal": "模式"
+    },
     "summary": {
-      "totalEvents": "事件总数",
-      "clusterCount": "聚类时段数"
+      "totalEvents": "事件",
+      "clusterCount": "聚类"
     },
     "errors": {
       "loadFailed": "时间线加载失败：{{message}}",
