@@ -870,6 +870,131 @@ async def test_low_confidence_resolution_is_returned_as_unresolved():
 
 
 @pytest.mark.asyncio
+async def test_batch_entity_resolution_single_item_delegates():
+    """Single-item batch should delegate to non-batch resolve_entity."""
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import (
+        L2BatchEntityResolutionItem,
+        L2EntityCandidate,
+        L2EntityResolution,
+        L2EntityResolutionMention,
+    )
+
+    response = json.dumps(
+        {
+            "resolution": {
+                "decision": "match",
+                "matched_entity_id": "person:alice",
+                "matched_entity_name": "Alice",
+                "confidence": 0.95,
+                "reason_tags": ["exact_match"],
+                "should_merge": False,
+                "canonical_name_suggestion": None,
+            }
+        }
+    )
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
+    results = await service.resolve_entities_batch(
+        items=[
+            L2BatchEntityResolutionItem(
+                mention_key="0",
+                mention=L2EntityResolutionMention(mention_text="Alice", entity_type="person"),
+                candidate_entities=[L2EntityCandidate(entity_id="person:alice", canonical_name="Alice", entity_type="person")],
+            ),
+        ],
+    )
+    assert "0" in results
+    assert results["0"].decision == "match"
+    assert results["0"].matched_entity_id == "person:alice"
+
+
+@pytest.mark.asyncio
+async def test_batch_entity_resolution_multiple_items():
+    """Multiple items should be resolved in a single LLM call."""
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import (
+        L2BatchEntityResolutionItem,
+        L2EntityCandidate,
+        L2EntityResolutionMention,
+    )
+
+    response = json.dumps(
+        {
+            "resolutions": [
+                {
+                    "mention_key": "0",
+                    "decision": "match",
+                    "matched_entity_id": "person:alice",
+                    "matched_entity_name": "Alice",
+                    "confidence": 0.95,
+                    "reason_tags": ["exact"],
+                },
+                {
+                    "mention_key": "1",
+                    "decision": "unresolved",
+                    "matched_entity_id": None,
+                    "confidence": 0.3,
+                    "reason_tags": [],
+                },
+            ]
+        }
+    )
+    adapter = _FakeAdapter(response)
+    service = L2LLMService(_FakeScenarioPool(adapter))
+    results = await service.resolve_entities_batch(
+        items=[
+            L2BatchEntityResolutionItem(
+                mention_key="0",
+                mention=L2EntityResolutionMention(mention_text="Alice", entity_type="person"),
+                candidate_entities=[L2EntityCandidate(entity_id="person:alice", canonical_name="Alice", entity_type="person")],
+            ),
+            L2BatchEntityResolutionItem(
+                mention_key="1",
+                mention=L2EntityResolutionMention(mention_text="BobX", entity_type="person"),
+                candidate_entities=[L2EntityCandidate(entity_id="person:bob", canonical_name="Bob", entity_type="person")],
+            ),
+        ],
+    )
+    assert len(adapter.calls) == 1, "Should use a single LLM call for batch"
+    assert results["0"].decision == "match"
+    assert results["0"].matched_entity_id == "person:alice"
+    assert results["1"].decision == "unresolved"
+
+
+@pytest.mark.asyncio
+async def test_batch_entity_resolution_empty_returns_empty():
+    from magi.memory.l2.llm_service import L2LLMService
+
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
+    results = await service.resolve_entities_batch(items=[])
+    assert results == {}
+
+
+@pytest.mark.asyncio
+async def test_batch_entity_resolution_fills_missing_keys():
+    """If LLM omits some mention_keys, they should be filled as unresolved."""
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import (
+        L2BatchEntityResolutionItem,
+        L2EntityCandidate,
+        L2EntityResolutionMention,
+    )
+
+    response = json.dumps({"resolutions": []})  # LLM returns nothing
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
+    results = await service.resolve_entities_batch(
+        items=[
+            L2BatchEntityResolutionItem(
+                mention_key="0",
+                mention=L2EntityResolutionMention(mention_text="X", entity_type="person"),
+                candidate_entities=[L2EntityCandidate(entity_id="person:x", canonical_name="X", entity_type="person")],
+            ),
+        ],
+    )
+    assert results["0"].decision == "unresolved"
+
+
+@pytest.mark.asyncio
 async def test_invalid_json_from_reconcile_llm_fails_closed():
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import (
@@ -4115,6 +4240,84 @@ class TestSameNameEntityDedup:
             )
             # person and software are NOT mergeable -> different entity_id
             assert resolved2[0].resolved_entity_id != first_id
+
+
+class TestEntityResolutionCache:
+    """Tests for session-level entity resolution memo cache."""
+
+    @pytest.mark.asyncio
+    async def test_cache_avoids_repeated_alias_lookups(self):
+        from magi.memory.l2.models import L2Phase1Result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+            phase1 = L2Phase1Result.from_dict({
+                "entities": [
+                    {"surface": "Magi", "entity_type": "software", "confidence": 0.95,
+                     "normalized_name": "Magi"},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            })
+            event1 = _make_memory_event(event_id="evt-cache-1", content="test Magi")
+            resolved1 = await pipeline._resolve_phase1_entities(
+                event1, phase1, evidence_event_ids=["evt-cache-1"],
+            )
+            assert len(resolved1) == 1
+            first_id = resolved1[0].resolved_entity_id
+
+            # Second call with identical mention should hit cache
+            event2 = _make_memory_event(event_id="evt-cache-2", content="test Magi again")
+            resolved2 = await pipeline._resolve_phase1_entities(
+                event2, phase1, evidence_event_ids=["evt-cache-2"],
+            )
+            assert len(resolved2) == 1
+            assert resolved2[0].resolved_entity_id == first_id
+
+            # Verify cache is populated
+            cache = getattr(pipeline, "_entity_resolution_cache", {})
+            assert ("magi", "software") in cache
+
+    @pytest.mark.asyncio
+    async def test_cache_key_is_type_sensitive(self):
+        from magi.memory.l2.models import L2Phase1Result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = await _build_pipeline(temp_dir=temp_dir)
+
+            # Create entity "Magi" as software
+            phase1_sw = L2Phase1Result.from_dict({
+                "entities": [
+                    {"surface": "Magi", "entity_type": "software", "confidence": 0.95,
+                     "normalized_name": "Magi"},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            })
+            event1 = _make_memory_event(event_id="evt-ct-1", content="test Magi sw")
+            await pipeline._resolve_phase1_entities(
+                event1, phase1_sw, evidence_event_ids=["evt-ct-1"],
+            )
+
+            # Create entity "Magi" as person (different type → different cache key)
+            phase1_person = L2Phase1Result.from_dict({
+                "entities": [
+                    {"surface": "Magi", "entity_type": "person", "confidence": 0.95,
+                     "normalized_name": "Magi"},
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            })
+            event2 = _make_memory_event(event_id="evt-ct-2", content="test Magi person")
+            resolved2 = await pipeline._resolve_phase1_entities(
+                event2, phase1_person, evidence_event_ids=["evt-ct-2"],
+            )
+            assert len(resolved2) == 1
+
+            cache = getattr(pipeline, "_entity_resolution_cache", {})
+            assert ("magi", "software") in cache
+            assert ("magi", "person") in cache
 
 
 class TestPhase2CatalogNameIndex:

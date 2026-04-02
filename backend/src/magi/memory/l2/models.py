@@ -685,6 +685,22 @@ class L2EntityCandidate:
 
 
 @dataclass(slots=True)
+class L2BatchEntityResolutionItem:
+    """One mention + its candidates for batch entity resolution."""
+
+    mention_key: str
+    mention: L2EntityResolutionMention
+    candidate_entities: list[L2EntityCandidate]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mention_key": self.mention_key,
+            "mention": self.mention.to_dict(),
+            "candidate_entities": [c.to_dict() for c in self.candidate_entities],
+        }
+
+
+@dataclass(slots=True)
 class L2ReconcileEntity:
     """Typed entity payload used for reconcile prompts."""
 
