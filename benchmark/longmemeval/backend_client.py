@@ -15,7 +15,7 @@ from magi.memory.eval_support.contracts import EvalMemoryHit, EvalMemoryQuery, E
 class BackendEvalService:
     """Thin async wrapper over benchmark-facing memory eval API endpoints."""
 
-    def __init__(self, backend_url: str, *, timeout_seconds: float = 120.0) -> None:
+    def __init__(self, backend_url: str, *, timeout_seconds: float = 600.0) -> None:
         self._backend_url = str(backend_url).rstrip("/")
         self._timeout_seconds = float(timeout_seconds)
 
