@@ -12,6 +12,8 @@ def build_eval_hits_from_payload(payload: Any) -> list[EvalMemoryHit]:
     hits: list[EvalMemoryHit] = []
     for event in getattr(payload, "l1_events", []) or []:
         metadata = dict(event.get("metadata") or {})
+        if "author_type" not in metadata and event.get("author_type"):
+            metadata["author_type"] = str(event["author_type"])
         hits.append(
             EvalMemoryHit(
                 event_id=str(event.get("event_id") or ""),
