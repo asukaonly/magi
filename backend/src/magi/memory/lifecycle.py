@@ -174,3 +174,34 @@ class L2MaintenanceScheduleRegistrationModule(LifecycleModule):
             return
         await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
         self._contrib = None
+
+
+class L3DigestScheduleRegistrationModule(LifecycleModule):
+    """Register L3 digest generation with the unified scheduler."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_l3_digest_scheduler",
+            dependencies=(
+                "runtime_scheduler",
+                "runtime_configuration",
+                "runtime_memory",
+                "runtime_exports",
+            ),
+        )
+        self._context = context
+        self._contrib: Any = None
+
+    async def init(self) -> None:
+        from .l3.digest_schedule import L3DigestScheduleContrib
+
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        self._contrib = L3DigestScheduleContrib()
+        await self._contrib.register_schedules(scheduler_service)
+
+    async def shutdown(self) -> None:
+        if self._contrib is None or self._context.scheduler.scheduler_service is None:
+            self._contrib = None
+            return
+        await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None

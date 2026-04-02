@@ -129,6 +129,14 @@
       "totalEvents": "事件",
       "clusterCount": "聚类"
     },
+    "digest": {
+      "title": "每日摘要",
+      "generate": "生成",
+      "generated": "摘要生成成功",
+      "noEvents": "所选时段暂无事件",
+      "generateFailed": "摘要生成失败：{{message}}",
+      "empty": "暂无摘要。点击生成，获取融入人格视角的每日回顾。"
+    },
     "errors": {
       "loadFailed": "时间线加载失败：{{message}}",
       "detailFailed": "时间线上下文加载失败：{{message}}"

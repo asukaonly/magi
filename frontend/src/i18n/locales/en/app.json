@@ -129,6 +129,14 @@
       "totalEvents": "events",
       "clusterCount": "clusters"
     },
+    "digest": {
+      "title": "Daily Digest",
+      "generate": "Generate",
+      "generated": "Digest generated successfully",
+      "noEvents": "No events found for the selected period",
+      "generateFailed": "Failed to generate digest: {{message}}",
+      "empty": "No digests yet. Generate one to see a personality-infused summary of your day."
+    },
     "errors": {
       "loadFailed": "Failed to load timeline: {{message}}",
       "detailFailed": "Failed to load timeline context: {{message}}"
