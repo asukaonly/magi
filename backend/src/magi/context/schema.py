@@ -34,6 +34,7 @@ class SelfMemoryContext:
     retrieval_memory: RetrievalMemoryContext = field(default_factory=RetrievalMemoryContext)
     state_transition_override: Optional[str] = None
     scenario_prompt: Optional[str] = None  # Scenario behavior constraint prompt
+    active_persona_layers: List[Dict[str, Any]] = field(default_factory=list)  # Unlocked persona layers
 
 
 @dataclass

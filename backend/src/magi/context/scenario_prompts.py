@@ -268,14 +268,37 @@ async def initialize_default_prompts(store: ScenarioPromptsStore, persona_name: 
     """
     Initialize default scenario prompts.
 
+    Loads persona-specific prompts from personality JSON files first,
+    then falls back to DEFAULT_SCENARIO_PROMPTS for defaults.
+
     Args:
         store: ScenarioPromptsStore instance.
         persona_name: Current persona name.
     """
+    # Load default prompts from the hardcoded dict
     for (persona, scenario), prompt in DEFAULT_SCENARIO_PROMPTS.items():
-        # Only init default and current persona prompts
         if persona == "default" or persona == persona_name:
             existing = await store.get_prompt(persona, scenario)
             if not existing:
                 await store.set_prompt(persona, scenario, prompt)
                 logger.info(f"Initialized default scenario prompt: {persona}/{scenario}")
+
+    # Load persona-specific prompts from personality JSON
+    if persona_name != "default":
+        await _load_persona_scenario_prompts(store, persona_name)
+
+
+async def _load_persona_scenario_prompts(store: ScenarioPromptsStore, persona_name: str) -> None:
+    """Load scenario prompts from a personality JSON file into the store."""
+    try:
+        from ..personality.loader import get_personality_loader
+        loader = get_personality_loader()
+        config = loader.load(persona_name)
+        if config.scenario_prompts:
+            for scenario, prompt in config.scenario_prompts.items():
+                existing = await store.get_prompt(persona_name, scenario)
+                if not existing:
+                    await store.set_prompt(persona_name, scenario, prompt)
+                    logger.info(f"Loaded persona scenario prompt from JSON: {persona_name}/{scenario}")
+    except Exception as exc:
+        logger.debug(f"Could not load persona scenario prompts for {persona_name}: {exc}")

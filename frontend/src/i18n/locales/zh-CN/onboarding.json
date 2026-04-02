@@ -323,7 +323,6 @@
     "arrayHint": "短语现在按列表编辑，可逐条新增或删除",
     "noAvatar": "未设置头像",
     "groups": {
-      "magi": "MAGI 人格",
       "general": "通用人格",
       "custom": "自定义人格"
     }

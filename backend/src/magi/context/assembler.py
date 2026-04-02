@@ -169,13 +169,86 @@ class PromptContextAssembler:
                 # Fall back to default persona prompt
                 scenario_prompt_text = await self.scenario_prompts_store.get_prompt("default", scenario)
 
+        # Evaluate persona layers
+        active_layers = await self._evaluate_persona_layers(
+            self_memory=self_memory,
+            user_id=user_id,
+        )
+
         return SelfMemoryContext(
             persona_entity=persona_entity,
             dynamic_state=dynamic_state,
             retrieval_memory=retrieval_memory,
             state_transition_override=state_transition_override,
             scenario_prompt=scenario_prompt_text,
+            active_persona_layers=active_layers,
         )
+
+    async def _evaluate_persona_layers(
+        self,
+        *,
+        self_memory,
+        user_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Evaluate which persona layers are unlocked based on trust and milestones."""
+        if self_memory is None:
+            return []
+
+        config = await self_memory.get_core_personality()
+        if not hasattr(config, "persona_layers") or not config.persona_layers:
+            return []
+
+        # Get relationship data for trust evaluation
+        relation = {}
+        if user_id:
+            relation = await self_memory.get_relationship(user_id) or {}
+
+        trust_level = float(relation.get("trust_level", 0.0))
+        total_interactions = int(relation.get("total_interactions", 0))
+
+        # Get milestones for milestone-gated layers
+        milestone_titles: set = set()
+        try:
+            milestones = await self_memory.get_milestones(limit=200)
+            milestone_titles = {m.get("title", "") for m in milestones if isinstance(m, dict)}
+        except Exception:
+            pass
+
+        active_layers: List[Dict[str, Any]] = []
+        for layer in config.persona_layers:
+            layer_id = getattr(layer, "layer_id", "")
+            condition = getattr(layer, "unlock_condition", None)
+
+            # Surface layer is always active (no overrides)
+            if layer_id == "surface" or condition is None:
+                continue
+
+            # Check trust gate
+            trust_gate = condition.get("trust_level_gte", 0.0) if isinstance(condition, dict) else 0.0
+            if trust_level < trust_gate:
+                continue
+
+            # Check interaction count gate
+            interaction_gate = condition.get("interaction_count_gte", 0) if isinstance(condition, dict) else 0
+            if total_interactions < interaction_gate:
+                continue
+
+            # Check milestone gate
+            milestone_req = condition.get("milestone_required") if isinstance(condition, dict) else None
+            if milestone_req and milestone_req not in milestone_titles:
+                continue
+
+            # Layer is unlocked
+            layer_data: Dict[str, Any] = {"layer_id": layer_id}
+            override = getattr(layer, "persona_override", None)
+            if override:
+                layer_data["persona_override"] = override
+            hints = getattr(layer, "behavior_hints", None)
+            if hints:
+                layer_data["behavior_hints"] = hints
+            active_layers.append(layer_data)
+
+        return active_layers
 
     async def _build_profile_memory_context(self, *, self_memory, other_memory, user_id: str) -> ProfileMemoryContext:
         user_name = "unknown"
@@ -293,6 +366,7 @@ class PromptContextRenderer:
         ])
 
         lines.extend(self._render_persona_entity(context.self_memory.persona_entity))
+        lines.extend(self._render_active_persona_layers(context.self_memory.active_persona_layers))
         lines.extend(self._render_dynamic_state(context.self_memory.dynamic_state))
         lines.extend(self._render_scenario_prompt(context.self_memory.scenario_prompt))
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
@@ -361,6 +435,34 @@ class PromptContextRenderer:
             refusal = behavior.get("refusal_style", "")
             if refusal:
                 lines.append(f"* Refusal Style: {refusal}")
+            lines.append("")
+
+        return lines
+
+    def _render_active_persona_layers(self, layers: List[Dict[str, Any]]) -> List[str]:
+        """Render unlocked persona layer overrides."""
+        if not layers:
+            return []
+
+        lines = ["# Persona Depth Layer (Unlocked)"]
+        lines.append("[System Notice: The following behavioral shifts are active based on the relationship depth with this user. They take priority over baseline persona traits where they conflict.]")
+        lines.append("")
+
+        for layer in layers:
+            layer_id = layer.get("layer_id", "unknown")
+            lines.append(f"## Layer: {layer_id}")
+
+            override = layer.get("persona_override")
+            if isinstance(override, dict):
+                for key, value in override.items():
+                    label = key.replace("_", " ").title()
+                    lines.append(f"* {label}: {value}")
+
+            hints = layer.get("behavior_hints")
+            if isinstance(hints, list) and hints:
+                lines.append("* Behavioral Shifts:")
+                for hint in hints:
+                    lines.append(f"  - {hint}")
             lines.append("")
 
         return lines

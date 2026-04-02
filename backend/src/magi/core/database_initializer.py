@@ -376,6 +376,29 @@ class DatabaseInitializer:
                         logger.info(f"Inserted default scenario prompt: {persona}/{scenario}")
                         inserted_count += 1
 
+            # Load persona-specific prompts from personality JSON
+            if persona_name != "default":
+                try:
+                    from ..personality.loader import get_personality_loader
+                    loader = get_personality_loader()
+                    config = loader.load(persona_name)
+                    if config.scenario_prompts:
+                        for scenario, prompt in config.scenario_prompts.items():
+                            cursor = await db.execute(
+                                "SELECT 1 FROM scenario_prompts WHERE persona = ? AND scenario = ?",
+                                (persona_name, scenario)
+                            )
+                            if not await cursor.fetchone():
+                                now = time.time()
+                                await db.execute(
+                                    "INSERT INTO scenario_prompts (persona, scenario, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                                    (persona_name, scenario, prompt, now, now)
+                                )
+                                logger.info(f"Inserted persona scenario prompt from JSON: {persona_name}/{scenario}")
+                                inserted_count += 1
+                except Exception as exc:
+                    logger.warning(f"Could not load persona scenario prompts for {persona_name}: {exc}")
+
             await db.commit()
 
             if inserted_count > 0:

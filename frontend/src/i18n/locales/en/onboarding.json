@@ -322,7 +322,6 @@
     "arrayHint": "Edit cached phrases as a list and add/remove items as needed",
     "noAvatar": "No avatar selected",
     "groups": {
-      "magi": "MAGI Personalities",
       "general": "General Personalities",
       "custom": "Custom Personality"
     }

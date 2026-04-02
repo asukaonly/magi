@@ -73,11 +73,21 @@ class StateTransitionProtocolItem:
 
 
 @dataclass
+class PersonaLayerItem:
+    layer_id: str = ""
+    unlock_condition: Optional[Dict[str, Any]] = None
+    persona_override: Optional[Dict[str, str]] = None
+    behavior_hints: Optional[List[str]] = None
+
+
+@dataclass
 class PersonalityConfig:
     persona_entity: PersonaEntity = field(default_factory=PersonaEntity)
     cached_phrases: CachedPhrases = field(default_factory=CachedPhrases)
     appearance_prompt: str = ""
     state_transition_protocol: List[StateTransitionProtocolItem] = field(default_factory=list)
+    persona_layers: List[PersonaLayerItem] = field(default_factory=list)
+    scenario_prompts: Dict[str, str] = field(default_factory=dict)
 
     @property
     def name(self) -> str:
@@ -96,6 +106,8 @@ class PersonalityConfig:
         behavior = persona.get("behavioral_strategies", {})
         phrases = data.get("cached_phrases", {})
         transitions = data.get("state_transition_protocol", [])
+        layers = data.get("persona_layers", [])
+        scenario_prompts_raw = data.get("scenario_prompts", {})
 
         return cls(
             persona_entity=PersonaEntity(
@@ -111,6 +123,17 @@ class PersonalityConfig:
                 for item in transitions
                 if isinstance(item, dict)
             ],
+            persona_layers=[
+                PersonaLayerItem(
+                    layer_id=item.get("layer_id", ""),
+                    unlock_condition=item.get("unlock_condition"),
+                    persona_override=item.get("persona_override"),
+                    behavior_hints=item.get("behavior_hints"),
+                )
+                for item in layers
+                if isinstance(item, dict)
+            ],
+            scenario_prompts=dict(scenario_prompts_raw) if isinstance(scenario_prompts_raw, dict) else {},
         )
 
     def to_dict(self) -> Dict[str, Any]:
