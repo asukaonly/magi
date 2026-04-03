@@ -579,3 +579,49 @@ async def test_bridge_publishes_usage_event_with_prompt_and_completion_tokens(mo
     assert payload.completion_tokens == 8
     assert payload.total_tokens == 28
     assert payload.session_id == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_dashscope_chat_disables_thinking_when_requested():
+    llm = DummyLLMAdapter(provider="dashscope")
+    bridge = LLMProviderBridge(llm)
+
+    await bridge.chat(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        disable_thinking=True,
+    )
+
+    assert llm.chat_kwargs["extra_body"] == {"enable_thinking": False}
+
+
+@pytest.mark.asyncio
+async def test_dashscope_chat_enables_thinking_when_not_disabled():
+    llm = DummyLLMAdapter(provider="dashscope")
+    bridge = LLMProviderBridge(llm)
+
+    await bridge.chat(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        disable_thinking=False,
+    )
+
+    assert llm.chat_kwargs["extra_body"] == {"enable_thinking": True}
+
+
+@pytest.mark.asyncio
+async def test_dashscope_chat_with_tools_disables_thinking_for_openai_compatible_path():
+    message = SimpleNamespace(content="ok", tool_calls=[])
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="dashscope", client=client)
+    bridge = LLMProviderBridge(llm)
+
+    await bridge.chat_with_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        disable_thinking=True,
+    )
+
+    assert client.kwargs["extra_body"] == {"enable_thinking": False}

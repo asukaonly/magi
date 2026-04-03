@@ -144,6 +144,16 @@ class LLMProviderBridge:
         return None  # GLM defaults to thinking enabled
 
     @staticmethod
+    def _build_dashscope_thinking_params(depth: ThinkingDepth) -> Dict[str, Any]:
+        """Build DashScope/Bailian extra_body payload for thinking control.
+
+        DashScope uses ``enable_thinking`` boolean in extra_body.
+        """
+        if depth == ThinkingDepth.NONE:
+            return {"enable_thinking": False}
+        return {"enable_thinking": True}
+
+    @staticmethod
     def _build_openai_reasoning_params(depth: ThinkingDepth) -> Dict[str, Any]:
         """Build OpenAI-compatible extra kwargs for reasoning effort."""
         mapping = {
@@ -194,7 +204,12 @@ class LLMProviderBridge:
         """
         provider = self._provider_name()
 
-        if provider == "glm":
+        if provider == "dashscope":
+            extra_body = self._build_dashscope_thinking_params(thinking_depth)
+            existing = kwargs.get("extra_body", {})
+            kwargs["extra_body"] = {**existing, **extra_body}
+
+        elif provider == "glm":
             extra_body = self._build_glm_thinking_params(thinking_depth)
             if extra_body:
                 existing = kwargs.get("extra_body", {})

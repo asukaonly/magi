@@ -242,3 +242,74 @@ def test_scenario_llm_pool_detects_glm_compatible_custom_provider() -> None:
             "embedding_dimension": None,
         }
     ]
+
+
+def test_scenario_llm_pool_detects_dashscope_custom_provider() -> None:
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    created: list[dict[str, object]] = []
+    config = _build_test_config()
+    config.llm.providers["custom_dashscope"] = config.llm.providers["openai"].model_copy(
+        update={
+            "provider_type": LLMProvider.CUSTOM,
+            "display_name": "Bailian",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": "sk-custom-dashscope",
+            "api_format": "openai",
+            "custom_models": ["qwen-plus"],
+            "custom_default_model": "qwen-plus",
+        }
+    )
+    config.llm.selections["core"].provider_id = "custom_dashscope"
+    config.llm.selections["core"].model = "qwen-plus"
+
+    def adapter_factory(**kwargs) -> DummyAdapter:
+        created.append(dict(kwargs))
+        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+
+    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
+
+    core_llm = pool.get(LLMScenario.CORE)
+
+    assert core_llm.provider_name == "dashscope"
+    assert created == [
+        {
+            "provider_type": "dashscope",
+            "api_key": "sk-custom-dashscope",
+            "model": "qwen-plus",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "timeout": 60,
+            "embedding_dimension": None,
+        }
+    ]
+
+
+def test_dashscope_provider_takes_priority_over_glm_model_name() -> None:
+    """When Bailian proxies a GLM model, platform URL wins over model-name hint."""
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    created: list[dict[str, object]] = []
+    config = _build_test_config()
+    config.llm.providers["custom_dashscope_glm"] = config.llm.providers["openai"].model_copy(
+        update={
+            "provider_type": LLMProvider.CUSTOM,
+            "display_name": "Bailian",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": "sk-dashscope",
+            "api_format": "openai",
+            "custom_models": ["glm-4"],
+            "custom_default_model": "glm-4",
+        }
+    )
+    config.llm.selections["core"].provider_id = "custom_dashscope_glm"
+    config.llm.selections["core"].model = "glm-4"
+
+    def adapter_factory(**kwargs) -> DummyAdapter:
+        created.append(dict(kwargs))
+        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+
+    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
+
+    core_llm = pool.get(LLMScenario.CORE)
+
+    assert core_llm.provider_name == "dashscope"

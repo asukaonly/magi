@@ -20,6 +20,7 @@ class OpenAIAdapter(LLMAdapter):
     # Legacy fallback value retained for compatibility references.
     DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
     GLM_DISABLED_THINKING_PAYLOAD = {"thinking": {"type": "disabled"}}
+    DASHSCOPE_DISABLED_THINKING_PAYLOAD = {"enable_thinking": False}
 
     def __init__(
         self,
@@ -67,7 +68,9 @@ class OpenAIAdapter(LLMAdapter):
         """
         payload = dict(kwargs)
         disable_thinking = payload.pop("disable_thinking", None)
-        if self._provider != "glm" or disable_thinking is not True:
+        if disable_thinking is not True:
+            return payload
+        if self._provider not in ("glm", "dashscope"):
             return payload
 
         extra_body = payload.get("extra_body")
@@ -75,7 +78,11 @@ class OpenAIAdapter(LLMAdapter):
             merged_extra_body = dict(extra_body)
         else:
             merged_extra_body = {}
-        merged_extra_body.update(self.GLM_DISABLED_THINKING_PAYLOAD)
+
+        if self._provider == "dashscope":
+            merged_extra_body.update(self.DASHSCOPE_DISABLED_THINKING_PAYLOAD)
+        else:
+            merged_extra_body.update(self.GLM_DISABLED_THINKING_PAYLOAD)
         payload["extra_body"] = merged_extra_body
         return payload
 

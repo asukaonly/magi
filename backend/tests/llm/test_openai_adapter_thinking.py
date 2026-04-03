@@ -127,3 +127,35 @@ async def test_embedding_forwards_configured_dimension() -> None:
 
     assert vector == [0.1, 0.2, 0.3]
     assert fake_client.embeddings.kwargs["dimensions"] == 1024
+
+
+@pytest.mark.asyncio
+async def test_dashscope_chat_disable_thinking_sets_extra_body() -> None:
+    adapter = OpenAIAdapter(api_key="test-key", model="qwen-plus", provider="dashscope")
+    fake_client = _FakeOpenAIClient()
+    adapter._client = fake_client
+
+    await adapter.chat(
+        messages=[{"role": "user", "content": "hello"}],
+        disable_thinking=True,
+    )
+
+    assert fake_client.completions.kwargs["extra_body"] == {"enable_thinking": False}
+
+
+@pytest.mark.asyncio
+async def test_dashscope_chat_disable_thinking_merges_existing_extra_body() -> None:
+    adapter = OpenAIAdapter(api_key="test-key", model="qwen-plus", provider="dashscope")
+    fake_client = _FakeOpenAIClient()
+    adapter._client = fake_client
+
+    await adapter.chat(
+        messages=[{"role": "user", "content": "hello"}],
+        disable_thinking=True,
+        extra_body={"foo": "bar"},
+    )
+
+    assert fake_client.completions.kwargs["extra_body"] == {
+        "foo": "bar",
+        "enable_thinking": False,
+    }
