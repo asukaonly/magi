@@ -167,22 +167,68 @@ class L1Handler(RRFSearchHandler):
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Query L1 using BM25 + vector + keyword, fused via RRF."""
+        """Query L1 using BM25 + vector + keyword + entity expansion, fused via RRF."""
         if not conditions.content_query:
             return []
         fetch_k = max(conditions.limit * 5, 20)
-        return await self._rrf_execute(
-            content_query=conditions.content_query,
-            limit=conditions.limit,
-            bm25_coro=self._bm25_path(conditions.content_query, fetch_k, user_id=user_id),
-            vector_coro=self._vector_path(conditions.content_query, fetch_k, user_id=user_id),
-            keyword_coro=self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id),
-            hydrate_coro_fn=lambda ids: self._fetch_and_filter(
-                event_ids=ids, conditions=conditions, time_range=time_range,
-                session_id=session_id, user_id=user_id,
-            ),
-            time_range=time_range,
+
+        # Phase 1: Run 3 core retrieval paths in parallel
+        results_or_errors = await asyncio.gather(
+            self._bm25_path(conditions.content_query, fetch_k, user_id=user_id),
+            self._vector_path(conditions.content_query, fetch_k, user_id=user_id),
+            self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id),
+            return_exceptions=True,
         )
+
+        bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
+        vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
+        kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
+
+        for i, res in enumerate(results_or_errors):
+            if isinstance(res, BaseException):
+                logger.warning("L1 search path %d failed: %s", i, res)
+
+        # Phase 2: Entity co-occurrence expansion using top seed IDs
+        seed_ids: List[str] = list(dict.fromkeys(bm25_ids[:10] + vec_ids[:10] + kw_ids[:10]))
+        entity_ids: List[str] = []
+        if seed_ids:
+            try:
+                entity_ids = await self._store.expand_by_entities(seed_ids, limit=fetch_k)
+            except Exception as exc:
+                logger.warning("L1 entity expansion failed: %s", exc)
+
+        if not bm25_ids and not vec_ids and not kw_ids and not entity_ids:
+            return []
+
+        # Phase 3: 4-way RRF fusion
+        cfg = self._config
+        ranked_lists: list[Sequence[str]] = [bm25_ids, vec_ids, kw_ids]
+        weights = [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword]
+        if entity_ids:
+            ranked_lists.append(entity_ids)
+            weights.append(cfg.rrf_weight_entity)
+
+        fused = rrf_fuse(ranked_lists, weights, k=cfg.rrf_k)
+        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
+        if not top_ids:
+            return []
+
+        # Phase 4: Hydrate, filter, rerank
+        results = await self._fetch_and_filter(
+            event_ids=top_ids, conditions=conditions, time_range=time_range,
+            session_id=session_id, user_id=user_id,
+        )
+
+        if time_range and results:
+            results = self._filter_by_time(results, time_range)
+
+        reranked = await self._reranker.rerank(
+            layer=self.layer_name,
+            results=results,
+            query=conditions.content_query,
+            fused_scores=dict(fused),
+        )
+        return reranked[:conditions.limit]
 
     async def _bm25_path(self, query: str, limit: int, *, user_id: Optional[str] = None) -> List[str]:
         """BM25 search via FTS5, optionally scoped to *user_id*."""
@@ -328,6 +374,16 @@ class L1Handler(RRFSearchHandler):
         else:
             query += " AND memory_domain != ?"
             args.append(int(MemoryDomain.RUNTIME_TELEMETRY))
+
+        # Temporal pre-filter: push time_range into SQL to avoid
+        # wasting hydration slots on out-of-range events.
+        if time_range:
+            if time_range.start is not None:
+                query += " AND timestamp >= ?"
+                args.append(time_range.start)
+            if time_range.end is not None:
+                query += " AND timestamp <= ?"
+                args.append(time_range.end)
 
         async with sqlite_connection_async(self._store.db_path) as db:
             db.row_factory = aiosqlite.Row

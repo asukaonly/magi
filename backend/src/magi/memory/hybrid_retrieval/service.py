@@ -392,7 +392,11 @@ class HybridRetrievalService:
         request: RetrievalQuery,
         payload: RetrievalPayload,
     ) -> list[LayerQueryPlan]:
-        """Add service-level evidence plans for semantic affinity queries when needed."""
+        """Add service-level evidence plans for semantic affinity queries when needed.
+
+        Also guarantees that at least one L1 plan is always present so
+        entity-expansion retrieval is never skipped.
+        """
         seen_signatures = {self._plan_signature(plan) for plan in primary_plans}
         augmented_plans = list(primary_plans)
         added_joint_l1_plan = False
@@ -410,6 +414,22 @@ class HybridRetrievalService:
 
         if added_joint_l1_plan:
             payload.trace["joint_l1_affinity_evidence"] = True
+
+        # Ensure L1 always participates (entity co-occurrence expansion)
+        has_l1 = any(p.layer == "L1" for p in augmented_plans)
+        if not has_l1:
+            l1_plan = LayerQueryPlan(
+                layer="L1",
+                conditions=L1Conditions(
+                    content_query=request.query,
+                    source_filters=request.source_filters or None,
+                    domain_filters=request.domain_filters or None,
+                    limit=10,
+                ),
+                is_fallback=False,
+            )
+            augmented_plans.append(l1_plan)
+            payload.trace["l1_always_injected"] = True
 
         return augmented_plans
 

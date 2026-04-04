@@ -205,6 +205,7 @@ class RetrievalConfig:
     rrf_weight_bm25: float = 1.0
     rrf_weight_vector: float = 1.0
     rrf_weight_keyword: float = 0.5
+    rrf_weight_entity: float = 0.7
     reranker_enabled: bool = True
     reranker_backend: Literal["noop", "heuristic", "llm"] = "heuristic"
     reranker_mode: Literal["local", "remote"] = "local"

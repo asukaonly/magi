@@ -169,6 +169,26 @@ class L1EventStore:
                 );
                 """
             )
+            # l1_event_entities for entity co-occurrence expansion (separate
+            # from executescript to avoid FTS5 virtual-table edge cases).
+            await db.execute(
+                """CREATE TABLE IF NOT EXISTS l1_event_entities (
+                    event_id TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    entity_type TEXT,
+                    confidence REAL,
+                    created_at REAL NOT NULL,
+                    UNIQUE(event_id, entity_id)
+                )"""
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_l1_event_entities_event"
+                " ON l1_event_entities(event_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_l1_event_entities_entity"
+                " ON l1_event_entities(entity_id)"
+            )
             await self._ensure_event_identity_schema(db)
             await self._ensure_embedding_status_columns(db)
             await self._ensure_metadata_json_column(db)
@@ -473,6 +493,76 @@ class L1EventStore:
             ) as cursor:
                 row = await cursor.fetchone()
         return self._row_to_memory_event(row) if row else None
+
+    # ------------------------------------------------------------------
+    # L1 Event–Entity linkage (for entity co-occurrence expansion)
+    # ------------------------------------------------------------------
+
+    async def write_event_entities(
+        self,
+        mappings: List[Tuple[str, str, Optional[str], Optional[float]]],
+    ) -> int:
+        """Persist (event_id, entity_id, entity_type, confidence) tuples.
+
+        Duplicates are silently ignored via INSERT OR IGNORE.
+        Returns the number of rows inserted.
+        """
+        if not mappings:
+            return 0
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.executemany(
+                "INSERT OR IGNORE INTO l1_event_entities"
+                " (event_id, entity_id, entity_type, confidence, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [(eid, entid, etype, conf, now) for eid, entid, etype, conf in mappings],
+            )
+            await db.commit()
+            return db.total_changes
+
+    async def expand_by_entities(
+        self,
+        seed_event_ids: List[str],
+        *,
+        limit: int = 30,
+        exclude_event_ids: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Find events that share entities with *seed_event_ids*.
+
+        Returns event IDs ordered by the number of shared entities (desc).
+        """
+        if not seed_event_ids:
+            return []
+        await self.initialize()
+        exclude = set(exclude_event_ids or []) | set(seed_event_ids)
+
+        async with sqlite_connection_async(self.db_path) as db:
+            # Step 1: seed events → entity_ids
+            ph = ", ".join("?" for _ in seed_event_ids)
+            async with db.execute(
+                f"SELECT DISTINCT entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
+                tuple(seed_event_ids),
+            ) as cursor:
+                entity_ids = [row[0] for row in await cursor.fetchall()]
+
+            if not entity_ids:
+                return []
+
+            # Step 2: entity_ids → neighbouring event_ids (ranked by shared count)
+            eph = ", ".join("?" for _ in entity_ids)
+            async with db.execute(
+                f"SELECT event_id, COUNT(DISTINCT entity_id) AS shared"
+                f" FROM l1_event_entities"
+                f" WHERE entity_id IN ({eph})"
+                f" GROUP BY event_id"
+                f" ORDER BY shared DESC"
+                f" LIMIT ?",
+                (*entity_ids, limit + len(exclude)),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        return [r[0] for r in rows if r[0] not in exclude][:limit]
 
     async def find_event_id_by_idempotency(
         self,

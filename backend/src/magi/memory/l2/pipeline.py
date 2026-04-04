@@ -977,6 +977,24 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
             resolved_mention_count=len(resolved_mentions),
         )
 
+        # ── Write L1 event–entity linkage for entity co-occurrence retrieval ──
+        if resolved_mentions and self._l1_store is not None:
+            entity_mappings = [
+                (eid, m.resolved_entity_id, m.entity_type, m.confidence)
+                for m in resolved_mentions
+                if m.resolved_entity_id
+                for eid in batch_event_ids
+            ]
+            if entity_mappings:
+                try:
+                    await self._l1_store.write_event_entities(entity_mappings)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to write l1_event_entities",
+                        event_id=stored_event.event_id,
+                        exc_info=exc,
+                    )
+
         if not phase1_result.has_content:
             # Even when Phase 1 is empty, persist any structured
             # facets that accompanied the direct-written graph hints.
