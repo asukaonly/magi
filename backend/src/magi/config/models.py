@@ -113,20 +113,6 @@ class LocalEmbeddingModelSource(str, Enum):
     EXTERNAL = "external"
 
 
-class MemoryRerankerBackend(str, Enum):
-    """Retrieval reranker backend."""
-
-    HEURISTIC = "heuristic"
-    LLM = "llm"
-
-
-class MemoryRerankerMode(str, Enum):
-    """Retrieval reranker execution mode."""
-
-    LOCAL = "local"
-    REMOTE = "remote"
-
-
 class MemoryRerankerLayer(str, Enum):
     """Memory layers that can participate in reranking."""
 
@@ -135,8 +121,8 @@ class MemoryRerankerLayer(str, Enum):
     L4 = "L4"
 
 
-class MemoryRerankerLocalModelSource(str, Enum):
-    """How a local reranker model is referenced."""
+class CrossEncoderModelSource(str, Enum):
+    """How a cross-encoder reranker model is referenced."""
 
     MANAGED = "managed"
     EXTERNAL = "external"
@@ -359,36 +345,36 @@ class MemoryL4Settings(BaseModel):
     skill_extraction_enabled: bool = Field(default=True)
 
 
-class MemoryRerankerLocalSettings(BaseModel):
-    """Local reranker model settings."""
+class CrossEncoderSettings(BaseModel):
+    """Cross-encoder reranker model settings."""
 
-    model_source: MemoryRerankerLocalModelSource = Field(default=MemoryRerankerLocalModelSource.MANAGED)
+    enabled: bool = Field(default=False)
+    model_source: CrossEncoderModelSource = Field(default=CrossEncoderModelSource.MANAGED)
     managed_model_id: Optional[str] = Field(default=None)
-    model_file_path: Optional[str] = Field(default=None)
-    max_context_tokens: int = Field(default=2048, ge=1)
-
-
-class MemoryRerankerRemoteSettings(BaseModel):
-    """Remote reranker model settings."""
-
-    provider_id: str = Field(default="")
-    model: str = Field(default="")
+    model_dir_path: Optional[str] = Field(default=None)
 
 
 class MemoryRerankerSettings(BaseModel):
-    """Shared retrieval reranker settings."""
+    """Retrieval reranker settings.
 
-    enabled: bool = Field(default=False)
-    backend: MemoryRerankerBackend = Field(default=MemoryRerankerBackend.HEURISTIC)
-    mode: MemoryRerankerMode = Field(default=MemoryRerankerMode.LOCAL)
+    Heuristic reranking is always active. The cross-encoder is an optional
+    second stage that adds semantic relevance scoring on top of heuristic
+    metadata adjustments.
+    """
+
     layers: List[MemoryRerankerLayer] = Field(
         default_factory=lambda: [MemoryRerankerLayer.L1, MemoryRerankerLayer.L3]
     )
     top_k: int = Field(default=8, ge=1)
-    timeout_seconds: float = Field(default=0.8, ge=0.1)
     candidate_max_chars: int = Field(default=500, ge=50)
-    local: MemoryRerankerLocalSettings = Field(default_factory=MemoryRerankerLocalSettings)
-    remote: MemoryRerankerRemoteSettings = Field(default_factory=MemoryRerankerRemoteSettings)
+    cross_encoder: CrossEncoderSettings = Field(default_factory=CrossEncoderSettings)
+
+
+class QueryExpansionSettings(BaseModel):
+    """LLM-based query expansion settings for retrieval."""
+
+    enabled: bool = Field(default=False)
+    timeout_seconds: float = Field(default=3.0, ge=0.5)
 
 
 class MemorySettings(BaseModel):
@@ -397,6 +383,7 @@ class MemorySettings(BaseModel):
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)
+    query_expansion: QueryExpansionSettings = Field(default_factory=QueryExpansionSettings)
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
     l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)
     l2: MemoryL2Settings = Field(default_factory=MemoryL2Settings)

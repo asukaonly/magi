@@ -36,23 +36,18 @@ logger = logging.getLogger(__name__)
 def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalConfig:
     """Build retrieval config from the runtime app config."""
     reranker = app_config.agent.memory.reranker
+    qe = app_config.agent.memory.query_expansion
     return RetrievalConfig(
-        reranker_enabled=reranker.enabled,
-        reranker_backend=str(getattr(reranker.backend, "value", reranker.backend)),
-        reranker_mode=str(getattr(reranker.mode, "value", reranker.mode)),
         reranker_top_k=reranker.top_k,
         reranker_layers=tuple(
             str(getattr(layer, "value", layer))
             for layer in reranker.layers
         ),
-        reranker_timeout_seconds=reranker.timeout_seconds,
         reranker_candidate_max_chars=reranker.candidate_max_chars,
-        reranker_remote_provider_id=reranker.remote.provider_id,
-        reranker_remote_model=reranker.remote.model,
-        reranker_local_model_source=str(getattr(reranker.local.model_source, "value", reranker.local.model_source)),
-        reranker_local_managed_model_id=reranker.local.managed_model_id,
-        reranker_local_model_file_path=reranker.local.model_file_path,
-        reranker_local_max_context_tokens=reranker.local.max_context_tokens,
+        cross_encoder_enabled=reranker.cross_encoder.enabled,
+        cross_encoder_model_id=reranker.cross_encoder.managed_model_id,
+        query_expansion_enabled=qe.enabled,
+        query_expansion_timeout_seconds=qe.timeout_seconds,
     )
 
 
@@ -157,6 +152,14 @@ class HybridRetrievalService:
                     logger.warning("Primary plan %s failed: %s", plan.layer, result)
                     continue
                 self._merge_result(payload, plan.layer, result)
+
+        # 3b. Query expansion — run additional L1 plans with reformulated queries
+        if self._config.query_expansion_enabled and self._llm_provider_bridge:
+            await self._run_query_expansion(
+                original_query=request.query,
+                request=request,
+                payload=payload,
+            )
 
         # 4. Fallback if primary results are insufficient
         primary_count = self._count_results(payload)
@@ -505,6 +508,61 @@ class HybridRetrievalService:
             + len(payload.l3_reflections)
             + len(payload.l4_procedures)
         )
+
+    async def _run_query_expansion(
+        self,
+        *,
+        original_query: str,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+    ) -> None:
+        """Generate expanded query variants and run additional L1 plans."""
+        from .query_expander import QueryExpander
+
+        expander = QueryExpander(
+            self._llm_provider_bridge,
+            timeout_seconds=self._config.query_expansion_timeout_seconds,
+        )
+        expanded_queries = await expander.expand(original_query)
+        if not expanded_queries:
+            return
+
+        payload.trace["query_expansion_queries"] = expanded_queries
+
+        expansion_plans = [
+            LayerQueryPlan(
+                layer="L1",
+                conditions=L1Conditions(
+                    content_query=eq,
+                    source_filters=request.source_filters or None,
+                    domain_filters=request.domain_filters or None,
+                    limit=10,
+                ),
+                is_fallback=False,
+            )
+            for eq in expanded_queries
+        ]
+        expansion_results = await asyncio.gather(
+            *[
+                execute_plan(
+                    plan,
+                    l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                    session_id=request.session_id,
+                    user_id=request.user_id,
+                )
+                for plan in expansion_plans
+            ],
+            return_exceptions=True,
+        )
+        added = 0
+        for plan, result in zip(expansion_plans, expansion_results):
+            if isinstance(result, Exception):
+                logger.warning("Query expansion plan failed: %s", result)
+                continue
+            if isinstance(result, list):
+                added += len(result)
+            self._merge_result(payload, plan.layer, result)
+        payload.trace["query_expansion_added"] = added
 
     @staticmethod
     def _rule_backstop_reason(

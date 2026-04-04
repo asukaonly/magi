@@ -1,0 +1,69 @@
+# Preset cross-encoder reranker models for ONNX Runtime inference.
+#
+# Each entry defines a model that can be downloaded and used locally for
+# reranking retrieved memory candidates.  Models are stored under
+# ~/.magi/cache/models/rerank/{id}/
+#
+# Required files in each model directory:
+#   *.onnx or onnx/*.onnx  — ONNX model weights
+#   tokenizer.json          — HuggingFace fast tokenizer
+#
+# Cross-encoders take (query, document) pairs as input and output a single
+# relevance logit.  The reranker applies sigmoid to produce a [0, 1] score.
+
+models:
+  - id: bge-reranker-v2-m3
+    label: "BGE Reranker v2 M3"
+    repo: "BAAI/bge-reranker-v2-m3"
+    onnx_repo: "onnx-community/bge-reranker-v2-m3-ONNX"
+    max_tokens: 512
+    size_mb: 560
+    languages:
+      - multi
+    recommended: true
+    description: "Multilingual cross-encoder (Chinese + English + 100 languages), best overall quality"
+
+  - id: bge-reranker-base
+    label: "BGE Reranker Base"
+    repo: "BAAI/bge-reranker-base"
+    onnx_repo: "onnx-community/bge-reranker-base-ONNX"
+    max_tokens: 512
+    size_mb: 278
+    languages:
+      - en
+      - zh
+    recommended: false
+    description: "Lightweight Chinese-English cross-encoder, good balance of speed and accuracy"
+
+  - id: ms-marco-MiniLM-L-6-v2
+    label: "MS MARCO MiniLM L-6"
+    repo: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    onnx_repo: "onnx-community/ms-marco-MiniLM-L-6-v2-ONNX"
+    max_tokens: 512
+    size_mb: 22
+    languages:
+      - en
+    recommended: false
+    description: "Ultra-lightweight English cross-encoder (~3ms per pair), English only"
+
+  - id: ms-marco-MiniLM-L-12-v2
+    label: "MS MARCO MiniLM L-12"
+    repo: "cross-encoder/ms-marco-MiniLM-L-12-v2"
+    onnx_repo: "onnx-community/ms-marco-MiniLM-L-12-v2-ONNX"
+    max_tokens: 512
+    size_mb: 33
+    languages:
+      - en
+    recommended: false
+    description: "Lightweight English cross-encoder, slightly better than L-6"
+
+  - id: jina-reranker-v2-base-multilingual
+    label: "Jina Reranker v2 Base Multilingual"
+    repo: "jinaai/jina-reranker-v2-base-multilingual"
+    onnx_repo: "jinaai/jina-reranker-v2-base-multilingual"
+    max_tokens: 512
+    size_mb: 278
+    languages:
+      - multi
+    recommended: false
+    description: "Multilingual cross-encoder from Jina AI, alternative to BGE"
