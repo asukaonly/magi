@@ -142,7 +142,8 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/personality/current",
-            axum::routing::get(personality::get_current_personality),
+            axum::routing::get(personality::get_current_personality)
+                .put(personality::set_current_personality),
         )
         .route(
             "/api/personality/greeting",
@@ -154,7 +155,9 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/personality/{name}",
-            axum::routing::get(personality::get_personality),
+            axum::routing::get(personality::get_personality)
+                .put(personality::save_personality)
+                .delete(personality::delete_personality),
         )
         // Personality presets
         .route(

@@ -1,4 +1,5 @@
 use axum::extract::{Path, Query};
+use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -658,4 +659,199 @@ pub async fn get_preset(
     .await
     .unwrap_or_else(|_| json!({"success": false, "message": "Internal error"}));
     Json(result)
+}
+
+// ---------------------------------------------------------------------------
+// Mutation handlers
+// ---------------------------------------------------------------------------
+
+/// PUT /api/personality/current — switch active personality
+pub async fn set_current_personality(
+    Json(body): Json<Value>,
+) -> (StatusCode, Json<Value>) {
+    let name = match body.get("name").and_then(|v| v.as_str()) {
+        Some(n) if !n.is_empty() => n.to_string(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"detail": "Missing personality name"})),
+            )
+        }
+    };
+
+    let result = tokio::task::spawn_blocking(move || do_set_current(&name))
+        .await
+        .unwrap_or_else(|_| Err("Internal error".to_string()));
+
+    match result {
+        Ok(name) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "message": format!("Switched to personality: {name}"),
+                "data": {"current": name}
+            })),
+        ),
+        Err(e) => {
+            let code = if e.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (code, Json(json!({"detail": e})))
+        }
+    }
+}
+
+fn do_set_current(name: &str) -> Result<String, String> {
+    // Validate personality exists
+    load_personality_json(name)?;
+
+    let dir = personalities_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {e}"))?;
+    let current_file = dir.join("current");
+    std::fs::write(&current_file, name).map_err(|e| format!("Failed to write: {e}"))?;
+    Ok(name.to_string())
+}
+
+/// PUT /api/personality/{name} — create or update personality
+pub async fn save_personality(
+    Path(name): Path<String>,
+    Query(params): Query<SavePersonalityQuery>,
+    Json(config): Json<Value>,
+) -> (StatusCode, Json<Value>) {
+    let use_ai_name = params.use_ai_name.unwrap_or(false);
+    let result = tokio::task::spawn_blocking(move || {
+        do_save_personality(&name, config, use_ai_name)
+    })
+    .await
+    .unwrap_or_else(|_| Err("Internal error".to_string()));
+
+    match result {
+        Ok((actual_name, data)) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "message": format!("Personality configuration saved: {actual_name}"),
+                "data": {
+                    "actual_name": actual_name,
+                    "config": data,
+                }
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"detail": e})),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SavePersonalityQuery {
+    pub use_ai_name: Option<bool>,
+}
+
+fn sanitize_filename(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|ch| {
+            if "<>:\"/\\|?*".contains(ch) || ch == ' ' {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect();
+    let truncated: String = sanitized.chars().take(50).collect();
+    let trimmed = truncated.trim_matches('_');
+    if trimmed.is_empty() {
+        "unnamed".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn do_save_personality(
+    name: &str,
+    mut config: Value,
+    use_ai_name: bool,
+) -> Result<(String, Value), String> {
+    let dir = personalities_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {e}"))?;
+
+    let target_name = config
+        .pointer("/persona_entity/basic_profile/name")
+        .and_then(|v| v.as_str())
+        .map(|s| sanitize_filename(s))
+        .unwrap_or_else(|| "unnamed".to_string());
+
+    let mut actual_name = name.to_string();
+
+    if name == "new" || use_ai_name {
+        actual_name = target_name.clone();
+    } else if name == "default" && target_name != "default" && target_name != "AI_Assistant" {
+        actual_name = target_name.clone();
+    } else if name != target_name {
+        let old_filepath = dir.join(format!("{name}.json"));
+        let new_filepath = dir.join(format!("{target_name}.json"));
+        if old_filepath.exists() && !new_filepath.exists() {
+            std::fs::rename(&old_filepath, &new_filepath)
+                .map_err(|e| format!("Failed to rename: {e}"))?;
+            actual_name = target_name.clone();
+        }
+    }
+
+    // Write JSON
+    let content = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize: {e}"))?;
+    let filepath = dir.join(format!("{actual_name}.json"));
+    std::fs::write(&filepath, content).map_err(|e| format!("Failed to write: {e}"))?;
+
+    // Normalize avatar for response
+    normalize_avatar(&mut config);
+
+    Ok((actual_name, config))
+}
+
+/// DELETE /api/personality/{name}
+pub async fn delete_personality(
+    Path(name): Path<String>,
+) -> (StatusCode, Json<Value>) {
+    if name == "default" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"detail": "Cannot delete default personality"})),
+        );
+    }
+
+    let result = tokio::task::spawn_blocking(move || do_delete_personality(&name))
+        .await
+        .unwrap_or_else(|_| Err("Internal error".to_string()));
+
+    match result {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "message": format!("Personality configuration deleted"),
+                "data": null
+            })),
+        ),
+        Err(e) => {
+            let code = if e.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (code, Json(json!({"detail": e})))
+        }
+    }
+}
+
+fn do_delete_personality(name: &str) -> Result<(), String> {
+    let filepath = personalities_dir().join(format!("{name}.json"));
+    if !filepath.exists() {
+        return Err("Personality configuration not found".to_string());
+    }
+    std::fs::remove_file(&filepath).map_err(|e| format!("Failed to delete: {e}"))
 }
