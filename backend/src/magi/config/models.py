@@ -113,21 +113,6 @@ class LocalEmbeddingModelSource(str, Enum):
     EXTERNAL = "external"
 
 
-class MemoryRerankerLayer(str, Enum):
-    """Memory layers that can participate in reranking."""
-
-    L1 = "L1"
-    L3 = "L3"
-    L4 = "L4"
-
-
-class CrossEncoderModelSource(str, Enum):
-    """How a cross-encoder reranker model is referenced."""
-
-    MANAGED = "managed"
-    EXTERNAL = "external"
-
-
 class TimelineSyncMode(str, Enum):
     """Timeline source sync mode."""
 
@@ -349,9 +334,7 @@ class CrossEncoderSettings(BaseModel):
     """Cross-encoder reranker model settings."""
 
     enabled: bool = Field(default=False)
-    model_source: CrossEncoderModelSource = Field(default=CrossEncoderModelSource.MANAGED)
     managed_model_id: Optional[str] = Field(default=None)
-    model_dir_path: Optional[str] = Field(default=None)
 
 
 class MemoryRerankerSettings(BaseModel):
@@ -362,11 +345,7 @@ class MemoryRerankerSettings(BaseModel):
     metadata adjustments.
     """
 
-    layers: List[MemoryRerankerLayer] = Field(
-        default_factory=lambda: [MemoryRerankerLayer.L1, MemoryRerankerLayer.L3]
-    )
     top_k: int = Field(default=8, ge=1)
-    candidate_max_chars: int = Field(default=500, ge=50)
     cross_encoder: CrossEncoderSettings = Field(default_factory=CrossEncoderSettings)
 
 
@@ -374,36 +353,18 @@ class QueryExpansionSettings(BaseModel):
     """LLM-based query expansion settings for retrieval."""
 
     enabled: bool = Field(default=False)
-    timeout_seconds: float = Field(default=3.0, ge=0.5)
 
 
 class GraphSpreadingSettings(BaseModel):
     """Graph spreading activation settings for L2 knowledge graph BFS."""
 
     enabled: bool = Field(default=False)
-    max_hops: int = Field(default=2, ge=1, le=5)
-    max_neighbors: int = Field(default=10, ge=1)
-    max_entities: int = Field(default=50, ge=5)
-    decay: float = Field(default=0.5, ge=0.01, le=1.0)
-    rrf_weight: float = Field(default=0.6, ge=0.0)
-
-
-class RetrievalEnhancementSettings(BaseModel):
-    """Advanced retrieval enhancement settings."""
-
-    unified_reranking_enabled: bool = Field(default=False)
-    confidence_fallback_enabled: bool = Field(default=False)
-    confidence_fallback_min_score: float = Field(default=0.3, ge=0.0, le=1.0)
-    confidence_fallback_top_k: int = Field(default=5, ge=1)
 
 
 class EntitySemanticEdgeSettings(BaseModel):
     """Entity-scoped semantic edge builder settings."""
 
     enabled: bool = Field(default=False)
-    similarity_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
-    max_sibling_events: int = Field(default=20, ge=1)
-    max_edges_per_event: int = Field(default=10, ge=1)
 
 
 class MemorySettings(BaseModel):
@@ -414,7 +375,6 @@ class MemorySettings(BaseModel):
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)
     query_expansion: QueryExpansionSettings = Field(default_factory=QueryExpansionSettings)
     graph_spreading: GraphSpreadingSettings = Field(default_factory=GraphSpreadingSettings)
-    retrieval_enhancement: RetrievalEnhancementSettings = Field(default_factory=RetrievalEnhancementSettings)
     entity_semantic_edges: EntitySemanticEdgeSettings = Field(default_factory=EntitySemanticEdgeSettings)
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
     l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)

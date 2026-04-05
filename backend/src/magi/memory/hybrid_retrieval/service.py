@@ -39,27 +39,12 @@ def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalCo
     reranker = app_config.agent.memory.reranker
     qe = app_config.agent.memory.query_expansion
     gs = app_config.agent.memory.graph_spreading
-    re_ = app_config.agent.memory.retrieval_enhancement
     return RetrievalConfig(
         reranker_top_k=reranker.top_k,
-        reranker_layers=tuple(
-            str(getattr(layer, "value", layer))
-            for layer in reranker.layers
-        ),
-        reranker_candidate_max_chars=reranker.candidate_max_chars,
         cross_encoder_enabled=reranker.cross_encoder.enabled,
         cross_encoder_model_id=reranker.cross_encoder.managed_model_id,
         query_expansion_enabled=qe.enabled,
-        query_expansion_timeout_seconds=qe.timeout_seconds,
         graph_spreading_enabled=gs.enabled,
-        graph_spreading_max_hops=gs.max_hops,
-        graph_spreading_max_neighbors=gs.max_neighbors,
-        graph_spreading_max_entities=gs.max_entities,
-        graph_spreading_decay=gs.decay,
-        rrf_weight_graph=gs.rrf_weight,
-        confidence_fallback_enabled=re_.confidence_fallback_enabled,
-        confidence_fallback_min_score=re_.confidence_fallback_min_score,
-        confidence_fallback_top_k=re_.confidence_fallback_top_k,
     )
 
 

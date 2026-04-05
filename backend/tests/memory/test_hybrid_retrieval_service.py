@@ -143,23 +143,17 @@ def _make_request(**kwargs):
 
 def test_build_retrieval_config_reads_memory_reranker_settings():
     config = AppConfig()
-    config.agent.memory.reranker.layers = ["L1", "L4"]
     config.agent.memory.reranker.top_k = 9
-    config.agent.memory.reranker.candidate_max_chars = 720
     config.agent.memory.reranker.cross_encoder.enabled = True
     config.agent.memory.reranker.cross_encoder.managed_model_id = "bge-reranker-v2-m3"
     config.agent.memory.query_expansion.enabled = True
-    config.agent.memory.query_expansion.timeout_seconds = 5.0
 
     retrieval_config = build_retrieval_config_from_app_config(config)
 
-    assert retrieval_config.reranker_layers == ("L1", "L4")
     assert retrieval_config.reranker_top_k == 9
-    assert retrieval_config.reranker_candidate_max_chars == 720
     assert retrieval_config.cross_encoder_enabled is True
     assert retrieval_config.cross_encoder_model_id == "bge-reranker-v2-m3"
     assert retrieval_config.query_expansion_enabled is True
-    assert retrieval_config.query_expansion_timeout_seconds == 5.0
 
 
 class TestServiceBasicFlow:

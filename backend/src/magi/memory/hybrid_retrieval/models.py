@@ -194,11 +194,7 @@ class RetrievalConfig:
     # IntentDecider
     intent_decider_llm_enabled: bool = True
     intent_decider_llm_timeout_seconds: float = 10.0
-    intent_decider_fallback_on_error: bool = True
     intent_shadow_eval_enabled: bool = True
-
-    # BM25 / FTS5
-    fts5_enabled: bool = True
 
     # RRF
     rrf_k: int = 60
@@ -226,9 +222,6 @@ class RetrievalConfig:
     graph_spreading_decay: float = 0.5
     rrf_weight_graph: float = 0.6
 
-    # Cross-layer unified reranking
-    unified_reranking_enabled: bool = False
-
     # Confidence-aware fallback
     confidence_fallback_enabled: bool = False
     confidence_fallback_min_score: float = 0.3
@@ -236,12 +229,9 @@ class RetrievalConfig:
 
     # ResultFusion
     default_max_tokens: int = 8192
-    fallback_trigger_threshold: int = 1  # result count < N triggers fallback
+    fallback_trigger_threshold: int = 1
     l0_max_tokens: int = 512
     l0_budget_ratio: float = 0.5
-
-    # Vector search filtering
-    vector_max_distance: float = 0.7  # cosine distance cap (1 - similarity)
 
     # ManifestSelector (cross-layer LLM ranking post-fusion)
     manifest_selector_enabled: bool = False
@@ -251,5 +241,4 @@ class RetrievalConfig:
     manifest_selector_candidate_max_chars: int = 400
 
     # Token estimation
-    token_estimator: Literal["char_ratio"] = "char_ratio"
     char_per_token_ratio: float = 3.0

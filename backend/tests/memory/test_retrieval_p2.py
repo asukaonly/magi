@@ -403,10 +403,6 @@ class TestP2ConfigFields:
         assert config.graph_spreading_decay == 0.5
         assert config.rrf_weight_graph == 0.6
 
-    def test_unified_reranking_default_off(self):
-        config = RetrievalConfig()
-        assert config.unified_reranking_enabled is False
-
     def test_confidence_fallback_defaults(self):
         config = RetrievalConfig()
         assert config.confidence_fallback_enabled is False
@@ -420,35 +416,16 @@ class TestP2ConfigFields:
         app_config = MagicMock()
         reranker = app_config.agent.memory.reranker
         reranker.top_k = 8
-        reranker.layers = ["L1", "L3"]
-        reranker.candidate_max_chars = 500
         reranker.cross_encoder.enabled = False
         reranker.cross_encoder.managed_model_id = None
 
         qe = app_config.agent.memory.query_expansion
         qe.enabled = False
-        qe.timeout_seconds = 3.0
 
         gs = app_config.agent.memory.graph_spreading
         gs.enabled = True
-        gs.max_hops = 3
-        gs.max_neighbors = 15
-        gs.max_entities = 80
-        gs.decay = 0.4
-        gs.rrf_weight = 0.7
-
-        re_ = app_config.agent.memory.retrieval_enhancement
-        re_.confidence_fallback_enabled = True
-        re_.confidence_fallback_min_score = 0.4
-        re_.confidence_fallback_top_k = 3
 
         from magi.memory.hybrid_retrieval.service import build_retrieval_config_from_app_config
 
         config = build_retrieval_config_from_app_config(app_config)
         assert config.graph_spreading_enabled is True
-        assert config.graph_spreading_max_hops == 3
-        assert config.graph_spreading_decay == 0.4
-        assert config.rrf_weight_graph == 0.7
-        assert config.confidence_fallback_enabled is True
-        assert config.confidence_fallback_min_score == 0.4
-        assert config.confidence_fallback_top_k == 3

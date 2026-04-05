@@ -413,9 +413,6 @@ class TestEntitySemanticEdgeConfig:
 
         s = EntitySemanticEdgeSettings()
         assert s.enabled is False
-        assert s.similarity_threshold == 0.75
-        assert s.max_sibling_events == 20
-        assert s.max_edges_per_event == 10
 
     def test_memory_settings_includes_field(self):
         from magi.config.models import MemorySettings

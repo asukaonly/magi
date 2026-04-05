@@ -49,13 +49,10 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     config = SystemConfigModel()
 
     assert config.memory.db_path == "~/.magi/data/memory"
-    assert config.memory.reranker.layers == ["L1", "L3"]
     assert config.memory.reranker.top_k == 8
-    assert config.memory.reranker.candidate_max_chars == 500
     assert config.memory.reranker.cross_encoder.enabled is False
     assert config.memory.reranker.cross_encoder.managed_model_id is None
     assert config.memory.query_expansion.enabled is False
-    assert config.memory.query_expansion.timeout_seconds == 3.0
     assert config.memory.l0.enabled is True
     assert config.memory.l4.enabled is True
     assert config.memory.l0.checkpoint_interval_seconds == 30
@@ -197,13 +194,10 @@ def test_build_update_paths_contains_new_sections():
     current = _build_system_config(mask_api_key=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.memory.db_path = "/Users/asuka/.magi/data/custom-memories"
-    config.memory.reranker.layers = ["L1", "L4"]
     config.memory.reranker.top_k = 12
-    config.memory.reranker.candidate_max_chars = 640
     config.memory.reranker.cross_encoder.enabled = True
     config.memory.reranker.cross_encoder.managed_model_id = "bge-reranker-v2-m3"
     config.memory.query_expansion.enabled = True
-    config.memory.query_expansion.timeout_seconds = 5.0
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.preferences.default_chat_workspace_path = "/Users/asuka/code/magi"
     config.memory.l2.batch_flush_interval_seconds = 90
@@ -216,13 +210,10 @@ def test_build_update_paths_contains_new_sections():
     updates = _build_update_paths(config)
 
     assert updates["agent.memory.db_path"] == "/Users/asuka/.magi/data/custom-memories"
-    assert updates["agent.memory.reranker.layers"] == ["L1", "L4"]
     assert updates["agent.memory.reranker.top_k"] == 12
-    assert updates["agent.memory.reranker.candidate_max_chars"] == 640
     assert updates["agent.memory.reranker.cross_encoder.enabled"] is True
     assert updates["agent.memory.reranker.cross_encoder.managed_model_id"] == "bge-reranker-v2-m3"
     assert updates["agent.memory.query_expansion.enabled"] is True
-    assert updates["agent.memory.query_expansion.timeout_seconds"] == 5.0
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90

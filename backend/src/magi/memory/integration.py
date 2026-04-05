@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Set
@@ -85,7 +84,6 @@ class MemoryIntegrationModule:
 
         self._running = False
         self._subscription_ids: List[str] = []
-        self._summary_task: Optional[asyncio.Task] = None
         self._stats = MemoryIntegrationStats()
 
     async def start(self) -> None:
@@ -95,8 +93,6 @@ class MemoryIntegrationModule:
 
         self._running = True
         await self._subscribe_to_events()
-        if self.config.enable_l3 and self.unified_memory.l3 is not None:
-            self._summary_task = asyncio.create_task(self._summary_generator())
         logger.info("MemoryIntegrationModule started")
 
     async def stop(self) -> None:
@@ -106,13 +102,6 @@ class MemoryIntegrationModule:
 
         self._running = False
         await self._unsubscribe_from_events()
-
-        if self._summary_task is not None:
-            self._summary_task.cancel()
-            try:
-                await self._summary_task
-            except asyncio.CancelledError:
-                pass
 
         await self._persist_all()
         logger.info("MemoryIntegrationModule stopped")
@@ -197,22 +186,8 @@ class MemoryIntegrationModule:
             self._stats.l1_stored += 1
         return bool(result["l1_written"])
 
-    async def _summary_generator(self) -> None:
-        while self._running:
-            try:
-                await asyncio.sleep(self.config.summary_interval_minutes * 60)
-            except asyncio.CancelledError:
-                break
-
-            try:
-                summary = await self.unified_memory.generate_summary(period_type="hour")
-                if summary is not None:
-                    self._stats.l3_summaries_generated += 1
-            except Exception as exc:
-                logger.warning("Failed periodic summary generation: %s", exc)
-
     async def generate_pending_summaries(self) -> None:
-        """Force-generate a summary for the current hour."""
+        """Force-generate an hourly summary on demand."""
         summary = await self.unified_memory.generate_summary(period_type="hour")
         if summary is not None:
             self._stats.l3_summaries_generated += 1
