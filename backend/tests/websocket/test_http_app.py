@@ -30,7 +30,7 @@ def test_transport_app_exposes_ready_state(monkeypatch) -> None:
             "queue_backlog_healthy": True,
             "status": "degraded" if getattr(app.state, "backend_ready", False) else "starting",
             "runtime_status": "offline",
-            "process_role": getattr(app.state, "process_role", "api"),
+            "process_role": getattr(app.state, "process_role", "ipc_worker"),
         }
 
     monkeypatch.setattr(
@@ -40,7 +40,7 @@ def test_transport_app_exposes_ready_state(monkeypatch) -> None:
     monkeypatch.setattr("magi.websocket.http_app.get_runtime_system_status", _fake_runtime_status)
 
     app = create_transport_app()
-    app.state.process_role = "api"
+    app.state.process_role = "ipc_worker"
     client = TestClient(app)
 
     response = client.get("/api/ready")
@@ -52,7 +52,7 @@ def test_transport_app_exposes_ready_state(monkeypatch) -> None:
         "api_ready": False,
         "runtime_ready": False,
         "runtime_status": "offline",
-        "process_role": "api",
+        "process_role": "ipc_worker",
     }
 
     app.state.backend_ready = True
@@ -66,7 +66,7 @@ def test_transport_app_exposes_ready_state(monkeypatch) -> None:
         "api_ready": True,
         "runtime_ready": False,
         "runtime_status": "offline",
-        "process_role": "api",
+        "process_role": "ipc_worker",
     }
 
 
@@ -80,7 +80,7 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
             "queue_backlog_healthy": True,
             "status": "ready",
             "runtime_status": "ready",
-            "process_role": getattr(app.state, "process_role", "api"),
+            "process_role": getattr(app.state, "process_role", "ipc_worker"),
             "runtime_heartbeat_age_ms": 1200,
             "pending_commands": 4,
         }
@@ -93,7 +93,7 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
 
     app = create_transport_app()
     app.state.backend_ready = True
-    app.state.process_role = "api"
+    app.state.process_role = "ipc_worker"
     client = TestClient(app)
 
     response = client.get("/api/health")
@@ -108,7 +108,7 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
         "queue_backlog_healthy": True,
         "runtime_heartbeat_age_ms": 1200,
         "pending_commands": 4,
-        "process_role": "api",
+        "process_role": "ipc_worker",
     }
 
 

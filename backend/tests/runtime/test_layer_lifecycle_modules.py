@@ -34,51 +34,12 @@ def test_require_initialized_raises_for_missing_value() -> None:
     assert require_initialized("value", "field") == "value"
 
 
-def test_bootstrap_builds_expected_front_of_layer_order() -> None:
-    """Verify bootstrap builds lifecycle modules in expected order (first 4 layers)."""
-    from magi.bootstrap.builder import build_runtime_modules
-    from magi.bootstrap.context import RuntimeBootstrapContext
-
-    modules = build_runtime_modules(RuntimeBootstrapContext())
-
-    assert [module.name for module in modules[:4]] == [
-        "runtime_core_dependencies",
-        "runtime_configuration",
-        "runtime_command_queue",
-        "runtime_chat_store",
-    ]
-
-
-def test_bootstrap_builds_expected_middle_layer_order() -> None:
-    """Verify bootstrap builds lifecycle modules through context layer."""
-    from magi.bootstrap.builder import build_runtime_modules
-    from magi.bootstrap.context import RuntimeBootstrapContext
-
-    modules = build_runtime_modules(RuntimeBootstrapContext())
-
-    # Check that modules 0-11 match expected order
-    assert [module.name for module in modules] == [
-        "runtime_core_dependencies",
-        "runtime_configuration",
-        "runtime_command_queue",
-        "runtime_chat_store",
-        "runtime_plugin_system",
-        "runtime_llm",
-        "runtime_memory",
-        "runtime_chat_projector",
-        "runtime_trace",
-        "runtime_skills",
-        "runtime_api_exports",
-    ]
-
-
 def test_bootstrap_builds_expected_full_layer_order() -> None:
-    """Verify bootstrap builds all lifecycle modules in expected order (runtime_worker)."""
+    """Verify bootstrap builds all lifecycle modules in expected order."""
     from magi.bootstrap.builder import build_runtime_modules
     from magi.bootstrap.context import RuntimeBootstrapContext
-    from magi.process_roles import ProcessRole
 
-    modules = build_runtime_modules(RuntimeBootstrapContext(), role=ProcessRole.RUNTIME_WORKER)
+    modules = build_runtime_modules(RuntimeBootstrapContext())
 
     assert [module.name for module in modules] == [
         "runtime_core_dependencies",

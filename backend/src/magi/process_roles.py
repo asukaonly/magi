@@ -1,58 +1,17 @@
-"""Process-role contracts for backend startup topology."""
+"""Process-role contracts for backend startup topology.
+
+In the current architecture only IPC_WORKER is used: the Rust gateway
+owns HTTP/WebSocket transport and the Python sidecar runs agent runtime
+with an IPC server.
+"""
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Mapping
-
 PROCESS_ROLE_ENV_VAR = "MAGI_PROCESS_ROLE"
-
-
-class ProcessRole(str, Enum):
-    """Supported backend process roles."""
-
-    API = "api"
-    RUNTIME_WORKER = "runtime_worker"
-    UNIFIED = "unified"
-    IPC_WORKER = "ipc_worker"
-
-    @property
-    def runs_transport(self) -> bool:
-        """Return whether the role should host HTTP/WebSocket transport."""
-        return self in (ProcessRole.API, ProcessRole.UNIFIED)
-
-    @property
-    def runs_runtime(self) -> bool:
-        """Return whether the role should host the background runtime graph."""
-        return self in (ProcessRole.RUNTIME_WORKER, ProcessRole.UNIFIED, ProcessRole.IPC_WORKER)
-
-
-def resolve_process_role(
-    value: str | None = None,
-    *,
-    env: Mapping[str, str] | None = None,
-    default: ProcessRole = ProcessRole.API,
-) -> ProcessRole:
-    """Resolve the backend process role from explicit input or environment."""
-    source_env = env if env is not None else {}
-    candidate = value
-    if candidate is None or not str(candidate).strip():
-        candidate = source_env.get(PROCESS_ROLE_ENV_VAR)
-    if candidate is None or not str(candidate).strip():
-        return default
-
-    normalized = str(candidate).strip().lower().replace("-", "_")
-    try:
-        return ProcessRole(normalized)
-    except ValueError as exc:
-        supported = ", ".join(role.value for role in ProcessRole)
-        raise ValueError(
-            f"Unsupported process role '{candidate}'. Supported roles: {supported}"
-        ) from exc
+PROCESS_ROLE_VALUE = "ipc_worker"
 
 
 __all__ = [
     "PROCESS_ROLE_ENV_VAR",
-    "ProcessRole",
-    "resolve_process_role",
+    "PROCESS_ROLE_VALUE",
 ]

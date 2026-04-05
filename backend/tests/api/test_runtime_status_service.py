@@ -24,7 +24,7 @@ class _FakeRuntimeCommandQueue:
 
 
 async def test_get_runtime_system_status_reports_degraded_when_runtime_heartbeat_missing(monkeypatch) -> None:
-    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="api"))
+    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
 
     monkeypatch.setattr(service, "require_runtime_trace_store", lambda: _FakeRuntimeTraceStore(None))
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(2))
@@ -38,7 +38,7 @@ async def test_get_runtime_system_status_reports_degraded_when_runtime_heartbeat
 
 
 async def test_get_runtime_system_status_reports_ready_for_api_role(monkeypatch) -> None:
-    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="api"))
+    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
     heartbeat = RuntimeHeartbeatRecord(
         role="runtime_worker",
         instance_id="runtime-1",

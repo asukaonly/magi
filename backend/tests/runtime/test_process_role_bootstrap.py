@@ -2,59 +2,21 @@
 
 from __future__ import annotations
 
-import pytest
+
+def test_process_role_constants_exist() -> None:
+    """Verify process role module exports expected constants."""
+    from magi.process_roles import PROCESS_ROLE_ENV_VAR, PROCESS_ROLE_VALUE
+
+    assert PROCESS_ROLE_ENV_VAR == "MAGI_PROCESS_ROLE"
+    assert PROCESS_ROLE_VALUE == "ipc_worker"
 
 
-def test_resolve_process_role_defaults_to_api_mode() -> None:
-    """Verify role resolution defaults transport startup to the API role."""
-    from magi.process_roles import ProcessRole, resolve_process_role
-
-    assert resolve_process_role(None, env={}) is ProcessRole.API
-    assert resolve_process_role("", env={}) is ProcessRole.API
-
-
-def test_resolve_process_role_rejects_unknown_values() -> None:
-    """Verify unsupported process roles fail fast."""
-    from magi.process_roles import resolve_process_role
-
-    with pytest.raises(ValueError, match="Unsupported process role"):
-        resolve_process_role("worker-bee", env={})
-
-
-def test_api_role_omits_background_runtime_modules() -> None:
-    """Verify API role skips background runtime ownership."""
+def test_build_runtime_modules_includes_full_runtime() -> None:
+    """Verify IPC worker builds the full runtime module graph."""
     from magi.bootstrap.builder import build_runtime_modules
     from magi.bootstrap.context import RuntimeBootstrapContext
-    from magi.process_roles import ProcessRole
 
-    modules = build_runtime_modules(RuntimeBootstrapContext(), role=ProcessRole.API)
-    module_names = [module.name for module in modules]
-    module_by_name = {module.name: module for module in modules}
-
-    assert "runtime_agent_core" not in module_names
-    assert "runtime_scheduler" not in module_names
-    assert "runtime_agent_scheduler" not in module_names
-    assert "runtime_action_scheduler" not in module_names
-    assert "runtime_timeline_scheduler" not in module_names
-    assert "runtime_tools" not in module_names
-    assert "runtime_personality" not in module_names
-    assert "runtime_sensor_hub" not in module_names
-    assert "runtime_message_bus" not in module_names
-    assert "runtime_chat_store" in module_names
-    assert "runtime_chat_store" in module_by_name["runtime_api_exports"].dependencies
-    assert "runtime_message_bus" not in module_by_name["runtime_api_exports"].dependencies
-    assert "runtime_personality" not in module_by_name["runtime_api_exports"].dependencies
-    assert all("runtime_message_bus" not in module.dependencies for module in modules)
-    assert getattr(module_by_name["runtime_memory"], "start_memory_integration") is False
-
-
-def test_runtime_worker_role_keeps_background_runtime_modules() -> None:
-    """Verify runtime-worker role owns the background runtime graph."""
-    from magi.bootstrap.builder import build_runtime_modules
-    from magi.bootstrap.context import RuntimeBootstrapContext
-    from magi.process_roles import ProcessRole
-
-    modules = build_runtime_modules(RuntimeBootstrapContext(), role=ProcessRole.RUNTIME_WORKER)
+    modules = build_runtime_modules(RuntimeBootstrapContext())
     module_names = [module.name for module in modules]
     module_by_name = {module.name: module for module in modules}
 
@@ -67,27 +29,3 @@ def test_runtime_worker_role_keeps_background_runtime_modules() -> None:
     assert "runtime_chat_store" in module_names
     assert "runtime_chat_store" in module_by_name["runtime_exports"].dependencies
     assert getattr(module_by_name["runtime_memory"], "start_memory_integration") is True
-
-
-def test_unified_role_uses_worker_modules() -> None:
-    """Verify unified role builds the same module set as runtime_worker."""
-    from magi.bootstrap.builder import build_runtime_modules
-    from magi.bootstrap.context import RuntimeBootstrapContext
-    from magi.process_roles import ProcessRole
-
-    worker_modules = build_runtime_modules(RuntimeBootstrapContext(), role=ProcessRole.RUNTIME_WORKER)
-    unified_modules = build_runtime_modules(RuntimeBootstrapContext(), role=ProcessRole.UNIFIED)
-
-    worker_names = [m.name for m in worker_modules]
-    unified_names = [m.name for m in unified_modules]
-    assert worker_names == unified_names
-
-
-def test_unified_role_properties() -> None:
-    """Verify unified role has both transport and runtime capabilities."""
-    from magi.process_roles import ProcessRole
-
-    assert ProcessRole.UNIFIED.runs_transport is True
-    assert ProcessRole.UNIFIED.runs_runtime is True
-    assert ProcessRole.API.runs_runtime is False
-    assert ProcessRole.RUNTIME_WORKER.runs_transport is False
