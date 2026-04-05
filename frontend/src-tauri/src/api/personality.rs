@@ -89,7 +89,7 @@ fn resolve_avatar_url(avatar: &str) -> String {
     String::new()
 }
 
-fn normalize_avatar(data: &mut Value) {
+pub(super) fn normalize_avatar(data: &mut Value) {
     if let Some(avatar) = data.pointer_mut("/persona_entity/basic_profile/avatar") {
         if let Some(s) = avatar.as_str().map(|s| s.to_string()) {
             *avatar = Value::String(resolve_avatar_url(&s));
@@ -99,7 +99,7 @@ fn normalize_avatar(data: &mut Value) {
 
 // ---- Current personality state ----
 
-fn read_current_name() -> String {
+pub(super) fn read_current_name() -> String {
     let current_file = personalities_dir().join("current");
     std::fs::read_to_string(current_file)
         .map(|s| {
@@ -115,7 +115,7 @@ fn read_current_name() -> String {
 
 // ---- Personality file loading ----
 
-fn load_personality_json(name: &str) -> Result<Value, String> {
+pub(super) fn load_personality_json(name: &str) -> Result<Value, String> {
     // Try user directory first
     let user_file = personalities_dir().join(format!("{name}.json"));
     if user_file.exists() {

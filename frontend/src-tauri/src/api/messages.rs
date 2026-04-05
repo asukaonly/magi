@@ -45,7 +45,7 @@ pub async fn message_history(Query(params): Query<HistoryQuery>) -> Json<Value> 
     Json(result)
 }
 
-fn query_history(user_id: &str, session_id: &str) -> Value {
+pub(super) fn query_history(user_id: &str, session_id: &str) -> Value {
     let db_path = db::chat_db_path();
     if !db_path.exists() {
         return empty_history(user_id, session_id);

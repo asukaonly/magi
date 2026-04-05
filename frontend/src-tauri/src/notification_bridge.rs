@@ -3,7 +3,9 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
+
+use crate::api::state::WsBroadcast;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const BATCH_LIMIT: u32 = 50;
@@ -97,6 +99,7 @@ fn event_name_for_channel(channel: &str) -> &str {
 
 pub async fn run_notification_bridge(
     app: AppHandle,
+    ws_broadcast: broadcast::Sender<WsBroadcast>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let db_path = resolve_db_path();
@@ -144,13 +147,21 @@ pub async fn run_notification_bridge(
             let event = event_name_for_channel(&row.channel).to_string();
             let payload = NotificationPayload {
                 channel: row.channel,
-                user_id: row.user_id,
+                user_id: row.user_id.clone(),
                 session_id: row.session_id,
                 turn_id: row.turn_id,
-                data,
+                data: data.clone(),
             };
 
             let _ = app.emit(&event, &payload);
+
+            // Also broadcast to WebSocket clients
+            let _ = ws_broadcast.send(WsBroadcast {
+                event,
+                user_id: row.user_id,
+                data,
+            });
+
             last_id = row.notification_id;
         }
     }

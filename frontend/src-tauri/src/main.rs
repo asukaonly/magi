@@ -614,7 +614,7 @@ fn start_backend(
     let internal_port = pick_open_port()?;
     let session_token = generate_session_token();
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, main_port);
-    let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, internal_port);
+    let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, main_port);
 
     // Compute IPC socket path (Unix domain socket on macOS/Linux)
     let ipc_socket_path = {
@@ -677,10 +677,13 @@ fn start_backend(
         }
     };
 
+    let (ws_broadcast_tx, _) = tokio::sync::broadcast::channel::<api::state::WsBroadcast>(256);
+
     let api_state = api::state::ApiState {
         python_api_port: internal_port,
         client,
         ipc_client,
+        ws_broadcast: ws_broadcast_tx.clone(),
     };
     let router = api::build_router(api_state);
 
@@ -703,11 +706,11 @@ fn start_backend(
             .ok();
     });
 
-    // Start notification bridge (polls runtime_trace.db → Tauri events)
+    // Start notification bridge (polls runtime_trace.db → Tauri events + WS broadcast)
     let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::watch::channel(false);
     let bridge_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        notification_bridge::run_notification_bridge(bridge_app, bridge_shutdown_rx).await;
+        notification_bridge::run_notification_bridge(bridge_app, ws_broadcast_tx, bridge_shutdown_rx).await;
     });
 
     let mut runtime = state

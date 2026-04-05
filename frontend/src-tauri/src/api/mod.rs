@@ -12,6 +12,7 @@ mod sessions;
 pub mod state;
 mod tasks;
 mod trace;
+mod websocket;
 
 use axum::Router;
 use state::ApiState;
@@ -178,6 +179,8 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/local-embedding/discovered",
             axum::routing::get(local_embedding::discover_external_models),
         )
+        // WebSocket
+        .route("/ws", axum::routing::get(websocket::ws_handler))
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
         .layer(cors)
