@@ -201,8 +201,8 @@ tokio-stream = "0.1"
   - [x] Batch 1: Memory L1/L2/L3 (8 endpoints)
   - [x] Batch 2: Personality config + presets (7 endpoints)
   - [x] Batch 3: LLM custom-template, local-embedding discovered (2 endpoints)
-  - [ ] Remaining: config/, config/template, llm/providers/catalog, local-embedding/models (deferred — need config model sync or IPC)
-  - [ ] Runtime-dependent: tools, skills, sensors, plugins, timeline, memory L0/stats (covered by IPC proxy)
+  - [~] Remaining: config/, config/template, llm/providers/catalog, local-embedding/models (proxied via IPC — high schema coupling makes native Rust impractical)
+  - [~] Runtime-dependent: tools, skills, sensors, plugins, timeline, memory L0/stats (proxied via IPC)
 - [x] Phase 7: IPC channel — NDJSON over UDS, protocol types, client/server, ping validated
 - [x] Phase 8: Mutation endpoints + runtime-dependent reads via IPC
   - [x] 8a: api.forward IPC handler — generic ASGI dispatch for all unmigrated endpoints
@@ -218,10 +218,13 @@ tokio-stream = "0.1"
   - [x] 9d: worker_app.py — IPC-only Python entry point (no HTTP/uvicorn)
   - [x] 9e: Wire Tauri to IPC worker mode — ready-file health check, mandatory IPC, SIGTERM shutdown
   - [x] 9f: Remove HTTP proxy fallback, hyper/hyper-util deps, python_api_port from ApiState
-  - [ ] 9g: Delete Python HTTP/WS transport layer (deferred — standalone mode still uses it)
+  - [x] 9g: Delete Python HTTP/WS transport dead code (backend_app, websocket router/bridge/handlers/connection_manager)
 - [x] Phase 10: Extract magi-gateway crate
   - [x] Cargo workspace at repo root with 3 members
   - [x] `crates/magi-gateway/` — lib crate: Axum routes, IPC client, DB reader, notification bridge
   - [x] `frontend/src-tauri/` — Tauri desktop binary depending on magi-gateway
   - [x] `gateway-cli/` — headless binary (magi-gateway) for non-desktop operation
   - [x] Notification bridge decoupled from Tauri via EventEmitFn callback
+- [x] Phase 11: Integration tests + cleanup
+  - [x] Gateway router integration tests (health, ready, CORS, fallback proxy)
+  - [x] Align stale runtime bootstrap/DI boundary tests with current module graph
