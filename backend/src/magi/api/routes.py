@@ -101,6 +101,8 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/current": {"GET", "PUT"},
         "/greeting": {"GET"},
         "/generate": {"POST"},
+        "/bootstrap/message": {"POST"},
+        "/journal/reflect": {"POST"},
         "/compare/{from_name}/{to_name}": {"GET"},
         "/new": {"PUT"},
         "/{name}": {"GET", "PUT", "DELETE"},
