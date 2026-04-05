@@ -1,4 +1,5 @@
 mod health;
+mod memory;
 mod messages;
 mod metrics;
 mod proxy;
@@ -33,6 +34,15 @@ pub fn build_router(state: ApiState) -> Router {
         // LLM metrics
         .route("/api/metrics/llm/usage/summary", axum::routing::get(metrics::llm_usage_summary))
         .route("/api/metrics/llm/usage/timeseries", axum::routing::get(metrics::llm_usage_timeseries))
+        // Memory
+        .route("/api/memory/l1/events", axum::routing::get(memory::list_l1_events))
+        .route("/api/memory/l2/relations", axum::routing::get(memory::list_l2_relations))
+        .route("/api/memory/l2/assertions", axum::routing::get(memory::list_l2_assertions))
+        .route("/api/memory/l2/entities", axum::routing::get(memory::list_l2_entities))
+        .route("/api/memory/l2/mentions", axum::routing::get(memory::list_l2_mentions))
+        .route("/api/memory/l2/snapshots", axum::routing::get(memory::list_l2_snapshots))
+        .route("/api/memory/l2/conflict-rules", axum::routing::get(memory::list_l2_conflict_rules))
+        .route("/api/memory/l3/summaries", axum::routing::get(memory::list_l3_summaries))
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
         .with_state(state)

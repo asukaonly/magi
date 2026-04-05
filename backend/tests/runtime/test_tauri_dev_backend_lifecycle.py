@@ -61,6 +61,14 @@ def test_axum_native_routes_cover_read_endpoints() -> None:
         "/api/schedules/{schedule_id}/executions",
         "/api/metrics/llm/usage/summary",
         "/api/metrics/llm/usage/timeseries",
+        "/api/memory/l1/events",
+        "/api/memory/l2/relations",
+        "/api/memory/l2/assertions",
+        "/api/memory/l2/entities",
+        "/api/memory/l2/mentions",
+        "/api/memory/l2/snapshots",
+        "/api/memory/l2/conflict-rules",
+        "/api/memory/l3/summaries",
     ]
     for route in expected_routes:
         assert route in source, f"Missing native Rust route: {route}"
