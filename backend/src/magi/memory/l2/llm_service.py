@@ -476,7 +476,7 @@ class L2LLMService:
         return adapter, LLMProviderBridge(adapter)
 
     def _resolve_max_output_tokens(self, *, scenario: LLMScenario) -> int:
-        default_limit = 1024
+        default_limit = 4096
         pool = self._scenario_llm_pool
         if pool is None:
             return default_limit
