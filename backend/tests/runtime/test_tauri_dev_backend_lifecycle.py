@@ -32,3 +32,35 @@ def test_tauri_spawns_unified_role() -> None:
     assert "python_process:" in source
     # No separate runtime_worker_process field
     assert "runtime_worker_process:" not in source
+
+
+def test_axum_native_routes_cover_read_endpoints() -> None:
+    """Verify Axum router registers native Rust routes for all read-only endpoints."""
+    mod_path = (
+        Path(__file__).resolve().parents[3]
+        / "frontend"
+        / "src-tauri"
+        / "src"
+        / "api"
+        / "mod.rs"
+    )
+    source = mod_path.read_text(encoding="utf-8")
+
+    expected_routes = [
+        "/api/health",
+        "/api/ready",
+        "/api/messages/sessions",
+        "/api/messages/history",
+        "/api/messages/trace",
+        "/api/tasks",
+        "/api/tasks/{task_id}",
+        "/api/tasks/orchestration/{orchestration_id}",
+        "/api/schedules",
+        "/api/schedules/executions/recent",
+        "/api/schedules/{schedule_id}",
+        "/api/schedules/{schedule_id}/executions",
+        "/api/metrics/llm/usage/summary",
+        "/api/metrics/llm/usage/timeseries",
+    ]
+    for route in expected_routes:
+        assert route in source, f"Missing native Rust route: {route}"
