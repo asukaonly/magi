@@ -11,9 +11,15 @@ mod tasks;
 mod trace;
 
 use axum::Router;
+use tower_http::cors::{Any, CorsLayer};
 use state::ApiState;
 
 pub fn build_router(state: ApiState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     Router::new()
         // Health / readiness
         .route("/api/health", axum::routing::get(health::health))
@@ -45,5 +51,6 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/api/memory/l3/summaries", axum::routing::get(memory::list_l3_summaries))
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
+        .layer(cors)
         .with_state(state)
 }
