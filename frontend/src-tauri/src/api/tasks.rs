@@ -62,6 +62,10 @@ fn open_tasks_db() -> Option<Connection> {
     Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
 }
 
+fn open_tasks_db_rw() -> Option<Connection> {
+    db::open_readwrite(&db::tasks_db_path())
+}
+
 fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<Value> {
     let tags_json: String = row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "[]".into());
     let tags: Value = serde_json::from_str(&tags_json).unwrap_or(json!([]));
@@ -160,4 +164,185 @@ fn query_tasks_by_orchestration(orchestration_id: &str) -> Value {
         .map(|iter| iter.filter_map(|r| r.ok()).collect())
         .unwrap_or_default();
     json!({"tasks": tasks})
+}
+
+// ---------------------------------------------------------------------------
+// Mutation handlers
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct CreateTaskQuery {
+    pub user_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct TaskCreateBody {
+    pub title: String,
+    pub description: Option<String>,
+    pub priority: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub due_date: Option<f64>,
+    pub linked_orchestration_id: Option<String>,
+    pub linked_turn_id: Option<String>,
+}
+
+pub async fn create_task(
+    Query(q): Query<CreateTaskQuery>,
+    Json(body): Json<TaskCreateBody>,
+) -> (StatusCode, Json<Value>) {
+    let result = tokio::task::spawn_blocking(move || {
+        insert_task(&q.user_id, body)
+    })
+    .await
+    .unwrap_or(None);
+    match result {
+        Some(task) => (StatusCode::CREATED, Json(json!({"task": task}))),
+        None => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"detail": "Failed to create task"})),
+        ),
+    }
+}
+
+fn insert_task(user_id: &str, body: TaskCreateBody) -> Option<Value> {
+    let conn = open_tasks_db_rw()?;
+    let task_id = format!("task_{}", &uuid::Uuid::new_v4().to_string()[..12]);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs_f64();
+    let description = body.description.unwrap_or_default();
+    let priority = body.priority.unwrap_or_else(|| "medium".to_string());
+    let tags = body.tags.unwrap_or_default();
+    let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+
+    conn.execute(
+        "INSERT INTO tasks (task_id, title, description, status, priority, tags_json, \
+         due_date, created_by, user_id, session_id, linked_orchestration_id, \
+         linked_turn_id, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, 'open', ?4, ?5, ?6, 'user', ?7, NULL, ?8, ?9, ?10, ?11)",
+        rusqlite::params![
+            task_id,
+            body.title,
+            description,
+            priority,
+            tags_json,
+            body.due_date,
+            user_id,
+            body.linked_orchestration_id,
+            body.linked_turn_id,
+            now,
+            now,
+        ],
+    )
+    .ok()?;
+    query_single_task(&task_id)
+}
+
+#[derive(Deserialize)]
+pub struct TaskUpdateBody {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub status: Option<String>,
+    pub priority: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub due_date: Option<f64>,
+    pub linked_orchestration_id: Option<String>,
+    pub linked_turn_id: Option<String>,
+}
+
+pub async fn update_task(
+    Path(task_id): Path<String>,
+    Json(body): Json<TaskUpdateBody>,
+) -> (StatusCode, Json<Value>) {
+    let result = tokio::task::spawn_blocking(move || {
+        patch_task(&task_id, body)
+    })
+    .await
+    .unwrap_or(None);
+    match result {
+        Some(task) => (StatusCode::OK, Json(json!({"task": task}))),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"detail": "Task not found"})),
+        ),
+    }
+}
+
+fn patch_task(task_id: &str, body: TaskUpdateBody) -> Option<Value> {
+    let conn = open_tasks_db_rw()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs_f64();
+
+    let mut sets = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1;
+
+    macro_rules! add_field {
+        ($field:expr, $col:expr) => {
+            if let Some(val) = $field {
+                sets.push(format!("{} = ?{}", $col, idx));
+                params.push(Box::new(val));
+                idx += 1;
+            }
+        };
+    }
+
+    add_field!(body.title, "title");
+    add_field!(body.description, "description");
+    add_field!(body.status, "status");
+    add_field!(body.priority, "priority");
+    if let Some(tags) = body.tags {
+        let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+        sets.push(format!("tags_json = ?{}", idx));
+        params.push(Box::new(tags_json));
+        idx += 1;
+    }
+    add_field!(body.due_date, "due_date");
+    add_field!(body.linked_orchestration_id, "linked_orchestration_id");
+    add_field!(body.linked_turn_id, "linked_turn_id");
+
+    if sets.is_empty() {
+        return query_single_task(task_id);
+    }
+
+    sets.push(format!("updated_at = ?{}", idx));
+    params.push(Box::new(now));
+    idx += 1;
+
+    let sql = format!(
+        "UPDATE tasks SET {} WHERE task_id = ?{}",
+        sets.join(", "),
+        idx
+    );
+    params.push(Box::new(task_id.to_string()));
+
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice()).ok()?;
+
+    // Read back from read-only to confirm
+    query_single_task(task_id)
+}
+
+pub async fn delete_task(Path(task_id): Path<String>) -> StatusCode {
+    let result = tokio::task::spawn_blocking(move || remove_task(&task_id))
+        .await
+        .unwrap_or(false);
+    if result {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+fn remove_task(task_id: &str) -> bool {
+    let conn = match open_tasks_db_rw() {
+        Some(c) => c,
+        None => return false,
+    };
+    conn.execute("DELETE FROM tasks WHERE task_id = ?1", rusqlite::params![task_id])
+        .map(|n| n > 0)
+        .unwrap_or(false)
 }

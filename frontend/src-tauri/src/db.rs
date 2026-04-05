@@ -83,6 +83,18 @@ pub fn open_readonly(path: &std::path::Path) -> Option<Connection> {
     Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
 }
 
+/// Open a database in read-write mode. Returns None if the file does not exist.
+pub fn open_readwrite(path: &std::path::Path) -> Option<Connection> {
+    if !path.exists() {
+        return None;
+    }
+    Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()
+}
+
 /// Convert a rusqlite ValueRef to a serde_json Value.
 /// TEXT columns that contain valid JSON (arrays, objects) are parsed inline.
 pub fn value_ref_to_json(val: rusqlite::types::ValueRef) -> Value {
