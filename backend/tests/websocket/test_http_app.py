@@ -4,7 +4,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 
-def test_transport_app_registers_health_and_websocket(monkeypatch) -> None:
+def test_transport_app_registers_health_endpoint(monkeypatch) -> None:
     from magi.websocket.http_app import create_transport_app
 
     monkeypatch.setattr(
@@ -18,8 +18,6 @@ def test_transport_app_registers_health_and_websocket(monkeypatch) -> None:
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    websocket_routes = [route.path for route in app.routes if not isinstance(route, APIRoute)]
-    assert "/ws" in websocket_routes
 
 
 def test_transport_app_exposes_ready_state(monkeypatch) -> None:

@@ -1,4 +1,4 @@
-"""Helpers for broadcasting chat transcript lifecycle updates."""
+"""Helpers for broadcasting chat transcript lifecycle updates via notification store."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from ..chat import get_chat_read_service
 from ..core.logger import get_logger
 from ..core.runtime_bindings import require_runtime_trace_store
 from ..runtime_trace import RuntimeNotificationRecord
-from .connection_manager import manager
 
 logger = get_logger(__name__)
 
@@ -19,7 +18,7 @@ async def broadcast_chat_message_upsert(
     session_id: str,
     message_id: str,
 ) -> None:
-    """Broadcast one visible transcript message snapshot to connected chat clients."""
+    """Write a chat message upsert notification for the Rust event bridge."""
     normalized_user_id = str(user_id or "").strip()
     normalized_session_id = str(session_id or "").strip()
     normalized_message_id = str(message_id or "").strip()
@@ -56,7 +55,6 @@ async def broadcast_chat_message_upsert(
         "session_summary": session_summary.to_dict() if session_summary is not None else None,
     }
 
-    # Write to runtime_notifications for Tauri event bridge
     try:
         store = require_runtime_trace_store()
         await store.append_notification(RuntimeNotificationRecord(
@@ -69,12 +67,6 @@ async def broadcast_chat_message_upsert(
     except Exception as exc:
         logger.debug("Failed to write chat_message_upserted notification", error=str(exc))
 
-    await manager.broadcast(
-        "chat_message_upserted",
-        payload_data,
-        room=f"user_{normalized_user_id}",
-    )
-
 
 async def broadcast_chat_message_hidden(
     *,
@@ -82,7 +74,7 @@ async def broadcast_chat_message_hidden(
     session_id: str,
     message_id: str,
 ) -> None:
-    """Broadcast one hidden transcript message tombstone to connected chat clients."""
+    """Write a chat message hidden notification for the Rust event bridge."""
     normalized_user_id = str(user_id or "").strip()
     normalized_session_id = str(session_id or "").strip()
     normalized_message_id = str(message_id or "").strip()
@@ -111,7 +103,6 @@ async def broadcast_chat_message_hidden(
         "session_summary": session_summary.to_dict() if session_summary is not None else None,
     }
 
-    # Write to runtime_notifications for Tauri event bridge
     try:
         store = require_runtime_trace_store()
         await store.append_notification(RuntimeNotificationRecord(
@@ -123,9 +114,3 @@ async def broadcast_chat_message_hidden(
         ))
     except Exception as exc:
         logger.debug("Failed to write chat_message_hidden notification", error=str(exc))
-
-    await manager.broadcast(
-        "chat_message_hidden",
-        payload_data,
-        room=f"user_{normalized_user_id}",
-    )

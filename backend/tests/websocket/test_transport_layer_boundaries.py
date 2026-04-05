@@ -20,27 +20,15 @@ def test_legacy_socketio_transport_is_removed() -> None:
         importlib.import_module("magi.websocket.server")
 
 
-def test_backend_app_builds_transport_app() -> None:
-    import magi.backend_app as backend_app
-
-    source = Path(backend_app.__file__).read_text(encoding="utf-8")
-
-    assert "from .websocket.http_app import create_transport_app" in source
-    assert "from .api.app import create_app" not in source
+def test_legacy_backend_app_is_removed() -> None:
+    """Verify the HTTP-mode backend_app factory no longer exists."""
+    assert not (Path(__file__).resolve().parents[2] / "src/magi/backend_app.py").exists()
 
 
-def test_websocket_bridge_lifecycle_does_not_use_runtime_global_message_bus() -> None:
-    from magi.websocket import bridge_lifecycle
-
-    source = Path(bridge_lifecycle.__file__).read_text(encoding="utf-8")
-
-    assert "events.service_access" not in source
-
-
-def test_websocket_handlers_do_not_use_runtime_global_accessors() -> None:
-    from magi.websocket import handlers
-
-    source = Path(handlers.__file__).read_text(encoding="utf-8")
-
-    assert "events.service_access" not in source
-    assert "personality.current_state" not in source
+def test_legacy_websocket_transport_modules_are_removed() -> None:
+    """Verify HTTP-mode WebSocket transport modules are deleted."""
+    websocket_dir = Path(__file__).resolve().parents[2] / "src/magi/websocket"
+    assert not (websocket_dir / "router.py").exists()
+    assert not (websocket_dir / "bridge_lifecycle.py").exists()
+    assert not (websocket_dir / "connection_manager.py").exists()
+    assert not (websocket_dir / "handlers.py").exists()

@@ -73,9 +73,7 @@ def test_events_package_does_not_keep_unused_enhanced_backend_variant() -> None:
 def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None:
     memory_router = (BACKEND_SRC / "api/routers/memory.py").read_text(encoding="utf-8")
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
-    websocket_handlers = (BACKEND_SRC / "websocket/handlers.py").read_text(encoding="utf-8")
     memory_query_tool = (BACKEND_SRC / "tools/builtin/memory_query_tool.py").read_text(encoding="utf-8")
-    messages_router = (BACKEND_SRC / "api/routers/messages.py").read_text(encoding="utf-8")
 
     assert "from ...agent import get_unified_memory" not in memory_router
     assert "from ...agent import get_memory_integration" not in memory_router
@@ -84,11 +82,9 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "from ..routers.memory import get_unified_memory" not in timeline_router
     assert "from ...scheduler import (\n    ScheduledTargetType,\n    get_scheduler_service," not in timeline_router
     assert "from ..agent import get_unified_memory" not in memory_query_tool
-    assert "from ..agent import get_agent_runtime" not in websocket_handlers
     assert "core.runtime_bindings" in memory_router
     assert "core.runtime_bindings" in timeline_router
     assert "core.runtime_bindings" in memory_query_tool
-    assert "core.runtime_bindings" not in websocket_handlers
 
 
 def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
@@ -224,12 +220,9 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     assert "require_action_registry" in runtime_bindings
 
 
-def test_backend_app_does_not_forward_websocket_bridge_retry_default() -> None:
-    backend_app_source = (BACKEND_SRC / "backend_app.py").read_text(encoding="utf-8")
-
-    assert "WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS" not in backend_app_source
-    assert "retry_interval_seconds=" not in backend_app_source
-    assert "WebSocketBridgeLifecycleModule(app)" in backend_app_source
+def test_legacy_backend_app_is_removed() -> None:
+    """Verify the HTTP-mode backend_app factory is deleted."""
+    assert not (BACKEND_SRC / "backend_app.py").exists()
 
 
 def test_core_package_does_not_export_legacy_agent_or_task_database() -> None:

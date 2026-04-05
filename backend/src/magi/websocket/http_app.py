@@ -24,7 +24,6 @@ from .http_middleware import (
     RequestLoggingMiddleware,
     add_cors_middleware,
 )
-from .router import register_websocket
 
 logger = get_logger(__name__, category="API")
 
@@ -159,8 +158,6 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
     @app.get("/api/openapi.json", include_in_schema=False)
     async def get_openapi_endpoint():
         return app.openapi()
-
-    register_websocket(app)
 
     avatar_dir = builtin_avatar_dir()
     if avatar_dir.exists():
