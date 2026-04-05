@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import Request
 
-from magi.websocket.http_middleware import LanguageContextMiddleware
+from magi.transport.http_middleware import LanguageContextMiddleware
 
 
 async def _disconnected_receive() -> dict:

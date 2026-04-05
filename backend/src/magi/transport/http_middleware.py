@@ -1,4 +1,4 @@
-"""HTTP transport middleware for the connection and transport layer."""
+"""HTTP transport middleware for the IPC-only Python worker."""
 
 from __future__ import annotations
 
@@ -9,14 +9,11 @@ from typing import Callable
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.cors import CORSMiddleware
 
-from ..config import get_config
 from ..plugins.i18n import DEFAULT_LANGUAGE, LANGUAGE_ALIASES, set_current_language
 
 logger = logging.getLogger(__name__)
 
-DESKTOP_SESSION_HEADER = "X-Magi-Session-Token"
 QUIET_REQUEST_PATHS = {
     "/api/health",
     "/api/ready",
@@ -28,13 +25,6 @@ QUIET_REQUEST_PATHS = {
     "/api/plugins",
     "/api/tools/config",
 }
-EXEMPT_PATH_PREFIXES = ("/static/",)
-
-
-def get_required_desktop_session_token() -> str | None:
-    """Return the configured desktop session token when present."""
-    token = str(get_config().server.desktop_session_token or "").strip()
-    return token or None
 
 
 async def _call_next_or_handle_client_disconnect(
@@ -68,44 +58,6 @@ class ErrorHandler(BaseHTTPMiddleware):
                     "details": str(exc) if logger.isEnabledFor(logging.DEBUG) else None,
                 },
             )
-
-
-class AuthMiddleware(BaseHTTPMiddleware):
-    """Transport-level auth middleware."""
-
-    EXEMPT_PATHS = {
-        "/api/docs",
-        "/api/redoc",
-        "/api/openapi.json",
-        "/api/health",
-        "/api/ready",
-        "/api/auth/login",
-    }
-
-    async def dispatch(self, request: Request, call_next: Callable):
-        if request.method.upper() == "OPTIONS":
-            return await _call_next_or_handle_client_disconnect(request, call_next)
-
-        if request.url.path in self.EXEMPT_PATHS:
-            return await _call_next_or_handle_client_disconnect(request, call_next)
-
-        if request.url.path.startswith(EXEMPT_PATH_PREFIXES):
-            return await _call_next_or_handle_client_disconnect(request, call_next)
-
-        desktop_token = get_required_desktop_session_token()
-        if desktop_token:
-            provided = request.headers.get(DESKTOP_SESSION_HEADER, "").strip()
-            if provided != desktop_token:
-                return JSONResponse(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={
-                        "success": False,
-                        "message": "Desktop session token is invalid",
-                        "error_code": "desktop_auth_failed",
-                    },
-                )
-
-        return await _call_next_or_handle_client_disconnect(request, call_next)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -148,18 +100,3 @@ class LanguageContextMiddleware(BaseHTTPMiddleware):
             return await _call_next_or_handle_client_disconnect(request, call_next)
         finally:
             set_current_language(None)
-
-
-def add_cors_middleware(app) -> None:
-    """Add CORS middleware to the FastAPI application."""
-    config = get_config()
-    origins = getattr(getattr(config, "server", None), "cors_origins", ["*"])
-    allow_creds = "*" not in origins
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=allow_creds,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )

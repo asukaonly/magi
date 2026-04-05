@@ -5,15 +5,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
-from magi.websocket.http_app import create_transport_app
+from magi.transport.http_app import create_transport_app
 
 
 def test_upload_chat_attachment_returns_normalized_metadata(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(
-        "magi.websocket.http_middleware.get_required_desktop_session_token",
-        lambda: "desktop-secret",
-    )
-
     original_runtime_base = get_runtime_paths().base_dir
     runtime_dir = tmp_path / "runtime"
     set_runtime_dir(runtime_dir)
@@ -30,7 +25,6 @@ def test_upload_chat_attachment_returns_normalized_metadata(monkeypatch, tmp_pat
             files={
                 "file": ("notes.md", b"# hello\nworld\n", "text/markdown"),
             },
-            headers={"X-Magi-Session-Token": "desktop-secret"},
         )
 
         assert response.status_code == 200

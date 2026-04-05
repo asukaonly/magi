@@ -43,7 +43,7 @@ async def _run_worker() -> None:
     logger.info("Agent runtime initialized")
 
     # Build FastAPI app for IPC api.forward dispatch (no HTTP server)
-    from .websocket.http_app import create_transport_app
+    from .transport.http_app import create_transport_app
     from contextlib import asynccontextmanager
     from collections.abc import AsyncIterator
     from fastapi import FastAPI

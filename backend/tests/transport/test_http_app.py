@@ -4,13 +4,8 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 
-def test_transport_app_registers_health_endpoint(monkeypatch) -> None:
-    from magi.websocket.http_app import create_transport_app
-
-    monkeypatch.setattr(
-        "magi.websocket.http_middleware.get_required_desktop_session_token",
-        lambda: None,
-    )
+def test_transport_app_registers_health_endpoint() -> None:
+    from magi.transport.http_app import create_transport_app
 
     app = create_transport_app()
     client = TestClient(app)
@@ -21,7 +16,7 @@ def test_transport_app_registers_health_endpoint(monkeypatch) -> None:
 
 
 def test_transport_app_exposes_ready_state(monkeypatch) -> None:
-    from magi.websocket.http_app import create_transport_app
+    from magi.transport.http_app import create_transport_app
 
     async def _fake_runtime_status(app):
         return {
@@ -33,11 +28,7 @@ def test_transport_app_exposes_ready_state(monkeypatch) -> None:
             "process_role": getattr(app.state, "process_role", "ipc_worker"),
         }
 
-    monkeypatch.setattr(
-        "magi.websocket.http_middleware.get_required_desktop_session_token",
-        lambda: None,
-    )
-    monkeypatch.setattr("magi.websocket.http_app.get_runtime_system_status", _fake_runtime_status)
+    monkeypatch.setattr("magi.transport.http_app.get_runtime_system_status", _fake_runtime_status)
 
     app = create_transport_app()
     app.state.process_role = "ipc_worker"
@@ -71,7 +62,7 @@ def test_transport_app_exposes_ready_state(monkeypatch) -> None:
 
 
 def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
-    from magi.websocket.http_app import create_transport_app
+    from magi.transport.http_app import create_transport_app
 
     async def _fake_runtime_status(app):
         return {
@@ -85,11 +76,7 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
             "pending_commands": 4,
         }
 
-    monkeypatch.setattr(
-        "magi.websocket.http_middleware.get_required_desktop_session_token",
-        lambda: None,
-    )
-    monkeypatch.setattr("magi.websocket.http_app.get_runtime_system_status", _fake_runtime_status)
+    monkeypatch.setattr("magi.transport.http_app.get_runtime_system_status", _fake_runtime_status)
 
     app = create_transport_app()
     app.state.backend_ready = True
@@ -113,16 +100,12 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
 
 
 def test_transport_app_registers_runtime_shutdown_endpoint(monkeypatch) -> None:
-    from magi.websocket.http_app import create_transport_app
+    from magi.transport.http_app import create_transport_app
 
     scheduled: list[bool] = []
 
     monkeypatch.setattr(
-        "magi.websocket.http_middleware.get_required_desktop_session_token",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "magi.websocket.http_app._schedule_process_shutdown",
+        "magi.transport.http_app._schedule_process_shutdown",
         lambda delay_seconds=0.1: scheduled.append(True),
     )
 

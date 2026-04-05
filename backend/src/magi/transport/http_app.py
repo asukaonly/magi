@@ -18,11 +18,9 @@ from ..api.routes import register_api_routes
 from ..core.logger import configure_logging, get_logger
 from ..utils.runtime import get_runtime_paths
 from .http_middleware import (
-    AuthMiddleware,
     ErrorHandler,
     LanguageContextMiddleware,
     RequestLoggingMiddleware,
-    add_cors_middleware,
 )
 
 logger = get_logger(__name__, category="API")
@@ -95,9 +93,7 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
     app.openapi = _build_custom_openapi(app)
     app.state.backend_ready = False
 
-    add_cors_middleware(app)
     app.add_middleware(ErrorHandler)
-    app.add_middleware(AuthMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(LanguageContextMiddleware)
 

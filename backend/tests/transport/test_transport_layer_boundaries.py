@@ -17,7 +17,7 @@ def test_api_route_registration_does_not_import_transport() -> None:
 
 def test_legacy_socketio_transport_is_removed() -> None:
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("magi.websocket.server")
+        importlib.import_module("magi.transport.server")
 
 
 def test_legacy_backend_app_is_removed() -> None:
@@ -25,10 +25,16 @@ def test_legacy_backend_app_is_removed() -> None:
     assert not (Path(__file__).resolve().parents[2] / "src/magi/backend_app.py").exists()
 
 
+def test_legacy_websocket_package_is_removed() -> None:
+    """Verify the old websocket package no longer exists."""
+    old_websocket_dir = Path(__file__).resolve().parents[2] / "src/magi/websocket"
+    assert not old_websocket_dir.exists()
+
+
 def test_legacy_websocket_transport_modules_are_removed() -> None:
     """Verify HTTP-mode WebSocket transport modules are deleted."""
-    websocket_dir = Path(__file__).resolve().parents[2] / "src/magi/websocket"
-    assert not (websocket_dir / "router.py").exists()
-    assert not (websocket_dir / "bridge_lifecycle.py").exists()
-    assert not (websocket_dir / "connection_manager.py").exists()
-    assert not (websocket_dir / "handlers.py").exists()
+    transport_dir = Path(__file__).resolve().parents[2] / "src/magi/transport"
+    assert not (transport_dir / "router.py").exists()
+    assert not (transport_dir / "bridge_lifecycle.py").exists()
+    assert not (transport_dir / "connection_manager.py").exists()
+    assert not (transport_dir / "handlers.py").exists()
