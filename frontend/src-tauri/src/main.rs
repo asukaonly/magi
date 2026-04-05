@@ -1,4 +1,5 @@
 mod api;
+mod db;
 mod desktop_presence;
 mod frontmost_app_monitor;
 mod notification_bridge;
