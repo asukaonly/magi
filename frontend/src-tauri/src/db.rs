@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
@@ -16,7 +16,21 @@ pub fn magi_base_dir() -> PathBuf {
     home.join(".magi")
 }
 
-/// Path to the chat database.
+/// Path to the backend configs directory.
+pub fn backend_configs_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("backend")
+        .join("configs")
+}
+
+pub fn embedding_models_dir() -> PathBuf {
+    magi_base_dir().join("cache").join("models").join("embed")
+}
+
 pub fn chat_db_path() -> PathBuf {
     magi_base_dir().join("data").join("chat").join("chat.db")
 }

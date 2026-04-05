@@ -1,4 +1,6 @@
 mod health;
+mod llm;
+mod local_embedding;
 mod memory;
 mod messages;
 mod metrics;
@@ -59,6 +61,10 @@ pub fn build_router(state: ApiState) -> Router {
         // Personality presets
         .route("/api/personalities", axum::routing::get(personality::list_presets))
         .route("/api/personalities/{preset_id}", axum::routing::get(personality::get_preset))
+        // LLM
+        .route("/api/llm/providers/custom-template", axum::routing::get(llm::get_custom_template))
+        // Local embedding
+        .route("/api/local-embedding/discovered", axum::routing::get(local_embedding::discover_external_models))
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
         .layer(cors)

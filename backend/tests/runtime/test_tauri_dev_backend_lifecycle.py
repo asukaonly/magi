@@ -76,6 +76,8 @@ def test_axum_native_routes_cover_read_endpoints() -> None:
         "/api/personality/{name}",
         "/api/personalities",
         "/api/personalities/{preset_id}",
+        "/api/llm/providers/custom-template",
+        "/api/local-embedding/discovered",
     ]
     for route in expected_routes:
         assert route in source, f"Missing native Rust route: {route}"
