@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/magi-gateway",
+    "frontend/src-tauri",
+    "gateway-cli",
+]

@@ -21,6 +21,7 @@ from .schema import (
     ToolCatalogContext,
 )
 from .scenario_prompts import ScenarioPromptsStore
+from ..personality.persona_journal_service import PersonaJournalService
 
 
 IDENTITY_TEMPLATE = (
@@ -46,9 +47,10 @@ BOUNDARY_TEMPLATE = "\n".join(
 class PromptContextAssembler:
     """Builds reusable modular prompt contexts."""
 
-    def __init__(self, tool_registry=None, scenario_prompts_store=None):
+    def __init__(self, tool_registry=None, scenario_prompts_store=None, persona_journal_service=None):
         self.tool_registry = tool_registry
         self.scenario_prompts_store = scenario_prompts_store
+        self.persona_journal_service: PersonaJournalService | None = persona_journal_service
 
     async def assemble(
         self,
@@ -175,13 +177,52 @@ class PromptContextAssembler:
             user_id=user_id,
         )
 
+        # Load state transition protocol rules
+        stp_rules: List[Dict[str, str]] = []
+        if self_memory is not None:
+            config = await self_memory.get_core_personality()
+            if hasattr(config, "state_transition_protocol") and config.state_transition_protocol:
+                for item in config.state_transition_protocol:
+                    rule: Dict[str, str] = {}
+                    trigger_type = getattr(item, "trigger_type", "")
+                    if trigger_type:
+                        rule["trigger_type"] = trigger_type
+                    condition = getattr(item, "trigger_condition", "")
+                    if condition:
+                        rule["trigger_condition"] = condition
+                    target = getattr(item, "target_state_name", "")
+                    if target:
+                        rule["target_state_name"] = target
+                    shift = getattr(item, "behavior_shift", "")
+                    if shift:
+                        rule["behavior_shift"] = shift
+                    if rule:
+                        stp_rules.append(rule)
+
+        # Load recent persona journal entries
+        journal_entries: List[Dict[str, Any]] = []
+        if self.persona_journal_service is not None:
+            try:
+                entries = await self.persona_journal_service.get_recent_entries(
+                    persona_name=persona_name,
+                    limit=3,
+                )
+                journal_entries = [
+                    {"content": e.content, "timestamp": e.timestamp}
+                    for e in entries
+                ]
+            except Exception:
+                pass
+
         return SelfMemoryContext(
             persona_entity=persona_entity,
             dynamic_state=dynamic_state,
             retrieval_memory=retrieval_memory,
             state_transition_override=state_transition_override,
+            state_transition_rules=stp_rules,
             scenario_prompt=scenario_prompt_text,
             active_persona_layers=active_layers,
+            persona_journal_entries=journal_entries,
         )
 
     async def _evaluate_persona_layers(
@@ -368,6 +409,8 @@ class PromptContextRenderer:
         lines.extend(self._render_persona_entity(context.self_memory.persona_entity))
         lines.extend(self._render_active_persona_layers(context.self_memory.active_persona_layers))
         lines.extend(self._render_dynamic_state(context.self_memory.dynamic_state))
+        lines.extend(self._render_state_transition_rules(context.self_memory.state_transition_rules))
+        lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
         lines.extend(self._render_scenario_prompt(context.self_memory.scenario_prompt))
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
         lines.extend(self._render_state_override(context.self_memory.state_transition_override))
@@ -463,6 +506,63 @@ class PromptContextRenderer:
                 lines.append("* Behavioral Shifts:")
                 for hint in hints:
                     lines.append(f"  - {hint}")
+            lines.append("")
+
+        return lines
+
+    def _render_state_transition_rules(self, rules: List[Dict[str, str]]) -> List[str]:
+        """Render state transition protocol rules as behavioral directives."""
+        if not rules:
+            return []
+
+        lines = ["# Contextual Behavior Protocol"]
+        lines.append(
+            "[System Notice: The following rules define how your behavior should shift under "
+            "specific conditions. When a trigger condition is detected, adopt the described "
+            "behavioral shift. These transitions are temporary and revert when the condition ends.]"
+        )
+        lines.append("")
+
+        for rule in rules:
+            trigger_type = rule.get("trigger_type", "unknown")
+            condition = rule.get("trigger_condition", "")
+            target = rule.get("target_state_name", "")
+            shift = rule.get("behavior_shift", "")
+
+            label = f"## {trigger_type.title()}"
+            if target:
+                label += f": {target}"
+            lines.append(label)
+
+            if condition:
+                lines.append(f"* When: {condition}")
+            if shift:
+                lines.append(f"* Behavior: {shift}")
+            lines.append("")
+
+        return lines
+
+    def _render_persona_journal(self, entries: List[Dict[str, Any]]) -> List[str]:
+        """Render recent persona journal entries as contextual self-reflection."""
+        if not entries:
+            return []
+
+        lines = ["# Internal Reflections"]
+        lines.append(
+            "[System Notice: These are your recent private journal entries. "
+            "They inform your self-awareness but should not be directly quoted to the user.]"
+        )
+        lines.append("")
+
+        from datetime import datetime
+
+        for entry in entries:
+            content = entry.get("content", "")
+            ts = entry.get("timestamp", 0)
+            if not content:
+                continue
+            dt = datetime.fromtimestamp(ts).strftime("%Y-%m-%d") if ts else "unknown"
+            lines.append(f"**{dt}**: {content}")
             lines.append("")
 
         return lines

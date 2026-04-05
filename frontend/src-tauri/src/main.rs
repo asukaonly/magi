@@ -1,6 +1,8 @@
 mod desktop_presence;
 mod frontmost_app_monitor;
 
+use magi_gateway::{api, ipc, notification_bridge};
+
 #[cfg(unix)]
 use libc::{kill, SIGTERM};
 use serde::Serialize;
@@ -33,13 +35,13 @@ struct BackendState {
 
 #[derive(Default)]
 struct BackendRuntime {
-    api_process: Option<BackendProcess>,
-    runtime_worker_process: Option<BackendProcess>,
+    python_process: Option<BackendProcess>,
+    axum_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    bridge_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     base_url: Option<String>,
     ws_base_url: Option<String>,
     session_token: Option<String>,
-    api_pid: Option<u32>,
-    runtime_worker_pid: Option<u32>,
+    python_pid: Option<u32>,
 }
 
 struct ExternalBackendConfig {
@@ -98,10 +100,8 @@ impl BackendProcess {
 }
 
 struct ManagedBackendStart {
-    api_process: BackendProcess,
-    runtime_worker_process: BackendProcess,
-    api_pid: Option<u32>,
-    runtime_worker_pid: Option<u32>,
+    process: BackendProcess,
+    pid: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -172,15 +172,29 @@ fn wait_for_health(host: &str, port: u16, timeout: Duration) -> bool {
     false
 }
 
-fn wait_for_port_close(host: &str, port: u16, timeout: Duration) -> bool {
+/// Wait for Python IPC worker to write its ready file.
+fn wait_for_ready_file(timeout: Duration) -> bool {
+    let home = match env::var("HOME").map(PathBuf::from) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    let ready_path = home.join(".magi").join("runtime").join("worker.ready");
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if TcpStream::connect((host, port)).is_err() {
+        if ready_path.exists() {
             return true;
         }
-        thread::sleep(SHUTDOWN_POLL_INTERVAL);
+        thread::sleep(Duration::from_millis(200));
     }
     false
+}
+
+/// Remove stale worker ready file.
+fn remove_ready_file() {
+    if let Ok(home) = env::var("HOME").map(PathBuf::from) {
+        let ready_path = home.join(".magi").join("runtime").join("worker.ready");
+        let _ = fs::remove_file(ready_path);
+    }
 }
 
 #[cfg(unix)]
@@ -230,46 +244,6 @@ fn wait_for_process_stop(
     }
     let _ = pid;
     process.wait_for_exit(timeout)
-}
-
-fn request_runtime_shutdown(host: &str, port: u16, session_token: &str) -> bool {
-    let Ok(mut stream) = TcpStream::connect((host, port)) else {
-        return false;
-    };
-
-    let body = "{}";
-    let mut request = format!(
-        "POST /api/runtime/shutdown HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
-        host,
-        port,
-        body.len()
-    );
-    if !session_token.trim().is_empty() {
-        request.push_str(&format!("X-Magi-Session-Token: {}\r\n", session_token));
-    }
-    request.push_str("\r\n");
-    request.push_str(body);
-
-    if stream.write_all(request.as_bytes()).is_err() {
-        return false;
-    }
-
-    let mut response = String::new();
-    if stream.read_to_string(&mut response).is_err() {
-        return false;
-    }
-
-    response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200")
-}
-
-fn extract_backend_endpoint(base_url: &str) -> Option<(String, u16)> {
-    let without_scheme = base_url
-        .strip_prefix("http://")
-        .or_else(|| base_url.strip_prefix("https://"))?;
-    let authority = without_scheme.split('/').next()?;
-    let (host, port_text) = authority.rsplit_once(':')?;
-    let port = port_text.parse::<u16>().ok()?;
-    Some((host.to_string(), port))
 }
 
 fn generate_session_token() -> String {
@@ -322,6 +296,7 @@ fn spawn_sidecar_role(
     role: &str,
     port: Option<u16>,
     session_token: &str,
+    ipc_socket_path: &str,
     recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let mut args = vec![
@@ -329,9 +304,9 @@ fn spawn_sidecar_role(
         role.to_string(),
         "--no-reload".to_string(),
     ];
-    if role == "api" {
+    if role == "api" || role == "unified" {
         let port_text = port
-            .ok_or_else(|| "API role requires a port".to_string())?
+            .ok_or_else(|| format!("{} role requires a port", role))?
             .to_string();
         args.extend([
             "--host".to_string(),
@@ -347,6 +322,7 @@ fn spawn_sidecar_role(
         .args(args)
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
+        .env("MAGI_IPC_SOCKET", ipc_socket_path)
         .spawn()
         .map_err(|err| format!("Failed to spawn backend sidecar: {err}"))?;
 
@@ -448,6 +424,7 @@ fn spawn_dev_backend_role(
     role: &str,
     port: Option<u16>,
     session_token: &str,
+    ipc_socket_path: &str,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let backend_dir = find_backend_dir()?;
     let (stdout, stderr) = open_dev_backend_log_stdio()?;
@@ -460,13 +437,14 @@ fn spawn_dev_backend_role(
         .arg("--no-reload")
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
+        .env("MAGI_IPC_SOCKET", ipc_socket_path)
         .current_dir(backend_dir)
         .stdout(stdout)
         .stderr(stderr);
 
-    if role == "api" {
+    if role == "api" || role == "unified" {
         let port_text = port
-            .ok_or_else(|| "API role requires a port".to_string())?
+            .ok_or_else(|| format!("{} role requires a port", role))?
             .to_string();
         command
             .arg("--host")
@@ -484,53 +462,24 @@ fn spawn_dev_backend_role(
 
 fn spawn_sidecar_backend(
     app: &AppHandle,
-    port: u16,
     session_token: &str,
+    ipc_socket_path: &str,
     recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<ManagedBackendStart, String> {
-    let (runtime_worker_process, runtime_worker_pid) = spawn_sidecar_role(
+    let (process, pid) = spawn_sidecar_role(
         app,
-        "runtime_worker",
+        "ipc_worker",
         None,
         session_token,
-        recent_errors.clone(),
+        ipc_socket_path,
+        recent_errors,
     )?;
-    let (api_process, api_pid) =
-        match spawn_sidecar_role(app, "api", Some(port), session_token, recent_errors) {
-            Ok(result) => result,
-            Err(err) => {
-                let mut process = runtime_worker_process;
-                process.kill();
-                return Err(err);
-            }
-        };
-
-    Ok(ManagedBackendStart {
-        api_process,
-        runtime_worker_process,
-        api_pid,
-        runtime_worker_pid,
-    })
+    Ok(ManagedBackendStart { process, pid })
 }
 
-fn spawn_dev_backend_pair(port: u16, session_token: &str) -> Result<ManagedBackendStart, String> {
-    let (runtime_worker_process, runtime_worker_pid) =
-        spawn_dev_backend_role("runtime_worker", None, session_token)?;
-    let (api_process, api_pid) = match spawn_dev_backend_role("api", Some(port), session_token) {
-        Ok(result) => result,
-        Err(err) => {
-            let mut process = runtime_worker_process;
-            process.kill();
-            return Err(err);
-        }
-    };
-
-    Ok(ManagedBackendStart {
-        api_process,
-        runtime_worker_process,
-        api_pid,
-        runtime_worker_pid,
-    })
+fn spawn_dev_backend_pair(session_token: &str, ipc_socket_path: &str) -> Result<ManagedBackendStart, String> {
+    let (process, pid) = spawn_dev_backend_role("ipc_worker", None, session_token, ipc_socket_path)?;
+    Ok(ManagedBackendStart { process, pid })
 }
 
 fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
@@ -538,51 +487,29 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
         .runtime
         .lock()
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-    let base_url = runtime.base_url.clone();
-    let session_token = runtime.session_token.clone().unwrap_or_default();
-    let api_pid = runtime.api_pid;
-    let runtime_worker_pid = runtime.runtime_worker_pid;
-    if let Some(mut process) = runtime.api_process.take() {
-        if let Some(base_url) = base_url.as_deref() {
-            if let Some((host, port)) = extract_backend_endpoint(base_url) {
-                if request_runtime_shutdown(&host, port, &session_token) {
-                    let exited = wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT)
-                        || wait_for_port_close(&host, port, SHUTDOWN_TIMEOUT);
-                    if !exited {
-                        process.kill();
-                    }
-                } else {
-                    if let Some(pid) = api_pid {
-                        let _ = send_termination_signal(pid);
-                        if !wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT) {
-                            process.kill();
-                        }
-                    } else {
-                        process.kill();
-                    }
-                }
-            } else {
-                process.kill();
-            }
-        } else {
-            process.kill();
-        }
-    }
-    if let Some(mut process) = runtime.runtime_worker_process.take() {
-        if let Some(pid) = runtime_worker_pid {
+    let python_pid = runtime.python_pid;
+    if let Some(mut process) = runtime.python_process.take() {
+        // Graceful shutdown: SIGTERM → wait → force kill
+        if let Some(pid) = python_pid {
             let _ = send_termination_signal(pid);
-            if !wait_for_process_stop(&mut process, runtime_worker_pid, SHUTDOWN_TIMEOUT) {
+            if !wait_for_process_stop(&mut process, python_pid, SHUTDOWN_TIMEOUT) {
                 process.kill();
             }
         } else {
             process.kill();
         }
     }
+    if let Some(tx) = runtime.axum_shutdown.take() {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = runtime.bridge_shutdown.take() {
+        let _ = tx.send(true);
+    }
+    remove_ready_file();
     runtime.base_url = None;
     runtime.ws_base_url = None;
     runtime.session_token = None;
-    runtime.api_pid = None;
-    runtime.runtime_worker_pid = None;
+    runtime.python_pid = None;
     Ok(())
 }
 
@@ -619,8 +546,8 @@ fn start_backend(
                 base_url,
                 ws_base_url,
                 session_token,
-                api_pid: runtime.api_pid,
-                runtime_worker_pid: runtime.runtime_worker_pid,
+                api_pid: runtime.python_pid,
+                runtime_worker_pid: runtime.python_pid,
                 error: None,
             });
         }
@@ -635,13 +562,11 @@ fn start_backend(
             .runtime
             .lock()
             .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-        runtime.api_process = None;
-        runtime.runtime_worker_process = None;
+        runtime.python_process = None;
         runtime.base_url = Some(external.base_url.clone());
         runtime.ws_base_url = Some(external.ws_base_url.clone());
         runtime.session_token = Some(external.session_token.clone());
-        runtime.api_pid = None;
-        runtime.runtime_worker_pid = None;
+        runtime.python_pid = None;
 
         return Ok(StartBackendResponse {
             ok: true,
@@ -654,23 +579,38 @@ fn start_backend(
         });
     }
 
-    let port = pick_open_port()?;
+    let main_port = pick_open_port()?;
     let session_token = generate_session_token();
-    let base_url = format!("http://{}:{}/api", BACKEND_HOST, port);
-    let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, port);
+    let base_url = format!("http://{}:{}/api", BACKEND_HOST, main_port);
+    let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, main_port);
 
-    let start = if cfg!(debug_assertions) {
-        spawn_dev_backend_pair(port, &session_token)?
-    } else {
-        spawn_sidecar_backend(&app, port, &session_token, state.recent_errors.clone())?
+    // Compute IPC socket path (Unix domain socket on macOS/Linux)
+    let ipc_socket_path = {
+        let home = env::var("HOME")
+            .map(PathBuf::from)
+            .map_err(|_| "HOME is not set".to_string())?;
+        let runtime_dir = home.join(".magi").join("runtime");
+        fs::create_dir_all(&runtime_dir)
+            .map_err(|e| format!("Failed to create runtime dir: {e}"))?;
+        runtime_dir
+            .join(format!("ipc-{}.sock", main_port))
+            .to_string_lossy()
+            .to_string()
     };
 
-    if !wait_for_health(BACKEND_HOST, port, STARTUP_TIMEOUT) {
-        let mut api_process = start.api_process;
-        let mut runtime_worker_process = start.runtime_worker_process;
-        api_process.kill();
-        runtime_worker_process.kill();
-        // Collect recent error logs for better error message
+    // Remove stale socket / ready file before spawning
+    let _ = fs::remove_file(&ipc_socket_path);
+    remove_ready_file();
+
+    let start = if cfg!(debug_assertions) {
+        spawn_dev_backend_pair(&session_token, &ipc_socket_path)?
+    } else {
+        spawn_sidecar_backend(&app, &session_token, &ipc_socket_path, state.recent_errors.clone())?
+    };
+
+    if !wait_for_ready_file(STARTUP_TIMEOUT) {
+        let mut process = start.process;
+        process.kill();
         let error_details = if let Ok(errors) = state.recent_errors.lock() {
             if errors.is_empty() {
                 String::new()
@@ -681,30 +621,78 @@ fn start_backend(
             String::new()
         };
         return Err(format!(
-            "Backend startup timeout: /api/health did not become ready{}",
+            "Backend startup timeout: worker.ready was not created{}",
             error_details
         ));
     }
+
+    // Connect IPC client to Python worker (required)
+    let ipc_client = match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path))
+    {
+        Ok((client, _event_rx)) => std::sync::Arc::new(client),
+        Err(e) => {
+            let mut process = start.process;
+            process.kill();
+            return Err(format!("IPC connect failed: {e}"));
+        }
+    };
+
+    let (ws_broadcast_tx, _) = tokio::sync::broadcast::channel::<api::state::WsBroadcast>(256);
+
+    let api_state = api::state::ApiState {
+        ipc_client,
+        ws_broadcast: ws_broadcast_tx.clone(),
+    };
+    let router = api::build_router(api_state);
+
+    let std_listener = std::net::TcpListener::bind((BACKEND_HOST, main_port))
+        .map_err(|e| format!("Failed to bind Axum listener on port {}: {}", main_port, e))?;
+    std_listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Failed to set listener non-blocking: {e}"))?;
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+    tauri::async_runtime::spawn(async move {
+        let listener = tokio::net::TcpListener::from_std(std_listener)
+            .expect("Failed to convert to tokio TcpListener");
+        magi_gateway::axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+
+    // Start notification bridge (polls runtime_trace.db → Tauri events + WS broadcast)
+    let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::watch::channel(false);
+    let bridge_app = app.clone();
+    let event_emitter: notification_bridge::EventEmitFn = std::sync::Arc::new(move |event, payload| {
+        let _ = bridge_app.emit(event, payload);
+    });
+    tauri::async_runtime::spawn(async move {
+        notification_bridge::run_notification_bridge(Some(event_emitter), ws_broadcast_tx, bridge_shutdown_rx).await;
+    });
 
     let mut runtime = state
         .runtime
         .lock()
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-    runtime.api_process = Some(start.api_process);
-    runtime.runtime_worker_process = Some(start.runtime_worker_process);
+    runtime.python_process = Some(start.process);
+    runtime.axum_shutdown = Some(shutdown_tx);
+    runtime.bridge_shutdown = Some(bridge_shutdown_tx);
     runtime.base_url = Some(base_url.clone());
     runtime.ws_base_url = Some(ws_base_url.clone());
     runtime.session_token = Some(session_token.clone());
-    runtime.api_pid = start.api_pid;
-    runtime.runtime_worker_pid = start.runtime_worker_pid;
+    runtime.python_pid = start.pid;
 
     Ok(StartBackendResponse {
         ok: true,
         base_url,
         ws_base_url,
         session_token,
-        api_pid: runtime.api_pid,
-        runtime_worker_pid: runtime.runtime_worker_pid,
+        api_pid: runtime.python_pid,
+        runtime_worker_pid: runtime.python_pid,
         error: None,
     })
 }
@@ -725,8 +713,8 @@ fn backend_status(state: State<'_, BackendState>) -> Result<BackendStatusRespons
         running: runtime.base_url.is_some(),
         base_url: runtime.base_url.clone(),
         ws_base_url: runtime.ws_base_url.clone(),
-        api_pid: runtime.api_pid,
-        runtime_worker_pid: runtime.runtime_worker_pid,
+        api_pid: runtime.python_pid,
+        runtime_worker_pid: runtime.python_pid,
     })
 }
 

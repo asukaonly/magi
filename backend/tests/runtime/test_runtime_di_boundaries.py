@@ -73,9 +73,7 @@ def test_events_package_does_not_keep_unused_enhanced_backend_variant() -> None:
 def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None:
     memory_router = (BACKEND_SRC / "api/routers/memory.py").read_text(encoding="utf-8")
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
-    websocket_handlers = (BACKEND_SRC / "websocket/handlers.py").read_text(encoding="utf-8")
     memory_query_tool = (BACKEND_SRC / "tools/builtin/memory_query_tool.py").read_text(encoding="utf-8")
-    messages_router = (BACKEND_SRC / "api/routers/messages.py").read_text(encoding="utf-8")
 
     assert "from ...agent import get_unified_memory" not in memory_router
     assert "from ...agent import get_memory_integration" not in memory_router
@@ -84,12 +82,9 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "from ..routers.memory import get_unified_memory" not in timeline_router
     assert "from ...scheduler import (\n    ScheduledTargetType,\n    get_scheduler_service," not in timeline_router
     assert "from ..agent import get_unified_memory" not in memory_query_tool
-    assert "from ..agent import get_agent_runtime" not in websocket_handlers
     assert "core.runtime_bindings" in memory_router
     assert "core.runtime_bindings" in timeline_router
     assert "core.runtime_bindings" in memory_query_tool
-    assert "core.runtime_bindings" not in websocket_handlers
-    assert "core.runtime_bindings" not in messages_router
 
 
 def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
@@ -154,10 +149,8 @@ def test_skills_package_uses_skill_runner_name() -> None:
 def test_backend_docs_do_not_reference_removed_runtime_bootstrap_path() -> None:
     docs_root = BACKEND_SRC.parents[2] / "docs"
     memory_design = (docs_root / "memory-system-design.md").read_text(encoding="utf-8")
-    memory_plan = (docs_root / "memory-system-execution-plan.md").read_text(encoding="utf-8")
 
     assert "runtime/bootstrap.py" not in memory_design
-    assert "runtime/bootstrap.py" not in memory_plan
 
 
 def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
@@ -186,23 +179,6 @@ def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
     assert "require_skill_runner" in runtime_bindings
 
 
-def test_api_runtime_exports_expose_only_api_consumed_bindings() -> None:
-    api_builder_source = (BACKEND_SRC / "bootstrap/api_builder.py").read_text(encoding="utf-8")
-
-    assert "container.message_bus.override" not in api_builder_source
-    assert "container.other_memory.override" not in api_builder_source
-    assert "container.action_registry.override" not in api_builder_source
-    assert "container.skill_loader.override" not in api_builder_source
-    assert "container.skill_runner.override" not in api_builder_source
-    assert "container.message_bus.reset_override" not in api_builder_source
-    assert "container.other_memory.reset_override" not in api_builder_source
-    assert "container.action_registry.reset_override" not in api_builder_source
-    assert "container.skill_loader.reset_override" not in api_builder_source
-    assert "container.skill_runner.reset_override" not in api_builder_source
-    assert '"runtime_message_bus"' not in api_builder_source
-    assert '"runtime_personality"' not in api_builder_source
-
-
 def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> None:
     plugins_init = (BACKEND_SRC / "plugins/__init__.py").read_text(encoding="utf-8")
     plugins_lifecycle = (BACKEND_SRC / "plugins/lifecycle.py").read_text(encoding="utf-8")
@@ -227,12 +203,9 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     assert "require_action_registry" in runtime_bindings
 
 
-def test_backend_app_does_not_forward_websocket_bridge_retry_default() -> None:
-    backend_app_source = (BACKEND_SRC / "backend_app.py").read_text(encoding="utf-8")
-
-    assert "WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS" not in backend_app_source
-    assert "retry_interval_seconds=" not in backend_app_source
-    assert "WebSocketBridgeLifecycleModule(app)" in backend_app_source
+def test_legacy_backend_app_is_removed() -> None:
+    """Verify the HTTP-mode backend_app factory is deleted."""
+    assert not (BACKEND_SRC / "backend_app.py").exists()
 
 
 def test_core_package_does_not_export_legacy_agent_or_task_database() -> None:
@@ -270,9 +243,9 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
     action_emitter = (BACKEND_SRC / "awareness/action_emitter.py").read_text(encoding="utf-8")
     awareness_contracts = (BACKEND_SRC / "awareness/contracts.py").read_text(encoding="utf-8")
-    scheduler_handlers = (BACKEND_SRC / "scheduler/handlers.py").read_text(encoding="utf-8")
 
     assert not (BACKEND_SRC / "core/runtime").exists()
+    assert not (BACKEND_SRC / "scheduler/handlers.py").exists()
     assert "from ..core.runtime import AgentRuntime, RouterAgent, TaskAgentManager" not in agent_lifecycle
     assert "from ..core.runtime import SensorHub" not in awareness_lifecycle
     assert "from ..core.runtime import SensorHub, AgentRuntime, TaskAgentManager" not in bootstrap_context
@@ -296,8 +269,6 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "core.runtime.types" not in task_factory
     assert "core.runtime.contracts" not in action_emitter
     assert "agent.runtime.contracts" not in action_emitter
-    assert "core.runtime.contracts" not in scheduler_handlers
-    assert "agent.runtime.contracts" not in scheduler_handlers
     assert "personality.current_state" not in config_lifecycle
     assert "agent.runtime" in agent_lifecycle
     assert "sensor_hub" in awareness_lifecycle

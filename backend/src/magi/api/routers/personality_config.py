@@ -1,7 +1,8 @@
 """
 Personality configuration API router.
 
-Provides personality read/update and AI generation features.
+Provides personality read/update, AI generation, bootstrap dialogue,
+and journal reflection features.
 """
 
 from __future__ import annotations
@@ -15,11 +16,14 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ..llm_draft import resolve_adapter_for_scenario
+from ...llm.draft import resolve_adapter_for_scenario
+from ...personality.bootstrap_service import BootstrapDialogueService
+from ...personality.growth_memory import GrowthMemoryEngine
+from ...personality.persona_journal_service import PersonaJournalService
 from ..avatar_paths import resolve_avatar_public_url
-from ..services.personality_state_service import (
-    get_current_personality_name,
-    set_current_personality_name,
+from ...personality.current_state import (
+    get_current_personality as get_current_personality_name,
+    set_current_personality as set_current_personality_name,
 )
 from ...config import get_config
 from ...config.models import LLMScenario, LLMSettings
@@ -105,6 +109,20 @@ class PersonalityResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
+class BootstrapMessageRequest(BaseModel):
+    user_message: str = Field(..., description="User's message text")
+    history: List[Dict[str, str]] = Field(default_factory=list, description="Previous dialogue turns")
+    user_id: str = Field(default="default_user")
+    session_id: str = Field(default="bootstrap")
+
+
+class JournalReflectRequest(BaseModel):
+    persona_name: Optional[str] = Field(None, description="Persona to reflect as; defaults to current")
+    emotional_state: Optional[Dict[str, Any]] = None
+    relationship: Optional[Dict[str, Any]] = None
+    recent_milestones: Optional[List[Dict[str, Any]]] = None
+
+
 class PersonalityDiff(BaseModel):
     field: str = Field(..., description="Field path")
     field_label: str = Field(..., description="Field display label")
@@ -155,6 +173,39 @@ FIELD_LABELS: Dict[str, str] = {
 def get_personality_loader() -> PersonalityLoader:
     runtime_paths = get_runtime_paths()
     return PersonalityLoader(str(runtime_paths.personalities_dir))
+
+
+_growth_engine_instance: Optional[GrowthMemoryEngine] = None
+
+
+async def _get_growth_engine() -> GrowthMemoryEngine:
+    """Return a lazily-initialized GrowthMemoryEngine singleton."""
+    global _growth_engine_instance
+    if _growth_engine_instance is None:
+        runtime_paths = get_runtime_paths()
+        _growth_engine_instance = GrowthMemoryEngine(str(runtime_paths.growth_db_path))
+        await _growth_engine_instance.init()
+    return _growth_engine_instance
+
+
+async def _get_bootstrap_service() -> BootstrapDialogueService:
+    """Create a BootstrapDialogueService wired to the shared growth engine."""
+    engine = await _get_growth_engine()
+    loader = get_personality_loader()
+    return BootstrapDialogueService(
+        personality_loader=loader,
+        growth_engine=engine,
+    )
+
+
+async def _get_journal_service() -> PersonaJournalService:
+    """Create a PersonaJournalService wired to the shared growth engine."""
+    engine = await _get_growth_engine()
+    loader = get_personality_loader()
+    return PersonaJournalService(
+        growth_engine=engine,
+        personality_loader=loader,
+    )
 
 
 def sanitize_filename(name: str) -> str:
@@ -456,7 +507,7 @@ async def api_set_current_personality(request: Dict[str, str]):
     "/greeting",
     response_model=PersonalityResponse,
     summary="Get personality greeting",
-    description="Return a random greeting phrase from the current personality.",
+    description="Return a random greeting phrase from the current personality, including bootstrap status.",
 )
 async def api_get_greeting():
     try:
@@ -464,6 +515,18 @@ async def api_get_greeting():
         config = get_personality_loader().load(current_name)
         greetings = config.cached_phrases.on_wake or config.cached_phrases.on_init
         greeting = random.choice(greetings) if greetings else f"Hello, I am {config.name}."
+
+        # Best-effort bootstrap status
+        needs_bootstrap = False
+        bootstrap_opening = None
+        try:
+            bootstrap_svc = await _get_bootstrap_service()
+            needs_bootstrap = await bootstrap_svc.needs_bootstrap(current_name)
+            if needs_bootstrap:
+                bootstrap_opening = await bootstrap_svc.get_opening(current_name)
+        except Exception as exc:
+            logger.debug("Bootstrap status check skipped: %s", exc)
+
         return PersonalityResponse(
             success=True,
             message="Successfully retrieved greeting",
@@ -471,6 +534,8 @@ async def api_get_greeting():
                 "greeting": greeting,
                 "name": config.name,
                 "avatar": resolve_avatar_public_url(config.avatar or ""),
+                "needs_bootstrap": needs_bootstrap,
+                "bootstrap_opening": bootstrap_opening,
             },
         )
     except Exception as exc:
@@ -698,4 +763,84 @@ async def compare_personalities(from_name: str, to_name: str):
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Personality not found: {exc}") from exc
     except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ============ Bootstrap Dialogue Endpoints ============
+
+@personality_config_router.post(
+    "/bootstrap/message",
+    response_model=PersonalityResponse,
+    summary="Send a bootstrap dialogue message",
+    description="Exchange a message in the persona bootstrap (first-contact) dialogue.",
+)
+async def api_bootstrap_message(request: BootstrapMessageRequest):
+    try:
+        current_name = get_current_personality_name()
+        bootstrap_svc = await _get_bootstrap_service()
+
+        if not await bootstrap_svc.needs_bootstrap(current_name):
+            return PersonalityResponse(
+                success=True,
+                message="Bootstrap already completed",
+                data={"reply": None, "is_complete": True},
+            )
+
+        reply = await bootstrap_svc.reply(
+            persona_name=current_name,
+            user_id=request.user_id,
+            session_id=request.session_id,
+            user_message=request.user_message,
+            history=request.history,
+        )
+
+        still_needs = await bootstrap_svc.needs_bootstrap(current_name)
+        return PersonalityResponse(
+            success=True,
+            message="Bootstrap reply generated",
+            data={"reply": reply, "is_complete": not still_needs},
+        )
+    except Exception as exc:
+        logger.error("Bootstrap message failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ============ Journal Reflection Endpoint ============
+
+@personality_config_router.post(
+    "/journal/reflect",
+    response_model=PersonalityResponse,
+    summary="Trigger a persona journal reflection",
+    description="Generate a persona-perspective reflection entry and store it as a milestone.",
+)
+async def api_journal_reflect(request: JournalReflectRequest):
+    try:
+        persona_name = request.persona_name or get_current_personality_name()
+        journal_svc = await _get_journal_service()
+
+        entry = await journal_svc.generate_reflection(
+            persona_name=persona_name,
+            emotional_state=request.emotional_state,
+            relationship=request.relationship,
+            recent_milestones=request.recent_milestones,
+        )
+
+        if entry is None:
+            return PersonalityResponse(
+                success=False,
+                message="Reflection generation failed",
+                data=None,
+            )
+
+        return PersonalityResponse(
+            success=True,
+            message="Journal reflection generated",
+            data={
+                "milestone_id": entry.milestone_id,
+                "content": entry.content,
+                "timestamp": entry.timestamp,
+            },
+        )
+    except Exception as exc:
+        logger.error("Journal reflection failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

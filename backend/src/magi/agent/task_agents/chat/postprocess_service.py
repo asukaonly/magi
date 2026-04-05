@@ -18,6 +18,7 @@ from ....events.events import EventTypes
 from ....personality.behavior_evolution import SatisfactionLevel
 from ....personality.emotional_state import EngagementLevel, InteractionOutcome
 from ....personality.growth_memory import InteractionType
+from ....personality.interaction_analyzer import analyze_interaction, DEFAULT_ANALYSIS
 from ....memory.l3.models import TaskOutcomePacket
 from ....runtime_trace import (
     RuntimeNotificationRecord,
@@ -175,6 +176,7 @@ class ChatPostProcessService:
             memory_updated = await self._record_memory_updates(
                 user_id=context.user_id,
                 user_message=user_message,
+                response_text=response_text,
             )
         task_reflection_updated = await self._record_task_reflection(
             context=context,
@@ -766,28 +768,32 @@ class ChatPostProcessService:
             tactic_id=f"session:{session_id}:{tactic_type}",
         )
 
-    async def _record_memory_updates(self, *, user_id: str, user_message: str) -> bool:
+    async def _record_memory_updates(
+        self, *, user_id: str, user_message: str, response_text: str = "",
+    ) -> bool:
+        analysis = await analyze_interaction(user_message, response_text)
+
         updated = False
         if self._memory is not None:
             try:
                 await self._memory.record_interaction(
                     user_id=user_id,
                     interaction_type=InteractionType.CHAT,
-                    outcome="success",
-                    sentiment=0.0,
+                    outcome=analysis.outcome_str,
+                    sentiment=analysis.sentiment,
                     notes=f"Message: {user_message[:100]}...",
                 )
                 await self._memory.update_after_interaction(
-                    outcome=InteractionOutcome.SUCCESS,
-                    user_engagement=EngagementLevel.MEDIUM,
-                    complexity=0.5,
+                    outcome=analysis.outcome,
+                    user_engagement=analysis.engagement,
+                    complexity=analysis.complexity,
                 )
                 await self._memory.record_task_outcome(
                     task_id=f"chat_{int(time.time())}_{user_id}",
                     task_category="chat",
-                    user_satisfaction=SatisfactionLevel.NEUTRAL,
-                    accepted=True,
-                    task_complexity=0.5,
+                    user_satisfaction=analysis.satisfaction,
+                    accepted=analysis.outcome != InteractionOutcome.FAILURE,
+                    task_complexity=analysis.complexity,
                     task_duration=0.0,
                 )
                 updated = True
@@ -795,10 +801,15 @@ class ChatPostProcessService:
                 logger.warning("Failed to update self memory: %s", exc)
         if self._other_memory is not None:
             try:
+                other_outcome = (
+                    "positive" if analysis.sentiment > 0.2
+                    else "negative" if analysis.sentiment < -0.2
+                    else "neutral"
+                )
                 self._other_memory.update_interaction(
                     user_id=user_id,
                     interaction_type="chat",
-                    outcome="positive",
+                    outcome=other_outcome,
                     notes=f"Message: {user_message[:100]}",
                 )
                 updated = True

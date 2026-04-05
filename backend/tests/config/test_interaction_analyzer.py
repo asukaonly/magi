@@ -1,0 +1,253 @@
+"""Tests for personality.interaction_analyzer module."""
+from __future__ import annotations
+
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from magi.personality.interaction_analyzer import (
+    DEFAULT_ANALYSIS,
+    InteractionAnalysis,
+    analyze_interaction,
+    parse_analysis,
+)
+from magi.personality.behavior_evolution import SatisfactionLevel
+from magi.personality.emotional_state import EngagementLevel, InteractionOutcome
+
+
+# ---------- parse_analysis ----------
+
+
+class TestParseAnalysis:
+    def test_valid_json(self):
+        raw = json.dumps({
+            "sentiment": 0.7,
+            "engagement": "high",
+            "complexity": 0.8,
+            "outcome": "success",
+            "satisfaction": "high",
+        })
+        result = parse_analysis(raw)
+        assert result.sentiment == pytest.approx(0.7)
+        assert result.engagement == EngagementLevel.HIGH
+        assert result.complexity == pytest.approx(0.8)
+        assert result.outcome == InteractionOutcome.SUCCESS
+        assert result.satisfaction == SatisfactionLevel.HIGH
+
+    def test_negative_sentiment(self):
+        raw = json.dumps({
+            "sentiment": -0.5,
+            "engagement": "low",
+            "complexity": 0.2,
+            "outcome": "failure",
+            "satisfaction": "very_low",
+        })
+        result = parse_analysis(raw)
+        assert result.sentiment == pytest.approx(-0.5)
+        assert result.engagement == EngagementLevel.LOW
+        assert result.outcome == InteractionOutcome.FAILURE
+        assert result.satisfaction == SatisfactionLevel.VERY_LOW
+
+    def test_partial_outcome(self):
+        raw = json.dumps({
+            "sentiment": 0.1,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "partial",
+            "satisfaction": "neutral",
+        })
+        result = parse_analysis(raw)
+        assert result.outcome == InteractionOutcome.PARTIAL_SUCCESS
+
+    def test_clamp_sentiment_above(self):
+        raw = json.dumps({"sentiment": 2.5, "engagement": "medium", "complexity": 0.5, "outcome": "success", "satisfaction": "neutral"})
+        result = parse_analysis(raw)
+        assert result.sentiment == pytest.approx(1.0)
+
+    def test_clamp_sentiment_below(self):
+        raw = json.dumps({"sentiment": -3.0, "engagement": "medium", "complexity": 0.5, "outcome": "success", "satisfaction": "neutral"})
+        result = parse_analysis(raw)
+        assert result.sentiment == pytest.approx(-1.0)
+
+    def test_clamp_complexity_above(self):
+        raw = json.dumps({"sentiment": 0.0, "engagement": "medium", "complexity": 1.5, "outcome": "success", "satisfaction": "neutral"})
+        result = parse_analysis(raw)
+        assert result.complexity == pytest.approx(1.0)
+
+    def test_clamp_complexity_below(self):
+        raw = json.dumps({"sentiment": 0.0, "engagement": "medium", "complexity": -0.3, "outcome": "success", "satisfaction": "neutral"})
+        result = parse_analysis(raw)
+        assert result.complexity == pytest.approx(0.0)
+
+    def test_missing_fields_use_defaults(self):
+        raw = json.dumps({})
+        result = parse_analysis(raw)
+        assert result.sentiment == pytest.approx(0.0)
+        assert result.engagement == EngagementLevel.MEDIUM
+        assert result.complexity == pytest.approx(0.5)
+        assert result.outcome == InteractionOutcome.SUCCESS
+        assert result.satisfaction == SatisfactionLevel.NEUTRAL
+
+    def test_unknown_enum_values_use_defaults(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "super_high",
+            "complexity": 0.5,
+            "outcome": "unknown_status",
+            "satisfaction": "ecstatic",
+        })
+        result = parse_analysis(raw)
+        assert result.engagement == EngagementLevel.MEDIUM
+        assert result.outcome == InteractionOutcome.SUCCESS
+        assert result.satisfaction == SatisfactionLevel.NEUTRAL
+
+    def test_invalid_json_returns_default(self):
+        result = parse_analysis("not valid json {{{")
+        assert result == DEFAULT_ANALYSIS
+
+    def test_none_input_returns_default(self):
+        result = parse_analysis(None)  # type: ignore[arg-type]
+        assert result == DEFAULT_ANALYSIS
+
+    def test_non_numeric_sentiment_defaults(self):
+        raw = json.dumps({"sentiment": "very positive", "complexity": "hard"})
+        result = parse_analysis(raw)
+        assert result.sentiment == pytest.approx(0.0)
+        assert result.complexity == pytest.approx(0.5)
+
+
+# ---------- InteractionAnalysis.outcome_str ----------
+
+
+class TestOutcomeStr:
+    def test_success(self):
+        a = InteractionAnalysis(0.0, EngagementLevel.MEDIUM, 0.5, InteractionOutcome.SUCCESS, SatisfactionLevel.NEUTRAL)
+        assert a.outcome_str == "success"
+
+    def test_partial(self):
+        a = InteractionAnalysis(0.0, EngagementLevel.MEDIUM, 0.5, InteractionOutcome.PARTIAL_SUCCESS, SatisfactionLevel.NEUTRAL)
+        assert a.outcome_str == "partial"
+
+    def test_failure(self):
+        a = InteractionAnalysis(0.0, EngagementLevel.MEDIUM, 0.5, InteractionOutcome.FAILURE, SatisfactionLevel.NEUTRAL)
+        assert a.outcome_str == "failure"
+
+
+# ---------- analyze_interaction ----------
+
+
+class TestAnalyzeInteraction:
+    @pytest.mark.asyncio
+    async def test_returns_default_when_pool_unavailable(self):
+        with patch(
+            "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+            side_effect=RuntimeError("no pool"),
+        ):
+            result = await analyze_interaction("hello", "hi there")
+            assert result == DEFAULT_ANALYSIS
+
+    @pytest.mark.asyncio
+    async def test_returns_default_when_no_scenario_adapter(self):
+        mock_pool = MagicMock()
+        mock_pool.get.side_effect = ValueError("no adapter")
+        with patch(
+            "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+            return_value=mock_pool,
+        ):
+            result = await analyze_interaction("hello", "hi there")
+            assert result == DEFAULT_ANALYSIS
+
+    @pytest.mark.asyncio
+    async def test_successful_analysis(self):
+        llm_response = json.dumps({
+            "sentiment": 0.6,
+            "engagement": "high",
+            "complexity": 0.3,
+            "outcome": "success",
+            "satisfaction": "high",
+        })
+
+        mock_adapter = MagicMock()
+        mock_bridge = MagicMock()
+        mock_bridge.chat = AsyncMock(return_value=llm_response)
+
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = mock_adapter
+
+        with (
+            patch(
+                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                return_value=mock_pool,
+            ),
+            patch(
+                "magi.personality.interaction_analyzer.LLMProviderBridge",
+                return_value=mock_bridge,
+            ),
+        ):
+            result = await analyze_interaction("Thank you, that was helpful!", "You're welcome!")
+            assert result.sentiment == pytest.approx(0.6)
+            assert result.engagement == EngagementLevel.HIGH
+            assert result.satisfaction == SatisfactionLevel.HIGH
+
+    @pytest.mark.asyncio
+    async def test_llm_call_failure_returns_default(self):
+        mock_bridge = MagicMock()
+        mock_bridge.chat = AsyncMock(side_effect=RuntimeError("LLM error"))
+
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = MagicMock()
+
+        with (
+            patch(
+                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                return_value=mock_pool,
+            ),
+            patch(
+                "magi.personality.interaction_analyzer.LLMProviderBridge",
+                return_value=mock_bridge,
+            ),
+        ):
+            result = await analyze_interaction("hello", "hi")
+            assert result == DEFAULT_ANALYSIS
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_core_scenario(self):
+        """When CONTEXT_DECIDER is unavailable, falls back to CORE."""
+        llm_response = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+        })
+
+        mock_adapter = MagicMock()
+        mock_bridge = MagicMock()
+        mock_bridge.chat = AsyncMock(return_value=llm_response)
+
+        call_count = 0
+
+        def get_side_effect(scenario):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ValueError("no CONTEXT_DECIDER")
+            return mock_adapter
+
+        mock_pool = MagicMock()
+        mock_pool.get.side_effect = get_side_effect
+
+        with (
+            patch(
+                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                return_value=mock_pool,
+            ),
+            patch(
+                "magi.personality.interaction_analyzer.LLMProviderBridge",
+                return_value=mock_bridge,
+            ),
+        ):
+            result = await analyze_interaction("hello", "hi")
+            assert result.outcome == InteractionOutcome.SUCCESS
+            assert call_count == 2

@@ -7,7 +7,7 @@ from typing import Any
 
 from ...core.runtime_bindings import require_runtime_command_queue, require_runtime_trace_store
 
-RUNTIME_HEARTBEAT_ROLE = "runtime_worker"
+RUNTIME_HEARTBEAT_ROLE = "ipc_worker"
 DEFAULT_RUNTIME_HEARTBEAT_STALE_AFTER_MS = 15_000
 DEFAULT_PENDING_COMMAND_WARNING_THRESHOLD = 100
 
@@ -15,7 +15,7 @@ DEFAULT_PENDING_COMMAND_WARNING_THRESHOLD = 100
 async def get_runtime_system_status(app: Any) -> dict[str, Any]:
     """Return a topology-aware runtime status payload for transport endpoints."""
     api_ready = bool(getattr(app.state, "backend_ready", False))
-    process_role = str(getattr(app.state, "process_role", "api") or "api")
+    process_role = str(getattr(app.state, "process_role", "ipc_worker") or "ipc_worker")
     pending_commands = await _get_pending_commands()
     queue_backlog_healthy = (
         pending_commands is None or pending_commands <= DEFAULT_PENDING_COMMAND_WARNING_THRESHOLD

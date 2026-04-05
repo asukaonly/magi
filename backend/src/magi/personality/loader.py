@@ -81,6 +81,14 @@ class PersonaLayerItem:
 
 
 @dataclass
+class BootstrapConfig:
+    style_instruction: str = ""
+    opening_line: str = ""
+    extract_targets: List[str] = field(default_factory=list)
+    max_rounds: int = 3
+
+
+@dataclass
 class PersonalityConfig:
     persona_entity: PersonaEntity = field(default_factory=PersonaEntity)
     cached_phrases: CachedPhrases = field(default_factory=CachedPhrases)
@@ -88,6 +96,7 @@ class PersonalityConfig:
     state_transition_protocol: List[StateTransitionProtocolItem] = field(default_factory=list)
     persona_layers: List[PersonaLayerItem] = field(default_factory=list)
     scenario_prompts: Dict[str, str] = field(default_factory=dict)
+    bootstrap: Optional[BootstrapConfig] = None
 
     @property
     def name(self) -> str:
@@ -108,6 +117,7 @@ class PersonalityConfig:
         transitions = data.get("state_transition_protocol", [])
         layers = data.get("persona_layers", [])
         scenario_prompts_raw = data.get("scenario_prompts", {})
+        bootstrap_raw = data.get("bootstrap")
 
         return cls(
             persona_entity=PersonaEntity(
@@ -134,6 +144,8 @@ class PersonalityConfig:
                 if isinstance(item, dict)
             ],
             scenario_prompts=dict(scenario_prompts_raw) if isinstance(scenario_prompts_raw, dict) else {},
+            bootstrap=BootstrapConfig(**{**asdict(BootstrapConfig()), **bootstrap_raw})
+            if isinstance(bootstrap_raw, dict) else None,
         )
 
     def to_dict(self) -> Dict[str, Any]:

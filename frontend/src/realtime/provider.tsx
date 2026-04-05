@@ -9,11 +9,12 @@ import {
 import { normalizeHistoryMessages, normalizeTraceSummary } from '@/domain/chat/state';
 import { DEFAULT_USER_CHANNEL } from '@/constants';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
-import { getRuntimeConfig } from '@/runtime/config';
+import { getRuntimeConfig, isTauriRuntime } from '@/runtime/config';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useContextUsageStore } from '@/stores/context-usage';
 import { useRealtimeStore } from '@/stores/realtime-store';
 import { RealtimeClient, type RealtimeMessage } from './client';
+import { TauriBridgeClient } from './tauri-bridge';
 
 type RealtimeContextValue = {
   send: (message: Record<string, unknown>) => void;
@@ -32,8 +33,24 @@ const resolveWsUrl = (): string => {
   return `${base}${separator}token=${encodeURIComponent(runtime.sessionToken)}`;
 };
 
+/** Shared listener dispatcher for merging WS and Tauri bridge events. */
+class RealtimeDispatcher {
+  private listeners = new Set<(message: RealtimeMessage) => void>();
+
+  dispatch(message: RealtimeMessage): void {
+    this.listeners.forEach((listener) => listener(message));
+  }
+
+  subscribe(listener: (message: RealtimeMessage) => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+}
+
 export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   const clientRef = useRef<RealtimeClient>();
+  const bridgeRef = useRef<TauriBridgeClient>();
+  const dispatcherRef = useRef<RealtimeDispatcher>();
   const setConnected = useRealtimeStore((state) => state.setConnected);
   const setLastError = useRealtimeStore((state) => state.setLastError);
   const setReconnectAttempts = useRealtimeStore((state) => state.setReconnectAttempts);
@@ -43,10 +60,16 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   if (!clientRef.current) {
     clientRef.current = new RealtimeClient();
   }
+  if (!dispatcherRef.current) {
+    dispatcherRef.current = new RealtimeDispatcher();
+  }
 
   useEffect(() => {
     const client = clientRef.current!;
-    const unsubscribeMessages = client.subscribe((message) => {
+    const dispatcher = dispatcherRef.current!;
+
+    // Provider's own handler processes messages from all sources
+    const unsubscribeProviderHandler = dispatcher.subscribe((message) => {
       const eventName = String(message.event || message.type || '').trim();
       const conversationStore = useConversationStore.getState();
 
@@ -146,6 +169,9 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       }
     });
 
+    // Forward WS messages into the shared dispatcher
+    const unsubscribeWs = client.subscribe((message) => dispatcher.dispatch(message));
+
     const unsubscribeStatus = client.subscribeStatus((status) => {
       setConnected(status.connected);
       setLastError(status.lastError);
@@ -157,9 +183,23 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
 
     client.connect(resolveWsUrl());
 
+    // In desktop mode, also start Tauri event bridge for server-push notifications.
+    // The WS client still handles client→server commands (send_message, etc.).
+    let unsubscribeBridge: (() => void) | undefined;
+    if (isTauriRuntime()) {
+      const bridge = new TauriBridgeClient();
+      bridgeRef.current = bridge;
+      unsubscribeBridge = bridge.subscribe((message) => dispatcher.dispatch(message));
+      bridge.connect();
+    }
+
     return () => {
-      unsubscribeMessages();
+      unsubscribeProviderHandler();
+      unsubscribeWs();
       unsubscribeStatus();
+      unsubscribeBridge?.();
+      bridgeRef.current?.disconnect();
+      bridgeRef.current = undefined;
       client.disconnect();
       resetRealtime();
     };
@@ -167,7 +207,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
 
   const value = useMemo<RealtimeContextValue>(() => ({
     send: (message) => clientRef.current?.send(message),
-    subscribe: (listener) => clientRef.current?.subscribe(listener) || (() => undefined),
+    subscribe: (listener) => dispatcherRef.current?.subscribe(listener) || (() => undefined),
   }), []);
 
   return (

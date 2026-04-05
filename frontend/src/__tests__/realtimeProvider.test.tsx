@@ -13,6 +13,7 @@ vi.mock('@/runtime/config', () => ({
     wsBaseUrl: 'ws://localhost:8000',
     sessionToken: 'test-token',
   }),
+  isTauriRuntime: () => false,
 }));
 
 describe('realtime provider', () => {

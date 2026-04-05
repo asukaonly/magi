@@ -166,7 +166,7 @@ async def dispatch_user_message(
 
     stats = await runtime_command_queue.get_stats()
     queue_size = stats.get("pending_count") if isinstance(stats, dict) else None
-    from ...websocket.chat_events import broadcast_chat_message_upsert
+    from ...transport.chat_events import broadcast_chat_message_upsert
 
     await broadcast_chat_message_upsert(
         user_id=user_id,

@@ -34,49 +34,6 @@ def test_require_initialized_raises_for_missing_value() -> None:
     assert require_initialized("value", "field") == "value"
 
 
-def test_bootstrap_builds_expected_front_of_layer_order() -> None:
-    """Verify bootstrap builds lifecycle modules in expected order (first 4 layers)."""
-    from magi.bootstrap.builder import build_runtime_modules
-    from magi.bootstrap.context import RuntimeBootstrapContext
-
-    modules = build_runtime_modules(RuntimeBootstrapContext())
-
-    assert [module.name for module in modules[:5]] == [
-        "runtime_core_dependencies",
-        "runtime_configuration",
-        "runtime_command_queue",
-        "runtime_message_bus",
-        "runtime_chat_store",
-    ]
-
-
-def test_bootstrap_builds_expected_middle_layer_order() -> None:
-    """Verify bootstrap builds lifecycle modules through context layer."""
-    from magi.bootstrap.builder import build_runtime_modules
-    from magi.bootstrap.context import RuntimeBootstrapContext
-
-    modules = build_runtime_modules(RuntimeBootstrapContext())
-
-    # Check that modules 0-15 match expected order
-    assert [module.name for module in modules[:15]] == [
-        "runtime_core_dependencies",
-        "runtime_configuration",
-        "runtime_command_queue",
-        "runtime_message_bus",
-        "runtime_chat_store",
-        "runtime_plugin_system",
-        "runtime_llm",
-        "runtime_memory",
-        "runtime_chat_projector",
-        "runtime_trace",
-        "runtime_tools",
-        "runtime_skills",
-        "runtime_personality",
-        "runtime_sensor_hub",
-        "runtime_context",
-    ]
-
-
 def test_bootstrap_builds_expected_full_layer_order() -> None:
     """Verify bootstrap builds all lifecycle modules in expected order."""
     from magi.bootstrap.builder import build_runtime_modules
@@ -102,12 +59,14 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_context",
         "runtime_agent_core",
         "runtime_command_processor",
+        "runtime_plugin_ingress_processor",
         "runtime_timeline",
         "runtime_scheduler",
-        "runtime_agent_scheduler",
-        "runtime_action_scheduler",
-        "runtime_timeline_scheduler",
+        "runtime_sensor_scheduler",
+        "runtime_sensor_sync_executor",
         "runtime_exports",
+        "runtime_l2_maintenance_scheduler",
+        "runtime_l3_summary_scheduler",
         "runtime_other_dependencies",
     ]
 

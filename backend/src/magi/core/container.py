@@ -52,8 +52,6 @@ class Container(containers.DeclarativeContainer):
         modules=[
             "magi.api.routers.messages",
             "magi.api.routers.skills",
-            "magi.websocket.handlers",
-            "magi.backend_app",
         ]
     )
 

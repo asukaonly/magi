@@ -11,9 +11,9 @@ from magi.api.routers.config import (
     _build_system_config,
     _build_onboarding_template,
     _build_update_paths,
-    _default_llm_provider_registry,
     config_router,
 )
+from magi.api.services.llm_testing_service import _default_llm_provider_registry
 from magi.api.routers.llm import llm_router
 from magi.config.loader import get_config
 from magi.config.models import (

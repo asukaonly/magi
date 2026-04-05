@@ -459,7 +459,7 @@ async def set_message_label(
     if message is None:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    from ...websocket.chat_events import broadcast_chat_message_upsert
+    from ...transport.chat_events import broadcast_chat_message_upsert
 
     await broadcast_chat_message_upsert(
         user_id=request.user_id,
@@ -494,7 +494,7 @@ async def delete_message(session_id: str, message_id: str, user_id: str = DEFAUL
     if message is None:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    from ...websocket.chat_events import broadcast_chat_message_hidden
+    from ...transport.chat_events import broadcast_chat_message_hidden
 
     await broadcast_chat_message_hidden(
         user_id=user_id,

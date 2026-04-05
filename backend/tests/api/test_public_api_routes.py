@@ -31,7 +31,6 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/timeline/viewport" in paths
     assert "/api/timeline/context/{anchor_id}" in paths
     assert "/api/tools/config" in paths
-    assert "/api/metrics/runtime/overview" in paths
     assert "/api/skills/" in paths
     assert "/api/memory/identity/links" in paths
     assert "/api/memory/clear" in paths
@@ -45,8 +44,12 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
 def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None:
     paths = _build_registered_paths()
 
-    assert "/api/agents/" not in paths
+    # metrics/schedules/tasks are now native Rust endpoints — not registered in Python
+    assert "/api/metrics/runtime/overview" not in paths
+    assert "/api/schedules/" not in paths
     assert "/api/tasks/" not in paths
+
+    assert "/api/agents/" not in paths
     assert "/api/others/list" not in paths
 
     assert "/api/tools/" not in paths

@@ -81,7 +81,8 @@ build/
 .claude/settings.local.json
 .claude/settings.json.local
 
-# Tauri build artifacts
+# Cargo / Tauri build artifacts
+target/
 frontend/src-tauri/target/
 frontend/src-tauri/binaries/magi-backend-*
 frontend/src-tauri/gen/
