@@ -24,7 +24,13 @@ logger = get_logger(__name__)
 class MemoryStoreModule(LifecycleModule):
     """Initialize persistence, memory stores, usage metrics, and memory integration (L6)."""
 
-    def __init__(self, context: RuntimeBootstrapContext, *, start_memory_integration: bool = True):
+    def __init__(
+        self,
+        context: RuntimeBootstrapContext,
+        *,
+        start_memory_integration: bool = True,
+        enable_embedding: bool = True,
+    ):
         dependencies = [
             "runtime_llm",
             "runtime_configuration",
@@ -39,6 +45,7 @@ class MemoryStoreModule(LifecycleModule):
         )
         self._context = context
         self.start_memory_integration = start_memory_integration
+        self._enable_embedding = enable_embedding
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
@@ -66,7 +73,10 @@ class MemoryStoreModule(LifecycleModule):
             logger.info("LLM usage store subscription skipped for API role")
 
         memory_config = config.agent.memory
-        embedding_service = MemoryEmbeddingService(scenario_llm_pool)
+        embedding_service = MemoryEmbeddingService(scenario_llm_pool) if self._enable_embedding else None
+
+        # When embedding is disabled (e.g. API role), skip vector index initialization entirely
+        vectors_enabled = self._enable_embedding
 
         self._context.memory.unified_memory = UnifiedMemoryStore(
             l1_db_path=str(runtime_paths.l1_memory_db_path),
@@ -76,10 +86,10 @@ class MemoryStoreModule(LifecycleModule):
             scenario_llm_pool=scenario_llm_pool,
             memory_config_getter=lambda: get_config().agent.memory,
             async_embeddings=memory_config.async_embeddings,
-            enable_l1_vectors=memory_config.l1.vectors_enabled,
-            enable_l2_vectors=memory_config.l2.vectors_enabled,
-            enable_l3_vectors=memory_config.l3.vectors_enabled,
-            enable_l4_vectors=memory_config.l4.vectors_enabled,
+            enable_l1_vectors=memory_config.l1.vectors_enabled and vectors_enabled,
+            enable_l2_vectors=memory_config.l2.vectors_enabled and vectors_enabled,
+            enable_l3_vectors=memory_config.l3.vectors_enabled and vectors_enabled,
+            enable_l4_vectors=memory_config.l4.vectors_enabled and vectors_enabled,
             enable_l0=memory_config.l0.enabled,
             enable_l1=memory_config.l1.enabled,
             enable_l2=memory_config.l2.enabled,

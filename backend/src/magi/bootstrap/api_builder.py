@@ -115,7 +115,7 @@ def build_api_runtime_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         ChatStoreModule(context),
         PluginSystemModule(context),
         LLMRuntimeModule(context),
-        MemoryStoreModule(context, start_memory_integration=False),
+        MemoryStoreModule(context, start_memory_integration=False, enable_embedding=False),
         ChatProjectorModule(context),
         _build_runtime_trace_module(context),
         SkillsModule(context),
