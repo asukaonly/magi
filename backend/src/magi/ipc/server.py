@@ -19,10 +19,16 @@ logger = structlog.get_logger(__name__)
 class IpcServer:
     """NDJSON IPC server that accepts a single persistent connection from the Rust gateway."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, asgi_app: Any = None) -> None:
         self._dispatcher = Dispatcher()
         self._dispatcher.register("ping", handle_ping)
         self._server: asyncio.AbstractServer | None = None
+        self._api_forward = None
+
+        if asgi_app is not None:
+            from magi.ipc.handlers import ApiForwardHandler
+            self._api_forward = ApiForwardHandler(asgi_app)
+            self._dispatcher.register("api.forward", self._api_forward.handle)
 
     def register(self, method: str, handler: Any) -> None:
         """Register an additional IPC method handler."""
@@ -54,6 +60,9 @@ class IpcServer:
             logger.info("ipc_server_started", transport="unix", path=socket_path)
 
     async def stop(self) -> None:
+        if self._api_forward is not None:
+            await self._api_forward.close()
+            self._api_forward = None
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()

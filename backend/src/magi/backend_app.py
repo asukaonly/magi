@@ -84,7 +84,7 @@ def create_backend_app(*, role: ProcessRole | None = None) -> FastAPI:
         ipc_server = None
         if os.environ.get("MAGI_IPC_SOCKET"):
             from .ipc import IpcServer
-            ipc_server = IpcServer()
+            ipc_server = IpcServer(asgi_app=app)
             await ipc_server.start()
             app.state.ipc_server = ipc_server
 
