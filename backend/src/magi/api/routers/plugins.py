@@ -15,7 +15,7 @@ from ...plugins.contracts import (
     PluginPackageState,
     PluginSettingsResourcePayload,
 )
-from ...plugins.i18n import PluginI18n, get_current_language
+from ...plugins.i18n import PluginI18n
 
 plugins_router = APIRouter()
 

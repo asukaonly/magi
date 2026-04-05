@@ -31,18 +31,7 @@ from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
 from ...bootstrap import refresh_runtime_llm_config
-from ..services.llm_testing_service import (
-    DiscoverLLMModelsRequestModel,
-    DiscoverLLMModelsResponseModel,
-    DiscoverLLMModelsApiResponseModel,
-    TestLLMProviderRequestModel,
-    TestLLMProviderResponseModel,
-    TestLLMProviderApiResponseModel,
-    get_llm_provider_registry as _load_llm_provider_registry,
-    discover_openai_compatible_models as _discover_openai_compatible_models,
-    test_llm_provider_connection as _test_llm_provider_connection,
-    _default_llm_provider_registry,
-)
+from ..services.llm_testing_service import get_llm_provider_registry as _load_llm_provider_registry
 
 logger = get_logger(__name__)
 config_router = APIRouter()
