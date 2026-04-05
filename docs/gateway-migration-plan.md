@@ -202,8 +202,10 @@ tokio-stream = "0.1"
   - [x] Batch 2: Personality config + presets (7 endpoints)
   - [x] Batch 3: LLM custom-template, local-embedding discovered (2 endpoints)
   - [ ] Remaining: config/, config/template, llm/providers/catalog, local-embedding/models (deferred — need config model sync or IPC)
-  - [ ] Runtime-dependent: tools, skills, sensors, plugins, timeline, memory L0/stats (deferred to Phase 8 via IPC)
-- [ ] Phase 7: IPC channel
-- [ ] Phase 8: Mutation endpoints + runtime-dependent reads via IPC
+  - [ ] Runtime-dependent: tools, skills, sensors, plugins, timeline, memory L0/stats (covered by IPC proxy)
+- [x] Phase 7: IPC channel — NDJSON over UDS, protocol types, client/server, ping validated
+- [~] Phase 8: Mutation endpoints + runtime-dependent reads via IPC
+  - [x] 8a: api.forward IPC handler — generic ASGI dispatch for all unmigrated endpoints
+  - [ ] 8b-8e: Native Rust mutation handlers for DB/file writes (schedules, tasks, sessions, personality)
 - [ ] Phase 9: Remove Python HTTP
 - [ ] Phase 10: Extract gateway crate
