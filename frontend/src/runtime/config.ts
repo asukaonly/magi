@@ -40,7 +40,7 @@ runtimeConfig.wsBaseUrl = buildWsBaseUrl(runtimeConfig.apiBaseUrl);
 let initialized = false;
 let startupError: string | null = null;
 
-function isTauriRuntime(): boolean {
+export function isTauriRuntime(): boolean {
   if (typeof window === "undefined") {
     return false;
   }

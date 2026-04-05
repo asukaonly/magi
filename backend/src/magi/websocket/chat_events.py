@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 from ..chat import get_chat_read_service
 from ..core.logger import get_logger
+from ..core.runtime_bindings import require_runtime_trace_store
+from ..runtime_trace import RuntimeNotificationRecord
 from .connection_manager import manager
 
 logger = get_logger(__name__)
@@ -43,15 +47,31 @@ async def broadcast_chat_message_upsert(
         return
     if message is None:
         return
+
+    payload_data = {
+        "user_id": normalized_user_id,
+        "session_id": normalized_session_id,
+        "message_id": normalized_message_id,
+        "message": message.to_dict(),
+        "session_summary": session_summary.to_dict() if session_summary is not None else None,
+    }
+
+    # Write to runtime_notifications for Tauri event bridge
+    try:
+        store = require_runtime_trace_store()
+        await store.append_notification(RuntimeNotificationRecord(
+            notification_id=0,
+            channel="chat_message_upserted",
+            user_id=normalized_user_id,
+            session_id=normalized_session_id,
+            payload_json=json.dumps(payload_data, default=str),
+        ))
+    except Exception as exc:
+        logger.debug("Failed to write chat_message_upserted notification", error=str(exc))
+
     await manager.broadcast(
         "chat_message_upserted",
-        {
-            "user_id": normalized_user_id,
-            "session_id": normalized_session_id,
-            "message_id": normalized_message_id,
-            "message": message.to_dict(),
-            "session_summary": session_summary.to_dict() if session_summary is not None else None,
-        },
+        payload_data,
         room=f"user_{normalized_user_id}",
     )
 
@@ -83,13 +103,29 @@ async def broadcast_chat_message_hidden(
             error=str(exc),
         )
         return
+
+    payload_data = {
+        "user_id": normalized_user_id,
+        "session_id": normalized_session_id,
+        "message_id": normalized_message_id,
+        "session_summary": session_summary.to_dict() if session_summary is not None else None,
+    }
+
+    # Write to runtime_notifications for Tauri event bridge
+    try:
+        store = require_runtime_trace_store()
+        await store.append_notification(RuntimeNotificationRecord(
+            notification_id=0,
+            channel="chat_message_hidden",
+            user_id=normalized_user_id,
+            session_id=normalized_session_id,
+            payload_json=json.dumps(payload_data, default=str),
+        ))
+    except Exception as exc:
+        logger.debug("Failed to write chat_message_hidden notification", error=str(exc))
+
     await manager.broadcast(
         "chat_message_hidden",
-        {
-            "user_id": normalized_user_id,
-            "session_id": normalized_session_id,
-            "message_id": normalized_message_id,
-            "session_summary": session_summary.to_dict() if session_summary is not None else None,
-        },
+        payload_data,
         room=f"user_{normalized_user_id}",
     )

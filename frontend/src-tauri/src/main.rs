@@ -1,6 +1,7 @@
 mod api;
 mod desktop_presence;
 mod frontmost_app_monitor;
+mod notification_bridge;
 
 #[cfg(unix)]
 use libc::{kill, SIGTERM};
@@ -37,6 +38,7 @@ struct BackendRuntime {
     api_process: Option<BackendProcess>,
     runtime_worker_process: Option<BackendProcess>,
     axum_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    bridge_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     python_api_port: Option<u16>,
     base_url: Option<String>,
     ws_base_url: Option<String>,
@@ -568,6 +570,9 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
     if let Some(tx) = runtime.axum_shutdown.take() {
         let _ = tx.send(());
     }
+    if let Some(tx) = runtime.bridge_shutdown.take() {
+        let _ = tx.send(true);
+    }
     runtime.python_api_port = None;
     runtime.base_url = None;
     runtime.ws_base_url = None;
@@ -708,6 +713,13 @@ fn start_backend(
             .ok();
     });
 
+    // Start notification bridge (polls runtime_trace.db → Tauri events)
+    let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::watch::channel(false);
+    let bridge_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        notification_bridge::run_notification_bridge(bridge_app, bridge_shutdown_rx).await;
+    });
+
     let mut runtime = state
         .runtime
         .lock()
@@ -715,6 +727,7 @@ fn start_backend(
     runtime.api_process = Some(start.api_process);
     runtime.runtime_worker_process = Some(start.runtime_worker_process);
     runtime.axum_shutdown = Some(shutdown_tx);
+    runtime.bridge_shutdown = Some(bridge_shutdown_tx);
     runtime.python_api_port = Some(internal_port);
     runtime.base_url = Some(base_url.clone());
     runtime.ws_base_url = Some(ws_base_url.clone());
