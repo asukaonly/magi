@@ -1,3 +1,4 @@
+mod api;
 mod desktop_presence;
 mod frontmost_app_monitor;
 
@@ -35,6 +36,8 @@ struct BackendState {
 struct BackendRuntime {
     api_process: Option<BackendProcess>,
     runtime_worker_process: Option<BackendProcess>,
+    axum_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    python_api_port: Option<u16>,
     base_url: Option<String>,
     ws_base_url: Option<String>,
     session_token: Option<String>,
@@ -260,16 +263,6 @@ fn request_runtime_shutdown(host: &str, port: u16, session_token: &str) -> bool 
     }
 
     response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200")
-}
-
-fn extract_backend_endpoint(base_url: &str) -> Option<(String, u16)> {
-    let without_scheme = base_url
-        .strip_prefix("http://")
-        .or_else(|| base_url.strip_prefix("https://"))?;
-    let authority = without_scheme.split('/').next()?;
-    let (host, port_text) = authority.rsplit_once(':')?;
-    let port = port_text.parse::<u16>().ok()?;
-    Some((host.to_string(), port))
 }
 
 fn generate_session_token() -> String {
@@ -538,28 +531,22 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
         .runtime
         .lock()
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-    let base_url = runtime.base_url.clone();
+    let python_api_port = runtime.python_api_port;
     let session_token = runtime.session_token.clone().unwrap_or_default();
     let api_pid = runtime.api_pid;
     let runtime_worker_pid = runtime.runtime_worker_pid;
     if let Some(mut process) = runtime.api_process.take() {
-        if let Some(base_url) = base_url.as_deref() {
-            if let Some((host, port)) = extract_backend_endpoint(base_url) {
-                if request_runtime_shutdown(&host, port, &session_token) {
-                    let exited = wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT)
-                        || wait_for_port_close(&host, port, SHUTDOWN_TIMEOUT);
-                    if !exited {
-                        process.kill();
-                    }
-                } else {
-                    if let Some(pid) = api_pid {
-                        let _ = send_termination_signal(pid);
-                        if !wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT) {
-                            process.kill();
-                        }
-                    } else {
-                        process.kill();
-                    }
+        if let Some(port) = python_api_port {
+            if request_runtime_shutdown(BACKEND_HOST, port, &session_token) {
+                let exited = wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT)
+                    || wait_for_port_close(BACKEND_HOST, port, SHUTDOWN_TIMEOUT);
+                if !exited {
+                    process.kill();
+                }
+            } else if let Some(pid) = api_pid {
+                let _ = send_termination_signal(pid);
+                if !wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT) {
+                    process.kill();
                 }
             } else {
                 process.kill();
@@ -578,6 +565,10 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
             process.kill();
         }
     }
+    if let Some(tx) = runtime.axum_shutdown.take() {
+        let _ = tx.send(());
+    }
+    runtime.python_api_port = None;
     runtime.base_url = None;
     runtime.ws_base_url = None;
     runtime.session_token = None;
@@ -654,18 +645,19 @@ fn start_backend(
         });
     }
 
-    let port = pick_open_port()?;
+    let main_port = pick_open_port()?;
+    let internal_port = pick_open_port()?;
     let session_token = generate_session_token();
-    let base_url = format!("http://{}:{}/api", BACKEND_HOST, port);
-    let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, port);
+    let base_url = format!("http://{}:{}/api", BACKEND_HOST, main_port);
+    let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, internal_port);
 
     let start = if cfg!(debug_assertions) {
-        spawn_dev_backend_pair(port, &session_token)?
+        spawn_dev_backend_pair(internal_port, &session_token)?
     } else {
-        spawn_sidecar_backend(&app, port, &session_token, state.recent_errors.clone())?
+        spawn_sidecar_backend(&app, internal_port, &session_token, state.recent_errors.clone())?
     };
 
-    if !wait_for_health(BACKEND_HOST, port, STARTUP_TIMEOUT) {
+    if !wait_for_health(BACKEND_HOST, internal_port, STARTUP_TIMEOUT) {
         let mut api_process = start.api_process;
         let mut runtime_worker_process = start.runtime_worker_process;
         api_process.kill();
@@ -686,12 +678,44 @@ fn start_backend(
         ));
     }
 
+    // Start Axum API gateway on main_port, proxying to Python API on internal_port
+    let client = hyper_util::client::legacy::Client::builder(
+        hyper_util::rt::TokioExecutor::new(),
+    )
+    .build_http();
+    let api_state = api::state::ApiState {
+        python_api_port: internal_port,
+        client,
+    };
+    let router = api::build_router(api_state);
+
+    let std_listener = std::net::TcpListener::bind((BACKEND_HOST, main_port))
+        .map_err(|e| format!("Failed to bind Axum listener on port {}: {}", main_port, e))?;
+    std_listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Failed to set listener non-blocking: {e}"))?;
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+    tauri::async_runtime::spawn(async move {
+        let listener = tokio::net::TcpListener::from_std(std_listener)
+            .expect("Failed to convert to tokio TcpListener");
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+
     let mut runtime = state
         .runtime
         .lock()
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
     runtime.api_process = Some(start.api_process);
     runtime.runtime_worker_process = Some(start.runtime_worker_process);
+    runtime.axum_shutdown = Some(shutdown_tx);
+    runtime.python_api_port = Some(internal_port);
     runtime.base_url = Some(base_url.clone());
     runtime.ws_base_url = Some(ws_base_url.clone());
     runtime.session_token = Some(session_token.clone());

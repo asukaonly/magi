@@ -9,6 +9,10 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+axum = "0.8"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1"] }
+http-body-util = "0.1"
 libc = "0.2"
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -16,6 +20,9 @@ serde_json = "1"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
+tokio = { version = "1", features = ["net", "time", "sync", "macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
