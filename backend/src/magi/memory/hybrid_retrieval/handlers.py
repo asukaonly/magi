@@ -156,8 +156,15 @@ class L1Handler(RRFSearchHandler):
 
     layer_name = "L1"
 
-    def __init__(self, l1_store: Any, config: Optional[RetrievalConfig] = None) -> None:
+    def __init__(
+        self,
+        l1_store: Any,
+        config: Optional[RetrievalConfig] = None,
+        *,
+        l2_store: Any = None,
+    ) -> None:
         super().__init__(l1_store, config)
+        self._l2_store = l2_store
 
     async def execute(
         self,
@@ -200,13 +207,25 @@ class L1Handler(RRFSearchHandler):
         if not bm25_ids and not vec_ids and not kw_ids and not entity_ids:
             return []
 
-        # Phase 3: 4-way RRF fusion
         cfg = self._config
+
+        # Phase 2b: Graph spreading activation (L2 knowledge graph BFS)
+        graph_ids: List[str] = []
+        if cfg.graph_spreading_enabled and self._l2_store is not None and seed_ids:
+            try:
+                graph_ids = await self._graph_spreading_path(seed_ids, fetch_k)
+            except Exception as exc:
+                logger.warning("L1 graph spreading failed: %s", exc)
+
+        # Phase 3: N-way RRF fusion
         ranked_lists: list[Sequence[str]] = [bm25_ids, vec_ids, kw_ids]
         weights = [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword]
         if entity_ids:
             ranked_lists.append(entity_ids)
             weights.append(cfg.rrf_weight_entity)
+        if graph_ids:
+            ranked_lists.append(graph_ids)
+            weights.append(cfg.rrf_weight_graph)
 
         fused = rrf_fuse(ranked_lists, weights, k=cfg.rrf_k)
         top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
@@ -229,6 +248,77 @@ class L1Handler(RRFSearchHandler):
             fused_scores=dict(fused),
         )
         return reranked[:conditions.limit]
+
+    async def _graph_spreading_path(self, seed_event_ids: List[str], limit: int) -> List[str]:
+        """Graph spreading activation via L2 knowledge graph BFS."""
+        from .graph_spreader import GraphSpreader
+
+        cfg = self._config
+        spreader = GraphSpreader(
+            self._l2_store,
+            max_hops=cfg.graph_spreading_max_hops,
+            max_neighbors_per_node=cfg.graph_spreading_max_neighbors,
+            max_total_entities=cfg.graph_spreading_max_entities,
+            decay=cfg.graph_spreading_decay,
+        )
+
+        # Resolve seed event_ids → entity_ids via l1_event_entities
+        seed_entity_ids: List[str] = []
+        try:
+            from ...core.sqlite import sqlite_connection_async
+
+            ph = ", ".join("?" for _ in seed_event_ids)
+            async with sqlite_connection_async(self._store.db_path) as db:
+                async with db.execute(
+                    f"SELECT DISTINCT entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
+                    tuple(seed_event_ids),
+                ) as cursor:
+                    seed_entity_ids = [row[0] for row in await cursor.fetchall()]
+        except Exception as exc:
+            logger.warning("Graph spreading seed resolution failed: %s", exc)
+            return []
+
+        if not seed_entity_ids:
+            return []
+
+        result = await spreader.spread(
+            seed_entity_ids,
+            exclude_event_ids=set(seed_event_ids),
+        )
+
+        if not result.scored_event_ids:
+            # Fall back to discovered entities → l1_event_entities lookup
+            if result.discovered_entities:
+                try:
+                    top_entities = sorted(
+                        result.discovered_entities.items(),
+                        key=lambda x: x[1],
+                        reverse=True,
+                    )[:20]
+                    entity_ids_to_lookup = [eid for eid, _ in top_entities]
+                    from ...core.sqlite import sqlite_connection_async
+
+                    eph = ", ".join("?" for _ in entity_ids_to_lookup)
+                    async with sqlite_connection_async(self._store.db_path) as db:
+                        async with db.execute(
+                            f"SELECT event_id, COUNT(DISTINCT entity_id) AS shared"
+                            f" FROM l1_event_entities"
+                            f" WHERE entity_id IN ({eph})"
+                            f" GROUP BY event_id"
+                            f" ORDER BY shared DESC"
+                            f" LIMIT ?",
+                            (*entity_ids_to_lookup, limit),
+                        ) as cursor:
+                            rows = await cursor.fetchall()
+                    exclude = set(seed_event_ids)
+                    return [r[0] for r in rows if r[0] not in exclude][:limit]
+                except Exception as exc:
+                    logger.warning("Graph spreading entity→event lookup failed: %s", exc)
+            return []
+
+        # Sort by activation score descending
+        scored = sorted(result.scored_event_ids.items(), key=lambda x: x[1], reverse=True)
+        return [eid for eid, _ in scored[:limit]]
 
     async def _bm25_path(self, query: str, limit: int, *, user_id: Optional[str] = None) -> List[str]:
         """BM25 search via FTS5, optionally scoped to *user_id*."""

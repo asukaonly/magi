@@ -168,11 +168,29 @@ class QueryExpansionConfigModel(BaseModel):
     timeout_seconds: float = Field(default=3.0, ge=0.5)
 
 
+class GraphSpreadingConfigModel(BaseModel):
+    enabled: bool = Field(default=False)
+    max_hops: int = Field(default=2, ge=1, le=5)
+    max_neighbors: int = Field(default=10, ge=1)
+    max_entities: int = Field(default=50, ge=5)
+    decay: float = Field(default=0.5, ge=0.01, le=1.0)
+    rrf_weight: float = Field(default=0.6, ge=0.0)
+
+
+class RetrievalEnhancementConfigModel(BaseModel):
+    unified_reranking_enabled: bool = Field(default=False)
+    confidence_fallback_enabled: bool = Field(default=False)
+    confidence_fallback_min_score: float = Field(default=0.3, ge=0.0, le=1.0)
+    confidence_fallback_top_k: int = Field(default=5, ge=1)
+
+
 class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default="~/.magi/data/memory")
     embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
     reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
     query_expansion: QueryExpansionConfigModel = Field(default_factory=QueryExpansionConfigModel)
+    graph_spreading: GraphSpreadingConfigModel = Field(default_factory=GraphSpreadingConfigModel)
+    retrieval_enhancement: RetrievalEnhancementConfigModel = Field(default_factory=RetrievalEnhancementConfigModel)
     l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
     l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
     l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)
@@ -442,6 +460,20 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
         query_expansion=QueryExpansionConfigModel(
             enabled=memory_cfg.query_expansion.enabled,
             timeout_seconds=memory_cfg.query_expansion.timeout_seconds,
+        ),
+        graph_spreading=GraphSpreadingConfigModel(
+            enabled=memory_cfg.graph_spreading.enabled,
+            max_hops=memory_cfg.graph_spreading.max_hops,
+            max_neighbors=memory_cfg.graph_spreading.max_neighbors,
+            max_entities=memory_cfg.graph_spreading.max_entities,
+            decay=memory_cfg.graph_spreading.decay,
+            rrf_weight=memory_cfg.graph_spreading.rrf_weight,
+        ),
+        retrieval_enhancement=RetrievalEnhancementConfigModel(
+            unified_reranking_enabled=memory_cfg.retrieval_enhancement.unified_reranking_enabled,
+            confidence_fallback_enabled=memory_cfg.retrieval_enhancement.confidence_fallback_enabled,
+            confidence_fallback_min_score=memory_cfg.retrieval_enhancement.confidence_fallback_min_score,
+            confidence_fallback_top_k=memory_cfg.retrieval_enhancement.confidence_fallback_top_k,
         ),
         l0=MemoryL0ConfigModel(
             enabled=memory_cfg.l0.enabled,
@@ -851,6 +883,16 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.reranker.cross_encoder.model_dir_path": config.memory.reranker.cross_encoder.model_dir_path,
         "agent.memory.query_expansion.enabled": config.memory.query_expansion.enabled,
         "agent.memory.query_expansion.timeout_seconds": config.memory.query_expansion.timeout_seconds,
+        "agent.memory.graph_spreading.enabled": config.memory.graph_spreading.enabled,
+        "agent.memory.graph_spreading.max_hops": config.memory.graph_spreading.max_hops,
+        "agent.memory.graph_spreading.max_neighbors": config.memory.graph_spreading.max_neighbors,
+        "agent.memory.graph_spreading.max_entities": config.memory.graph_spreading.max_entities,
+        "agent.memory.graph_spreading.decay": config.memory.graph_spreading.decay,
+        "agent.memory.graph_spreading.rrf_weight": config.memory.graph_spreading.rrf_weight,
+        "agent.memory.retrieval_enhancement.unified_reranking_enabled": config.memory.retrieval_enhancement.unified_reranking_enabled,
+        "agent.memory.retrieval_enhancement.confidence_fallback_enabled": config.memory.retrieval_enhancement.confidence_fallback_enabled,
+        "agent.memory.retrieval_enhancement.confidence_fallback_min_score": config.memory.retrieval_enhancement.confidence_fallback_min_score,
+        "agent.memory.retrieval_enhancement.confidence_fallback_top_k": config.memory.retrieval_enhancement.confidence_fallback_top_k,
         "agent.memory.l0.enabled": config.memory.l0.enabled,
         "agent.memory.l0.checkpoint_interval_seconds": config.memory.l0.checkpoint_interval_seconds,
         "agent.memory.l0.runtime_replay_include_l0_only": config.memory.l0.runtime_replay_include_l0_only,

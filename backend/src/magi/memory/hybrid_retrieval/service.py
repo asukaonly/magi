@@ -27,6 +27,7 @@ from .models import (
     RetrievalQuery,
 )
 from .manifest_selector import ManifestSelector
+from .reranker import build_retrieval_reranker
 from .result_fusion import ResultFusion
 from .timeline_condense import build_timeline_summary
 
@@ -37,6 +38,8 @@ def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalCo
     """Build retrieval config from the runtime app config."""
     reranker = app_config.agent.memory.reranker
     qe = app_config.agent.memory.query_expansion
+    gs = app_config.agent.memory.graph_spreading
+    re_ = app_config.agent.memory.retrieval_enhancement
     return RetrievalConfig(
         reranker_top_k=reranker.top_k,
         reranker_layers=tuple(
@@ -48,6 +51,16 @@ def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalCo
         cross_encoder_model_id=reranker.cross_encoder.managed_model_id,
         query_expansion_enabled=qe.enabled,
         query_expansion_timeout_seconds=qe.timeout_seconds,
+        graph_spreading_enabled=gs.enabled,
+        graph_spreading_max_hops=gs.max_hops,
+        graph_spreading_max_neighbors=gs.max_neighbors,
+        graph_spreading_max_entities=gs.max_entities,
+        graph_spreading_decay=gs.decay,
+        rrf_weight_graph=gs.rrf_weight,
+        unified_reranking_enabled=re_.unified_reranking_enabled,
+        confidence_fallback_enabled=re_.confidence_fallback_enabled,
+        confidence_fallback_min_score=re_.confidence_fallback_min_score,
+        confidence_fallback_top_k=re_.confidence_fallback_top_k,
     )
 
 
@@ -70,7 +83,12 @@ class HybridRetrievalService:
         self._manifest_selector = ManifestSelector(self._config)
 
         # Build handlers from available stores
-        self._l1 = L1Handler(unified_memory.l1, self._config) if unified_memory.l1 else None
+        l2_store = unified_memory.l2 if unified_memory.l2 else None
+        self._l1 = (
+            L1Handler(unified_memory.l1, self._config, l2_store=l2_store)
+            if unified_memory.l1
+            else None
+        )
         self._l2 = (
             self._build_l2_handler(unified_memory)
             if unified_memory.l2
@@ -127,6 +145,33 @@ class HybridRetrievalService:
         decision = await self._intent_decider.decide(intent_input)
         payload.trace["intent_source"] = decision.source
         payload.trace["intent_reasoning"] = decision.reasoning
+
+        # 2b. Adaptive parameter tuning based on intent signals
+        effective_query_mode = request.query_mode
+        effective_recall_intent = request.recall_intent
+        # Also pick up hints from the LLM decision if available
+        for plan in decision.plans:
+            if not plan.is_fallback:
+                conds = plan.conditions
+                if hasattr(conds, "content_query"):
+                    if effective_query_mode is None and hasattr(conds, "subject_hint"):
+                        pass  # query_mode comes from request
+        if effective_query_mode or effective_recall_intent:
+            from .adaptive_params import adapt_config
+
+            adapted = adapt_config(
+                self._config,
+                query_mode=effective_query_mode,
+                recall_intent=effective_recall_intent,
+            )
+            if adapted is not self._config:
+                # Apply adapted config to L1 handler for this query
+                if self._l1 is not None:
+                    self._l1._config = adapted
+                    self._l1._reranker = build_retrieval_reranker(adapted)
+                payload.trace["adaptive_params_applied"] = True
+                payload.trace["adaptive_query_mode"] = effective_query_mode
+                payload.trace["adaptive_recall_intent"] = effective_recall_intent
 
         # 3. Execute primary plans in parallel
         primary_plans = self._augment_primary_plans(
@@ -289,7 +334,25 @@ class HybridRetrievalService:
 
         payload.trace["primary_count"] = primary_count
 
-        if primary_count < self._config.fallback_trigger_threshold:
+        should_fallback = primary_count < self._config.fallback_trigger_threshold
+        # Confidence-aware fallback: even if we have enough results, if the
+        # top-K scores are too low the answers may be irrelevant.
+        if (
+            not should_fallback
+            and self._config.confidence_fallback_enabled
+            and payload.l1_events
+        ):
+            top_k = min(self._config.confidence_fallback_top_k, len(payload.l1_events))
+            avg_score = sum(
+                float(e.get("retrieval_score") or 0.0)
+                for e in payload.l1_events[:top_k]
+            ) / top_k
+            if avg_score < self._config.confidence_fallback_min_score:
+                should_fallback = True
+                payload.trace["confidence_fallback_triggered"] = True
+                payload.trace["confidence_fallback_avg_score"] = round(avg_score, 6)
+
+        if should_fallback:
             fallback_plans = [p for p in decision.plans if p.is_fallback]
             if fallback_plans:
                 fallback_results = await asyncio.gather(
@@ -313,6 +376,10 @@ class HybridRetrievalService:
 
         # 5. Result fusion (dedup + token budget)
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
+
+        # 5b. Cross-layer unified reranking (re-sort L1 events from all sources)
+        if self._config.unified_reranking_enabled and payload.l1_events:
+            payload = await self._unified_rerank(payload, query=request.query)
 
         # 6. Cross-layer manifest selection (optional LLM step)
         if self._config.manifest_selector_enabled:
@@ -344,7 +411,12 @@ class HybridRetrievalService:
 
     def _refresh_handlers(self) -> None:
         """Refresh layer handlers in case stores are initialized after service construction."""
-        self._l1 = L1Handler(self._memory.l1, self._config) if getattr(self._memory, "l1", None) else None
+        l2_store = getattr(self._memory, "l2", None)
+        self._l1 = (
+            L1Handler(self._memory.l1, self._config, l2_store=l2_store)
+            if getattr(self._memory, "l1", None)
+            else None
+        )
         self._l2 = (
             self._build_l2_handler(self._memory)
             if getattr(self._memory, "l2", None)
@@ -508,6 +580,39 @@ class HybridRetrievalService:
             + len(payload.l3_reflections)
             + len(payload.l4_procedures)
         )
+
+    async def _unified_rerank(
+        self,
+        payload: RetrievalPayload,
+        *,
+        query: str,
+    ) -> RetrievalPayload:
+        """Re-rank all L1 events uniformly after cross-layer merge.
+
+        After result fusion, L1 events from different plans (primary, backstop,
+        query expansion) are merely concatenated and deduped. This step applies
+        the configured reranker (heuristic + optional cross-encoder) to produce
+        a globally optimal ordering.
+        """
+        from .reranker import build_retrieval_reranker
+
+        reranker = build_retrieval_reranker(self._config)
+        # Build a pseudo fused_scores map from existing retrieval_score annotations
+        fused_scores: Dict[str, float] = {}
+        for item in payload.l1_events:
+            item_id = str(item.get("event_id") or "")
+            if item_id:
+                fused_scores[item_id] = float(item.get("retrieval_score") or 0.0)
+
+        reranked = await reranker.rerank(
+            layer="L1",
+            results=payload.l1_events,
+            query=query,
+            fused_scores=fused_scores,
+        )
+        payload.l1_events = reranked
+        payload.trace["unified_reranking_applied"] = True
+        return payload
 
     async def _run_query_expansion(
         self,

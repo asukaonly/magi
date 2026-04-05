@@ -37,6 +37,20 @@ agent:
       enabled: false
       timeout_seconds: 3.0
 
+    graph_spreading:
+      enabled: false
+      max_hops: 2
+      max_neighbors: 10
+      max_entities: 50
+      decay: 0.5
+      rrf_weight: 0.6
+
+    retrieval_enhancement:
+      unified_reranking_enabled: false
+      confidence_fallback_enabled: false
+      confidence_fallback_min_score: 0.3
+      confidence_fallback_top_k: 5
+
     l0:
       enabled: true
       checkpoint_interval_seconds: 30

@@ -377,6 +377,26 @@ class QueryExpansionSettings(BaseModel):
     timeout_seconds: float = Field(default=3.0, ge=0.5)
 
 
+class GraphSpreadingSettings(BaseModel):
+    """Graph spreading activation settings for L2 knowledge graph BFS."""
+
+    enabled: bool = Field(default=False)
+    max_hops: int = Field(default=2, ge=1, le=5)
+    max_neighbors: int = Field(default=10, ge=1)
+    max_entities: int = Field(default=50, ge=5)
+    decay: float = Field(default=0.5, ge=0.01, le=1.0)
+    rrf_weight: float = Field(default=0.6, ge=0.0)
+
+
+class RetrievalEnhancementSettings(BaseModel):
+    """Advanced retrieval enhancement settings."""
+
+    unified_reranking_enabled: bool = Field(default=False)
+    confidence_fallback_enabled: bool = Field(default=False)
+    confidence_fallback_min_score: float = Field(default=0.3, ge=0.0, le=1.0)
+    confidence_fallback_top_k: int = Field(default=5, ge=1)
+
+
 class MemorySettings(BaseModel):
     """Memory configuration."""
     db_path: str = Field(default="~/.magi/data/memory")
@@ -384,6 +404,8 @@ class MemorySettings(BaseModel):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)
     query_expansion: QueryExpansionSettings = Field(default_factory=QueryExpansionSettings)
+    graph_spreading: GraphSpreadingSettings = Field(default_factory=GraphSpreadingSettings)
+    retrieval_enhancement: RetrievalEnhancementSettings = Field(default_factory=RetrievalEnhancementSettings)
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
     l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)
     l2: MemoryL2Settings = Field(default_factory=MemoryL2Settings)

@@ -218,6 +218,22 @@ class RetrievalConfig:
     query_expansion_enabled: bool = False
     query_expansion_timeout_seconds: float = 3.0
 
+    # Graph spreading activation (L2 knowledge graph BFS)
+    graph_spreading_enabled: bool = False
+    graph_spreading_max_hops: int = 2
+    graph_spreading_max_neighbors: int = 10
+    graph_spreading_max_entities: int = 50
+    graph_spreading_decay: float = 0.5
+    rrf_weight_graph: float = 0.6
+
+    # Cross-layer unified reranking
+    unified_reranking_enabled: bool = False
+
+    # Confidence-aware fallback
+    confidence_fallback_enabled: bool = False
+    confidence_fallback_min_score: float = 0.3
+    confidence_fallback_top_k: int = 5
+
     # ResultFusion
     default_max_tokens: int = 8192
     fallback_trigger_threshold: int = 1  # result count < N triggers fallback
