@@ -9,7 +9,7 @@ def test_tauri_debug_prefers_python_backend_pair() -> None:
     source = source_path.read_text(encoding="utf-8")
 
     assert "let start = if cfg!(debug_assertions)" in source
-    assert "spawn_dev_backend_pair(internal_port, &session_token)" in source
+    assert "spawn_dev_backend_pair(internal_port, &session_token, &ipc_socket_path)" in source
 
 
 def test_tauri_dev_backend_does_not_discard_logs() -> None:

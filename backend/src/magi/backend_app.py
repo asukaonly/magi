@@ -80,6 +80,14 @@ def create_backend_app(*, role: ProcessRole | None = None) -> FastAPI:
         await orchestrator.startup()
         app.state.backend_ready = True
 
+        # Start IPC server if MAGI_IPC_SOCKET is configured (desktop mode)
+        ipc_server = None
+        if os.environ.get("MAGI_IPC_SOCKET"):
+            from .ipc import IpcServer
+            ipc_server = IpcServer()
+            await ipc_server.start()
+            app.state.ipc_server = ipc_server
+
         heartbeat_task = None
         heartbeat_stop = None
         heartbeat_status: dict[str, str] | None = None
@@ -141,6 +149,9 @@ def create_backend_app(*, role: ProcessRole | None = None) -> FastAPI:
                     await heartbeat_task
                 except asyncio.CancelledError:
                     pass
+
+            if ipc_server is not None:
+                await ipc_server.stop()
 
             await orchestrator.shutdown()
 

@@ -2,6 +2,7 @@ mod api;
 mod db;
 mod desktop_presence;
 mod frontmost_app_monitor;
+mod ipc;
 mod notification_bridge;
 
 #[cfg(unix)]
@@ -314,6 +315,7 @@ fn spawn_sidecar_role(
     role: &str,
     port: Option<u16>,
     session_token: &str,
+    ipc_socket_path: &str,
     recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let mut args = vec![
@@ -339,6 +341,7 @@ fn spawn_sidecar_role(
         .args(args)
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
+        .env("MAGI_IPC_SOCKET", ipc_socket_path)
         .spawn()
         .map_err(|err| format!("Failed to spawn backend sidecar: {err}"))?;
 
@@ -440,6 +443,7 @@ fn spawn_dev_backend_role(
     role: &str,
     port: Option<u16>,
     session_token: &str,
+    ipc_socket_path: &str,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let backend_dir = find_backend_dir()?;
     let (stdout, stderr) = open_dev_backend_log_stdio()?;
@@ -452,6 +456,7 @@ fn spawn_dev_backend_role(
         .arg("--no-reload")
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
+        .env("MAGI_IPC_SOCKET", ipc_socket_path)
         .current_dir(backend_dir)
         .stdout(stdout)
         .stderr(stderr);
@@ -478,6 +483,7 @@ fn spawn_sidecar_backend(
     app: &AppHandle,
     port: u16,
     session_token: &str,
+    ipc_socket_path: &str,
     recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<ManagedBackendStart, String> {
     let (process, pid) = spawn_sidecar_role(
@@ -485,13 +491,14 @@ fn spawn_sidecar_backend(
         "unified",
         Some(port),
         session_token,
+        ipc_socket_path,
         recent_errors,
     )?;
     Ok(ManagedBackendStart { process, pid })
 }
 
-fn spawn_dev_backend_pair(port: u16, session_token: &str) -> Result<ManagedBackendStart, String> {
-    let (process, pid) = spawn_dev_backend_role("unified", Some(port), session_token)?;
+fn spawn_dev_backend_pair(port: u16, session_token: &str, ipc_socket_path: &str) -> Result<ManagedBackendStart, String> {
+    let (process, pid) = spawn_dev_backend_role("unified", Some(port), session_token, ipc_socket_path)?;
     Ok(ManagedBackendStart { process, pid })
 }
 
@@ -609,10 +616,27 @@ fn start_backend(
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, main_port);
     let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, internal_port);
 
+    // Compute IPC socket path (Unix domain socket on macOS/Linux)
+    let ipc_socket_path = {
+        let home = env::var("HOME")
+            .map(PathBuf::from)
+            .map_err(|_| "HOME is not set".to_string())?;
+        let runtime_dir = home.join(".magi").join("runtime");
+        fs::create_dir_all(&runtime_dir)
+            .map_err(|e| format!("Failed to create runtime dir: {e}"))?;
+        runtime_dir
+            .join(format!("ipc-{}.sock", internal_port))
+            .to_string_lossy()
+            .to_string()
+    };
+
+    // Remove stale socket file if it exists
+    let _ = fs::remove_file(&ipc_socket_path);
+
     let start = if cfg!(debug_assertions) {
-        spawn_dev_backend_pair(internal_port, &session_token)?
+        spawn_dev_backend_pair(internal_port, &session_token, &ipc_socket_path)?
     } else {
-        spawn_sidecar_backend(&app, internal_port, &session_token, state.recent_errors.clone())?
+        spawn_sidecar_backend(&app, internal_port, &session_token, &ipc_socket_path, state.recent_errors.clone())?
     };
 
     if !wait_for_health(BACKEND_HOST, internal_port, STARTUP_TIMEOUT) {
@@ -639,9 +663,24 @@ fn start_backend(
         hyper_util::rt::TokioExecutor::new(),
     )
     .build_http();
+
+    // Connect IPC client to Python worker (best-effort; proxy fallback still works)
+    let ipc_client = match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path))
+    {
+        Ok((client, _event_rx)) => {
+            // TODO: spawn event relay from _event_rx → Tauri events (Phase 8)
+            Some(std::sync::Arc::new(client))
+        }
+        Err(e) => {
+            eprintln!("IPC connect failed (will use HTTP proxy fallback): {e}");
+            None
+        }
+    };
+
     let api_state = api::state::ApiState {
         python_api_port: internal_port,
         client,
+        ipc_client,
     };
     let router = api::build_router(api_state);
 
