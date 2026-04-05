@@ -60,9 +60,9 @@ def test_runtime_worker_role_keeps_background_runtime_modules() -> None:
 
     assert "runtime_agent_core" in module_names
     assert "runtime_scheduler" in module_names
-    assert "runtime_agent_scheduler" in module_names
-    assert "runtime_action_scheduler" in module_names
-    assert "runtime_timeline_scheduler" in module_names
+    assert "runtime_sensor_scheduler" in module_names
+    assert "runtime_sensor_sync_executor" in module_names
+    assert "runtime_l2_maintenance_scheduler" in module_names
     assert "runtime_plugin_ingress_processor" in module_names
     assert "runtime_chat_store" in module_names
     assert "runtime_chat_store" in module_by_name["runtime_exports"].dependencies

@@ -89,7 +89,6 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "core.runtime_bindings" in timeline_router
     assert "core.runtime_bindings" in memory_query_tool
     assert "core.runtime_bindings" not in websocket_handlers
-    assert "core.runtime_bindings" not in messages_router
 
 
 def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
@@ -154,10 +153,8 @@ def test_skills_package_uses_skill_runner_name() -> None:
 def test_backend_docs_do_not_reference_removed_runtime_bootstrap_path() -> None:
     docs_root = BACKEND_SRC.parents[2] / "docs"
     memory_design = (docs_root / "memory-system-design.md").read_text(encoding="utf-8")
-    memory_plan = (docs_root / "memory-system-execution-plan.md").read_text(encoding="utf-8")
 
     assert "runtime/bootstrap.py" not in memory_design
-    assert "runtime/bootstrap.py" not in memory_plan
 
 
 def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
@@ -270,9 +267,9 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
     action_emitter = (BACKEND_SRC / "awareness/action_emitter.py").read_text(encoding="utf-8")
     awareness_contracts = (BACKEND_SRC / "awareness/contracts.py").read_text(encoding="utf-8")
-    scheduler_handlers = (BACKEND_SRC / "scheduler/handlers.py").read_text(encoding="utf-8")
 
     assert not (BACKEND_SRC / "core/runtime").exists()
+    assert not (BACKEND_SRC / "scheduler/handlers.py").exists()
     assert "from ..core.runtime import AgentRuntime, RouterAgent, TaskAgentManager" not in agent_lifecycle
     assert "from ..core.runtime import SensorHub" not in awareness_lifecycle
     assert "from ..core.runtime import SensorHub, AgentRuntime, TaskAgentManager" not in bootstrap_context
@@ -296,8 +293,6 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "core.runtime.types" not in task_factory
     assert "core.runtime.contracts" not in action_emitter
     assert "agent.runtime.contracts" not in action_emitter
-    assert "core.runtime.contracts" not in scheduler_handlers
-    assert "agent.runtime.contracts" not in scheduler_handlers
     assert "personality.current_state" not in config_lifecycle
     assert "agent.runtime" in agent_lifecycle
     assert "sensor_hub" in awareness_lifecycle

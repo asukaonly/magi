@@ -41,11 +41,10 @@ def test_bootstrap_builds_expected_front_of_layer_order() -> None:
 
     modules = build_runtime_modules(RuntimeBootstrapContext())
 
-    assert [module.name for module in modules[:5]] == [
+    assert [module.name for module in modules[:4]] == [
         "runtime_core_dependencies",
         "runtime_configuration",
         "runtime_command_queue",
-        "runtime_message_bus",
         "runtime_chat_store",
     ]
 
@@ -57,32 +56,29 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
 
     modules = build_runtime_modules(RuntimeBootstrapContext())
 
-    # Check that modules 0-15 match expected order
-    assert [module.name for module in modules[:15]] == [
+    # Check that modules 0-11 match expected order
+    assert [module.name for module in modules] == [
         "runtime_core_dependencies",
         "runtime_configuration",
         "runtime_command_queue",
-        "runtime_message_bus",
         "runtime_chat_store",
         "runtime_plugin_system",
         "runtime_llm",
         "runtime_memory",
         "runtime_chat_projector",
         "runtime_trace",
-        "runtime_tools",
         "runtime_skills",
-        "runtime_personality",
-        "runtime_sensor_hub",
-        "runtime_context",
+        "runtime_api_exports",
     ]
 
 
 def test_bootstrap_builds_expected_full_layer_order() -> None:
-    """Verify bootstrap builds all lifecycle modules in expected order."""
+    """Verify bootstrap builds all lifecycle modules in expected order (runtime_worker)."""
     from magi.bootstrap.builder import build_runtime_modules
     from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.process_roles import ProcessRole
 
-    modules = build_runtime_modules(RuntimeBootstrapContext())
+    modules = build_runtime_modules(RuntimeBootstrapContext(), role=ProcessRole.RUNTIME_WORKER)
 
     assert [module.name for module in modules] == [
         "runtime_core_dependencies",
@@ -102,12 +98,13 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_context",
         "runtime_agent_core",
         "runtime_command_processor",
+        "runtime_plugin_ingress_processor",
         "runtime_timeline",
         "runtime_scheduler",
-        "runtime_agent_scheduler",
-        "runtime_action_scheduler",
-        "runtime_timeline_scheduler",
+        "runtime_sensor_scheduler",
+        "runtime_sensor_sync_executor",
         "runtime_exports",
+        "runtime_l2_maintenance_scheduler",
         "runtime_other_dependencies",
     ]
 
