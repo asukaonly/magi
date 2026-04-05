@@ -150,7 +150,7 @@ class TestTokenBudget:
         assert len(result.l1_events) < 10
 
     def test_large_l0_is_soft_capped_before_it_starves_other_layers(self):
-        fusion = ResultFusion(RetrievalConfig(default_max_tokens=120))
+        fusion = ResultFusion(RetrievalConfig(default_max_tokens=120, l0_budget_ratio=0.3))
         payload = RetrievalPayload(
             l0_workbench=[
                 {"session": "x" * 180},
@@ -197,7 +197,9 @@ class TestTokenBudget:
             l1_events=[session_one_first, session_one_second, session_two_first],
         )
 
-        budget = estimate_tokens([session_one_first, session_two_first])
+        # L1 gets 50% of remaining budget, so we need 2x the token count
+        # to ensure both session anchors fit within the L1 slice.
+        budget = estimate_tokens([session_one_first, session_two_first]) * 2 + 1
         result = fusion.apply(payload, max_tokens=budget)
 
         assert [item["event_id"] for item in result.l1_events] == ["s1-a", "s2-a"]
@@ -222,7 +224,8 @@ class TestTokenBudget:
             l1_events=[assistant_guidance, user_anchor],
         )
 
-        budget = estimate_tokens([user_anchor])
+        # L1 gets 50% of budget, so provide enough room.
+        budget = estimate_tokens([user_anchor]) * 2 + 1
         result = fusion.apply(payload, max_tokens=budget)
 
         assert [item["event_id"] for item in result.l1_events] == ["user-anchor"]

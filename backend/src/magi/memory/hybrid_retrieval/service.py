@@ -13,7 +13,7 @@ from .answerability import (
     extract_query_tokens,
     extract_quoted_spans,
     extract_temporal_distance_queries,
-    score_temporal_anchor,
+    has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
@@ -57,7 +57,6 @@ def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalCo
         graph_spreading_max_entities=gs.max_entities,
         graph_spreading_decay=gs.decay,
         rrf_weight_graph=gs.rrf_weight,
-        unified_reranking_enabled=re_.unified_reranking_enabled,
         confidence_fallback_enabled=re_.confidence_fallback_enabled,
         confidence_fallback_min_score=re_.confidence_fallback_min_score,
         confidence_fallback_top_k=re_.confidence_fallback_top_k,
@@ -377,10 +376,6 @@ class HybridRetrievalService:
         # 5. Result fusion (dedup + token budget)
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
 
-        # 5b. Cross-layer unified reranking (re-sort L1 events from all sources)
-        if self._config.unified_reranking_enabled and payload.l1_events:
-            payload = await self._unified_rerank(payload, query=request.query)
-
         # 6. Cross-layer manifest selection (optional LLM step)
         if self._config.manifest_selector_enabled:
             payload = await self._manifest_selector.select(
@@ -581,39 +576,6 @@ class HybridRetrievalService:
             + len(payload.l4_procedures)
         )
 
-    async def _unified_rerank(
-        self,
-        payload: RetrievalPayload,
-        *,
-        query: str,
-    ) -> RetrievalPayload:
-        """Re-rank all L1 events uniformly after cross-layer merge.
-
-        After result fusion, L1 events from different plans (primary, backstop,
-        query expansion) are merely concatenated and deduped. This step applies
-        the configured reranker (heuristic + optional cross-encoder) to produce
-        a globally optimal ordering.
-        """
-        from .reranker import build_retrieval_reranker
-
-        reranker = build_retrieval_reranker(self._config)
-        # Build a pseudo fused_scores map from existing retrieval_score annotations
-        fused_scores: Dict[str, float] = {}
-        for item in payload.l1_events:
-            item_id = str(item.get("event_id") or "")
-            if item_id:
-                fused_scores[item_id] = float(item.get("retrieval_score") or 0.0)
-
-        reranked = await reranker.rerank(
-            layer="L1",
-            results=payload.l1_events,
-            query=query,
-            fused_scores=fused_scores,
-        )
-        payload.l1_events = reranked
-        payload.trace["unified_reranking_applied"] = True
-        return payload
-
     async def _run_query_expansion(
         self,
         *,
@@ -733,7 +695,7 @@ class HybridRetrievalService:
                 span: {
                     event["event_id"] or f"idx:{index}"
                     for index, event in enumerate(normalized_events)
-                    if span in event["content"] and score_temporal_anchor(event["raw_content"]) > 0.0
+                    if span in event["content"] and has_temporal_anchor(event["raw_content"])
                 }
                 for span in coverage_spans
             }

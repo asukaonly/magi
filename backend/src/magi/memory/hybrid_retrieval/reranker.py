@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import re
 import time
 from typing import Any, Dict, List
 
@@ -11,9 +10,6 @@ from .answerability import (
     extract_query_phrases,
     extract_query_tokens,
     extract_quoted_spans,
-    score_eventness,
-    score_generic_guidance_penalty,
-    score_temporal_anchor,
 )
 from .models import RetrievalConfig
 
@@ -166,18 +162,10 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
         phrase_score = min(len(phrase_hits), 3) * 0.25
         quoted_phrase_weight = 0.45 if author_type == "user" else 0.15
         quoted_phrase_score = min(len(quoted_phrase_hits), 2) * quoted_phrase_weight
-        fact_density = 0.0
-        if re.search(r"\b\d{1,2}[/-]\d{1,2}\b", content) or re.search(r"\b\d{1,2}:\d{2}\b", content):
-            fact_density += 0.15
-        if re.search(r"\bgps\b", lowered):
-            fact_density += 0.1
-        eventness_score = score_eventness(content, author_type=author_type)
-        temporal_anchor_score = score_temporal_anchor(content)
 
         verbosity_penalty = 0.0
         if author_type == "assistant" and len(content) > 240:
             verbosity_penalty = min((len(content) - 240) / 600.0, 0.25)
-        guidance_penalty = score_generic_guidance_penalty(content, author_type=author_type)
         recency_bonus = _recency_bonus(item.get("timestamp"))
 
         final_score = (
@@ -186,12 +174,8 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             + token_overlap
             + phrase_score
             + quoted_phrase_score
-            + fact_density
-            + eventness_score
-            + temporal_anchor_score
             + recency_bonus
             - verbosity_penalty
-            - guidance_penalty
         )
         trace = {
             "backend": "heuristic",
@@ -200,12 +184,8 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             "token_overlap": round(token_overlap, 6),
             "phrase_hits": phrase_hits,
             "quoted_phrase_hits": quoted_phrase_hits,
-            "fact_density": fact_density,
-            "eventness_score": eventness_score,
-            "temporal_anchor_score": temporal_anchor_score,
             "recency_bonus": round(recency_bonus, 6),
             "verbosity_penalty": round(verbosity_penalty, 6),
-            "generic_guidance_penalty": round(guidance_penalty, 6),
             "matched_tokens": matched_tokens,
         }
         enriched = dict(item)

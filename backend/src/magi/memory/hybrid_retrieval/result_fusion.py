@@ -110,7 +110,12 @@ class ResultFusion:
         l0_max_tokens: int,
         l0_budget_ratio: float,
     ) -> RetrievalPayload:
-        """Apply token budget in priority order: L0 > L2 > L4 > L3 > L1."""
+        """Apply token budget in priority order: L0 > L1 > L2 > L3 > L4.
+
+        L1 events are the factual foundation of personal memory and get
+        first pick after L0 working context.  L2 entity knowledge, L3
+        reflections, and L4 procedures share the remainder.
+        """
         remaining = float(budget)
 
         # L0: preserve priority, but cap its share so other layers still surface.
@@ -118,41 +123,38 @@ class ResultFusion:
         payload.l0_workbench = truncate_to_budget(payload.l0_workbench, l0_budget, char_per_token)
         remaining -= estimate_tokens(payload.l0_workbench, char_per_token)
 
-        # Reserve a minimum budget for L1 so heavy L2 data cannot zero it out.
-        l1_minimum_tokens = remaining * 0.25
-        l2_ceiling = remaining - l1_minimum_tokens
+        # L1: primary layer — up to 50% of remaining budget.
+        l1_budget = remaining * 0.5
+        payload.l1_events = ResultFusion._truncate_l1_with_session_coverage(
+            payload.l1_events,
+            l1_budget,
+            char_per_token,
+        )
+        remaining -= estimate_tokens(payload.l1_events, char_per_token)
 
-        # L2: up to ceiling (remaining minus L1 minimum reserve)
+        # L2: up to 40% of remaining (entity cards, relationships, assertions)
+        l2_budget = remaining * 0.4
         l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
         l2_tokens = estimate_tokens(l2_all, char_per_token)
-        if l2_tokens > l2_ceiling:
-            payload.l2_entity_cards = truncate_to_budget(payload.l2_entity_cards, l2_ceiling * 0.3, char_per_token)
-            l2_ceiling_left = l2_ceiling - estimate_tokens(payload.l2_entity_cards, char_per_token)
-            payload.l2_relationships = truncate_to_budget(payload.l2_relationships, l2_ceiling_left * 0.6, char_per_token)
-            l2_ceiling_left -= estimate_tokens(payload.l2_relationships, char_per_token)
-            payload.l2_assertions = truncate_to_budget(payload.l2_assertions, l2_ceiling_left, char_per_token)
+        if l2_tokens > l2_budget:
+            payload.l2_entity_cards = truncate_to_budget(payload.l2_entity_cards, l2_budget * 0.3, char_per_token)
+            l2_budget_left = l2_budget - estimate_tokens(payload.l2_entity_cards, char_per_token)
+            payload.l2_relationships = truncate_to_budget(payload.l2_relationships, l2_budget_left * 0.6, char_per_token)
+            l2_budget_left -= estimate_tokens(payload.l2_relationships, char_per_token)
+            payload.l2_assertions = truncate_to_budget(payload.l2_assertions, l2_budget_left, char_per_token)
             l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
         remaining -= estimate_tokens(l2_all, char_per_token)
 
-        # L4: up to 20% of remaining
-        l4_budget = remaining * 0.2
-        payload.l4_procedures = truncate_to_budget(
-            payload.l4_procedures, l4_budget, char_per_token,
-        )
-        remaining -= estimate_tokens(payload.l4_procedures, char_per_token)
-
-        # L3: up to 30% of remaining
-        l3_budget = remaining * 0.3
+        # L3: up to 40% of remaining
+        l3_budget = remaining * 0.4
         payload.l3_reflections = truncate_to_budget(
             payload.l3_reflections, l3_budget, char_per_token,
         )
         remaining -= estimate_tokens(payload.l3_reflections, char_per_token)
 
-        # L1: eats the rest
-        payload.l1_events = ResultFusion._truncate_l1_with_session_coverage(
-            payload.l1_events,
-            remaining,
-            char_per_token,
+        # L4: eats the rest
+        payload.l4_procedures = truncate_to_budget(
+            payload.l4_procedures, remaining, char_per_token,
         )
 
         return payload

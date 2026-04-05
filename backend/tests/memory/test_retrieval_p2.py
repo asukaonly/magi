@@ -297,44 +297,6 @@ class TestL1HandlerGraphSpreading:
 
 
 # ---------------------------------------------------------------------------
-# P2-2: Cross-layer unified reranking
-# ---------------------------------------------------------------------------
-
-
-class TestUnifiedReranking:
-    @pytest.mark.asyncio
-    async def test_unified_reranking_reorders_l1_events(self):
-        """Unified reranking should re-sort L1 events by heuristic score."""
-        from magi.memory.hybrid_retrieval.service import HybridRetrievalService
-
-        memory = MagicMock()
-        memory.l0 = None
-        memory.l1 = MagicMock()
-        memory.l1.db_path = ":memory:"
-        memory.l2 = None
-        memory.l3 = None
-        memory.l4 = None
-
-        config = RetrievalConfig(unified_reranking_enabled=True)
-        service = HybridRetrievalService(memory, config=config)
-
-        payload = RetrievalPayload(
-            l1_events=[
-                {"event_id": "low", "content": "unrelated stuff", "retrieval_score": 0.1,
-                 "author_type": "assistant", "timestamp": 1000},
-                {"event_id": "high", "content": "exact query match", "retrieval_score": 0.9,
-                 "author_type": "user", "timestamp": 2000},
-            ],
-        )
-
-        result = await service._unified_rerank(payload, query="exact query match")
-        assert result.trace.get("unified_reranking_applied") is True
-        # The high-scoring item should be first after reranking
-        scores = [e.get("retrieval_score", 0) for e in result.l1_events]
-        assert scores == sorted(scores, reverse=True)
-
-
-# ---------------------------------------------------------------------------
 # P2-3: Confidence-aware fallback
 # ---------------------------------------------------------------------------
 
@@ -476,7 +438,6 @@ class TestP2ConfigFields:
         gs.rrf_weight = 0.7
 
         re_ = app_config.agent.memory.retrieval_enhancement
-        re_.unified_reranking_enabled = True
         re_.confidence_fallback_enabled = True
         re_.confidence_fallback_min_score = 0.4
         re_.confidence_fallback_top_k = 3
@@ -488,7 +449,6 @@ class TestP2ConfigFields:
         assert config.graph_spreading_max_hops == 3
         assert config.graph_spreading_decay == 0.4
         assert config.rrf_weight_graph == 0.7
-        assert config.unified_reranking_enabled is True
         assert config.confidence_fallback_enabled is True
         assert config.confidence_fallback_min_score == 0.4
         assert config.confidence_fallback_top_k == 3
