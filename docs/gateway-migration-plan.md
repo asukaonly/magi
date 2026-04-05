@@ -213,5 +213,10 @@ tokio-stream = "0.1"
     - Personality: PUT current + PUT save + DELETE (3)
     - Remaining mutations (generate, avatar upload, send message, etc.) proxied via IPC api.forward
   - Total native routes: 46 (31 GET + 15 mutations)
-- [ ] Phase 9: Remove Python HTTP
+- [x] Phase 9: Remove Python HTTP from desktop mode
+  - [x] 9a-c: Axum WebSocket handler + notification broadcast + ws_base_url
+  - [x] 9d: worker_app.py — IPC-only Python entry point (no HTTP/uvicorn)
+  - [x] 9e: Wire Tauri to IPC worker mode — ready-file health check, mandatory IPC, SIGTERM shutdown
+  - [x] 9f: Remove HTTP proxy fallback, hyper/hyper-util deps, python_api_port from ApiState
+  - [ ] 9g: Delete Python HTTP/WS transport layer (deferred until Phase 10 headless gateway)
 - [ ] Phase 10: Extract gateway crate
