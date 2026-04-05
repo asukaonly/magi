@@ -1958,6 +1958,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "futures",
+ "http-body-util",
+ "hyper",
  "rusqlite",
  "serde",
  "serde_json",
