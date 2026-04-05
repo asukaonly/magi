@@ -17,6 +17,41 @@ _TONE_TO_VALENCE = {
     "negative": -0.75,
 }
 
+_TONE_TO_STRESS: dict[str, float] = {
+    "positive": 0.2,
+    "warm": 0.25,
+    "steady": 0.3,
+    "neutral": 0.35,
+    "cool": 0.45,
+    "low": 0.55,
+    "tense": 0.7,
+    "anxious": 0.8,
+    "negative": 0.65,
+}
+
+_TONE_TO_ENGAGEMENT: dict[str, float] = {
+    "positive": 0.7,
+    "warm": 0.65,
+    "steady": 0.55,
+    "neutral": 0.4,
+    "cool": 0.35,
+    "low": 0.25,
+    "tense": 0.6,
+    "anxious": 0.55,
+    "negative": 0.3,
+}
+
+
+def derive_state_from_tone(tone: str) -> dict[str, Any]:
+    """Derive valence/stress/engagement from a sentiment tone label."""
+    key = tone.strip().lower()
+    return {
+        "valence": _TONE_TO_VALENCE.get(key, 0.0),
+        "stress": _TONE_TO_STRESS.get(key, 0.5),
+        "engagement": _TONE_TO_ENGAGEMENT.get(key, 0.5),
+        "label": key or "steady",
+    }
+
 
 class TimelineStateBandBuilder:
     """Derive coarse self-state ranges from L2 and L3 artifacts."""
@@ -51,7 +86,7 @@ class TimelineStateBandBuilder:
             sentiment_summary = summary.get("sentiment_summary") if isinstance(summary.get("sentiment_summary"), dict) else {}
 
             stress_level = self._resolve_stress_level(sentiment_summary, overlapping_assertions, nearest_snapshot)
-            engagement = self._resolve_engagement(overlapping_assertions, nearest_snapshot)
+            engagement = self._resolve_engagement(sentiment_summary, overlapping_assertions, nearest_snapshot)
             label = self._resolve_label(overlapping_assertions, nearest_snapshot, sentiment_summary)
             band = {
                 "band_id": f"state-band:{summary_id}",
@@ -135,6 +170,9 @@ class TimelineStateBandBuilder:
     ) -> float:
         if isinstance(sentiment_summary.get("stress_level"), (int, float)):
             return float(sentiment_summary["stress_level"])
+        tone = str(sentiment_summary.get("tone") or "").strip().lower()
+        if tone in _TONE_TO_STRESS:
+            return _TONE_TO_STRESS[tone]
         for assertion in assertions:
             if str(assertion.get("trait_name") or "") == "stress_level":
                 return self._coerce_float(assertion.get("trait_value"), default=0.5)
@@ -144,9 +182,15 @@ class TimelineStateBandBuilder:
 
     def _resolve_engagement(
         self,
+        sentiment_summary: dict[str, Any],
         assertions: list[dict[str, Any]],
         snapshot: dict[str, Any] | None,
     ) -> float:
+        if isinstance(sentiment_summary.get("engagement"), (int, float)):
+            return float(sentiment_summary["engagement"])
+        tone = str(sentiment_summary.get("tone") or "").strip().lower()
+        if tone in _TONE_TO_ENGAGEMENT:
+            return _TONE_TO_ENGAGEMENT[tone]
         for assertion in assertions:
             if str(assertion.get("trait_name") or "") == "engagement":
                 return self._coerce_float(assertion.get("trait_value"), default=0.5)

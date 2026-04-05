@@ -327,7 +327,7 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
-    async def _fake_model(_pack):  # type: ignore[no-untyped-def]
+    async def _fake_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
         return {
             "content": "LLM rewritten temporal summary",
             "key_topics": ["job_search"],
@@ -471,7 +471,7 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
 
     captured_features: dict[str, object] = {}
 
-    async def _fake_model(pack):  # type: ignore[no-untyped-def]
+    async def _fake_model(pack, **_kwargs):  # type: ignore[no-untyped-def]
         captured_features.update(pack.plugin_summary_features)
         return {
             "content": "LLM rewritten temporal summary",
@@ -608,7 +608,7 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
-    async def _fake_model(_pack):  # type: ignore[no-untyped-def]
+    async def _fake_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
         return {
             "content": "LLM rewritten temporal summary",
             "key_topics": ["job_search"],

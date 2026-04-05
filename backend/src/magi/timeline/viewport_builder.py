@@ -8,7 +8,7 @@ from typing import Any
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
 from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
-from .state_band_builder import TimelineStateBandBuilder
+from .state_band_builder import TimelineStateBandBuilder, derive_state_from_tone
 
 
 class TimelineViewportBuilder:
@@ -60,7 +60,9 @@ class TimelineViewportBuilder:
             start=interpreted_query.start,
             end=interpreted_query.end,
         )
-        clusters = self._cluster_builder.build(events, scale=scale) if scale in {"week", "day"} else []
+        clusters = self._cluster_builder.build(events, scale=scale) if scale != "hour" else []
+        if clusters:
+            self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
         raw_events = [self._to_raw_event(event) for event in events] if scale == "hour" else []
 
         return {
@@ -86,6 +88,34 @@ class TimelineViewportBuilder:
 
     async def build_context_bundle(self, *, anchor: dict[str, Any]) -> dict[str, Any]:
         return await self._context_bundle_builder.build(anchor=anchor)
+
+    def _enrich_cluster_states(
+        self,
+        clusters: list[dict[str, Any]],
+        summaries: list[dict[str, Any]],
+        *,
+        start: float,
+        end: float,
+    ) -> None:
+        """Populate each cluster's state_snapshot from overlapping L3 summaries."""
+        relevant = [
+            s for s in summaries
+            if float(s.get("period_end") or 0) >= start
+            and float(s.get("period_start") or 0) <= end
+        ]
+        for cluster in clusters:
+            cs = cluster["time_start"]
+            ce = cluster["time_end"]
+            for s in relevant:
+                ps = float(s.get("period_start") or 0)
+                pe = float(s.get("period_end") or ps)
+                if pe >= cs and ps <= ce:
+                    sentiment = s.get("sentiment_summary")
+                    if isinstance(sentiment, dict):
+                        tone = str(sentiment.get("tone") or "").strip()
+                        if tone:
+                            cluster["state_snapshot"] = derive_state_from_tone(tone)
+                    break
 
     async def _load_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
         if self._l1 is None:
@@ -132,6 +162,14 @@ class TimelineViewportBuilder:
         return reflections
 
     def _reflection_title(self, summary: dict[str, Any]) -> str:
+        topics = summary.get("key_topics") or []
+        if topics:
+            return ", ".join(str(t) for t in topics[:3]).title()
+        content = str(summary.get("content") or "")
+        if content:
+            first_sentence = content.split(".")[0].strip()
+            if first_sentence and len(first_sentence) <= 60:
+                return first_sentence
         category = str(summary.get("summary_category") or "window")
         return f"{category.title()} Reflection"
 

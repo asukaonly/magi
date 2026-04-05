@@ -501,7 +501,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        async def _unexpected_model(_pack):  # type: ignore[no-untyped-def]
+        async def _unexpected_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
             raise AssertionError("LLM path should be disabled")
 
         self.assertIsNotNone(local_store.l3)

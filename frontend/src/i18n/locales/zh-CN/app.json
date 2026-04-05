@@ -108,9 +108,34 @@
       "emptyTitle": "时间线上还没有内容",
       "emptyBody": "当 Magi 开始记录活动，或你补充一条笔记后，这里会逐渐形成你的记忆时间线。"
     },
+    "metrics": {
+      "valence": "情绪",
+      "stress": "压力",
+      "engagement": "参与度"
+    },
+    "highlights": {
+      "title": "亮点"
+    },
+    "cluster": {
+      "events": "事件"
+    },
+    "activity": {
+      "distribution": "活动分布"
+    },
+    "reflection": {
+      "patternSignal": "模式"
+    },
     "summary": {
-      "totalEvents": "事件总数",
-      "clusterCount": "聚类时段数"
+      "totalEvents": "事件",
+      "clusterCount": "聚类"
+    },
+    "digest": {
+      "title": "每日摘要",
+      "generate": "生成",
+      "generated": "摘要生成成功",
+      "noEvents": "所选时段暂无事件",
+      "generateFailed": "摘要生成失败：{{message}}",
+      "empty": "暂无摘要。点击生成，获取融入人格视角的每日回顾。"
     },
     "errors": {
       "loadFailed": "时间线加载失败：{{message}}",

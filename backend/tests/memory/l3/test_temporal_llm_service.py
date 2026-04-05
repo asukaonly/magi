@@ -182,7 +182,7 @@ async def test_generate_temporal_candidate_falls_back_to_rule_summary_on_timeout
         event_type_distribution={"UserMessage": 1, "AIResponse": 1},
     )
 
-    async def _slow_call(_pack):  # type: ignore[no-untyped-def]
+    async def _slow_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
         await asyncio.sleep(0.1)
         return {"content": "should never arrive"}
 
@@ -212,7 +212,7 @@ async def test_generate_temporal_candidate_falls_back_on_invalid_output(monkeypa
         event_type_distribution={"UserMessage": 1, "AIResponse": 1},
     )
 
-    async def _bad_call(_pack):  # type: ignore[no-untyped-def]
+    async def _bad_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
         return {"content": ""}
 
     monkeypatch.setattr(service, "_call_temporal_model", _bad_call)
@@ -239,7 +239,7 @@ async def test_generate_temporal_candidate_skips_llm_below_minimum_event_thresho
         ],
     )
 
-    async def _unexpected_call(_pack):  # type: ignore[no-untyped-def]
+    async def _unexpected_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("LLM path should be skipped for low-evidence packs")
 
     monkeypatch.setattr(service, "_call_temporal_model", _unexpected_call)
@@ -344,3 +344,73 @@ async def test_build_temporal_evidence_pack_extracts_recurring_constraints() -> 
     assert pack.rule_hints["recurring_constraints"] == [
         {"keyword": "remote", "event_ids": ["evt-1", "evt-2"]}
     ]
+
+
+@pytest.mark.asyncio
+async def test_call_temporal_model_appends_persona_overlay(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+        ],
+    )
+
+    captured_kwargs: dict = {}
+
+    class _CapturingBridge:
+        async def chat_response(self, **kwargs: object) -> SimpleNamespace:
+            captured_kwargs.update(kwargs)
+            return SimpleNamespace(content='{"content":"LLM summary","key_topics":[]}')
+
+    fake_adapter = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    monkeypatch.setattr(service, "_get_llm_target", lambda: (fake_adapter, _CapturingBridge()))
+
+    persona_context = {
+        "name": "Melchior",
+        "tone": "wise and warm",
+        "background": "A scholar of MAGI",
+        "keywords": "insight, growth",
+    }
+
+    await service._call_temporal_model(pack, persona_context=persona_context)
+
+    system_prompt = captured_kwargs.get("system_prompt", "")
+    assert "Melchior" in system_prompt
+    assert "wise and warm" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_call_temporal_model_no_persona_uses_default_system_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    from magi.memory.l3.temporal_llm_service import TEMPORAL_SUMMARY_SYSTEM_PROMPT
+
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+        ],
+    )
+
+    captured_kwargs: dict = {}
+
+    class _CapturingBridge:
+        async def chat_response(self, **kwargs: object) -> SimpleNamespace:
+            captured_kwargs.update(kwargs)
+            return SimpleNamespace(content='{"content":"LLM summary","key_topics":[]}')
+
+    fake_adapter = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    monkeypatch.setattr(service, "_get_llm_target", lambda: (fake_adapter, _CapturingBridge()))
+
+    await service._call_temporal_model(pack, persona_context=None)
+
+    system_prompt = captured_kwargs.get("system_prompt", "")
+    assert system_prompt == TEMPORAL_SUMMARY_SYSTEM_PROMPT

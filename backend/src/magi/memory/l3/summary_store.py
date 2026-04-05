@@ -220,6 +220,7 @@ class L3SummaryStore:
         summary_category: str,
         period_start: float,
         period_end: float,
+        persona_context: Dict[str, str] | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Build a temporal summary from eligible L1 events."""
         await self.initialize()
@@ -263,6 +264,7 @@ class L3SummaryStore:
         generation = await self._temporal_llm_service.generate_temporal_candidate(
             evidence_pack,
             fallback_summary=fallback_summary,
+            persona_context=persona_context,
         )
         decision = validate_candidate(generation.candidate, evidence_events=events)
         if decision.action != "accept" and not generation.used_fallback:
