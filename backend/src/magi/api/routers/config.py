@@ -184,6 +184,13 @@ class RetrievalEnhancementConfigModel(BaseModel):
     confidence_fallback_top_k: int = Field(default=5, ge=1)
 
 
+class EntitySemanticEdgeConfigModel(BaseModel):
+    enabled: bool = Field(default=False)
+    similarity_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
+    max_sibling_events: int = Field(default=20, ge=1)
+    max_edges_per_event: int = Field(default=10, ge=1)
+
+
 class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default="~/.magi/data/memory")
     embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
@@ -191,6 +198,7 @@ class MemoryConfigModel(BaseModel):
     query_expansion: QueryExpansionConfigModel = Field(default_factory=QueryExpansionConfigModel)
     graph_spreading: GraphSpreadingConfigModel = Field(default_factory=GraphSpreadingConfigModel)
     retrieval_enhancement: RetrievalEnhancementConfigModel = Field(default_factory=RetrievalEnhancementConfigModel)
+    entity_semantic_edges: EntitySemanticEdgeConfigModel = Field(default_factory=EntitySemanticEdgeConfigModel)
     l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
     l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
     l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)
@@ -474,6 +482,12 @@ def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConf
             confidence_fallback_enabled=memory_cfg.retrieval_enhancement.confidence_fallback_enabled,
             confidence_fallback_min_score=memory_cfg.retrieval_enhancement.confidence_fallback_min_score,
             confidence_fallback_top_k=memory_cfg.retrieval_enhancement.confidence_fallback_top_k,
+        ),
+        entity_semantic_edges=EntitySemanticEdgeConfigModel(
+            enabled=memory_cfg.entity_semantic_edges.enabled,
+            similarity_threshold=memory_cfg.entity_semantic_edges.similarity_threshold,
+            max_sibling_events=memory_cfg.entity_semantic_edges.max_sibling_events,
+            max_edges_per_event=memory_cfg.entity_semantic_edges.max_edges_per_event,
         ),
         l0=MemoryL0ConfigModel(
             enabled=memory_cfg.l0.enabled,
@@ -893,6 +907,10 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.retrieval_enhancement.confidence_fallback_enabled": config.memory.retrieval_enhancement.confidence_fallback_enabled,
         "agent.memory.retrieval_enhancement.confidence_fallback_min_score": config.memory.retrieval_enhancement.confidence_fallback_min_score,
         "agent.memory.retrieval_enhancement.confidence_fallback_top_k": config.memory.retrieval_enhancement.confidence_fallback_top_k,
+        "agent.memory.entity_semantic_edges.enabled": config.memory.entity_semantic_edges.enabled,
+        "agent.memory.entity_semantic_edges.similarity_threshold": config.memory.entity_semantic_edges.similarity_threshold,
+        "agent.memory.entity_semantic_edges.max_sibling_events": config.memory.entity_semantic_edges.max_sibling_events,
+        "agent.memory.entity_semantic_edges.max_edges_per_event": config.memory.entity_semantic_edges.max_edges_per_event,
         "agent.memory.l0.enabled": config.memory.l0.enabled,
         "agent.memory.l0.checkpoint_interval_seconds": config.memory.l0.checkpoint_interval_seconds,
         "agent.memory.l0.runtime_replay_include_l0_only": config.memory.l0.runtime_replay_include_l0_only,

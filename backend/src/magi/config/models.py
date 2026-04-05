@@ -397,6 +397,15 @@ class RetrievalEnhancementSettings(BaseModel):
     confidence_fallback_top_k: int = Field(default=5, ge=1)
 
 
+class EntitySemanticEdgeSettings(BaseModel):
+    """Entity-scoped semantic edge builder settings."""
+
+    enabled: bool = Field(default=False)
+    similarity_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
+    max_sibling_events: int = Field(default=20, ge=1)
+    max_edges_per_event: int = Field(default=10, ge=1)
+
+
 class MemorySettings(BaseModel):
     """Memory configuration."""
     db_path: str = Field(default="~/.magi/data/memory")
@@ -406,6 +415,7 @@ class MemorySettings(BaseModel):
     query_expansion: QueryExpansionSettings = Field(default_factory=QueryExpansionSettings)
     graph_spreading: GraphSpreadingSettings = Field(default_factory=GraphSpreadingSettings)
     retrieval_enhancement: RetrievalEnhancementSettings = Field(default_factory=RetrievalEnhancementSettings)
+    entity_semantic_edges: EntitySemanticEdgeSettings = Field(default_factory=EntitySemanticEdgeSettings)
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
     l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)
     l2: MemoryL2Settings = Field(default_factory=MemoryL2Settings)

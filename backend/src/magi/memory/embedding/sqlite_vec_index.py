@@ -147,6 +147,59 @@ class SqliteVecIndex:
             hits.append(VectorSearchHit(entity_id=entity_id, distance=float(row["distance"])))
         return hits
 
+    async def get_vectors(
+        self,
+        *,
+        entity_ids: list[str],
+    ) -> dict[str, list[float]]:
+        """Return raw embedding vectors for the given *entity_ids*.
+
+        Returns a mapping ``{entity_id: vector}`` for all IDs that have
+        stored embeddings.  Missing IDs are silently omitted.
+        """
+        if not entity_ids:
+            return {}
+        await self.initialize()
+        async with self._db_lock:
+            db = self._require_db()
+            await self._ensure_registry_schema(db)
+            ph = ", ".join("?" for _ in entity_ids)
+            async with db.execute(
+                f"SELECT {self._entity_column}, vec_rowid, vec_table FROM {self._registry_table}"
+                f" WHERE {self._entity_column} IN ({ph})",
+                tuple(entity_ids),
+            ) as cursor:
+                registry_rows = await cursor.fetchall()
+
+            if not registry_rows:
+                return {}
+
+            results: dict[str, list[float]] = {}
+            # Group by vec_table for efficient batch reads
+            table_groups: dict[str, list[tuple[str, int]]] = {}
+            for row in registry_rows:
+                table_name = str(row["vec_table"])
+                eid = str(row[self._entity_column])
+                rowid = int(row["vec_rowid"])
+                table_groups.setdefault(table_name, []).append((eid, rowid))
+
+            for table_name, entries in table_groups.items():
+                if not await self._table_exists(db, table_name):
+                    continue
+                rowids = [r for _, r in entries]
+                rid_ph = ", ".join("?" for _ in rowids)
+                async with db.execute(
+                    f'SELECT rowid, embedding FROM "{table_name}" WHERE rowid IN ({rid_ph})',
+                    tuple(rowids),
+                ) as cursor:
+                    vec_rows = {int(r["rowid"]): r["embedding"] for r in await cursor.fetchall()}
+
+                for eid, rowid in entries:
+                    raw = vec_rows.get(rowid)
+                    if raw is not None:
+                        results[eid] = sqlite_vec.deserialize_float32(raw)
+        return results
+
     async def delete_entity(self, *, entity_id: str) -> None:
         await self.initialize()
         async with self._db_lock:
