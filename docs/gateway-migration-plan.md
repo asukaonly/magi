@@ -197,8 +197,13 @@ tokio-stream = "0.1"
 ## Status
 
 - [x] Phase 1-5: Axum gateway, notification bridge, unified process, initial read endpoints (14 endpoints)
-- [ ] Phase 6: Remaining read-only endpoints
+- [~] Phase 6: Read-only endpoints — 31 native Rust routes total
+  - [x] Batch 1: Memory L1/L2/L3 (8 endpoints)
+  - [x] Batch 2: Personality config + presets (7 endpoints)
+  - [x] Batch 3: LLM custom-template, local-embedding discovered (2 endpoints)
+  - [ ] Remaining: config/, config/template, llm/providers/catalog, local-embedding/models (deferred — need config model sync or IPC)
+  - [ ] Runtime-dependent: tools, skills, sensors, plugins, timeline, memory L0/stats (deferred to Phase 8 via IPC)
 - [ ] Phase 7: IPC channel
-- [ ] Phase 8: Mutation endpoints
+- [ ] Phase 8: Mutation endpoints + runtime-dependent reads via IPC
 - [ ] Phase 9: Remove Python HTTP
 - [ ] Phase 10: Extract gateway crate
