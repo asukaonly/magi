@@ -11,9 +11,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 futures = "0.3"
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1"] }
-http-body-util = "0.1"
 libc = "0.2"
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

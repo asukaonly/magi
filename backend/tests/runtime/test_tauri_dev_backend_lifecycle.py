@@ -4,12 +4,12 @@ from pathlib import Path
 
 
 def test_tauri_debug_prefers_python_backend_pair() -> None:
-    """Verify debug desktop startup spawns the unified Python backend."""
+    """Verify debug desktop startup spawns the IPC worker Python backend."""
     source_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "src" / "main.rs"
     source = source_path.read_text(encoding="utf-8")
 
     assert "let start = if cfg!(debug_assertions)" in source
-    assert "spawn_dev_backend_pair(internal_port, &session_token, &ipc_socket_path)" in source
+    assert "spawn_dev_backend_pair(&session_token, &ipc_socket_path)" in source
 
 
 def test_tauri_dev_backend_does_not_discard_logs() -> None:
@@ -23,12 +23,12 @@ def test_tauri_dev_backend_does_not_discard_logs() -> None:
 
 
 def test_tauri_spawns_unified_role() -> None:
-    """Verify desktop runtime spawns a single unified Python process."""
+    """Verify desktop runtime spawns the IPC worker Python process."""
     source_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "src" / "main.rs"
     source = source_path.read_text(encoding="utf-8")
 
-    assert '"unified"' in source
-    # Unified mode spawns a single process tracked as python_process
+    assert '"ipc_worker"' in source
+    # IPC worker mode spawns a single process tracked as python_process
     assert "python_process:" in source
     # No separate runtime_worker_process field
     assert "runtime_worker_process:" not in source

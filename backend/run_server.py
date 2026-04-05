@@ -88,6 +88,11 @@ def main() -> None:
         run_runtime_worker()
         return
 
+    if role is ProcessRole.IPC_WORKER:
+        from magi.worker_app import main as run_ipc_worker
+        run_ipc_worker()
+        return
+
     host, port, reload_enabled, log_level = _resolve_server_config(args)
     _print_banner(host=host, port=port, reload_enabled=reload_enabled)
 

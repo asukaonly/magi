@@ -141,12 +141,7 @@ async fn handle_ws_message(
 
 /// Forward send_message to Python via IPC api.forward (POST /api/messages/send)
 async fn handle_send_message(data: &Value, state: &ApiState) -> Option<Value> {
-    let ipc = match &state.ipc_client {
-        Some(c) => c.clone(),
-        None => {
-            return Some(json!({"type": "error", "message": "Backend not connected"}));
-        }
-    };
+    let ipc = state.ipc_client.clone();
 
     // Build the payload matching the REST API's UserMessageRequest
     let body = json!({

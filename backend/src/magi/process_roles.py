@@ -14,6 +14,7 @@ class ProcessRole(str, Enum):
     API = "api"
     RUNTIME_WORKER = "runtime_worker"
     UNIFIED = "unified"
+    IPC_WORKER = "ipc_worker"
 
     @property
     def runs_transport(self) -> bool:
@@ -23,7 +24,7 @@ class ProcessRole(str, Enum):
     @property
     def runs_runtime(self) -> bool:
         """Return whether the role should host the background runtime graph."""
-        return self in (ProcessRole.RUNTIME_WORKER, ProcessRole.UNIFIED)
+        return self in (ProcessRole.RUNTIME_WORKER, ProcessRole.UNIFIED, ProcessRole.IPC_WORKER)
 
 
 def resolve_process_role(

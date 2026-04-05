@@ -12,12 +12,7 @@ pub async fn proxy_handler(
     State(state): State<ApiState>,
     req: Request,
 ) -> impl IntoResponse {
-    // Try IPC proxy first if client is connected
-    if let Some(ref ipc) = state.ipc_client {
-        return ipc_proxy(ipc, req).await;
-    }
-    // Fallback to HTTP proxy
-    http_proxy(&state, req).await
+    ipc_proxy(&state.ipc_client, req).await
 }
 
 async fn ipc_proxy(
@@ -100,37 +95,4 @@ fn build_response_from_ipc(result: Value) -> Response {
     builder
         .body(Body::from(body_str))
         .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Response build error").into_response())
-}
-
-async fn http_proxy(state: &ApiState, req: Request) -> Response {
-    let path_and_query = req
-        .uri()
-        .path_and_query()
-        .map(|pq| pq.to_string())
-        .unwrap_or_else(|| "/".to_string());
-
-    let uri = format!(
-        "http://127.0.0.1:{}{}",
-        state.python_api_port, path_and_query
-    )
-    .parse::<hyper::Uri>();
-
-    let uri = match uri {
-        Ok(u) => u,
-        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid URI").into_response(),
-    };
-
-    let (mut parts, body) = req.into_parts();
-    parts.uri = uri;
-    parts.headers.remove("host");
-
-    let proxy_req = Request::from_parts(parts, body);
-
-    match state.client.request(proxy_req).await {
-        Ok(resp) => {
-            let (parts, body) = resp.into_parts();
-            Response::from_parts(parts, Body::new(body))
-        }
-        Err(_) => (StatusCode::BAD_GATEWAY, "Backend unavailable").into_response(),
-    }
 }
