@@ -67,3 +67,27 @@ def test_runtime_worker_role_keeps_background_runtime_modules() -> None:
     assert "runtime_chat_store" in module_names
     assert "runtime_chat_store" in module_by_name["runtime_exports"].dependencies
     assert getattr(module_by_name["runtime_memory"], "start_memory_integration") is True
+
+
+def test_unified_role_uses_worker_modules() -> None:
+    """Verify unified role builds the same module set as runtime_worker."""
+    from magi.bootstrap.builder import build_runtime_modules
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.process_roles import ProcessRole
+
+    worker_modules = build_runtime_modules(RuntimeBootstrapContext(), role=ProcessRole.RUNTIME_WORKER)
+    unified_modules = build_runtime_modules(RuntimeBootstrapContext(), role=ProcessRole.UNIFIED)
+
+    worker_names = [m.name for m in worker_modules]
+    unified_names = [m.name for m in unified_modules]
+    assert worker_names == unified_names
+
+
+def test_unified_role_properties() -> None:
+    """Verify unified role has both transport and runtime capabilities."""
+    from magi.process_roles import ProcessRole
+
+    assert ProcessRole.UNIFIED.runs_transport is True
+    assert ProcessRole.UNIFIED.runs_runtime is True
+    assert ProcessRole.API.runs_runtime is False
+    assert ProcessRole.RUNTIME_WORKER.runs_transport is False

@@ -13,16 +13,17 @@ class ProcessRole(str, Enum):
 
     API = "api"
     RUNTIME_WORKER = "runtime_worker"
+    UNIFIED = "unified"
 
     @property
     def runs_transport(self) -> bool:
         """Return whether the role should host HTTP/WebSocket transport."""
-        return self is ProcessRole.API
+        return self in (ProcessRole.API, ProcessRole.UNIFIED)
 
     @property
     def runs_runtime(self) -> bool:
         """Return whether the role should host the background runtime graph."""
-        return self is ProcessRole.RUNTIME_WORKER
+        return self in (ProcessRole.RUNTIME_WORKER, ProcessRole.UNIFIED)
 
 
 def resolve_process_role(

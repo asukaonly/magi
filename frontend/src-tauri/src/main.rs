@@ -35,16 +35,14 @@ struct BackendState {
 
 #[derive(Default)]
 struct BackendRuntime {
-    api_process: Option<BackendProcess>,
-    runtime_worker_process: Option<BackendProcess>,
+    python_process: Option<BackendProcess>,
     axum_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
     bridge_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     python_api_port: Option<u16>,
     base_url: Option<String>,
     ws_base_url: Option<String>,
     session_token: Option<String>,
-    api_pid: Option<u32>,
-    runtime_worker_pid: Option<u32>,
+    python_pid: Option<u32>,
 }
 
 struct ExternalBackendConfig {
@@ -103,10 +101,8 @@ impl BackendProcess {
 }
 
 struct ManagedBackendStart {
-    api_process: BackendProcess,
-    runtime_worker_process: BackendProcess,
-    api_pid: Option<u32>,
-    runtime_worker_pid: Option<u32>,
+    process: BackendProcess,
+    pid: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -324,9 +320,9 @@ fn spawn_sidecar_role(
         role.to_string(),
         "--no-reload".to_string(),
     ];
-    if role == "api" {
+    if role == "api" || role == "unified" {
         let port_text = port
-            .ok_or_else(|| "API role requires a port".to_string())?
+            .ok_or_else(|| format!("{} role requires a port", role))?
             .to_string();
         args.extend([
             "--host".to_string(),
@@ -459,9 +455,9 @@ fn spawn_dev_backend_role(
         .stdout(stdout)
         .stderr(stderr);
 
-    if role == "api" {
+    if role == "api" || role == "unified" {
         let port_text = port
-            .ok_or_else(|| "API role requires a port".to_string())?
+            .ok_or_else(|| format!("{} role requires a port", role))?
             .to_string();
         command
             .arg("--host")
@@ -483,49 +479,19 @@ fn spawn_sidecar_backend(
     session_token: &str,
     recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<ManagedBackendStart, String> {
-    let (runtime_worker_process, runtime_worker_pid) = spawn_sidecar_role(
+    let (process, pid) = spawn_sidecar_role(
         app,
-        "runtime_worker",
-        None,
+        "unified",
+        Some(port),
         session_token,
-        recent_errors.clone(),
+        recent_errors,
     )?;
-    let (api_process, api_pid) =
-        match spawn_sidecar_role(app, "api", Some(port), session_token, recent_errors) {
-            Ok(result) => result,
-            Err(err) => {
-                let mut process = runtime_worker_process;
-                process.kill();
-                return Err(err);
-            }
-        };
-
-    Ok(ManagedBackendStart {
-        api_process,
-        runtime_worker_process,
-        api_pid,
-        runtime_worker_pid,
-    })
+    Ok(ManagedBackendStart { process, pid })
 }
 
 fn spawn_dev_backend_pair(port: u16, session_token: &str) -> Result<ManagedBackendStart, String> {
-    let (runtime_worker_process, runtime_worker_pid) =
-        spawn_dev_backend_role("runtime_worker", None, session_token)?;
-    let (api_process, api_pid) = match spawn_dev_backend_role("api", Some(port), session_token) {
-        Ok(result) => result,
-        Err(err) => {
-            let mut process = runtime_worker_process;
-            process.kill();
-            return Err(err);
-        }
-    };
-
-    Ok(ManagedBackendStart {
-        api_process,
-        runtime_worker_process,
-        api_pid,
-        runtime_worker_pid,
-    })
+    let (process, pid) = spawn_dev_backend_role("unified", Some(port), session_token)?;
+    Ok(ManagedBackendStart { process, pid })
 }
 
 fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
@@ -535,32 +501,21 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
     let python_api_port = runtime.python_api_port;
     let session_token = runtime.session_token.clone().unwrap_or_default();
-    let api_pid = runtime.api_pid;
-    let runtime_worker_pid = runtime.runtime_worker_pid;
-    if let Some(mut process) = runtime.api_process.take() {
+    let python_pid = runtime.python_pid;
+    if let Some(mut process) = runtime.python_process.take() {
         if let Some(port) = python_api_port {
             if request_runtime_shutdown(BACKEND_HOST, port, &session_token) {
-                let exited = wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT)
+                let exited = wait_for_process_stop(&mut process, python_pid, SHUTDOWN_TIMEOUT)
                     || wait_for_port_close(BACKEND_HOST, port, SHUTDOWN_TIMEOUT);
                 if !exited {
                     process.kill();
                 }
-            } else if let Some(pid) = api_pid {
+            } else if let Some(pid) = python_pid {
                 let _ = send_termination_signal(pid);
-                if !wait_for_process_stop(&mut process, api_pid, SHUTDOWN_TIMEOUT) {
+                if !wait_for_process_stop(&mut process, python_pid, SHUTDOWN_TIMEOUT) {
                     process.kill();
                 }
             } else {
-                process.kill();
-            }
-        } else {
-            process.kill();
-        }
-    }
-    if let Some(mut process) = runtime.runtime_worker_process.take() {
-        if let Some(pid) = runtime_worker_pid {
-            let _ = send_termination_signal(pid);
-            if !wait_for_process_stop(&mut process, runtime_worker_pid, SHUTDOWN_TIMEOUT) {
                 process.kill();
             }
         } else {
@@ -577,8 +532,7 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
     runtime.base_url = None;
     runtime.ws_base_url = None;
     runtime.session_token = None;
-    runtime.api_pid = None;
-    runtime.runtime_worker_pid = None;
+    runtime.python_pid = None;
     Ok(())
 }
 
@@ -615,8 +569,8 @@ fn start_backend(
                 base_url,
                 ws_base_url,
                 session_token,
-                api_pid: runtime.api_pid,
-                runtime_worker_pid: runtime.runtime_worker_pid,
+                api_pid: runtime.python_pid,
+                runtime_worker_pid: runtime.python_pid,
                 error: None,
             });
         }
@@ -631,13 +585,11 @@ fn start_backend(
             .runtime
             .lock()
             .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-        runtime.api_process = None;
-        runtime.runtime_worker_process = None;
+        runtime.python_process = None;
         runtime.base_url = Some(external.base_url.clone());
         runtime.ws_base_url = Some(external.ws_base_url.clone());
         runtime.session_token = Some(external.session_token.clone());
-        runtime.api_pid = None;
-        runtime.runtime_worker_pid = None;
+        runtime.python_pid = None;
 
         return Ok(StartBackendResponse {
             ok: true,
@@ -663,10 +615,8 @@ fn start_backend(
     };
 
     if !wait_for_health(BACKEND_HOST, internal_port, STARTUP_TIMEOUT) {
-        let mut api_process = start.api_process;
-        let mut runtime_worker_process = start.runtime_worker_process;
-        api_process.kill();
-        runtime_worker_process.kill();
+        let mut process = start.process;
+        process.kill();
         // Collect recent error logs for better error message
         let error_details = if let Ok(errors) = state.recent_errors.lock() {
             if errors.is_empty() {
@@ -724,24 +674,22 @@ fn start_backend(
         .runtime
         .lock()
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-    runtime.api_process = Some(start.api_process);
-    runtime.runtime_worker_process = Some(start.runtime_worker_process);
+    runtime.python_process = Some(start.process);
     runtime.axum_shutdown = Some(shutdown_tx);
     runtime.bridge_shutdown = Some(bridge_shutdown_tx);
     runtime.python_api_port = Some(internal_port);
     runtime.base_url = Some(base_url.clone());
     runtime.ws_base_url = Some(ws_base_url.clone());
     runtime.session_token = Some(session_token.clone());
-    runtime.api_pid = start.api_pid;
-    runtime.runtime_worker_pid = start.runtime_worker_pid;
+    runtime.python_pid = start.pid;
 
     Ok(StartBackendResponse {
         ok: true,
         base_url,
         ws_base_url,
         session_token,
-        api_pid: runtime.api_pid,
-        runtime_worker_pid: runtime.runtime_worker_pid,
+        api_pid: runtime.python_pid,
+        runtime_worker_pid: runtime.python_pid,
         error: None,
     })
 }
@@ -762,8 +710,8 @@ fn backend_status(state: State<'_, BackendState>) -> Result<BackendStatusRespons
         running: runtime.base_url.is_some(),
         base_url: runtime.base_url.clone(),
         ws_base_url: runtime.ws_base_url.clone(),
-        api_pid: runtime.api_pid,
-        runtime_worker_pid: runtime.runtime_worker_pid,
+        api_pid: runtime.python_pid,
+        runtime_worker_pid: runtime.python_pid,
     })
 }
 

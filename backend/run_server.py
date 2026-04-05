@@ -95,7 +95,7 @@ def main() -> None:
         "magi.backend_app:create_backend_app",
         host=host,
         port=port,
-        reload=reload_enabled,
+        reload=reload_enabled if role is ProcessRole.API else False,
         log_level=log_level,
         factory=True,
     )

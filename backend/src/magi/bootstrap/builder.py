@@ -17,7 +17,7 @@ def build_runtime_modules(
     """Build ordered runtime lifecycle modules from layer-owned contributions."""
     if role is ProcessRole.API:
         return build_api_runtime_modules(context)
-    if role is ProcessRole.RUNTIME_WORKER:
+    if role in (ProcessRole.RUNTIME_WORKER, ProcessRole.UNIFIED):
         return build_runtime_worker_modules(context)
 
     raise ValueError(f"Unsupported process role: {role}")
