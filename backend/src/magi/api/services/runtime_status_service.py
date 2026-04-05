@@ -7,7 +7,7 @@ from typing import Any
 
 from ...core.runtime_bindings import require_runtime_command_queue, require_runtime_trace_store
 
-RUNTIME_HEARTBEAT_ROLE = "runtime_worker"
+RUNTIME_HEARTBEAT_ROLE = "ipc_worker"
 DEFAULT_RUNTIME_HEARTBEAT_STALE_AFTER_MS = 15_000
 DEFAULT_PENDING_COMMAND_WARNING_THRESHOLD = 100
 

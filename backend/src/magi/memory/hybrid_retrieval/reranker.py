@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, List, Protocol, Sequence
 
-from ...api.llm_draft import build_adapter_from_provider
+from ...llm.draft import build_adapter_from_provider
 from ...config import get_config
 from ...llm import LLMProviderBridge
 from ...utils.runtime import RuntimePaths

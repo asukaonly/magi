@@ -6,7 +6,7 @@ from typing import Callable
 
 from ..config import get_config
 from ..config.models import LLMProvider, LLMProviderSettings, LLMScenario, LLMSettings
-from ..llm import create_llm_adapter
+from .factory import create_llm_adapter
 
 
 AdapterFactory = Callable[..., object]

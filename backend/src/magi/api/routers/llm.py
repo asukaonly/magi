@@ -16,17 +16,17 @@ from ...config.llm_registry import (
 )
 from ...config.models import LLMProviderSettings
 from ...core.logger import get_logger
-from .config import (
+from .config import LLMProviderConfigModel
+from ..services.llm_testing_service import (
     DiscoverLLMModelsApiResponseModel,
     DiscoverLLMModelsResponseModel,
     DiscoverLLMModelsRequestModel,
-    LLMProviderConfigModel,
     TestLLMProviderApiResponseModel,
     TestLLMProviderResponseModel,
     TestLLMProviderRequestModel,
-    _discover_openai_compatible_models,
-    _load_llm_provider_registry,
-    _test_llm_provider_connection,
+    get_llm_provider_registry as _load_llm_provider_registry,
+    discover_openai_compatible_models as _discover_openai_compatible_models,
+    test_llm_provider_connection as _test_llm_provider_connection,
 )
 
 
@@ -136,7 +136,7 @@ async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
 @llm_router.post("/providers/test", response_model=TestLLMProviderApiResponseModel)
 async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
     registry_meta = find_provider_meta(_load_llm_provider_registry(), payload.provider_id)
-    provider_payload = payload.provider.model_copy(deep=True)
+    provider_payload = LLMProviderConfigModel.model_validate(payload.provider)
     if not (provider_payload.base_url or "").strip() and registry_meta and registry_meta.default_base_url:
         provider_payload.base_url = registry_meta.default_base_url
     try:

@@ -15,11 +15,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ..llm_draft import resolve_adapter_for_scenario
+from ...llm.draft import resolve_adapter_for_scenario
 from ..avatar_paths import resolve_avatar_public_url
-from ..services.personality_state_service import (
-    get_current_personality_name,
-    set_current_personality_name,
+from ...personality.current_state import (
+    get_current_personality as get_current_personality_name,
+    set_current_personality as set_current_personality_name,
 )
 from ...config import get_config
 from ...config.models import LLMScenario, LLMSettings
