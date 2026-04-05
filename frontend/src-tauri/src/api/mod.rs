@@ -2,6 +2,7 @@ mod health;
 mod memory;
 mod messages;
 mod metrics;
+mod personality;
 mod proxy;
 mod ready;
 mod schedules;
@@ -49,6 +50,15 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/api/memory/l2/snapshots", axum::routing::get(memory::list_l2_snapshots))
         .route("/api/memory/l2/conflict-rules", axum::routing::get(memory::list_l2_conflict_rules))
         .route("/api/memory/l3/summaries", axum::routing::get(memory::list_l3_summaries))
+        // Personality config
+        .route("/api/personality", axum::routing::get(personality::list_personalities))
+        .route("/api/personality/current", axum::routing::get(personality::get_current_personality))
+        .route("/api/personality/greeting", axum::routing::get(personality::get_greeting))
+        .route("/api/personality/compare/{from_name}/{to_name}", axum::routing::get(personality::compare_personalities))
+        .route("/api/personality/{name}", axum::routing::get(personality::get_personality))
+        // Personality presets
+        .route("/api/personalities", axum::routing::get(personality::list_presets))
+        .route("/api/personalities/{preset_id}", axum::routing::get(personality::get_preset))
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
         .layer(cors)

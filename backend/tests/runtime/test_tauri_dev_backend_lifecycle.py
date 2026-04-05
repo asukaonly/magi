@@ -69,6 +69,13 @@ def test_axum_native_routes_cover_read_endpoints() -> None:
         "/api/memory/l2/snapshots",
         "/api/memory/l2/conflict-rules",
         "/api/memory/l3/summaries",
+        "/api/personality",
+        "/api/personality/current",
+        "/api/personality/greeting",
+        "/api/personality/compare/{from_name}/{to_name}",
+        "/api/personality/{name}",
+        "/api/personalities",
+        "/api/personalities/{preset_id}",
     ]
     for route in expected_routes:
         assert route in source, f"Missing native Rust route: {route}"
