@@ -204,8 +204,14 @@ tokio-stream = "0.1"
   - [ ] Remaining: config/, config/template, llm/providers/catalog, local-embedding/models (deferred — need config model sync or IPC)
   - [ ] Runtime-dependent: tools, skills, sensors, plugins, timeline, memory L0/stats (covered by IPC proxy)
 - [x] Phase 7: IPC channel — NDJSON over UDS, protocol types, client/server, ping validated
-- [~] Phase 8: Mutation endpoints + runtime-dependent reads via IPC
+- [x] Phase 8: Mutation endpoints + runtime-dependent reads via IPC
   - [x] 8a: api.forward IPC handler — generic ASGI dispatch for all unmigrated endpoints
-  - [ ] 8b-8e: Native Rust mutation handlers for DB/file writes (schedules, tasks, sessions, personality)
+  - [x] 8b: Native Rust mutation handlers — 15 DB/file write endpoints
+    - Tasks: POST/PATCH/DELETE (3)
+    - Schedules: POST/PATCH/DELETE (3)
+    - Sessions/Messages: POST new + PATCH rename + PATCH workspace + POST label + DELETE message (5)
+    - Personality: PUT current + PUT save + DELETE (3)
+    - Remaining mutations (generate, avatar upload, send message, etc.) proxied via IPC api.forward
+  - Total native routes: 46 (31 GET + 15 mutations)
 - [ ] Phase 9: Remove Python HTTP
 - [ ] Phase 10: Extract gateway crate
