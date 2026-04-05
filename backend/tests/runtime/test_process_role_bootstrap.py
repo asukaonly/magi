@@ -25,6 +25,7 @@ def test_build_runtime_modules_includes_full_runtime() -> None:
     assert "runtime_sensor_scheduler" in module_names
     assert "runtime_sensor_sync_executor" in module_names
     assert "runtime_l2_maintenance_scheduler" in module_names
+    assert "runtime_l3_summary_scheduler" in module_names
     assert "runtime_plugin_ingress_processor" in module_names
     assert "runtime_chat_store" in module_names
     assert "runtime_chat_store" in module_by_name["runtime_exports"].dependencies

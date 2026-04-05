@@ -10,9 +10,7 @@ from .answerability import (
     extract_query_phrases,
     extract_query_tokens,
     extract_quoted_spans,
-    score_eventness,
-    score_generic_guidance_penalty,
-    score_temporal_anchor,
+    has_temporal_anchor,
 )
 
 
@@ -140,9 +138,6 @@ def _score_event(
         + (len(matched_tokens) / len(query_tokens) if query_tokens else 0.0)
         + min(len(phrase_hits), 4) * 0.15
         + min(len(quoted_hits), 2) * (0.45 if author_type == "user" else 0.1)
-        + score_eventness(content, author_type=author_type)
-        + score_temporal_anchor(content)
-        - score_generic_guidance_penalty(content, author_type=author_type)
     )
 
 
@@ -169,9 +164,9 @@ def _summarize_event(
         reason_codes.append("quoted_span_match")
     if any(phrase and phrase in content.lower() for phrase in query_phrases):
         reason_codes.append("phrase_match")
-    if score_eventness(content, author_type=author_type) > 0:
-        reason_codes.append("event_statement")
-    if score_temporal_anchor(content) > 0:
+    if author_type == "user":
+        reason_codes.append("user_message")
+    if has_temporal_anchor(content):
         reason_codes.append("temporal_anchor")
 
     return {
@@ -203,8 +198,7 @@ def _select_summary_text(
         score = (
             min(sum(1 for phrase in query_phrases if phrase and phrase in lowered), 4) * 0.15
             + min(sum(1 for phrase in quoted_spans if phrase and phrase in normalized), 2) * 0.45
-            + score_eventness(segment, author_type=author_type)
-            + score_temporal_anchor(segment)
+            + (0.10 if has_temporal_anchor(segment) else 0.0)
         )
         if score > best_score:
             best_score = score

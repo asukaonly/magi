@@ -18,28 +18,44 @@ agent:
   memory:
     db_path: "~/.magi/data/memories"
     embedding:
-      mode: "remote"  # "remote" or "local"
+      mode: "remote" # "remote" or "local"
       local:
-        model_source: "managed"  # "managed" or "external"
+        model_source: "managed" # "managed" or "external"
         managed_model_id: null
         model_dir_path: null
         idle_timeout_seconds: 1800
     reranker:
-      enabled: false
-      backend: "heuristic"
-      mode: "local"
       layers: ["L1", "L3"]
       top_k: 8
-      timeout_seconds: 0.8
       candidate_max_chars: 500
-      local:
+      cross_encoder:
+        enabled: false
         model_source: "managed"
         managed_model_id: null
-        model_file_path: null
-        max_context_tokens: 2048
-      remote:
-        provider_id: ""
-        model: ""
+
+    query_expansion:
+      enabled: false
+      timeout_seconds: 3.0
+
+    graph_spreading:
+      enabled: false
+      max_hops: 2
+      max_neighbors: 10
+      max_entities: 50
+      decay: 0.5
+      rrf_weight: 0.6
+
+    retrieval_enhancement:
+      unified_reranking_enabled: false
+      confidence_fallback_enabled: false
+      confidence_fallback_min_score: 0.3
+      confidence_fallback_top_k: 5
+
+    entity_semantic_edges:
+      enabled: false
+      similarity_threshold: 0.75
+      max_sibling_events: 20
+      max_edges_per_event: 10
 
     l0:
       enabled: true

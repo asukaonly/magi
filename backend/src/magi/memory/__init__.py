@@ -25,6 +25,7 @@ from .l3.summary_store import L3SummaryStore
 from .l3.task_reflection_service import TaskReflectionService
 from .l3.trend_shift_service import TrendShiftService
 from .l4.procedural_memory import L4ProceduralMemoryStore
+from .hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
 from .store_l3_insights import L3InsightsMixin
 from .store_monitoring import MonitoringMixin
 
@@ -128,6 +129,13 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
                 vector_enabled=enable_l2_vectors,
             )
             self.l2_llm_service = L2LLMService(scenario_llm_pool)
+            semantic_edge_builder: EntityScopedSemanticBuilder | None = None
+            if self.l1 is not None:
+                semantic_edge_builder = EntityScopedSemanticBuilder(
+                    l1_store=self.l1,
+                    l2_store=self.l2,
+                    config_getter=memory_config_getter,
+                )
             self.l2_pipeline = L2Pipeline(
                 self.l2,
                 l1_store=self.l1,
@@ -138,6 +146,7 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
                 batch_flush_interval_seconds=l2_batch_flush_interval_seconds,
                 enable_conflict_arbitration=enable_l2_conflict_arbitration,
                 conflict_arbitration_min_confidence=l2_conflict_arbitration_min_confidence,
+                semantic_edge_builder=semantic_edge_builder,
             )
         if enable_l3:
             self.l3 = L3SummaryStore(

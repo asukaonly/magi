@@ -37,6 +37,7 @@ from .ontology import coerce_unknown_entity_type
 from .pipeline_conflict import L2ConflictArbitrationMixin
 from .pipeline_entity import L2EntityResolutionMixin
 from .pipeline_validation import L2ValidationMixin
+from ..hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
 
 _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "weather",
@@ -105,6 +106,7 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
         enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
         conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
+        semantic_edge_builder: Optional[EntityScopedSemanticBuilder] = None,
     ) -> None:
         if cognition_store is not None and entity_catalog is None:
             raise ValueError("entity_catalog is required when cognition_store is enabled")
@@ -114,6 +116,7 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         self._l1_store = l1_store
         self._entity_catalog = entity_catalog
         self._llm_service = llm_service
+        self._semantic_edge_builder = semantic_edge_builder
         self._state_change_callback = state_change_callback
         self._active_entity_callback = active_entity_callback
         self._batch_flush_interval_seconds = max(0, int(batch_flush_interval_seconds))
@@ -976,6 +979,51 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
             resolved_ref_count=len(phase1_result.resolved_refs),
             resolved_mention_count=len(resolved_mentions),
         )
+
+        # ── Write L1 event–entity linkage for entity co-occurrence retrieval ──
+        if resolved_mentions and self._l1_store is not None:
+            entity_mappings = [
+                (eid, m.resolved_entity_id, m.entity_type, m.confidence)
+                for m in resolved_mentions
+                if m.resolved_entity_id
+                for eid in batch_event_ids
+            ]
+            if entity_mappings:
+                try:
+                    await self._l1_store.write_event_entities(entity_mappings)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to write l1_event_entities",
+                        event_id=stored_event.event_id,
+                        exc_info=exc,
+                    )
+
+        # ── Build entity-scoped semantic edges (async, best-effort) ──
+        if resolved_mentions and self._semantic_edge_builder is not None:
+            resolved_entity_ids = list({
+                m.resolved_entity_id
+                for m in resolved_mentions
+                if m.resolved_entity_id
+            })
+            if resolved_entity_ids:
+                try:
+                    sem_edge_count = await self._semantic_edge_builder.build_edges_for_event(
+                        event_id=stored_event.event_id,
+                        entity_ids=resolved_entity_ids,
+                        observed_at=float(stored_event.timestamp),
+                    )
+                    if sem_edge_count > 0:
+                        logger.debug(
+                            "Entity-scoped semantic edges created",
+                            event_id=stored_event.event_id,
+                            edge_count=sem_edge_count,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Entity-scoped semantic edge building failed",
+                        event_id=stored_event.event_id,
+                        exc_info=exc,
+                    )
 
         if not phase1_result.has_content:
             # Even when Phase 1 is empty, persist any structured

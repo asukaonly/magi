@@ -167,14 +167,12 @@ class TestRetrievalConfig:
         cfg = RetrievalConfig()
         assert cfg.default_max_tokens == 8192
         assert cfg.fallback_trigger_threshold == 1
-        assert cfg.vector_max_distance == 0.7
         assert cfg.rrf_k == 60
         assert cfg.intent_decider_llm_enabled is True
 
     def test_custom(self):
-        cfg = RetrievalConfig(default_max_tokens=4096, vector_max_distance=0.5)
+        cfg = RetrievalConfig(default_max_tokens=4096)
         assert cfg.default_max_tokens == 4096
-        assert cfg.vector_max_distance == 0.5
 
 
 class TestRetrievalPayload:

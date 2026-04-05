@@ -194,40 +194,44 @@ class RetrievalConfig:
     # IntentDecider
     intent_decider_llm_enabled: bool = True
     intent_decider_llm_timeout_seconds: float = 10.0
-    intent_decider_fallback_on_error: bool = True
     intent_shadow_eval_enabled: bool = True
-
-    # BM25 / FTS5
-    fts5_enabled: bool = True
 
     # RRF
     rrf_k: int = 60
     rrf_weight_bm25: float = 1.0
     rrf_weight_vector: float = 1.0
     rrf_weight_keyword: float = 0.5
-    reranker_enabled: bool = True
-    reranker_backend: Literal["noop", "heuristic", "llm"] = "heuristic"
-    reranker_mode: Literal["local", "remote"] = "local"
+    rrf_weight_entity: float = 0.7
     reranker_top_k: int = 15
     reranker_layers: tuple[str, ...] = ("L1", "L3", "L4")
-    reranker_timeout_seconds: float = 0.8
     reranker_candidate_max_chars: int = 500
-    reranker_remote_provider_id: str = ""
-    reranker_remote_model: str = ""
-    reranker_local_model_source: Literal["managed", "external"] = "managed"
-    reranker_local_managed_model_id: str | None = None
-    reranker_local_model_file_path: str | None = None
-    reranker_local_max_context_tokens: int = 2048
-    reranker_llm_weight: float = 0.55
+
+    # Cross-encoder reranking (optional, on top of heuristic)
+    cross_encoder_enabled: bool = False
+    cross_encoder_model_id: str | None = None
+
+    # Query expansion (LLM-based alternative query generation)
+    query_expansion_enabled: bool = False
+    query_expansion_timeout_seconds: float = 3.0
+
+    # Graph spreading activation (L2 knowledge graph BFS)
+    graph_spreading_enabled: bool = False
+    graph_spreading_max_hops: int = 2
+    graph_spreading_max_neighbors: int = 10
+    graph_spreading_max_entities: int = 50
+    graph_spreading_decay: float = 0.5
+    rrf_weight_graph: float = 0.6
+
+    # Confidence-aware fallback
+    confidence_fallback_enabled: bool = False
+    confidence_fallback_min_score: float = 0.3
+    confidence_fallback_top_k: int = 5
 
     # ResultFusion
     default_max_tokens: int = 8192
-    fallback_trigger_threshold: int = 1  # result count < N triggers fallback
+    fallback_trigger_threshold: int = 1
     l0_max_tokens: int = 512
     l0_budget_ratio: float = 0.5
-
-    # Vector search filtering
-    vector_max_distance: float = 0.7  # cosine distance cap (1 - similarity)
 
     # ManifestSelector (cross-layer LLM ranking post-fusion)
     manifest_selector_enabled: bool = False
@@ -237,5 +241,4 @@ class RetrievalConfig:
     manifest_selector_candidate_max_chars: int = 400
 
     # Token estimation
-    token_estimator: Literal["char_ratio"] = "char_ratio"
     char_per_token_ratio: float = 3.0

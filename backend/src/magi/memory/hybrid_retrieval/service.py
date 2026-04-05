@@ -13,7 +13,7 @@ from .answerability import (
     extract_query_tokens,
     extract_quoted_spans,
     extract_temporal_distance_queries,
-    score_temporal_anchor,
+    has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
@@ -27,6 +27,7 @@ from .models import (
     RetrievalQuery,
 )
 from .manifest_selector import ManifestSelector
+from .reranker import build_retrieval_reranker
 from .result_fusion import ResultFusion
 from .timeline_condense import build_timeline_summary
 
@@ -36,23 +37,14 @@ logger = logging.getLogger(__name__)
 def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalConfig:
     """Build retrieval config from the runtime app config."""
     reranker = app_config.agent.memory.reranker
+    qe = app_config.agent.memory.query_expansion
+    gs = app_config.agent.memory.graph_spreading
     return RetrievalConfig(
-        reranker_enabled=reranker.enabled,
-        reranker_backend=str(getattr(reranker.backend, "value", reranker.backend)),
-        reranker_mode=str(getattr(reranker.mode, "value", reranker.mode)),
         reranker_top_k=reranker.top_k,
-        reranker_layers=tuple(
-            str(getattr(layer, "value", layer))
-            for layer in reranker.layers
-        ),
-        reranker_timeout_seconds=reranker.timeout_seconds,
-        reranker_candidate_max_chars=reranker.candidate_max_chars,
-        reranker_remote_provider_id=reranker.remote.provider_id,
-        reranker_remote_model=reranker.remote.model,
-        reranker_local_model_source=str(getattr(reranker.local.model_source, "value", reranker.local.model_source)),
-        reranker_local_managed_model_id=reranker.local.managed_model_id,
-        reranker_local_model_file_path=reranker.local.model_file_path,
-        reranker_local_max_context_tokens=reranker.local.max_context_tokens,
+        cross_encoder_enabled=reranker.cross_encoder.enabled,
+        cross_encoder_model_id=reranker.cross_encoder.managed_model_id,
+        query_expansion_enabled=qe.enabled,
+        graph_spreading_enabled=gs.enabled,
     )
 
 
@@ -75,7 +67,12 @@ class HybridRetrievalService:
         self._manifest_selector = ManifestSelector(self._config)
 
         # Build handlers from available stores
-        self._l1 = L1Handler(unified_memory.l1, self._config) if unified_memory.l1 else None
+        l2_store = unified_memory.l2 if unified_memory.l2 else None
+        self._l1 = (
+            L1Handler(unified_memory.l1, self._config, l2_store=l2_store)
+            if unified_memory.l1
+            else None
+        )
         self._l2 = (
             self._build_l2_handler(unified_memory)
             if unified_memory.l2
@@ -133,6 +130,33 @@ class HybridRetrievalService:
         payload.trace["intent_source"] = decision.source
         payload.trace["intent_reasoning"] = decision.reasoning
 
+        # 2b. Adaptive parameter tuning based on intent signals
+        effective_query_mode = request.query_mode
+        effective_recall_intent = request.recall_intent
+        # Also pick up hints from the LLM decision if available
+        for plan in decision.plans:
+            if not plan.is_fallback:
+                conds = plan.conditions
+                if hasattr(conds, "content_query"):
+                    if effective_query_mode is None and hasattr(conds, "subject_hint"):
+                        pass  # query_mode comes from request
+        if effective_query_mode or effective_recall_intent:
+            from .adaptive_params import adapt_config
+
+            adapted = adapt_config(
+                self._config,
+                query_mode=effective_query_mode,
+                recall_intent=effective_recall_intent,
+            )
+            if adapted is not self._config:
+                # Apply adapted config to L1 handler for this query
+                if self._l1 is not None:
+                    self._l1._config = adapted
+                    self._l1._reranker = build_retrieval_reranker(adapted)
+                payload.trace["adaptive_params_applied"] = True
+                payload.trace["adaptive_query_mode"] = effective_query_mode
+                payload.trace["adaptive_recall_intent"] = effective_recall_intent
+
         # 3. Execute primary plans in parallel
         primary_plans = self._augment_primary_plans(
             [p for p in decision.plans if not p.is_fallback],
@@ -157,6 +181,14 @@ class HybridRetrievalService:
                     logger.warning("Primary plan %s failed: %s", plan.layer, result)
                     continue
                 self._merge_result(payload, plan.layer, result)
+
+        # 3b. Query expansion — run additional L1 plans with reformulated queries
+        if self._config.query_expansion_enabled and self._llm_provider_bridge:
+            await self._run_query_expansion(
+                original_query=request.query,
+                request=request,
+                payload=payload,
+            )
 
         # 4. Fallback if primary results are insufficient
         primary_count = self._count_results(payload)
@@ -286,7 +318,25 @@ class HybridRetrievalService:
 
         payload.trace["primary_count"] = primary_count
 
-        if primary_count < self._config.fallback_trigger_threshold:
+        should_fallback = primary_count < self._config.fallback_trigger_threshold
+        # Confidence-aware fallback: even if we have enough results, if the
+        # top-K scores are too low the answers may be irrelevant.
+        if (
+            not should_fallback
+            and self._config.confidence_fallback_enabled
+            and payload.l1_events
+        ):
+            top_k = min(self._config.confidence_fallback_top_k, len(payload.l1_events))
+            avg_score = sum(
+                float(e.get("retrieval_score") or 0.0)
+                for e in payload.l1_events[:top_k]
+            ) / top_k
+            if avg_score < self._config.confidence_fallback_min_score:
+                should_fallback = True
+                payload.trace["confidence_fallback_triggered"] = True
+                payload.trace["confidence_fallback_avg_score"] = round(avg_score, 6)
+
+        if should_fallback:
             fallback_plans = [p for p in decision.plans if p.is_fallback]
             if fallback_plans:
                 fallback_results = await asyncio.gather(
@@ -341,7 +391,12 @@ class HybridRetrievalService:
 
     def _refresh_handlers(self) -> None:
         """Refresh layer handlers in case stores are initialized after service construction."""
-        self._l1 = L1Handler(self._memory.l1, self._config) if getattr(self._memory, "l1", None) else None
+        l2_store = getattr(self._memory, "l2", None)
+        self._l1 = (
+            L1Handler(self._memory.l1, self._config, l2_store=l2_store)
+            if getattr(self._memory, "l1", None)
+            else None
+        )
         self._l2 = (
             self._build_l2_handler(self._memory)
             if getattr(self._memory, "l2", None)
@@ -392,7 +447,11 @@ class HybridRetrievalService:
         request: RetrievalQuery,
         payload: RetrievalPayload,
     ) -> list[LayerQueryPlan]:
-        """Add service-level evidence plans for semantic affinity queries when needed."""
+        """Add service-level evidence plans for semantic affinity queries when needed.
+
+        Also guarantees that at least one L1 plan is always present so
+        entity-expansion retrieval is never skipped.
+        """
         seen_signatures = {self._plan_signature(plan) for plan in primary_plans}
         augmented_plans = list(primary_plans)
         added_joint_l1_plan = False
@@ -410,6 +469,22 @@ class HybridRetrievalService:
 
         if added_joint_l1_plan:
             payload.trace["joint_l1_affinity_evidence"] = True
+
+        # Ensure L1 always participates (entity co-occurrence expansion)
+        has_l1 = any(p.layer == "L1" for p in augmented_plans)
+        if not has_l1:
+            l1_plan = LayerQueryPlan(
+                layer="L1",
+                conditions=L1Conditions(
+                    content_query=request.query,
+                    source_filters=request.source_filters or None,
+                    domain_filters=request.domain_filters or None,
+                    limit=10,
+                ),
+                is_fallback=False,
+            )
+            augmented_plans.append(l1_plan)
+            payload.trace["l1_always_injected"] = True
 
         return augmented_plans
 
@@ -486,6 +561,61 @@ class HybridRetrievalService:
             + len(payload.l4_procedures)
         )
 
+    async def _run_query_expansion(
+        self,
+        *,
+        original_query: str,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+    ) -> None:
+        """Generate expanded query variants and run additional L1 plans."""
+        from .query_expander import QueryExpander
+
+        expander = QueryExpander(
+            self._llm_provider_bridge,
+            timeout_seconds=self._config.query_expansion_timeout_seconds,
+        )
+        expanded_queries = await expander.expand(original_query)
+        if not expanded_queries:
+            return
+
+        payload.trace["query_expansion_queries"] = expanded_queries
+
+        expansion_plans = [
+            LayerQueryPlan(
+                layer="L1",
+                conditions=L1Conditions(
+                    content_query=eq,
+                    source_filters=request.source_filters or None,
+                    domain_filters=request.domain_filters or None,
+                    limit=10,
+                ),
+                is_fallback=False,
+            )
+            for eq in expanded_queries
+        ]
+        expansion_results = await asyncio.gather(
+            *[
+                execute_plan(
+                    plan,
+                    l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                    session_id=request.session_id,
+                    user_id=request.user_id,
+                )
+                for plan in expansion_plans
+            ],
+            return_exceptions=True,
+        )
+        added = 0
+        for plan, result in zip(expansion_plans, expansion_results):
+            if isinstance(result, Exception):
+                logger.warning("Query expansion plan failed: %s", result)
+                continue
+            if isinstance(result, list):
+                added += len(result)
+            self._merge_result(payload, plan.layer, result)
+        payload.trace["query_expansion_added"] = added
+
     @staticmethod
     def _rule_backstop_reason(
         *,
@@ -550,7 +680,7 @@ class HybridRetrievalService:
                 span: {
                     event["event_id"] or f"idx:{index}"
                     for index, event in enumerate(normalized_events)
-                    if span in event["content"] and score_temporal_anchor(event["raw_content"]) > 0.0
+                    if span in event["content"] and has_temporal_anchor(event["raw_content"])
                 }
                 for span in coverage_spans
             }

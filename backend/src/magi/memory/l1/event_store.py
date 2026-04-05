@@ -169,6 +169,26 @@ class L1EventStore:
                 );
                 """
             )
+            # l1_event_entities for entity co-occurrence expansion (separate
+            # from executescript to avoid FTS5 virtual-table edge cases).
+            await db.execute(
+                """CREATE TABLE IF NOT EXISTS l1_event_entities (
+                    event_id TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    entity_type TEXT,
+                    confidence REAL,
+                    created_at REAL NOT NULL,
+                    UNIQUE(event_id, entity_id)
+                )"""
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_l1_event_entities_event"
+                " ON l1_event_entities(event_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_l1_event_entities_entity"
+                " ON l1_event_entities(entity_id)"
+            )
             await self._ensure_event_identity_schema(db)
             await self._ensure_embedding_status_columns(db)
             await self._ensure_metadata_json_column(db)
@@ -473,6 +493,146 @@ class L1EventStore:
             ) as cursor:
                 row = await cursor.fetchone()
         return self._row_to_memory_event(row) if row else None
+
+    async def get_event_vectors(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, List[float]]:
+        """Return embedding vectors for the given event IDs.
+
+        For each event, returns the chunk-0 embedding (primary chunk).
+        Events without embeddings are silently omitted.
+        """
+        if not event_ids or self._vector_index is None:
+            return {}
+        chunk_ids = [self._chunk_id_for_event(eid, 0) for eid in event_ids]
+        raw = await self._vector_index.get_vectors(entity_ids=chunk_ids)
+        result: Dict[str, List[float]] = {}
+        for eid in event_ids:
+            cid = self._chunk_id_for_event(eid, 0)
+            if cid in raw:
+                result[eid] = raw[cid]
+        return result
+
+    # ------------------------------------------------------------------
+    # L1 Event–Entity linkage (for entity co-occurrence expansion)
+    # ------------------------------------------------------------------
+
+    async def write_event_entities(
+        self,
+        mappings: List[Tuple[str, str, Optional[str], Optional[float]]],
+    ) -> int:
+        """Persist (event_id, entity_id, entity_type, confidence) tuples.
+
+        Duplicates are silently ignored via INSERT OR IGNORE.
+        Returns the number of rows inserted.
+        """
+        if not mappings:
+            return 0
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.executemany(
+                "INSERT OR IGNORE INTO l1_event_entities"
+                " (event_id, entity_id, entity_type, confidence, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [(eid, entid, etype, conf, now) for eid, entid, etype, conf in mappings],
+            )
+            await db.commit()
+            return db.total_changes
+
+    async def get_entity_event_ids(
+        self,
+        entity_ids: List[str],
+        *,
+        limit_per_entity: int = 20,
+    ) -> Dict[str, List[str]]:
+        """Return event IDs associated with each entity.
+
+        Returns ``{entity_id: [event_id, ...]}`` with the most recent
+        events first (by created_at DESC), capped at *limit_per_entity*.
+        """
+        if not entity_ids:
+            return {}
+        await self.initialize()
+        result: Dict[str, List[str]] = {eid: [] for eid in entity_ids}
+        async with sqlite_connection_async(self.db_path) as db:
+            for entity_id in entity_ids:
+                async with db.execute(
+                    "SELECT event_id FROM l1_event_entities"
+                    " WHERE entity_id = ?"
+                    " ORDER BY created_at DESC"
+                    " LIMIT ?",
+                    (entity_id, limit_per_entity),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                result[entity_id] = [r[0] for r in rows]
+        return result
+
+    async def get_event_entity_ids(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, List[str]]:
+        """Return entity IDs for each event.
+
+        Returns ``{event_id: [entity_id, ...]}`` for all given events.
+        """
+        if not event_ids:
+            return {}
+        await self.initialize()
+        result: Dict[str, List[str]] = {eid: [] for eid in event_ids}
+        async with sqlite_connection_async(self.db_path) as db:
+            ph = ", ".join("?" for _ in event_ids)
+            async with db.execute(
+                f"SELECT event_id, entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
+                tuple(event_ids),
+            ) as cursor:
+                for row in await cursor.fetchall():
+                    result.setdefault(row[0], []).append(row[1])
+        return result
+
+    async def expand_by_entities(
+        self,
+        seed_event_ids: List[str],
+        *,
+        limit: int = 30,
+        exclude_event_ids: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Find events that share entities with *seed_event_ids*.
+
+        Returns event IDs ordered by the number of shared entities (desc).
+        """
+        if not seed_event_ids:
+            return []
+        await self.initialize()
+        exclude = set(exclude_event_ids or []) | set(seed_event_ids)
+
+        async with sqlite_connection_async(self.db_path) as db:
+            # Step 1: seed events → entity_ids
+            ph = ", ".join("?" for _ in seed_event_ids)
+            async with db.execute(
+                f"SELECT DISTINCT entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
+                tuple(seed_event_ids),
+            ) as cursor:
+                entity_ids = [row[0] for row in await cursor.fetchall()]
+
+            if not entity_ids:
+                return []
+
+            # Step 2: entity_ids → neighbouring event_ids (ranked by shared count)
+            eph = ", ".join("?" for _ in entity_ids)
+            async with db.execute(
+                f"SELECT event_id, COUNT(DISTINCT entity_id) AS shared"
+                f" FROM l1_event_entities"
+                f" WHERE entity_id IN ({eph})"
+                f" GROUP BY event_id"
+                f" ORDER BY shared DESC"
+                f" LIMIT ?",
+                (*entity_ids, limit + len(exclude)),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        return [r[0] for r in rows if r[0] not in exclude][:limit]
 
     async def find_event_id_by_idempotency(
         self,

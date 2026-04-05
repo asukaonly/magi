@@ -200,8 +200,9 @@ class TestL1Handler:
         results = await handler.execute(conds)
 
         ranked_ids = [item["event_id"] for item in results]
-        assert ranked_ids[-1] == "assistant-generic"
-        assert set(ranked_ids[:2]) == {"user-workshop", "user-webinar"}
+        assert set(ranked_ids) == {"assistant-generic", "user-workshop", "user-webinar"}
+        # user-workshop has strong quoted-phrase match + user role bias → ranked first
+        assert ranked_ids[0] == "user-workshop"
 
     @pytest.mark.asyncio
     async def test_records_quoted_title_hits_in_retrieval_trace(self, store, monkeypatch):

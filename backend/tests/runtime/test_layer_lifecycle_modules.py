@@ -66,6 +66,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_sensor_sync_executor",
         "runtime_exports",
         "runtime_l2_maintenance_scheduler",
+        "runtime_l3_summary_scheduler",
         "runtime_other_dependencies",
     ]
 

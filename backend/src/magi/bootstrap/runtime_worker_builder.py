@@ -24,7 +24,7 @@ from ..events.lifecycle import (
     RuntimeCommandQueueModule,
 )
 from ..llm.lifecycle import LLMRuntimeModule
-from ..memory.lifecycle import L2MaintenanceScheduleRegistrationModule, MemoryStoreModule
+from ..memory.lifecycle import L2MaintenanceScheduleRegistrationModule, L3SummaryScheduleRegistrationModule, MemoryStoreModule
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
 from ..runtime_trace import RuntimeTraceStore
@@ -83,6 +83,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         SensorSyncExecutorModule(context),
         RuntimeExportsModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
+        L3SummaryScheduleRegistrationModule(context),
         OtherDependenciesModule(context),
     ]
 

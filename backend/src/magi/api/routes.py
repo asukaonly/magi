@@ -96,6 +96,12 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/models/{model_id}": {"DELETE"},
         "/discovered": {"GET"},
     },
+    "local_reranker": {
+        "/models": {"GET"},
+        "/models/{model_id}/download": {"POST"},
+        "/models/{model_id}/status": {"GET"},
+        "/models/{model_id}": {"DELETE"},
+    },
     "personality_config": {
         "/": {"GET"},
         "/current": {"GET", "PUT"},
@@ -146,6 +152,7 @@ def register_api_routes(app: FastAPI) -> None:
         timeline_router,
         plugins_router,
         local_embedding_router,
+        local_reranker_router,
     )
 
     app.include_router(
@@ -206,4 +213,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(local_embedding_router, _PUBLIC_ROUTE_METHODS["local_embedding"]),
         prefix="/api/local-embedding",
         tags=["Local Embedding"],
+    )
+    app.include_router(
+        _build_public_router(local_reranker_router, _PUBLIC_ROUTE_METHODS["local_reranker"]),
+        prefix="/api/local-reranker",
+        tags=["Local Reranker"],
     )
