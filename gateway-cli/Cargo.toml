@@ -1,0 +1,13 @@
+[package]
+name = "magi-gateway-cli"
+version = "0.1.0"
+description = "Headless Magi gateway (HTTP + WS + IPC, no Tauri)"
+edition = "2021"
+
+[[bin]]
+name = "magi-gateway"
+path = "src/main.rs"
+
+[dependencies]
+magi-gateway = { path = "../crates/magi-gateway" }
+tokio = { version = "1", features = ["full"] }

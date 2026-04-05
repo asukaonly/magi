@@ -1,8 +1,8 @@
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, watch};
 
 use crate::api::state::WsBroadcast;
@@ -11,13 +11,17 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const BATCH_LIMIT: u32 = 50;
 
 #[derive(Debug, Serialize, Clone)]
-struct NotificationPayload {
-    channel: String,
-    user_id: String,
-    session_id: String,
-    turn_id: Option<String>,
-    data: serde_json::Value,
+pub struct NotificationPayload {
+    pub channel: String,
+    pub user_id: String,
+    pub session_id: String,
+    pub turn_id: Option<String>,
+    pub data: serde_json::Value,
 }
+
+/// Callback type for emitting events to the host runtime (e.g. Tauri events).
+/// Receives (event_name, payload). Called once per notification.
+pub type EventEmitFn = Arc<dyn Fn(&str, &NotificationPayload) + Send + Sync>;
 
 struct NotificationRow {
     notification_id: i64,
@@ -98,7 +102,7 @@ fn event_name_for_channel(channel: &str) -> &str {
 }
 
 pub async fn run_notification_bridge(
-    app: AppHandle,
+    event_emitter: Option<EventEmitFn>,
     ws_broadcast: broadcast::Sender<WsBroadcast>,
     mut shutdown: watch::Receiver<bool>,
 ) {
@@ -153,7 +157,10 @@ pub async fn run_notification_bridge(
                 data: data.clone(),
             };
 
-            let _ = app.emit(&event, &payload);
+            // Emit to host runtime (e.g. Tauri events)
+            if let Some(ref emitter) = event_emitter {
+                emitter(&event, &payload);
+            }
 
             // Also broadcast to WebSocket clients
             let _ = ws_broadcast.send(WsBroadcast {

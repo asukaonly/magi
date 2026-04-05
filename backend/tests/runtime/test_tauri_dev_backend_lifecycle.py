@@ -38,8 +38,8 @@ def test_axum_native_routes_cover_read_endpoints() -> None:
     """Verify Axum router registers native Rust routes for all read-only endpoints."""
     mod_path = (
         Path(__file__).resolve().parents[3]
-        / "frontend"
-        / "src-tauri"
+        / "crates"
+        / "magi-gateway"
         / "src"
         / "api"
         / "mod.rs"

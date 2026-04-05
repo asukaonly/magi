@@ -1,9 +1,7 @@
-mod api;
-mod db;
 mod desktop_presence;
 mod frontmost_app_monitor;
-mod ipc;
-mod notification_bridge;
+
+use magi_gateway::{api, ipc, notification_bridge};
 
 #[cfg(unix)]
 use libc::{kill, SIGTERM};
@@ -658,7 +656,7 @@ fn start_backend(
     tauri::async_runtime::spawn(async move {
         let listener = tokio::net::TcpListener::from_std(std_listener)
             .expect("Failed to convert to tokio TcpListener");
-        axum::serve(listener, router)
+        magi_gateway::axum::serve(listener, router)
             .with_graceful_shutdown(async {
                 let _ = shutdown_rx.await;
             })
@@ -669,8 +667,11 @@ fn start_backend(
     // Start notification bridge (polls runtime_trace.db → Tauri events + WS broadcast)
     let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::watch::channel(false);
     let bridge_app = app.clone();
+    let event_emitter: notification_bridge::EventEmitFn = std::sync::Arc::new(move |event, payload| {
+        let _ = bridge_app.emit(event, payload);
+    });
     tauri::async_runtime::spawn(async move {
-        notification_bridge::run_notification_bridge(bridge_app, ws_broadcast_tx, bridge_shutdown_rx).await;
+        notification_bridge::run_notification_bridge(Some(event_emitter), ws_broadcast_tx, bridge_shutdown_rx).await;
     });
 
     let mut runtime = state
