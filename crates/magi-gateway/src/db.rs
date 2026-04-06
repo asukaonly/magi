@@ -140,11 +140,26 @@ pub fn query_to_json_array(
 }
 
 /// Execute a `SELECT COUNT(*)` query and return the result.
-pub fn count_rows(
-    conn: &Connection,
-    sql: &str,
-    params: &[&dyn rusqlite::types::ToSql],
-) -> i64 {
+pub fn count_rows(conn: &Connection, sql: &str, params: &[&dyn rusqlite::types::ToSql]) -> i64 {
     conn.query_row(sql, params, |row| row.get::<_, i64>(0))
         .unwrap_or(0)
+}
+
+/// Ensure performance-critical indexes exist on memory databases.
+/// Called once at startup; uses `CREATE INDEX IF NOT EXISTS` so it is idempotent.
+pub fn ensure_indexes() {
+    // memory.db indexes
+    if let Some(conn) = open_readwrite(&memory_db_path()) {
+        let stmts = [
+            "CREATE INDEX IF NOT EXISTS idx_kg_status_updated \
+             ON knowledge_graph(status, updated_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_tom_assertions_updated \
+             ON tom_trait_assertions(updated_at DESC)",
+        ];
+        for sql in &stmts {
+            if let Err(e) = conn.execute_batch(sql) {
+                eprintln!("ensure_indexes: {e}");
+            }
+        }
+    }
 }

@@ -6,6 +6,163 @@ use std::collections::HashMap;
 
 use crate::db;
 
+// ---------------------------------------------------------------------------
+// Unified memory statistics
+// ---------------------------------------------------------------------------
+
+/// GET /api/memory/statistics — per-layer memory statistics (L0–L4).
+pub async fn get_memory_statistics() -> Json<Value> {
+    let result = tokio::task::spawn_blocking(build_memory_statistics)
+        .await
+        .unwrap_or_else(|_| json!({}));
+    Json(result)
+}
+
+fn build_memory_statistics() -> Value {
+    let mut stats = json!({});
+
+    // L0 — from memory.db checkpoint tables
+    if let Some(conn) = db::open_readonly(&db::memory_db_path()) {
+        let active_sessions = db::count_rows(
+            &conn,
+            "SELECT COUNT(*) FROM l0_sessions WHERE status = 'active'",
+            &[],
+        );
+        let total_goals = db::count_rows(&conn, "SELECT COUNT(*) FROM l0_goal_stack", &[]);
+        let total_entities = db::count_rows(&conn, "SELECT COUNT(*) FROM l0_active_entities", &[]);
+        let total_tactics = db::count_rows(&conn, "SELECT COUNT(*) FROM l0_temporary_tactics", &[]);
+        stats["l0"] = json!({
+            "active_sessions": active_sessions,
+            "total_goals": total_goals,
+            "total_entities": total_entities,
+            "total_tactics": total_tactics,
+        });
+
+        // L2
+        let rel_count = db::count_rows(
+            &conn,
+            "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'",
+            &[],
+        );
+        let tom_count = db::count_rows(&conn, "SELECT COUNT(*) FROM tom_trait_assertions", &[]);
+        stats["l2"] = json!({
+            "relation_count": rel_count,
+            "assertion_count": tom_count,
+        });
+
+        // L3
+        let summary_count = db::count_rows(&conn, "SELECT COUNT(*) FROM summaries", &[]);
+        stats["l3"] = json!({ "summary_count": summary_count });
+
+        // L4
+        let skill_count = db::count_rows(&conn, "SELECT COUNT(*) FROM procedural_skills", &[]);
+        stats["l4"] = json!({ "skill_count": skill_count, "open_circuit_breakers": 0 });
+    }
+
+    // L1 — from l1_events.db
+    if let Some(conn) = db::open_readonly(&db::l1_events_db_path()) {
+        let event_count = db::count_rows(
+            &conn,
+            "SELECT COUNT(*) FROM fact_events WHERE deleted_at IS NULL",
+            &[],
+        );
+        stats["l1"] = json!({ "event_count": event_count });
+    }
+
+    stats
+}
+
+// ---------------------------------------------------------------------------
+// L2 cognition statistics
+// ---------------------------------------------------------------------------
+
+/// GET /api/memory/l2/statistics — L2 pipeline statistics.
+pub async fn get_l2_statistics() -> Json<Value> {
+    let result = tokio::task::spawn_blocking(build_l2_statistics)
+        .await
+        .unwrap_or_else(|_| json!({}));
+    Json(result)
+}
+
+fn build_l2_statistics() -> Value {
+    let conn = match db::open_readonly(&db::memory_db_path()) {
+        Some(c) => c,
+        None => return json!({
+            "is_running": false,
+            "relation_count": 0,
+            "assertion_count": 0,
+            "projection_backlog": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0},
+        }),
+    };
+
+    let rel_count = db::count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'",
+        &[],
+    );
+    let tom_count = db::count_rows(&conn, "SELECT COUNT(*) FROM tom_trait_assertions", &[]);
+
+    // Projection backlog by status
+    let backlog_rows = db::query_to_json_array(
+        &conn,
+        "SELECT status, COUNT(*) AS cnt FROM l2_projection_jobs GROUP BY status",
+        &[],
+    );
+    let mut pending: i64 = 0;
+    let mut claimed: i64 = 0;
+    let mut completed: i64 = 0;
+    let mut failed: i64 = 0;
+    for row in &backlog_rows {
+        let s = row.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        let n = row.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+        match s {
+            "pending" => pending = n,
+            "claimed" => claimed = n,
+            "completed" => completed = n,
+            "failed" => failed = n,
+            _ => {}
+        }
+    }
+
+    json!({
+        "is_running": false,
+        "relation_count": rel_count,
+        "assertion_count": tom_count,
+        "extract_enqueued": 0,
+        "extract_completed": 0,
+        "extract_failed": 0,
+        "extract_skipped": 0,
+        "reconcile_enqueued": 0,
+        "reconcile_completed": 0,
+        "reconcile_failed": 0,
+        "snapshot_enqueued": 0,
+        "snapshot_completed": 0,
+        "snapshot_failed": 0,
+        "relations_written": 0,
+        "assertions_written": 0,
+        "extract_by_evidence_class": {},
+        "skip_by_reason": {},
+        "projection_backlog": {
+            "pending": pending,
+            "claimed": claimed,
+            "completed": completed,
+            "failed": failed,
+        },
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Identity links
+// ---------------------------------------------------------------------------
+
+/// GET /api/memory/identity/links — identity mappings.
+pub async fn get_identity_links() -> Json<Value> {
+    Json(json!({
+        "canonical_self_id": "user:self",
+        "links": [],
+    }))
+}
+
 const DEFAULT_LIMIT: i64 = 100;
 const MAX_LIMIT: i64 = 500;
 
@@ -241,23 +398,39 @@ fn build_l2_entities(limit: i64, offset: i64) -> Value {
         rusqlite::params![limit, offset],
     );
 
-    // Collect all aliases in one query to avoid N+1.
-    let alias_rows = db::query_to_json_array(
-        &conn,
-        "SELECT entity_id, alias_text FROM entity_aliases ORDER BY normalized_alias ASC",
-        rusqlite::params![],
-    );
+    // Collect entity_ids from the current page to scope the alias query.
+    let entity_ids: Vec<String> = entities
+        .iter()
+        .filter_map(|e| e.get("entity_id").and_then(|v| v.as_str()).map(String::from))
+        .collect();
 
     let mut alias_map: HashMap<String, Vec<String>> = HashMap::new();
-    for row in &alias_rows {
-        if let (Some(eid), Some(text)) = (
-            row.get("entity_id").and_then(|v| v.as_str()),
-            row.get("alias_text").and_then(|v| v.as_str()),
-        ) {
-            alias_map
-                .entry(eid.to_string())
-                .or_default()
-                .push(text.to_string());
+    if !entity_ids.is_empty() {
+        let placeholders: String = entity_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let alias_sql = format!(
+            "SELECT entity_id, alias_text FROM entity_aliases \
+             WHERE entity_id IN ({}) ORDER BY normalized_alias ASC",
+            placeholders
+        );
+        let bind_values: Vec<rusqlite::types::Value> = entity_ids
+            .iter()
+            .map(|id| rusqlite::types::Value::Text(id.clone()))
+            .collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> = bind_values
+            .iter()
+            .map(|v| v as &dyn rusqlite::types::ToSql)
+            .collect();
+        let alias_rows = db::query_to_json_array(&conn, &alias_sql, &refs);
+        for row in &alias_rows {
+            if let (Some(eid), Some(text)) = (
+                row.get("entity_id").and_then(|v| v.as_str()),
+                row.get("alias_text").and_then(|v| v.as_str()),
+            ) {
+                alias_map
+                    .entry(eid.to_string())
+                    .or_default()
+                    .push(text.to_string());
+            }
         }
     }
 

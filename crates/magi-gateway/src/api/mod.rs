@@ -104,6 +104,18 @@ pub fn build_router(state: ApiState) -> Router {
         )
         // Memory
         .route(
+            "/api/memory/statistics",
+            axum::routing::get(memory::get_memory_statistics),
+        )
+        .route(
+            "/api/memory/l2/statistics",
+            axum::routing::get(memory::get_l2_statistics),
+        )
+        .route(
+            "/api/memory/identity/links",
+            axum::routing::get(memory::get_identity_links),
+        )
+        .route(
             "/api/memory/l1/events",
             axum::routing::get(memory::list_l1_events),
         )

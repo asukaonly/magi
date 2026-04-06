@@ -74,6 +74,8 @@ class IpcServer:
     ) -> None:
         peer = writer.get_extra_info("peername") or "unix"
         logger.info("ipc_client_connected", peer=peer)
+        write_lock = asyncio.Lock()
+        tasks: set[asyncio.Task] = set()
         try:
             while True:
                 raw = await reader.readline()
@@ -82,7 +84,9 @@ class IpcServer:
                 line = raw.decode("utf-8").strip()
                 if not line:
                     continue
-                await self._process_line(line, writer)
+                task = asyncio.create_task(self._process_line(line, writer, write_lock))
+                tasks.add(task)
+                task.add_done_callback(tasks.discard)
         except asyncio.CancelledError:
             pass
         except Exception:
@@ -95,7 +99,7 @@ class IpcServer:
                 pass
             logger.info("ipc_client_disconnected", peer=peer)
 
-    async def _process_line(self, line: str, writer: asyncio.StreamWriter) -> None:
+    async def _process_line(self, line: str, writer: asyncio.StreamWriter, write_lock: asyncio.Lock) -> None:
         try:
             msg = parse_inbound(line)
         except Exception:
@@ -116,5 +120,6 @@ class IpcServer:
             logger.exception("ipc_handler_error", method=msg.method)
             response = IpcError(id=msg.id, code=-32000, message=str(exc))
 
-        writer.write(response.to_line().encode("utf-8"))
-        await writer.drain()
+        async with write_lock:
+            writer.write(response.to_line().encode("utf-8"))
+            await writer.drain()

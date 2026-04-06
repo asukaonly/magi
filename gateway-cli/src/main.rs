@@ -1,7 +1,7 @@
 use std::env;
 use std::sync::Arc;
 
-use magi_gateway::{api, ipc, notification_bridge};
+use magi_gateway::{api, db, ipc, notification_bridge};
 
 /// Headless Magi gateway — serves HTTP on a given port and connects
 /// to a running Python IPC worker.  No Tauri / desktop chrome required.
@@ -30,6 +30,9 @@ async fn main() {
         });
     let ipc_client = Arc::new(ipc_client);
     eprintln!("IPC connected");
+
+    // Ensure performance-critical indexes exist on SQLite databases
+    db::ensure_indexes();
 
     // Notification bridge — no Tauri event emitter in headless mode
     let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::watch::channel(false);

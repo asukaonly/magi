@@ -644,6 +644,9 @@ fn start_backend(
     };
     let router = api::build_router(api_state);
 
+    // Ensure performance-critical indexes exist on SQLite databases
+    magi_gateway::db::ensure_indexes();
+
     let std_listener = std::net::TcpListener::bind((BACKEND_HOST, main_port))
         .map_err(|e| format!("Failed to bind Axum listener on port {}: {}", main_port, e))?;
     std_listener
