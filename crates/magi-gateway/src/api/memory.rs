@@ -128,8 +128,14 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
     bind.push(rusqlite::types::Value::Integer(limit));
     bind.push(rusqlite::types::Value::Integer(offset));
 
+    // Exclude embedding/metadata columns not needed by the list view.
     let sql = format!(
-        "SELECT * FROM fact_events WHERE {} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+        "SELECT id, event_id, correlation_id, timestamp, created_at, event_type, \
+         source, source_item_id, idempotency_key, memory_domain, ingest_target, \
+         cognition_eligible, tom_depth, retention_class, session_id, turn_id, \
+         user_id, task_id, content, author_type, content_type, importance_score, \
+         level, media_path, deleted_at \
+         FROM fact_events WHERE {} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
         where_clause
     );
     let refs: Vec<&dyn rusqlite::types::ToSql> =
@@ -324,9 +330,18 @@ pub async fn list_l2_snapshots(Query(params): Query<PaginationQuery>) -> Json<Va
                         "SELECT COUNT(*) FROM tom_snapshots",
                         &[],
                     );
+                    // Only select columns the frontend uses; skip heavy
+                    // history/evolution columns (relationship_history etc.).
                     let items = db::query_to_json_array(
                         &conn,
-                        "SELECT * FROM tom_snapshots \
+                        "SELECT snapshot_id, entity_id, entity_type, \
+                         core_traits, preferences, relationship_topology, \
+                         current_stress_level, current_mood, current_engagement, \
+                         current_context, interaction_count, last_interaction_at, \
+                         last_updated_at, snapshot_version, created_at, \
+                         sensitive_triggers, public_sentiment_profile, \
+                         update_source_assertion_ids \
+                         FROM tom_snapshots \
                          ORDER BY last_updated_at DESC LIMIT ?1 OFFSET ?2",
                         rusqlite::params![limit, offset],
                     );
