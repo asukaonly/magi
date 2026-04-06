@@ -2,15 +2,6 @@
  * Central constant exports for Magi frontend.
  */
 
-// WebSocket constants
-export {
-  WS_CONFIG,
-  WS_MESSAGE_TYPES,
-  WS_CLIENT_MESSAGE_TYPES,
-  WS_READY_STATE,
-} from './websocket';
-export type { WSReadyState } from './websocket';
-
 // Application events
 export {
   APP_EVENTS,

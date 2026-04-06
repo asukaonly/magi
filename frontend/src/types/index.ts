@@ -30,32 +30,15 @@ export type {
   ExecutionTraceSnapshotRaw,
 } from './chat';
 
-// WebSocket types
+// Event data types (used by Tauri events and API responses)
 export type {
-  WSConnectionStatus,
-  WSStatus,
-  WSSubscribedMessage,
-  WSHistoryMessage,
-  WSPersonalityInfoMessage,
-  WSMessageSentMessage,
-  WSExecutionTraceUpdateMessage,
-  WSAgentResponseMessage,
-  WSErrorMessage,
-  ChatHistoryMessageData,
   TraceSummaryData,
   ExecutionTraceUpdateData,
   AgentResponseData,
-  WSSubscribeMessage,
-  WSGetHistoryMessage,
-  WSGetPersonalityMessage,
-  WSSendUserMessage,
-  WSClientMessage,
-  WSServerMessage,
-  WSMessageLegacy,
-} from './websocket';
-
-// Re-export from realtime client
-export type { RealtimeMessage } from '@/realtime/client';
+  TurnExecutionControlData,
+  ContextUsageData,
+  ChatHistoryMessageData,
+} from './chat';
 
 // Re-export API types for convenience
 export type { ExecutionTraceSummary } from './api';

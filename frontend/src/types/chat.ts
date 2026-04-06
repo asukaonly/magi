@@ -2,7 +2,81 @@
  * Chat domain types for Magi.
  */
 
-import type { TraceSummaryData } from './websocket';
+// ============================================================================
+// Event Data Types (shared between Tauri events and API responses)
+// ============================================================================
+
+export interface TraceSummaryData {
+  turn_id: string;
+  mode: string;
+  status: string;
+  headline: string;
+  active_steps: number;
+  completed_steps: number;
+  failed_steps: number;
+  duration_seconds: number;
+  trace_available: boolean;
+  orchestration_id?: string | null;
+  plan_summary?: {
+    planner?: string | null;
+    parallel_mode: string;
+    total_steps: number;
+    remaining_steps: number;
+    steps: Array<{
+      subtask_id?: string | null;
+      label: string;
+      status: string;
+    }>;
+  } | null;
+}
+
+export interface ExecutionTraceUpdateData {
+  session_id?: string;
+  turn_id: string;
+  trace_summary?: TraceSummaryData;
+  trace_available?: boolean;
+}
+
+export interface AgentResponseData {
+  message_id?: string | null;
+  message_kind?: string | null;
+  turn_id?: string;
+  content: string;
+  trace_summary?: TraceSummaryData;
+  trace_available?: boolean;
+}
+
+export interface TurnExecutionControlData {
+  session_id?: string;
+  turn_id: string;
+  run_id?: string | null;
+  orchestration_id?: string | null;
+  state: string;
+  can_cancel: boolean;
+  label?: string | null;
+}
+
+export interface ContextUsageData {
+  session_id?: string;
+  turn_id?: string;
+  used_tokens: number;
+  window_size: number;
+  threshold: number;
+}
+
+export interface ChatHistoryMessageData {
+  message_id?: string | null;
+  message_kind?: string | null;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  turn_id?: string | null;
+  kind?: 'user' | 'assistant' | 'status' | null;
+  trace_display_mode?: string | null;
+  allow_trace_collapse?: boolean;
+  trace_summary?: TraceSummaryData | null;
+  trace_available?: boolean;
+}
 
 // ============================================================================
 // Chat Message Types

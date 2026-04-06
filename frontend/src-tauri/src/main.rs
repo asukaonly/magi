@@ -39,7 +39,6 @@ struct BackendRuntime {
     axum_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
     bridge_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     base_url: Option<String>,
-    ws_base_url: Option<String>,
     session_token: Option<String>,
     python_pid: Option<u32>,
 }
@@ -48,7 +47,6 @@ struct ExternalBackendConfig {
     host: String,
     port: u16,
     base_url: String,
-    ws_base_url: String,
     session_token: String,
 }
 
@@ -109,7 +107,6 @@ struct ManagedBackendStart {
 struct StartBackendResponse {
     ok: bool,
     base_url: String,
-    ws_base_url: String,
     session_token: String,
     api_pid: Option<u32>,
     runtime_worker_pid: Option<u32>,
@@ -121,7 +118,6 @@ struct StartBackendResponse {
 struct BackendStatusResponse {
     running: bool,
     base_url: Option<String>,
-    ws_base_url: Option<String>,
     api_pid: Option<u32>,
     runtime_worker_pid: Option<u32>,
 }
@@ -278,15 +274,12 @@ fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, Stri
         .unwrap_or(8000);
     let base_url = env::var("MAGI_TAURI_EXTERNAL_BACKEND_API_BASE")
         .unwrap_or_else(|_| format!("http://{}:{}/api", host, port));
-    let ws_base_url = env::var("MAGI_TAURI_EXTERNAL_BACKEND_WS_BASE")
-        .unwrap_or_else(|_| format!("ws://{}:{}", host, port));
     let session_token = env::var("MAGI_DESKTOP_SESSION_TOKEN").unwrap_or_default();
 
     Ok(Some(ExternalBackendConfig {
         host,
         port,
         base_url,
-        ws_base_url,
         session_token,
     }))
 }
@@ -507,7 +500,6 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
     }
     remove_ready_file();
     runtime.base_url = None;
-    runtime.ws_base_url = None;
     runtime.session_token = None;
     runtime.python_pid = None;
     Ok(())
@@ -533,10 +525,6 @@ fn start_backend(
                 .base_url
                 .clone()
                 .ok_or_else(|| "Backend runtime is missing base URL".to_string())?;
-            let ws_base_url = runtime
-                .ws_base_url
-                .clone()
-                .ok_or_else(|| "Backend runtime is missing websocket URL".to_string())?;
             let session_token = runtime
                 .session_token
                 .clone()
@@ -544,7 +532,6 @@ fn start_backend(
             return Ok(StartBackendResponse {
                 ok: true,
                 base_url,
-                ws_base_url,
                 session_token,
                 api_pid: runtime.python_pid,
                 runtime_worker_pid: runtime.python_pid,
@@ -564,14 +551,12 @@ fn start_backend(
             .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
         runtime.python_process = None;
         runtime.base_url = Some(external.base_url.clone());
-        runtime.ws_base_url = Some(external.ws_base_url.clone());
         runtime.session_token = Some(external.session_token.clone());
         runtime.python_pid = None;
 
         return Ok(StartBackendResponse {
             ok: true,
             base_url: external.base_url,
-            ws_base_url: external.ws_base_url,
             session_token: external.session_token,
             api_pid: None,
             runtime_worker_pid: None,
@@ -582,7 +567,6 @@ fn start_backend(
     let main_port = pick_open_port()?;
     let session_token = generate_session_token();
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, main_port);
-    let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, main_port);
 
     // Compute IPC socket path (Unix domain socket on macOS/Linux)
     let ipc_socket_path = {
@@ -637,11 +621,8 @@ fn start_backend(
         }
     };
 
-    let (ws_broadcast_tx, _) = tokio::sync::broadcast::channel::<api::state::WsBroadcast>(256);
-
     let api_state = api::state::ApiState {
         ipc_client,
-        ws_broadcast: ws_broadcast_tx.clone(),
     };
     let router = api::build_router(api_state);
 
@@ -664,14 +645,14 @@ fn start_backend(
             .ok();
     });
 
-    // Start notification bridge (polls runtime_trace.db → Tauri events + WS broadcast)
+    // Start notification bridge (polls runtime_trace.db → Tauri events)
     let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::watch::channel(false);
     let bridge_app = app.clone();
     let event_emitter: notification_bridge::EventEmitFn = std::sync::Arc::new(move |event, payload| {
         let _ = bridge_app.emit(event, payload);
     });
     tauri::async_runtime::spawn(async move {
-        notification_bridge::run_notification_bridge(Some(event_emitter), ws_broadcast_tx, bridge_shutdown_rx).await;
+        notification_bridge::run_notification_bridge(Some(event_emitter), bridge_shutdown_rx).await;
     });
 
     let mut runtime = state
@@ -682,14 +663,12 @@ fn start_backend(
     runtime.axum_shutdown = Some(shutdown_tx);
     runtime.bridge_shutdown = Some(bridge_shutdown_tx);
     runtime.base_url = Some(base_url.clone());
-    runtime.ws_base_url = Some(ws_base_url.clone());
     runtime.session_token = Some(session_token.clone());
     runtime.python_pid = start.pid;
 
     Ok(StartBackendResponse {
         ok: true,
         base_url,
-        ws_base_url,
         session_token,
         api_pid: runtime.python_pid,
         runtime_worker_pid: runtime.python_pid,
@@ -712,7 +691,6 @@ fn backend_status(state: State<'_, BackendState>) -> Result<BackendStatusRespons
     Ok(BackendStatusResponse {
         running: runtime.base_url.is_some(),
         base_url: runtime.base_url.clone(),
-        ws_base_url: runtime.ws_base_url.clone(),
         api_pid: runtime.python_pid,
         runtime_worker_pid: runtime.python_pid,
     })

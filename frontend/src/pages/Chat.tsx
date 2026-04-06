@@ -8,18 +8,19 @@ import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { messagesApi } from '@/api';
 import type { ChatAttachment } from '@/api';
 import { configApi } from '@/api/modules/config';
+import { personalityApi } from '@/api/modules/personality';
 import { DEFAULT_USER_ID } from '@/constants';
 import { getRuntimeConfig } from '@/runtime/config';
 import { pickDirectory } from '@/runtime/desktop';
 import { useRealtime } from '@/realtime/provider';
-import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/stores';
+import { useChatTraceStore, useConversationStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { ContextUsageRing } from '@/components/chat/ContextUsageRing';
 import { useContextUsageStore } from '@/stores/context-usage';
@@ -388,8 +389,7 @@ const resolveDraftAttachments = (
 export const ChatPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
   const shouldReduceMotion = useReducedMotion();
-  const { send, subscribe } = useRealtime();
-  const connected = useRealtimeStore((state) => state.connected);
+  const { subscribe } = useRealtime();
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
   const currentSession = useConversationStore((state) => (
     state.currentSessionId ? state.sessionsById[state.currentSessionId] || null : null
@@ -691,12 +691,43 @@ export const ChatPage: React.FC = () => {
   );
 
   const requestHistory = useCallback(
-    (sessionId: string) => {
+    async (sessionId: string) => {
       if (!sessionId) return;
       lastHistoryRequestRef.current = sessionId;
-      send({ type: 'get_history', session_id: sessionId });
+      try {
+        const history = await messagesApi.getHistory(USER_ID, sessionId);
+        const rawMessages = Array.isArray(history.messages) ? history.messages : [];
+        useConversationStore.getState().receiveHistory(sessionId, normalizeHistoryMessages(rawMessages));
+      } catch {
+        toast.error(t('chat.loadHistoryFailed'));
+      }
     },
-    [send]
+    [t]
+  );
+
+  const loadPersonality = useCallback(
+    async () => {
+      try {
+        const response = await personalityApi.getGreeting();
+        const data = response.data as { greeting?: string; name?: string; avatar?: string } | undefined;
+        if (data) {
+          setAiName(data.name || 'AI');
+          setAiAvatar(data.avatar || '');
+          const sid = useConversationStore.getState().currentSessionId;
+          const msgs = sid ? (useConversationStore.getState().messagesBySession[sid] || []) : [];
+          if (sid && msgs.length === 0 && data.greeting) {
+            receiveAgentResponse({
+              sessionId: sid,
+              content: String(data.greeting),
+              timestamp: Date.now(),
+            });
+          }
+        }
+      } catch {
+        // Non-critical — keep default AI name
+      }
+    },
+    [receiveAgentResponse]
   );
 
   const handleExecutionTraceUpdate = useCallback(
@@ -905,45 +936,8 @@ export const ChatPage: React.FC = () => {
     [currentSessionId]
   );
 
-  const handleWSMessage = useCallback(
+  const handleRealtimeEvent = useCallback(
     (data: WSMessage) => {
-      switch (data.type) {
-        case 'subscribed':
-          if (currentSessionId) {
-            requestHistory(currentSessionId);
-          }
-          return;
-        case 'history':
-          if (data.data?.session_id) {
-            send({ type: 'get_personality' });
-          }
-          return;
-        case 'personality_info':
-          if (data.data) {
-            setAiName(data.data.name || 'AI');
-            setAiAvatar(data.data.avatar || '');
-            if (currentSessionId && messages.length === 0 && data.data.greeting) {
-              receiveAgentResponse({
-                sessionId: currentSessionId,
-                content: String(data.data.greeting),
-                timestamp: Date.now(),
-              });
-            }
-          }
-          return;
-        case 'message_sent':
-          if (data.data?.session_id) {
-            setCurrentSessionId(String(data.data.session_id));
-          }
-          window.dispatchEvent(new Event(SESSION_EVENT));
-          return;
-        case 'error':
-          toast.error(data.message || 'Connection error');
-          return;
-        default:
-          break;
-      }
-
       const eventName = data.event || data.type;
 
       if (eventName === 'execution_trace_update' && data.data) {
@@ -996,22 +990,18 @@ export const ChatPage: React.FC = () => {
       handleTurnExecutionControlEvent,
       handleExecutionTraceUpdate,
       handleTurnUxPlanEvent,
-      messages.length,
-      receiveAgentResponse,
-      requestHistory,
-      send,
       updateContextUsage,
     ]
   );
 
-  useEffect(() => subscribe(handleWSMessage), [handleWSMessage, subscribe]);
+  useEffect(() => subscribe(handleRealtimeEvent), [handleRealtimeEvent, subscribe]);
 
   useEffect(() => {
-    if (!connected || !currentSessionId) return;
+    if (!currentSessionId) return;
     if (lastHistoryRequestRef.current === currentSessionId) return;
-    requestHistory(currentSessionId);
-    send({ type: 'get_personality' });
-  }, [connected, currentSessionId, requestHistory, send]);
+    void requestHistory(currentSessionId);
+    void loadPersonality();
+  }, [currentSessionId, requestHistory, loadPersonality]);
 
   useEffect(() => {
     const handleMemoryCleared = () => {
@@ -1024,7 +1014,7 @@ export const ChatPage: React.FC = () => {
 
     window.addEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
     return () => window.removeEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
-  }, [connected, resetConversation, resetTraceStore, send, setCurrentSessionId]);
+  }, [resetConversation, resetTraceStore, setCurrentSessionId]);
 
   const uploadDraftAttachments = useCallback(
     async (sessionId: string, turnId: string, attachments: DraftAttachment[]): Promise<ChatAttachment[]> => {
@@ -1043,10 +1033,6 @@ export const ChatPage: React.FC = () => {
     const queuedAttachments = draftAttachmentsRef.current;
     if (!trimmedMessage && queuedAttachments.length === 0) {
       toast.warning(t('chat.emptyInput'));
-      return;
-    }
-    if (!connected) {
-      toast.error(t('chat.wsNotConnected'));
       return;
     }
     if (!currentSessionId) {
@@ -1073,8 +1059,7 @@ export const ChatPage: React.FC = () => {
       setInputValue('');
       clearDraftAttachments();
       setComposerReplyTarget(null);
-      send({
-        type: 'send_message',
+      const result = await messagesApi.sendMessage({
         user_id: USER_ID,
         session_id: currentSessionId,
         message: messageContent,
@@ -1083,6 +1068,10 @@ export const ChatPage: React.FC = () => {
         workspace_path: currentSession?.workspace_path ?? null,
         client_turn_id: turnId,
       });
+      if (result.data?.session_id) {
+        setCurrentSessionId(String(result.data.session_id));
+      }
+      window.dispatchEvent(new Event(SESSION_EVENT));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : t('chat.sendFailed');
       toast.error(t('chat.attachments.uploadFailed', { message }));
@@ -1092,12 +1081,11 @@ export const ChatPage: React.FC = () => {
   }, [
     appendPendingTurn,
     clearDraftAttachments,
-    connected,
     currentSession?.workspace_path,
     currentSessionId,
     composerReplyTarget,
     inputValue,
-    send,
+    setCurrentSessionId,
     t,
     uploadDraftAttachments,
   ]);
@@ -1902,13 +1890,7 @@ export const ChatPage: React.FC = () => {
             </motion.div>
           )
         ))}
-        <AnimatePresence>
-          {!connected && (
-            <motion.div initial={shouldReduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={shouldReduceMotion ? undefined : { opacity: 0 }} className="text-center text-xs text-amber-700">
-              {t('chat.connectingHint')}
-            </motion.div>
-          )}
-        </AnimatePresence>
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -1996,7 +1978,6 @@ export const ChatPage: React.FC = () => {
               placeholder={t('chat.inputPlaceholder')}
               onKeyDown={handleKeyPress}
               onPaste={handleComposerPaste}
-              disabled={!connected}
               minHeight={88}
               className="max-h-72 resize-none border-0 bg-transparent p-0 text-sm leading-6 shadow-none placeholder:text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
             />
@@ -2046,7 +2027,7 @@ export const ChatPage: React.FC = () => {
               onClick={() => {
                 void handleSendMessage();
               }}
-              disabled={!connected || sendingMessage}
+              disabled={sendingMessage}
               className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground text-background transition-colors hover:bg-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               aria-label={t('chat.send')}
               title={t('chat.send')}

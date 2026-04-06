@@ -1,7 +1,6 @@
 export interface RuntimeConfig {
   isDesktop: boolean;
   apiBaseUrl: string;
-  wsBaseUrl: string;
   sessionToken?: string;
   apiPid?: number;
   runtimeWorkerPid?: number;
@@ -18,7 +17,6 @@ interface ReadyCheckResponse {
 interface StartBackendResult {
   ok: boolean;
   baseUrl?: string;
-  wsBaseUrl?: string;
   sessionToken?: string;
   apiPid?: number;
   runtimeWorkerPid?: number;
@@ -33,9 +31,7 @@ const READY_CHECK_TIMEOUT_MS = 30000;
 let runtimeConfig: RuntimeConfig = {
   isDesktop: true,
   apiBaseUrl: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL),
-  wsBaseUrl: "",
 };
-runtimeConfig.wsBaseUrl = buildWsBaseUrl(runtimeConfig.apiBaseUrl);
 
 let initialized = false;
 let startupError: string | null = null;
@@ -78,10 +74,6 @@ export function normalizeApiBaseUrl(raw: string, preferredHost?: string): string
   return value.endsWith("/api") ? value : `${value}/api`;
 }
 
-export function buildWsBaseUrl(apiBaseUrl: string): string {
-  const origin = apiBaseUrl.replace(/\/api$/, "");
-  return origin.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -143,7 +135,6 @@ export async function initializeRuntime(): Promise<RuntimeConfig> {
     runtimeConfig = {
       isDesktop: true,
       apiBaseUrl,
-      wsBaseUrl: result.wsBaseUrl || buildWsBaseUrl(apiBaseUrl),
       sessionToken: result.sessionToken || undefined,
       apiPid: result.apiPid,
       runtimeWorkerPid: result.runtimeWorkerPid,

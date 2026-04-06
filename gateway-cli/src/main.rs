@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use magi_gateway::{api, ipc, notification_bridge};
 
-/// Headless Magi gateway — serves HTTP + WS on a given port and connects
+/// Headless Magi gateway — serves HTTP on a given port and connects
 /// to a running Python IPC worker.  No Tauri / desktop chrome required.
 ///
 /// Environment variables:
@@ -31,19 +31,14 @@ async fn main() {
     let ipc_client = Arc::new(ipc_client);
     eprintln!("IPC connected");
 
-    let (ws_broadcast_tx, _) =
-        tokio::sync::broadcast::channel::<api::state::WsBroadcast>(256);
-
     // Notification bridge — no Tauri event emitter in headless mode
     let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::watch::channel(false);
-    let ws_tx_clone = ws_broadcast_tx.clone();
     tokio::spawn(async move {
-        notification_bridge::run_notification_bridge(None, ws_tx_clone, bridge_shutdown_rx).await;
+        notification_bridge::run_notification_bridge(None, bridge_shutdown_rx).await;
     });
 
     let state = api::state::ApiState {
         ipc_client,
-        ws_broadcast: ws_broadcast_tx,
     };
     let router = api::build_router(state);
 

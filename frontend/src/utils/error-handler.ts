@@ -72,31 +72,6 @@ export function handleApiError(error: unknown, context?: string): AppError {
 }
 
 /**
- * Handle realtime connection errors.
- */
-export function handleWSError(error: unknown, context?: string): AppError {
-  const message = error instanceof Error ? error.message : String(error);
-
-  if (message.includes('WebSocket') || message.includes('connection')) {
-    return {
-      message: 'Connection lost. Reconnecting...',
-      code: 'WS_CONNECTION_ERROR',
-      severity: 'warning',
-      details: error,
-      recoverable: true,
-    };
-  }
-
-  return {
-    message: context ? `${context} failed` : message,
-    code: 'WS_ERROR',
-    severity: 'error',
-    details: error,
-    recoverable: false,
-  };
-}
-
-/**
  * Create a validation error.
  */
 export function createValidationError(message: string, field?: string): AppError {

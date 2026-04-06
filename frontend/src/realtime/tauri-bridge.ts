@@ -1,11 +1,11 @@
 /**
  * Tauri event bridge client for receiving realtime notifications.
  *
- * Replaces WebSocket-based realtime communication in desktop mode by
- * listening to Tauri events emitted from the Rust notification bridge.
+ * Listens to Tauri events emitted from the Rust notification bridge
+ * and forwards them to registered listeners.
  */
 
-import type { RealtimeMessage } from './client';
+import type { RealtimeMessage } from './provider';
 
 type RealtimeListener = (message: RealtimeMessage) => void;
 

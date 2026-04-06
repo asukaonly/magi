@@ -4,12 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
-import { useChatTraceStore, useRealtimeStore } from '@/stores';
+import { useChatTraceStore } from '@/stores';
 import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/domain/chat/state';
 import { messagesApi } from '@/api';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 
-const sendMock = vi.fn();
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
 const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 const { pickDirectoryMock, convertFileSrcMock, toastWarningMock } = vi.hoisted(() => ({
@@ -35,7 +34,6 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/realtime/provider', () => ({
   useRealtime: () => ({
-    send: sendMock,
     subscribe: (listener: (message: Record<string, unknown>) => void) => {
       realtimeListener = listener;
       return () => {
@@ -50,6 +48,17 @@ vi.mock('@/runtime/config', () => ({
     apiBaseUrl: 'http://127.0.0.1:8000/api',
   }),
 }));
+
+vi.mock('@/api/modules/personality', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/personality')>('@/api/modules/personality');
+  return {
+    ...actual,
+    personalityApi: {
+      ...actual.personalityApi,
+      getGreeting: vi.fn().mockResolvedValue({ success: true, data: { name: 'AI', greeting: '' } }),
+    },
+  };
+});
 
 vi.mock('@/runtime/desktop', () => ({
   pickDirectory: pickDirectoryMock,
@@ -78,6 +87,8 @@ vi.mock('@/api', () => ({
     cancelRun: vi.fn(),
     labelMessage: vi.fn(),
     deleteMessage: vi.fn(),
+    sendMessage: vi.fn().mockResolvedValue({ success: true, message: 'ok', data: { user_id: 'local_user', session_id: 'session-1', message_length: 0, timestamp: Date.now() / 1000 } }),
+    getHistory: vi.fn().mockReturnValue(new Promise(() => {})),
   },
 }));
 
@@ -119,16 +130,13 @@ describe('ChatPage', () => {
 
   afterEach(() => {
     realtimeListener = null;
-    sendMock.mockReset();
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
-    useRealtimeStore.getState().reset();
     cleanup();
     document.body.innerHTML = '';
   });
 
   beforeEach(() => {
-    sendMock.mockReset();
     realtimeListener = null;
     consoleErrorSpy.mockClear();
     pickDirectoryMock.mockReset();
@@ -136,13 +144,14 @@ describe('ChatPage', () => {
     toastWarningMock.mockReset();
     vi.mocked(messagesApi.labelMessage).mockReset();
     vi.mocked(messagesApi.deleteMessage).mockReset();
+    vi.mocked(messagesApi.sendMessage).mockReset().mockResolvedValue({ success: true, message: 'ok', data: { user_id: 'local_user', session_id: 'session-1', message_length: 0, timestamp: Date.now() / 1000 } });
+    vi.mocked(messagesApi.getHistory).mockReset().mockReturnValue(new Promise(() => {}));
     vi.mocked(configApi.get).mockResolvedValue(buildConfigWithVision(true) as any);
     Element.prototype.scrollIntoView = vi.fn();
     URL.createObjectURL = vi.fn(() => 'blob:chat-attachment');
     URL.revokeObjectURL = vi.fn();
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
-    useRealtimeStore.getState().setConnected(true);
     useConversationStore.getState().setCurrentSessionId('session-1');
   });
 
@@ -454,8 +463,7 @@ describe('ChatPage', () => {
       uploadedTurnId,
       expect.any(File),
     );
-    expect(sendMock).toHaveBeenCalledWith({
-      type: 'send_message',
+    expect(messagesApi.sendMessage).toHaveBeenCalledWith({
       user_id: 'local_user',
       session_id: 'session-1',
       message: 'Please inspect this file',
@@ -601,8 +609,7 @@ describe('ChatPage', () => {
     await user.click(screen.getByRole('button', { name: 'chat.send' }));
 
     await waitFor(() => {
-      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
-        type: 'send_message',
+      expect(messagesApi.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
         message: 'Reply from composer',
         reply_to_message_id: 'msg-assistant-root',
       }));
@@ -671,18 +678,20 @@ describe('ChatPage', () => {
     );
 
     render(<ChatPage />);
+    await waitFor(() => expect(messagesApi.getHistory).toHaveBeenCalled());
+    vi.mocked(messagesApi.getHistory).mockClear();
 
     await user.click(screen.getByRole('button', { name: 'chat.reply.action' }));
     await user.type(screen.getByPlaceholderText('chat.inputPlaceholder'), 'Reply from composer');
     await user.click(screen.getByRole('button', { name: 'chat.send' }));
 
-    const sendMessageCall = sendMock.mock.calls.find(
-      ([payload]) => payload?.type === 'send_message' && payload?.message === 'Reply from composer'
+    const sendMessageCall = vi.mocked(messagesApi.sendMessage).mock.calls.find(
+      ([payload]) => payload?.message === 'Reply from composer'
     );
     const replyTurnId = String(sendMessageCall?.[0]?.client_turn_id || '');
     expect(replyTurnId).not.toBe('');
 
-    sendMock.mockClear();
+    vi.mocked(messagesApi.sendMessage).mockClear();
 
     act(() => {
       realtimeListener?.({
@@ -736,10 +745,7 @@ describe('ChatPage', () => {
       });
     });
 
-    expect(sendMock).not.toHaveBeenCalledWith(expect.objectContaining({
-      type: 'get_history',
-      session_id: 'session-1',
-    }));
+    expect(messagesApi.getHistory).not.toHaveBeenCalledWith('local_user', 'session-1');
     expect(useConversationStore.getState().messagesBySession['session-1']
       ?.find((message) => message.messageId === 'msg-user-reply')?.replyTo?.contentExcerpt).toBe('Root assistant answer');
   });
@@ -1362,10 +1368,7 @@ describe('ChatPage', () => {
       });
     });
 
-    expect(sendMock).toHaveBeenCalledWith({
-      type: 'get_history',
-      session_id: 'session-1',
-    });
+    expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1');
   });
 
   it('shows a trace status row on the user turn when a turn is interrupted without assistant output', async () => {
@@ -1527,10 +1530,7 @@ describe('ChatPage', () => {
       expect(within(runningCard).getByText('chat.trace.execution.cancelledBody')).toBeInTheDocument();
       expect(within(runningCard).getByText('chat.trace.execution.footerCancelled')).toBeInTheDocument();
       expect(within(runningCard).queryByRole('button', { name: 'chat.trace.cancelRun' })).not.toBeInTheDocument();
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'get_history',
-        session_id: 'session-1',
-      });
+      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1');
     });
   });
 
@@ -1595,9 +1595,9 @@ describe('ChatPage', () => {
     expect(screen.getByText('chat.trace.plan.moreSteps')).toBeInTheDocument();
   });
 
-  it('does not ask the backend for a current session after websocket subscribe', () => {
+  it('does not ask the backend for a current session after subscribe event', () => {
     useConversationStore.getState().setCurrentSessionId(null);
-    sendMock.mockClear();
+    vi.mocked(messagesApi.sendMessage).mockClear();
     render(<ChatPage />);
 
     act(() => {
@@ -1606,7 +1606,7 @@ describe('ChatPage', () => {
       });
     });
 
-    expect(sendMock).not.toHaveBeenCalledWith({ type: 'get_current_session' });
+    expect(messagesApi.sendMessage).not.toHaveBeenCalled();
   });
 
   it('does not emit act warnings while handling chat updates', async () => {

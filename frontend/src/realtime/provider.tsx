@@ -1,3 +1,10 @@
+/**
+ * Realtime event provider — Tauri event bridge only.
+ *
+ * Listens to server-push notifications via Tauri events emitted from the
+ * Rust notification bridge and dispatches them to subscribers.  All
+ * client→server communication goes through the HTTP API layer.
+ */
 import {
   createContext,
   useContext,
@@ -7,33 +14,27 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { normalizeHistoryMessages, normalizeTraceSummary } from '@/domain/chat/state';
-import { DEFAULT_USER_CHANNEL } from '@/constants';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
-import { getRuntimeConfig, isTauriRuntime } from '@/runtime/config';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useContextUsageStore } from '@/stores/context-usage';
-import { useRealtimeStore } from '@/stores/realtime-store';
-import { RealtimeClient, type RealtimeMessage } from './client';
 import { TauriBridgeClient } from './tauri-bridge';
 
+export interface RealtimeMessage {
+  type?: string;
+  data?: any;
+  event?: string;
+  channel?: string;
+  sid?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
 type RealtimeContextValue = {
-  send: (message: Record<string, unknown>) => void;
   subscribe: (listener: (message: RealtimeMessage) => void) => () => void;
 };
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
 
-const resolveWsUrl = (): string => {
-  const runtime = getRuntimeConfig();
-  const base = `${runtime.wsBaseUrl}/ws`;
-  if (!runtime.sessionToken) {
-    return base;
-  }
-  const separator = base.includes('?') ? '&' : '?';
-  return `${base}${separator}token=${encodeURIComponent(runtime.sessionToken)}`;
-};
-
-/** Shared listener dispatcher for merging WS and Tauri bridge events. */
 class RealtimeDispatcher {
   private listeners = new Set<(message: RealtimeMessage) => void>();
 
@@ -48,49 +49,20 @@ class RealtimeDispatcher {
 }
 
 export const RealtimeProvider = ({ children }: PropsWithChildren) => {
-  const clientRef = useRef<RealtimeClient>();
   const bridgeRef = useRef<TauriBridgeClient>();
   const dispatcherRef = useRef<RealtimeDispatcher>();
-  const setConnected = useRealtimeStore((state) => state.setConnected);
-  const setLastError = useRealtimeStore((state) => state.setLastError);
-  const setReconnectAttempts = useRealtimeStore((state) => state.setReconnectAttempts);
-  const setLastEventType = useRealtimeStore((state) => state.setLastEventType);
-  const resetRealtime = useRealtimeStore((state) => state.reset);
 
-  if (!clientRef.current) {
-    clientRef.current = new RealtimeClient();
-  }
   if (!dispatcherRef.current) {
     dispatcherRef.current = new RealtimeDispatcher();
   }
 
   useEffect(() => {
-    const client = clientRef.current!;
     const dispatcher = dispatcherRef.current!;
 
-    // Provider's own handler processes messages from all sources
+    // Provider-level handler: route store-level events directly
     const unsubscribeProviderHandler = dispatcher.subscribe((message) => {
       const eventName = String(message.event || message.type || '').trim();
       const conversationStore = useConversationStore.getState();
-
-      if (message.type === 'history' && message.data && typeof message.data === 'object' && 'session_id' in message.data) {
-        const sessionId = String((message.data as { session_id?: string }).session_id || '').trim();
-        const rawMessages = Array.isArray((message.data as { messages?: unknown[] }).messages)
-          ? ((message.data as { messages?: unknown[] }).messages as any[])
-          : [];
-        if (sessionId) {
-          conversationStore.receiveHistory(sessionId, normalizeHistoryMessages(rawMessages));
-        }
-        return;
-      }
-
-      if (message.type === 'message_sent' && message.data && typeof message.data === 'object' && 'session_id' in message.data) {
-        const sessionId = String((message.data as { session_id?: string }).session_id || '').trim();
-        if (sessionId) {
-          conversationStore.setCurrentSessionId(sessionId);
-        }
-        return;
-      }
 
       if (eventName === 'agent_response' && message.data && typeof message.data === 'object') {
         const payload = message.data as Record<string, unknown>;
@@ -163,50 +135,23 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
         }
         return;
       }
-
-      if (eventName) {
-        setLastEventType(eventName);
-      }
     });
 
-    // Forward WS messages into the shared dispatcher
-    const unsubscribeWs = client.subscribe((message) => dispatcher.dispatch(message));
-
-    const unsubscribeStatus = client.subscribeStatus((status) => {
-      setConnected(status.connected);
-      setLastError(status.lastError);
-        setReconnectAttempts(status.reconnectAttempts);
-        if (status.connected) {
-          client.send({ type: 'subscribe', channel: DEFAULT_USER_CHANNEL });
-        }
-      });
-
-    client.connect(resolveWsUrl());
-
-    // In desktop mode, also start Tauri event bridge for server-push notifications.
-    // The WS client still handles client→server commands (send_message, etc.).
-    let unsubscribeBridge: (() => void) | undefined;
-    if (isTauriRuntime()) {
-      const bridge = new TauriBridgeClient();
-      bridgeRef.current = bridge;
-      unsubscribeBridge = bridge.subscribe((message) => dispatcher.dispatch(message));
-      bridge.connect();
-    }
+    // Start Tauri event bridge
+    const bridge = new TauriBridgeClient();
+    bridgeRef.current = bridge;
+    const unsubscribeBridge = bridge.subscribe((message) => dispatcher.dispatch(message));
+    bridge.connect();
 
     return () => {
       unsubscribeProviderHandler();
-      unsubscribeWs();
-      unsubscribeStatus();
-      unsubscribeBridge?.();
+      unsubscribeBridge();
       bridgeRef.current?.disconnect();
       bridgeRef.current = undefined;
-      client.disconnect();
-      resetRealtime();
     };
-  }, [resetRealtime, setConnected, setLastError, setLastEventType, setReconnectAttempts]);
+  }, []);
 
   const value = useMemo<RealtimeContextValue>(() => ({
-    send: (message) => clientRef.current?.send(message),
     subscribe: (listener) => dispatcherRef.current?.subscribe(listener) || (() => undefined),
   }), []);
 

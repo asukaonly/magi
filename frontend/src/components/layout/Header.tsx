@@ -3,14 +3,12 @@ import { Database, ScrollText, Settings2, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useChatShellStore, useRealtimeStore } from '@/stores';
+import { useChatShellStore } from '@/stores';
 
 const Header: React.FC = () => {
   const { t } = useTranslation('app');
   const navigate = useNavigate();
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
-  const connected = useRealtimeStore((state) => state.connected);
 
   const openPanel = (panel: 'settings' | 'memory' | 'timeline') => {
     setActivePanel(panel);
@@ -29,12 +27,7 @@ const Header: React.FC = () => {
     <header className="flex h-[52px] items-center justify-between border-b border-border/30 px-4">
       <div className="flex items-center gap-3">
         <h1 className="text-sm font-medium tracking-wide text-foreground/80">{t('shell.headerTitle')}</h1>
-        <Badge
-          variant={connected ? 'default' : 'secondary'}
-          className={connected ? 'bg-primary/20 text-primary border-primary/30' : ''}
-        >
-          {connected ? t('chat.connected') : t('chat.disconnected')}
-        </Badge>
+
       </div>
       <div className="flex items-center gap-1">
         <Button

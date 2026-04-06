@@ -7,7 +7,6 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import {
-  buildWsBaseUrl,
   initializeRuntime,
   normalizeApiBaseUrl,
   normalizeConnectableUrl,
@@ -38,10 +37,6 @@ describe('runtime config URL normalization', () => {
     expect(normalizeConnectableUrl('http://localhost:8000/api', '127.0.0.1')).toBe('http://localhost:8000/api');
   });
 
-  it('derives websocket URLs from the sanitized API origin', () => {
-    expect(buildWsBaseUrl(normalizeApiBaseUrl('http://0.0.0.0:8000/api', 'localhost'))).toBe('ws://localhost:8000');
-  });
-
   it('rejects initialization outside the Tauri desktop runtime', async () => {
     await expect(initializeRuntime()).rejects.toThrow('Desktop runtime requires Tauri');
     expect(invokeMock).not.toHaveBeenCalled();
@@ -53,7 +48,6 @@ describe('runtime config URL normalization', () => {
     invokeMock.mockResolvedValue({
       ok: true,
       baseUrl: 'http://127.0.0.1:8000/api',
-      wsBaseUrl: 'ws://127.0.0.1:8000',
       sessionToken: 'token-1',
       apiPid: 4321,
       runtimeWorkerPid: 5678,

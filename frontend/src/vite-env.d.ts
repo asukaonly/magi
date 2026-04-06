@@ -11,7 +11,6 @@ interface ImportMeta {
 interface RuntimeConfig {
   isDesktop: boolean;
   apiBaseUrl: string;
-  wsBaseUrl: string;
   sessionToken?: string;
   apiPid?: number;
   runtimeWorkerPid?: number;
