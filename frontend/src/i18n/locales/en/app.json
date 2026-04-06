@@ -662,6 +662,24 @@
           "label": "Remote model",
           "placeholder": "for example gpt-4o-mini"
         },
+        "cross_encoder_enabled": {
+          "label": "Enable Cross-Encoder Reranking",
+          "description": "Use a local Cross-Encoder model to semantically rerank retrieval results, improving memory recall quality."
+        },
+        "cross_encoder_model_hint": "The reranker model can be selected and downloaded in LLM Configuration → Model Selection → Reranker.",
+        "reranker_model": {
+          "label": "Reranker Model",
+          "placeholder": "Select a Cross-Encoder model"
+        },
+        "reranker_download": {
+          "recommended": "Recommended",
+          "download": "Download",
+          "downloading": "Downloading",
+          "downloaded": "Ready",
+          "delete": "Delete",
+          "downloadFailed": "Reranker model download failed"
+        },
+        "reranker_not_available": "Please enable Cross-Encoder reranking in Memory → General Memory Settings first, then return here to select a model.",
         "enable_l0": {
           "label": "Enable working context",
           "description": "Keep short-lived runtime state in memory and checkpoint it for crash recovery."

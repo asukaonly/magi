@@ -662,6 +662,24 @@
           "label": "远程模型",
           "placeholder": "例如 gpt-4o-mini"
         },
+        "cross_encoder_enabled": {
+          "label": "启用 Cross-Encoder 精排",
+          "description": "使用本地 Cross-Encoder 模型对检索结果进行语义精排，提升记忆召回质量。"
+        },
+        "cross_encoder_model_hint": "精排模型可在「大模型配置 → 模型选择 → 精排模型」中选择和下载。",
+        "reranker_model": {
+          "label": "精排模型",
+          "placeholder": "选择一个 Cross-Encoder 模型"
+        },
+        "reranker_download": {
+          "recommended": "推荐",
+          "download": "下载",
+          "downloading": "下载中",
+          "downloaded": "已就绪",
+          "delete": "删除",
+          "downloadFailed": "精排模型下载失败"
+        },
+        "reranker_not_available": "请先在「记忆 → 通用记忆设置」中启用 Cross-Encoder 精排后，再回到此处选择模型。",
         "enable_l0": {
           "label": "启用工作上下文",
           "description": "将短时运行态保存在内存中，并通过 checkpoint 提供异常恢复能力。"

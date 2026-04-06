@@ -109,6 +109,10 @@
       "embedding": {
         "title": "Embedding Model",
         "desc": "Used for memory vectorization storage and semantic search. This section only configures model and dimension selection; enablement is controlled in Memory settings."
+      },
+      "reranker": {
+        "title": "Reranker",
+        "desc": "Use a local Cross-Encoder model to semantically rerank retrieval results, improving memory recall quality. Must be enabled in Memory → General Settings."
       }
     },
     "fields": {

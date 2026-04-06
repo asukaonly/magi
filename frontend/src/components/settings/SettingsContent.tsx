@@ -340,6 +340,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               onEmbeddingConfigChange={(updater) => patchDraftConfig((draft) => {
                 updater(draft.memory.embedding);
               })}
+              crossEncoderConfig={draftConfig.memory.reranker?.cross_encoder}
+              onCrossEncoderConfigChange={(updater) => patchDraftConfig((draft) => {
+                draft.memory.reranker.cross_encoder ??= { enabled: false, managed_model_id: null };
+                updater(draft.memory.reranker.cross_encoder);
+              })}
             />
           </div>
         );
@@ -358,7 +363,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           <MemoryGeneralSettingsSection
             draftConfig={draftConfig}
             patchDraftConfig={patchDraftConfig}
-            hasEmbeddingModel={hasEmbeddingModel}
           />
         );
 

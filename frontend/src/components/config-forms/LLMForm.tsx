@@ -39,6 +39,8 @@ interface LLMFormProps {
   showSectionIntro?: boolean;
   embeddingConfig?: import('@/api/modules/config').EmbeddingConfig;
   onEmbeddingConfigChange?: (updater: (draft: import('@/api/modules/config').EmbeddingConfig) => void) => void;
+  crossEncoderConfig?: import('@/api/modules/config').CrossEncoderConfig;
+  onCrossEncoderConfigChange?: (updater: (draft: import('@/api/modules/config').CrossEncoderConfig) => void) => void;
 }
 
 const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
@@ -503,6 +505,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
   showSectionIntro = true,
   embeddingConfig,
   onEmbeddingConfigChange,
+  crossEncoderConfig,
+  onCrossEncoderConfigChange,
 }) => {
   const { t } = useTranslation('onboarding');
   const formCtx = useContext(FormContext);
@@ -1085,6 +1089,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onScenarioMaxConcurrencyChange={handleScenarioMaxConcurrencyChange}
           embeddingConfig={embeddingConfig}
           onEmbeddingConfigChange={onEmbeddingConfigChange}
+          crossEncoderConfig={crossEncoderConfig}
+          onCrossEncoderConfigChange={onCrossEncoderConfigChange}
         />
       ) : null}
 

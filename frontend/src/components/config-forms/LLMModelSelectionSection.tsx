@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { SelectField } from '@/components/config-forms/fields';
-import { resolveProviderModels, type EmbeddingConfig, type LLMConfig, type LLMProviderRegistry, type LLMScenario } from '@/api/modules/config';
+import { resolveProviderModels, type CrossEncoderConfig, type EmbeddingConfig, type LLMConfig, type LLMProviderRegistry, type LLMScenario } from '@/api/modules/config';
 import type { LocalEmbeddingModelInfo } from '@/api/modules/local-embedding';
 import { localEmbeddingApi } from '@/api/modules/local-embedding';
+import type { LocalRerankerModelInfo } from '@/api/modules/local-reranker';
+import { localRerankerApi } from '@/api/modules/local-reranker';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { pickDirectory } from '@/runtime/desktop';
@@ -39,9 +41,13 @@ interface LLMModelSelectionSectionProps {
   onScenarioMaxConcurrencyChange: (scenario: LLMScenario, value: number | null) => void;
   embeddingConfig?: EmbeddingConfig;
   onEmbeddingConfigChange?: (updater: (draft: EmbeddingConfig) => void) => void;
+  crossEncoderConfig?: CrossEncoderConfig;
+  onCrossEncoderConfigChange?: (updater: (draft: CrossEncoderConfig) => void) => void;
 }
 
 const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
+type ModelTab = LLMScenario | 'reranker';
+const MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'embedding', 'reranker'];
 
 const compareOptionLabels = (left: { label: string; value: string }, right: { label: string; value: string }) => {
   const labelComparison = left.label.localeCompare(right.label, 'en', { sensitivity: 'base' });
@@ -65,6 +71,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   onScenarioMaxConcurrencyChange,
   embeddingConfig,
   onEmbeddingConfigChange,
+  crossEncoderConfig,
+  onCrossEncoderConfigChange,
 }) => {
   const { t } = useTranslation('onboarding');
   const { t: tApp } = useTranslation('app');
@@ -152,6 +160,67 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       });
     }
   }, [embeddingConfig?.local.model_dir_path, onEmbeddingConfigChange]);
+
+  // ── Reranker (cross-encoder) model state ──
+  const [rerankerModels, setRerankerModels] = useState<LocalRerankerModelInfo[]>([]);
+  const [rerankerDownloadingId, setRerankerDownloadingId] = useState<string | null>(null);
+  const [rerankerDownloadProgress, setRerankerDownloadProgress] = useState<number | null>(null);
+  const [rerankerDownloadError, setRerankerDownloadError] = useState<string | null>(null);
+
+  const refreshRerankerModels = useCallback(() => {
+    localRerankerApi.listModels().then(setRerankerModels).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (crossEncoderConfig) {
+      refreshRerankerModels();
+    }
+  }, [crossEncoderConfig, refreshRerankerModels]);
+
+  useEffect(() => {
+    if (!rerankerDownloadingId) return;
+    const interval = setInterval(async () => {
+      try {
+        const status = await localRerankerApi.getDownloadStatus(rerankerDownloadingId);
+        if (status.status === 'downloading') {
+          setRerankerDownloadProgress(status.progress_pct ?? null);
+        } else if (status.status === 'completed') {
+          setRerankerDownloadingId(null);
+          setRerankerDownloadProgress(null);
+          refreshRerankerModels();
+        } else if (status.status === 'failed') {
+          setRerankerDownloadingId(null);
+          setRerankerDownloadProgress(null);
+          setRerankerDownloadError(status.error ?? tApp('settings.memory.fields.reranker_download.downloadFailed'));
+          toast.error(status.error ?? tApp('settings.memory.fields.reranker_download.downloadFailed'));
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [rerankerDownloadingId, refreshRerankerModels, tApp]);
+
+  const handleRerankerDownload = useCallback(async (modelId: string) => {
+    setRerankerDownloadingId(modelId);
+    setRerankerDownloadProgress(0);
+    setRerankerDownloadError(null);
+    try {
+      await localRerankerApi.downloadModel(modelId);
+    } catch {
+      setRerankerDownloadingId(null);
+      setRerankerDownloadProgress(null);
+    }
+  }, []);
+
+  const handleRerankerDelete = useCallback(async (modelId: string) => {
+    try {
+      await localRerankerApi.deleteModel(modelId);
+      refreshRerankerModels();
+    } catch {
+      // Ignore delete errors
+    }
+  }, [refreshRerankerModels]);
 
   // Collect all embedding models from all enabled providers
   const allEmbeddingModels = useMemo(() => {
@@ -608,6 +677,98 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       : renderChatScenarioContent(scenario);
   };
 
+  const renderRerankerContent = () => {
+    if (!crossEncoderConfig || !onCrossEncoderConfigChange) {
+      return (
+        <p className="text-sm text-muted-foreground">
+          {tApp('settings.memory.fields.reranker_not_available')}
+        </p>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <label className="space-y-2">
+          <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_model.label')}</span>
+          <SelectField
+            className="w-full"
+            triggerClassName={inputClassName}
+            value={crossEncoderConfig.managed_model_id ?? ''}
+            allowEmpty={false}
+            placeholder={tApp('settings.memory.fields.reranker_model.placeholder')}
+            options={rerankerModels.map((m) => ({
+              label: `${m.label}${m.recommended ? ` (${tApp('settings.memory.fields.reranker_download.recommended')})` : ''} — ${m.size_mb}MB, ${m.languages.join('/')}`,
+              value: m.id,
+            }))}
+            onChange={(val) => onCrossEncoderConfigChange((ce) => {
+              ce.managed_model_id = val || null;
+            })}
+          />
+        </label>
+
+        {crossEncoderConfig.managed_model_id ? (() => {
+          const selectedModel = rerankerModels.find((m) => m.id === crossEncoderConfig.managed_model_id);
+          if (!selectedModel) return null;
+          const isDownloading = rerankerDownloadingId === selectedModel.id;
+          return (
+            <>
+              <div className="flex items-center gap-2">
+                {selectedModel.downloaded ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => handleRerankerDelete(selectedModel.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {tApp('settings.memory.fields.reranker_download.delete')}
+                  </Button>
+                ) : isDownloading ? (
+                  <Button type="button" variant="outline" size="sm" disabled>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {tApp('settings.memory.fields.reranker_download.downloading')}
+                    {rerankerDownloadProgress !== null ? ` ${Math.round(rerankerDownloadProgress)}%` : ''}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRerankerDownload(selectedModel.id)}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {tApp('settings.memory.fields.reranker_download.download')}
+                  </Button>
+                )}
+                {selectedModel.downloaded && (
+                  <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                    <Check className="h-3.5 w-3.5" />
+                    {tApp('settings.memory.fields.reranker_download.downloaded')}
+                  </span>
+                )}
+              </div>
+              {rerankerDownloadError && !isDownloading && !selectedModel.downloaded && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {rerankerDownloadError}
+                </p>
+              )}
+              {selectedModel.description && (
+                <p className="text-xs leading-5 text-muted-foreground">{selectedModel.description}</p>
+              )}
+            </>
+          );
+        })() : null}
+      </div>
+    );
+  };
+
+  const renderTabContent = (tab: ModelTab) => {
+    if (tab === 'reranker') return renderRerankerContent();
+    return renderScenarioContent(tab);
+  };
+
   // Settings surface: use tabs to separate scenarios
   if (isSettingsSurface) {
     return (
@@ -624,23 +785,23 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
         <Tabs defaultValue="context_decider">
           <TabsList className="w-full justify-start">
-            {SCENARIOS.map((scenario) => (
-              <TabsTrigger key={scenario} value={scenario}>
-                {t(`llm.scenarios.${scenario}.title`)}
+            {MODEL_TABS.map((tab) => (
+              <TabsTrigger key={tab} value={tab}>
+                {t(`llm.scenarios.${tab}.title`)}
               </TabsTrigger>
             ))}
           </TabsList>
 
-          {SCENARIOS.map((scenario) => (
+          {MODEL_TABS.map((tab) => (
             <TabsContent
-              key={scenario}
-              value={scenario}
-              data-testid={`llm-scenario-${scenario}`}
+              key={tab}
+              value={tab}
+              data-testid={`llm-scenario-${tab}`}
               className="mt-4 space-y-3 data-[state=inactive]:hidden"
               forceMount
             >
-              <p className="text-xs leading-5 text-muted-foreground">{t(`llm.scenarios.${scenario}.desc`)}</p>
-              {renderScenarioContent(scenario)}
+              <p className="text-xs leading-5 text-muted-foreground">{t(`llm.scenarios.${tab}.desc`)}</p>
+              {renderTabContent(tab)}
             </TabsContent>
           ))}
         </Tabs>
