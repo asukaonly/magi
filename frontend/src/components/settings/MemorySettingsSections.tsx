@@ -116,7 +116,7 @@ export function MemoryGeneralSettingsSection({
   const [pickingMemoryStoragePath, setPickingMemoryStoragePath] = useState(false);
   const memoryStoragePath = draftConfig.memory.db_path ?? '';
   const rerankerConfig = draftConfig.memory.reranker;
-  const managedModelPath = rerankerConfig.local.managed_model_id?.trim()
+  const managedModelPath = rerankerConfig.local?.managed_model_id?.trim()
     ? `${MANAGED_RERANKER_MODELS_PATH}/${rerankerConfig.local.managed_model_id.trim()}`
     : `${MANAGED_RERANKER_MODELS_PATH}/<managed_model_id>`;
 
