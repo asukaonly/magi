@@ -14,30 +14,24 @@ DEFAULT_PENDING_COMMAND_WARNING_THRESHOLD = 100
 
 async def get_runtime_system_status(app: Any) -> dict[str, Any]:
     """Return a topology-aware runtime status payload for transport endpoints."""
-    api_ready = bool(getattr(app.state, "backend_ready", False))
-    process_role = str(getattr(app.state, "process_role", "ipc_worker") or "ipc_worker")
     pending_commands = await _get_pending_commands()
     queue_backlog_healthy = (
         pending_commands is None or pending_commands <= DEFAULT_PENDING_COMMAND_WARNING_THRESHOLD
     )
     runtime_ready, runtime_status, heartbeat_age_ms = await _get_runtime_worker_status()
 
-    if not api_ready:
-        status = "starting"
-    elif runtime_ready and queue_backlog_healthy:
+    if runtime_ready and queue_backlog_healthy:
         status = "ready"
     else:
         status = "degraded"
 
     return {
         "status": status,
-        "api_ready": api_ready,
         "runtime_ready": runtime_ready,
         "runtime_status": runtime_status,
         "runtime_heartbeat_age_ms": heartbeat_age_ms,
         "queue_backlog_healthy": queue_backlog_healthy,
         "pending_commands": pending_commands,
-        "process_role": process_role,
     }
 
 

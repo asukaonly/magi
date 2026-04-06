@@ -91,7 +91,6 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
     )
 
     app.openapi = _build_custom_openapi(app)
-    app.state.backend_ready = False
 
     app.add_middleware(ErrorHandler)
     app.add_middleware(RequestLoggingMiddleware)
@@ -108,13 +107,11 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
             "data": {
                 "status": runtime_status["status"],
                 "version": "1.0.0",
-                "api_ready": runtime_status["api_ready"],
                 "runtime_ready": runtime_status["runtime_ready"],
                 "runtime_status": runtime_status["runtime_status"],
                 "queue_backlog_healthy": runtime_status["queue_backlog_healthy"],
                 "runtime_heartbeat_age_ms": runtime_status["runtime_heartbeat_age_ms"],
                 "pending_commands": runtime_status["pending_commands"],
-                "process_role": runtime_status["process_role"],
             },
         }
 
@@ -128,10 +125,8 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
             "data": {
                 "ready": ready,
                 "status": runtime_status["status"],
-                "api_ready": runtime_status["api_ready"],
                 "runtime_ready": runtime_status["runtime_ready"],
                 "runtime_status": runtime_status["runtime_status"],
-                "process_role": runtime_status["process_role"],
             },
         }
 

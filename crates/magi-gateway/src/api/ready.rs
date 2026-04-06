@@ -20,10 +20,8 @@ pub async fn ready() -> Json<Value> {
                 "data": {
                     "ready": false,
                     "status": "degraded",
-                    "api_ready": true,
                     "runtime_ready": false,
-                    "runtime_status": "offline",
-                    "process_role": "unified"
+                    "runtime_status": "offline"
                 }
             })
         });
@@ -96,13 +94,11 @@ fn build_ready_response() -> Value {
         "data": {
             "ready": status == "ready",
             "status": status,
-            "api_ready": true,
             "runtime_ready": runtime_ready,
             "runtime_status": runtime_status,
             "runtime_heartbeat_age_ms": heartbeat_age_ms,
             "queue_backlog_healthy": queue_backlog_healthy,
-            "pending_commands": pending_commands,
-            "process_role": "unified"
+            "pending_commands": pending_commands
         }
     })
 }
@@ -120,13 +116,11 @@ fn ready_payload(
         "data": {
             "ready": status == "ready",
             "status": status,
-            "api_ready": true,
             "runtime_ready": runtime_ready,
             "runtime_status": runtime_status,
             "runtime_heartbeat_age_ms": heartbeat_age_ms,
             "queue_backlog_healthy": true,
-            "pending_commands": pending_commands,
-            "process_role": "unified"
+            "pending_commands": pending_commands
         }
     })
 }

@@ -902,7 +902,6 @@
         },
         "health": {
           "queueStatus": "队列状态",
-          "processRole": "进程角色",
           "heartbeat": "心跳年龄",
           "good": "健康",
           "needsAttention": "需要关注",

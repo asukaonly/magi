@@ -39,13 +39,11 @@ const overviewFixture = {
   },
   runtime: {
     status: 'ready',
-    api_ready: true,
     runtime_ready: true,
     runtime_status: 'ready',
     runtime_heartbeat_age_ms: 1200,
     queue_backlog_healthy: true,
     pending_commands: 3,
-    process_role: 'api',
   },
   model_execution: {
     avg_ttft_ms: 420,

@@ -59,13 +59,11 @@ export interface RuntimeOverviewSystemMetrics {
 
 export interface RuntimeOverviewStatus {
   status: string;
-  api_ready: boolean;
   runtime_ready: boolean;
   runtime_status: string;
   runtime_heartbeat_age_ms?: number | null;
   queue_backlog_healthy?: boolean | null;
   pending_commands?: number | null;
-  process_role?: string | null;
 }
 
 export interface RuntimeOverviewModelExecution {

@@ -53,8 +53,6 @@ async def _run_worker() -> None:
         yield
 
     app = create_transport_app(lifespan=_noop_lifespan)
-    app.state.backend_ready = True
-    app.state.process_role = RUNTIME_HEARTBEAT_ROLE
 
     # Start IPC server
     ipc_server = None

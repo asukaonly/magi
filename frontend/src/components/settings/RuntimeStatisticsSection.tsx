@@ -390,10 +390,6 @@ const RuntimeStatisticsSectionInner: FC = () => {
                       : t('settings.statistics.runtime.health.needsAttention'),
                   },
                   {
-                    label: t('settings.statistics.runtime.health.processRole'),
-                    value: overview?.runtime.process_role || t('settings.statistics.shared.unavailable'),
-                  },
-                  {
                     label: t('settings.statistics.runtime.health.heartbeat'),
                     value:
                       typeof overview?.runtime.runtime_heartbeat_age_ms === 'number'

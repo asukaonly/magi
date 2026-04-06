@@ -902,7 +902,6 @@
         },
         "health": {
           "queueStatus": "Queue status",
-          "processRole": "Process role",
           "heartbeat": "Heartbeat age",
           "good": "Healthy",
           "needsAttention": "Needs attention",
