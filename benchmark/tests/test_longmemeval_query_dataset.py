@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from magi.memory.eval_support.contracts import EvalMemoryHit, EvalMemoryQueryResult
 
 from benchmark.common.io import read_jsonl
-from benchmark.longmemeval.query_dataset import query_longmemeval_rows
+from benchmark.longmemeval.query_dataset import ERROR_HYPOTHESIS, query_longmemeval_rows
 
 
 @dataclass
@@ -185,3 +185,31 @@ def test_query_script_propagates_explicit_mode(tmp_path) -> None:
     )
 
     assert service.queries[0].mode == "detail"
+
+
+def test_query_retries_on_error_and_marks_error_hypothesis(tmp_path) -> None:
+    """When query_memory always raises, skip after retries and mark __error__."""
+
+    call_count = 0
+
+    class FailingService:
+        async def query_memory(self, query):
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("content filter triggered")
+
+    artifacts = asyncio.run(
+        query_longmemeval_rows(
+            rows=[_build_sample_row(question_id="q-fail")],
+            eval_service=FailingService(),
+            run_id="run-1",
+            output_root=tmp_path,
+        )
+    )
+
+    assert call_count == 3  # MAX_QUERY_RETRIES
+    predictions = read_jsonl(artifacts.predictions_path)
+    assert predictions[0]["hypothesis"] == ERROR_HYPOTHESIS
+    traced = read_jsonl(artifacts.predictions_with_trace_path)[0]
+    assert traced["trace"]["skipped"] is True
+    assert "RuntimeError" in traced["trace"]["error"]

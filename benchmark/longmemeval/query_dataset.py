@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import sys
+import traceback
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Protocol, Sequence
@@ -23,7 +24,11 @@ from benchmark.longmemeval.adapter import adapt_longmemeval_entry
 from benchmark.longmemeval.backend_client import BackendEvalService
 from benchmark.longmemeval.report import compute_session_recall_summary, export_official_predictions
 from benchmark.longmemeval.runner import load_longmemeval_rows, synthesize_hypothesis_from_hits
+from magi.memory.eval_support.contracts import EvalMemoryQueryResult
 from magi.memory.eval_support.namespace import build_eval_namespace
+
+MAX_QUERY_RETRIES = 3
+ERROR_HYPOTHESIS = "__error__"
 
 
 class SupportsQueryService(Protocol):
@@ -83,9 +88,32 @@ async def query_longmemeval_rows(
             question_id=question_id,
         )
         adapted = adapt_longmemeval_entry(row, namespace=namespace)
-        query_result = await eval_service.query_memory(
-            replace(adapted.query, mode=mode, answer_with_llm=answer_with_llm)
-        )
+        query_obj = replace(adapted.query, mode=mode, answer_with_llm=answer_with_llm)
+        query_result: EvalMemoryQueryResult | None = None
+        last_error: str | None = None
+        for attempt in range(1, MAX_QUERY_RETRIES + 1):
+            try:
+                query_result = await eval_service.query_memory(query_obj)
+                break
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                print(
+                    f"[Query retry] question_id={question_id} attempt={attempt}/{MAX_QUERY_RETRIES} error={last_error}",
+                    flush=True,
+                )
+                if attempt < MAX_QUERY_RETRIES:
+                    await asyncio.sleep(1.0 * attempt)
+
+        if query_result is None:
+            print(
+                f"[Query skipped] question_id={question_id} all {MAX_QUERY_RETRIES} attempts failed, marking as {ERROR_HYPOTHESIS}",
+                flush=True,
+            )
+            query_result = EvalMemoryQueryResult(
+                hits=[],
+                trace={"error": last_error, "skipped": True},
+            )
+
         hit_count = len(query_result.hits)
         total_hit_count += hit_count
 
@@ -112,7 +140,11 @@ async def query_longmemeval_rows(
                     total_hit_count=total_hit_count,
                 )
             )
-        hypothesis = query_result.answer or synthesize_hypothesis_from_hits(hits=query_result.hits)
+        skipped = query_result.trace.get("skipped", False)
+        if skipped:
+            hypothesis = ERROR_HYPOTHESIS
+        else:
+            hypothesis = query_result.answer or synthesize_hypothesis_from_hits(hits=query_result.hits)
         traced_predictions.append(
             {
                 "question_id": adapted.question_id,
