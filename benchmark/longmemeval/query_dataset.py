@@ -18,11 +18,11 @@ for candidate in (REPO_ROOT, BACKEND_SRC):
         sys.path.insert(0, candidate_text)
 
 from benchmark.common.io import write_jsonl
-from benchmark.common.paths import build_run_output_dir
+from benchmark.common.paths import build_run_output_dir, resolve_backend_url
 from benchmark.longmemeval.adapter import adapt_longmemeval_entry
 from benchmark.longmemeval.backend_client import BackendEvalService
 from benchmark.longmemeval.report import compute_session_recall_summary, export_official_predictions
-from benchmark.longmemeval.runner import create_default_runtime, load_longmemeval_rows, synthesize_hypothesis_from_hits
+from benchmark.longmemeval.runner import load_longmemeval_rows, synthesize_hypothesis_from_hits
 from magi.memory.eval_support.namespace import build_eval_namespace
 
 
@@ -146,35 +146,16 @@ def print_query_progress(progress: QueryProgress) -> None:
 
 async def _run_cli(args: argparse.Namespace) -> LongMemEvalQueryArtifacts:
     rows = load_longmemeval_rows(args.dataset, limit=args.limit)
-    if args.backend_url:
-        return await query_longmemeval_rows(
-            rows=rows,
-            eval_service=BackendEvalService(args.backend_url),
-            run_id=args.run_id,
-            output_root=args.output_root,
-            progress_reporter=print_query_progress,
-            answer_with_llm=args.answer_with_llm,
-            mode=args.mode,
-        )
-
-    output_dir = build_run_output_dir(
-        root_dir=args.output_root,
-        benchmark_name="longmemeval",
+    backend_url = args.backend_url or resolve_backend_url()
+    return await query_longmemeval_rows(
+        rows=rows,
+        eval_service=BackendEvalService(backend_url),
         run_id=args.run_id,
+        output_root=args.output_root,
+        progress_reporter=print_query_progress,
+        answer_with_llm=args.answer_with_llm,
+        mode=args.mode,
     )
-    runtime = await create_default_runtime(state_dir=output_dir / "state")
-    try:
-        return await query_longmemeval_rows(
-            rows=rows,
-            eval_service=runtime.service,
-            run_id=args.run_id,
-            output_root=args.output_root,
-            progress_reporter=print_query_progress,
-            answer_with_llm=args.answer_with_llm,
-            mode=args.mode,
-        )
-    finally:
-        await runtime.shutdown()
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
