@@ -50,7 +50,12 @@ export class RealtimeClient {
       this.reconnectTimer = null;
     }
     if (this.socket) {
-      this.socket.close(1000, reason);
+      // Only send a close frame when the connection is fully open.
+      // Calling close() on a CONNECTING socket triggers a noisy browser
+      // warning ("WebSocket is closed before the connection is established").
+      if (this.socket.readyState === READY_STATE_OPEN) {
+        this.socket.close(1000, reason);
+      }
       this.socket = null;
     }
     this.reconnectAttempts = 0;
