@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { FolderOpen } from 'lucide-react';
 
 import type { SystemConfig } from '@/api/modules/config';
+import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -115,8 +116,16 @@ export function MemoryGeneralSettingsSection({
   const embeddingSelection = draftConfig.llm?.selections?.embedding;
   const [pickingMemoryStoragePath, setPickingMemoryStoragePath] = useState(false);
   const memoryStoragePath = draftConfig.memory.db_path ?? '';
-  const rerankerConfig = draftConfig.memory.reranker;
-  const managedModelPath = rerankerConfig.local?.managed_model_id?.trim()
+  const rawReranker = draftConfig.memory.reranker;
+  const defaultReranker = DEFAULT_SYSTEM_CONFIG.memory.reranker;
+  const rerankerConfig = {
+    ...defaultReranker,
+    ...rawReranker,
+    layers: rawReranker.layers ?? defaultReranker.layers,
+    local: { ...defaultReranker.local, ...rawReranker.local },
+    remote: { ...defaultReranker.remote, ...rawReranker.remote },
+  };
+  const managedModelPath = rerankerConfig.local.managed_model_id?.trim()
     ? `${MANAGED_RERANKER_MODELS_PATH}/${rerankerConfig.local.managed_model_id.trim()}`
     : `${MANAGED_RERANKER_MODELS_PATH}/<managed_model_id>`;
 
