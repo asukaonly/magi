@@ -81,8 +81,12 @@ fn build_response_from_ipc(result: Value) -> Response {
         for (key, val) in headers {
             if let Some(v) = val.as_str() {
                 let key_lower = key.to_lowercase();
-                // Skip hop-by-hop headers
-                if key_lower == "transfer-encoding" || key_lower == "connection" {
+                // Skip hop-by-hop and length headers — hyper computes
+                // content-length from the actual body we send.
+                if key_lower == "transfer-encoding"
+                    || key_lower == "connection"
+                    || key_lower == "content-length"
+                {
                     continue;
                 }
                 if let Ok(name) = axum::http::header::HeaderName::from_bytes(key.as_bytes()) {
