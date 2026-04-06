@@ -90,13 +90,12 @@ def test_query_script_reads_existing_namespaces_and_writes_outputs(tmp_path) -> 
     assert read_jsonl(artifacts.predictions_with_trace_path)[0]["retrieved_session_ids"] == ["sess-2"]
 
     summary = json.loads(artifacts.summary_path.read_text(encoding="utf-8"))
-    assert summary == {
-        "total_questions": 1,
-        "evaluated_questions": 1,
-        "abstention_questions": 0,
-        "session_recall_at_k": 1.0,
-        "k": 1,
-    }
+    assert summary["total_questions"] == 1
+    assert summary["session_recall_at_k"] == 1.0
+    assert "retrieval_compression" in summary
+    rc = summary["retrieval_compression"]
+    assert rc["questions_measured"] == 1
+    assert 0.0 < rc["mean_ratio"] < 1.0
 
 
 def test_query_script_marks_unknown_when_memory_returns_no_hits(tmp_path) -> None:

@@ -88,6 +88,19 @@ async def query_longmemeval_rows(
         )
         hit_count = len(query_result.hits)
         total_hit_count += hit_count
+
+        # Retrieval compression metrics
+        haystack_total_chars = sum(
+            len(str(turn.get("content") or ""))
+            for session_turns in (row.get("haystack_sessions") or [])
+            for turn in (session_turns or [])
+        )
+        retrieved_chars = sum(
+            len(str(getattr(hit, "content", "") or ""))
+            for hit in query_result.hits
+        )
+        retrieval_ratio = (retrieved_chars / haystack_total_chars) if haystack_total_chars > 0 else 0.0
+
         if progress_reporter is not None:
             progress_reporter(
                 QueryProgress(
@@ -108,6 +121,9 @@ async def query_longmemeval_rows(
                 "answer_session_ids": adapted.answer_session_ids,
                 "namespace": namespace,
                 "hypothesis": hypothesis,
+                "haystack_total_chars": haystack_total_chars,
+                "retrieved_chars": retrieved_chars,
+                "retrieval_ratio": round(retrieval_ratio, 4),
                 "retrieved_session_ids": query_result.retrieved_session_ids,
                 "retrieved_turn_ids": query_result.retrieved_turn_ids,
                 "retrieved_event_ids": query_result.retrieved_event_ids,
@@ -123,6 +139,19 @@ async def query_longmemeval_rows(
     )
     predictions_path = export_official_predictions(output_dir / "predictions.jsonl", traced_predictions)
     summary = compute_session_recall_summary(traced_predictions, k=1)
+
+    # Aggregate retrieval compression stats
+    ratios = [p["retrieval_ratio"] for p in traced_predictions if p.get("haystack_total_chars", 0) > 0]
+    if ratios:
+        summary["retrieval_compression"] = {
+            "mean_ratio": round(sum(ratios) / len(ratios), 4),
+            "median_ratio": round(sorted(ratios)[len(ratios) // 2], 4),
+            "min_ratio": round(min(ratios), 4),
+            "max_ratio": round(max(ratios), 4),
+            "zero_retrieval_count": sum(1 for r in ratios if r == 0.0),
+            "questions_measured": len(ratios),
+        }
+
     summary_path = output_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return LongMemEvalQueryArtifacts(
