@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
+
+
+def _format_ts(ts: float | None) -> str:
+    """Return ``t=<unix> (<YYYY-MM-DD Day HH:MM>)`` for a unix timestamp."""
+    if ts is None:
+        return "t=None"
+    try:
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return f"t={ts} ({dt.strftime('%Y-%m-%d %a %H:%M')})"
+    except (OSError, OverflowError, ValueError):
+        return f"t={ts}"
 
 
 @dataclass(frozen=True)
@@ -91,7 +103,7 @@ def build_answer_prompt_payload(
         if not summary:
             continue
         timeline_blocks.append(
-            f"[{index}] t={timestamp} session={session_id} role={author_type} turn={turn_id}\n{summary}"
+            f"[{index}] {_format_ts(timestamp)} session={session_id} role={author_type} turn={turn_id}\n{summary}"
         )
     timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
 
@@ -107,7 +119,7 @@ def build_answer_prompt_payload(
             content = str(event.get("content") or "").strip()
             if not content:
                 continue
-            lines.append(f"- t={timestamp} role={author_type} turn={turn_id}: {content}")
+            lines.append(f"- {_format_ts(timestamp)} role={author_type} turn={turn_id}: {content}")
         bundle_blocks.append("\n".join(lines))
     bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
 

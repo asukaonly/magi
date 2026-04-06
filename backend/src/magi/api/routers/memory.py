@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict
-from datetime import date, datetime, time as datetime_time
+from datetime import date, datetime, time as datetime_time, timezone
 import re
 import time
 from typing import Any, Dict, List, Literal, Optional
@@ -322,8 +322,8 @@ async def _synthesize_eval_answer(
     )
     question_date_line = ""
     if query_timestamp is not None:
-        qdt = datetime.fromtimestamp(query_timestamp)
-        question_date_line = f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} (timestamp={query_timestamp})\n"
+        qdt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
+        question_date_line = f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} UTC (timestamp={query_timestamp})\n"
 
     user_prompt = (
         "Use relative time expressions in the evidence when comparing event order.\n"

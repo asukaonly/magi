@@ -69,8 +69,10 @@ def test_build_answer_prompt_payload_prioritizes_timeline_for_temporal_questions
     assert payload.prioritize_timeline is True
     assert "t=11.0" in payload.timeline_text
     assert "t=15.0" in payload.timeline_text
+    assert "1970-01-01" in payload.timeline_text  # human-readable date present
     assert "sess-webinar" in payload.bundle_text
     assert "t=14.0" in payload.bundle_text
+    assert "1970-01-01" in payload.bundle_text  # human-readable date present
 
 
 def test_build_answer_prompt_payload_requests_short_issue_answer():
