@@ -195,6 +195,13 @@ class L1Handler(RRFSearchHandler):
             if isinstance(res, BaseException):
                 logger.warning("L1 search path %d failed: %s", i, res)
 
+        logger.info(
+            "L1 retrieval paths completed | content_query=%r user_id=%s "
+            "bm25_count=%d vec_count=%d kw_count=%d fetch_k=%d",
+            conditions.content_query, user_id,
+            len(bm25_ids), len(vec_ids), len(kw_ids), fetch_k,
+        )
+
         # Phase 2: Entity co-occurrence expansion using top seed IDs
         seed_ids: List[str] = list(dict.fromkeys(bm25_ids[:10] + vec_ids[:10] + kw_ids[:10]))
         entity_ids: List[str] = []

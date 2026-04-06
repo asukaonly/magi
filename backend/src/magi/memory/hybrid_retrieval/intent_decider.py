@@ -806,6 +806,28 @@ class LLMIntentDecider:
             if not has_anchor_overlap:
                 return normalized_query
 
+        # Guard: reject LLM expansions that hallucinate too many novel tokens.
+        # Extra AND terms in FTS5 make the query overly restrictive.
+        _PREFIX_LEN = 5
+        original_tokens = set(extract_query_tokens(normalized_query))
+        if original_tokens:
+
+            def _overlaps_original(tok: str) -> bool:
+                for orig in original_tokens:
+                    if tok == orig:
+                        return True
+                    if (
+                        len(tok) >= _PREFIX_LEN
+                        and len(orig) >= _PREFIX_LEN
+                        and tok[:_PREFIX_LEN] == orig[:_PREFIX_LEN]
+                    ):
+                        return True
+                return False
+
+            novel_count = sum(1 for t in content_tokens if not _overlaps_original(t))
+            if novel_count > len(original_tokens):
+                return normalized_query
+
         return normalized_content_query
 
 
