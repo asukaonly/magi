@@ -113,7 +113,6 @@ export function MemoryGeneralSettingsSection({
   hasEmbeddingModel,
 }: Omit<MemorySettingsSectionProps, 'updateMemoryToggle'>) {
   const { t } = useTranslation('app');
-  const embeddingSelection = draftConfig.llm?.selections?.embedding;
   const [pickingMemoryStoragePath, setPickingMemoryStoragePath] = useState(false);
   const memoryStoragePath = draftConfig.memory.db_path ?? '';
   const rawReranker = draftConfig.memory.reranker;
@@ -412,41 +411,6 @@ export function MemoryGeneralSettingsSection({
               </div>
             ) : null}
           </div>
-
-          {hasEmbeddingModel ? (
-            <div>
-              <MemoryMetricRow
-                label={t('settings.fields.provider')}
-                value={embeddingSelection.provider_id || '-'}
-              />
-              <MemoryMetricRow
-                label={t('settings.fields.model')}
-                value={embeddingSelection.model || '-'}
-              />
-              <MemoryMetricRow
-                label={t('settings.memory.fields.db_path.label')}
-                value={memoryStoragePath || '-'}
-                hint={t('settings.memory.fields.db_path.summary_hint')}
-              />
-              <MemoryMetricRow
-                label={t('settings.memory.fields.reranker_enabled.label')}
-                value={
-                  rerankerConfig.enabled
-                    ? t(`settings.memory.options.reranker_backend.${rerankerConfig.backend}`)
-                    : t('settings.memory.options.reranker_disabled')
-                }
-                hint={t('settings.memory.fields.reranker_local_managed_cache_path.description')}
-              />
-              <MemoryMetricRow
-                label={t('settings.memory.fields.reranker_local_managed_cache_path.label')}
-                value={MANAGED_RERANKER_MODELS_PATH}
-              />
-            </div>
-          ) : (
-            <div className="text-sm leading-7 text-muted-foreground">
-              {t('settings.memory.sections.general.embeddingModelEmpty')}
-            </div>
-          )}
         </MemoryGroup>
     </MemorySectionShell>
   );

@@ -147,6 +147,30 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/memory/l3/summaries",
             axum::routing::get(memory::list_l3_summaries),
         )
+        .route(
+            "/api/memory/l0/sessions",
+            axum::routing::get(memory::list_l0_sessions),
+        )
+        .route(
+            "/api/memory/l0/workbench/{session_id}",
+            axum::routing::get(memory::get_l0_workbench),
+        )
+        .route(
+            "/api/memory/l2/pending",
+            axum::routing::get(memory::get_l2_pending),
+        )
+        .route(
+            "/api/memory/background/pending",
+            axum::routing::get(memory::get_background_pending),
+        )
+        .route(
+            "/api/memory/procedures",
+            axum::routing::get(memory::list_procedures),
+        )
+        .route(
+            "/api/memory/tom/{entity_id}",
+            axum::routing::get(memory::get_tom_snapshot),
+        )
         // Personality config
         .route(
             "/api/personality",

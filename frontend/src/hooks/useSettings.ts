@@ -172,7 +172,8 @@ export function useSettings(): UseSettingsReturn {
       || activeSection === 'timeline'
       || activeSection === 'personality'
       || activeSection === 'statisticsLlm'
-      || activeSection === 'statisticsRuntime',
+      || activeSection === 'statisticsRuntime'
+      || activeSection === 'memoryGeneral',
     [activeSection]
   );
 
