@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict
 from datetime import date, datetime, time as datetime_time
 import re
@@ -556,8 +557,10 @@ async def get_l2_statistics():
             "db_path": None,
         }
 
-    relations = await unified_memory.l2.get_relationships(limit=10000)
-    assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
+    rel_count, tom_count = await asyncio.gather(
+        unified_memory.l2.count_relationships(),
+        unified_memory.l2.count_tom_assertions(),
+    )
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     projection_backlog = (
         await unified_memory.get_l2_projection_backlog()
@@ -566,8 +569,8 @@ async def get_l2_statistics():
     )
     return {
         "is_running": bool(pipeline_stats.get("is_running", False)),
-        "relation_count": len(relations),
-        "assertion_count": len(assertions),
+        "relation_count": rel_count,
+        "assertion_count": tom_count,
         "extract_enqueued": int(pipeline_stats.get("extract_enqueued", 0)),
         "extract_completed": int(pipeline_stats.get("extract_completed", 0)),
         "extract_failed": int(pipeline_stats.get("extract_failed", 0)),
@@ -1017,7 +1020,7 @@ async def get_memory_statistics():
 
     stats: Dict[str, Any] = {}
 
-    # L0 statistics
+    # L0 statistics (in-memory, fast)
     if unified_memory.l0:
         sessions = unified_memory.l0._sessions
         total_goals = sum(len(unified_memory.l0._goal_stack.get(sid, [])) for sid in sessions)
@@ -1033,48 +1036,35 @@ async def get_memory_statistics():
     else:
         stats["l0"] = {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}
 
-    # L1 statistics
+    # L1-L4 statistics: run count queries concurrently
+    async def _zero() -> int:
+        return 0
+
+    l1_coro = unified_memory.l1.count_events() if unified_memory.l1 else _zero()
+    l2_rel_coro = unified_memory.l2.count_relationships() if unified_memory.l2 else _zero()
+    l2_tom_coro = unified_memory.l2.count_tom_assertions() if unified_memory.l2 else _zero()
+    l3_coro = unified_memory.l3.count_summaries() if unified_memory.l3 else _zero()
+    l4_coro = unified_memory.l4.count_skills() if unified_memory.l4 else _zero()
+
+    l1_count, l2_rel_count, l2_tom_count, l3_count, l4_count = await asyncio.gather(
+        l1_coro, l2_rel_coro, l2_tom_coro, l3_coro, l4_coro,
+    )
+
+    stats["l1"] = {"event_count": l1_count}
     if unified_memory.l1:
-        stats["l1"] = {
-            "event_count": await unified_memory.l1.count_events(),
-            "db_path": unified_memory.l1.db_path,
-        }
-    else:
-        stats["l1"] = {"event_count": 0}
+        stats["l1"]["db_path"] = unified_memory.l1.db_path
 
-    # L2 statistics
+    stats["l2"] = {"relation_count": l2_rel_count, "assertion_count": l2_tom_count}
     if unified_memory.l2:
-        relations = await unified_memory.l2.get_relationships(limit=10000)
-        assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
-        stats["l2"] = {
-            "relation_count": len(relations),
-            "assertion_count": len(assertions),
-            "db_path": unified_memory.l2.db_path,
-        }
-    else:
-        stats["l2"] = {"relation_count": 0, "assertion_count": 0}
+        stats["l2"]["db_path"] = unified_memory.l2.db_path
 
-    # L3 statistics
+    stats["l3"] = {"summary_count": l3_count}
     if unified_memory.l3:
-        summaries = await unified_memory.l3.list_summaries(limit=10000)
-        stats["l3"] = {
-            "summary_count": len(summaries),
-            "db_path": unified_memory.l3.db_path,
-        }
-    else:
-        stats["l3"] = {"summary_count": 0}
+        stats["l3"]["db_path"] = unified_memory.l3.db_path
 
-    # L4 statistics
+    stats["l4"] = {"skill_count": l4_count, "open_circuit_breakers": 0}
     if unified_memory.l4:
-        skills = await unified_memory.l4.get_all_skills(limit=10000)
-        open_breakers = sum(1 for s in skills if s.get("circuit_breaker_state") != "closed")
-        stats["l4"] = {
-            "skill_count": len(skills),
-            "open_circuit_breakers": open_breakers,
-            "db_path": unified_memory.l4.db_path,
-        }
-    else:
-        stats["l4"] = {"skill_count": 0, "open_circuit_breakers": 0}
+        stats["l4"]["db_path"] = unified_memory.l4.db_path
 
     if memory_integration:
         stats["integration"] = memory_integration.get_statistics()

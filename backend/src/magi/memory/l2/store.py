@@ -845,6 +845,16 @@ class L2CognitionStore:
         matched = {str(row["entity_id"]) for row in rows}
         return [entity_id for entity_id in normalized_entity_ids if entity_id in matched]
 
+    async def count_tom_assertions(self) -> int:
+        """Count all ToM assertions."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM tom_trait_assertions"
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
     async def list_tom_assertions(
         self,
         *,
@@ -1036,6 +1046,16 @@ class L2CognitionStore:
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [self._snapshot_row_to_dict(row) for row in rows]
+
+    async def count_relationships(self) -> int:
+        """Count all active relationships in the knowledge graph."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'"
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
 
     async def get_relationships(
         self,

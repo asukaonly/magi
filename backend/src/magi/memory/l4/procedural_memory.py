@@ -368,6 +368,14 @@ class L4ProceduralMemoryStore:
                 row = await cursor.fetchone()
         return self._row_to_dict(row) if row else None
 
+    async def count_skills(self) -> int:
+        """Count all procedural skills."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM procedural_skills") as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
     async def get_all_skills(self, *, limit: int = 100) -> List[Dict[str, Any]]:
         """List all stored skills."""
         await self.initialize()

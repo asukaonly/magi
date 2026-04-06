@@ -114,6 +114,12 @@ class _FakeL1Store:
 class _FakeL2Store:
     db_path = "/tmp/l2.db"
 
+    async def count_relationships(self):
+        return 0
+
+    async def count_tom_assertions(self):
+        return 0
+
     async def get_relationships(self, limit: int = 100):
         return []
 
@@ -178,6 +184,9 @@ class _FakeL2EntityCatalog:
 class _FakeL3Store:
     db_path = "/tmp/l3.db"
 
+    async def count_summaries(self):
+        return 3
+
     async def list_summaries(self, limit: int = 100):
         _ = limit
         return [
@@ -201,6 +210,9 @@ class _FakeL3Store:
 
 class _FakeL4Store:
     db_path = "/tmp/l4.db"
+
+    async def count_skills(self):
+        return 1
 
     async def get_all_skills(self, limit: int = 100):
         _ = limit

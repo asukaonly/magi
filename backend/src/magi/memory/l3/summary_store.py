@@ -445,6 +445,14 @@ class L3SummaryStore:
         )
         return summaries[:limit]
 
+    async def count_summaries(self) -> int:
+        """Count all summaries."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM summaries") as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
     async def list_summaries(self, *, limit: int = 100) -> List[Dict[str, Any]]:
         """List most recent summaries."""
         await self.initialize()
