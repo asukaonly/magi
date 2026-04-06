@@ -353,14 +353,16 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
     fake_memory.l0._temporary_tactics = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
 
     class _FakeChatReadService:
-        async def aget_session_summary(self, user_id: str, session_id: str):
+        async def aget_session_summaries_batch(self, user_id: str, session_ids: list):
             assert user_id == "local_user"
-            assert session_id == "379f666d-aee9-48fb-ab88-50690496297b"
-            return SimpleNamespace(
-                title="记忆设置整理",
-                last_user_message_preview="把通用记忆设置里的 UUID 展示优化掉",
-                workspace_path="/Users/asuka/code/magi",
-            )
+            assert "379f666d-aee9-48fb-ab88-50690496297b" in session_ids
+            return {
+                "379f666d-aee9-48fb-ab88-50690496297b": SimpleNamespace(
+                    title="记忆设置整理",
+                    last_user_message_preview="把通用记忆设置里的 UUID 展示优化掉",
+                    workspace_path="/Users/asuka/code/magi",
+                ),
+            }
 
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
     monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())

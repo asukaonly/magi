@@ -462,19 +462,35 @@ async def list_l0_sessions():
 
     chat_read_service = get_chat_read_service()
 
+    # Collect all session IDs and batch-fetch chat summaries in one query.
+    l0_sessions = unified_memory.l0._sessions
+    all_session_ids = list(l0_sessions.keys())
+    user_ids_by_session = {
+        sid: str(sess.get("user_id") or DEFAULT_USER_ID)
+        for sid, sess in l0_sessions.items()
+    }
+
+    # Group by user_id for batch queries.
+    sessions_by_user: dict[str, list[str]] = {}
+    for sid, uid in user_ids_by_session.items():
+        sessions_by_user.setdefault(uid, []).append(sid)
+
+    # Batch fetch all summaries (one DB query per user_id, usually just one).
+    summary_map: dict[str, Any] = {}
+    for uid, sids in sessions_by_user.items():
+        batch = await chat_read_service.aget_session_summaries_batch(uid, sids)
+        summary_map.update(batch)
+
     sessions = []
     total_goals = 0
     total_entities = 0
     total_tactics = 0
 
-    for session_id, session in unified_memory.l0._sessions.items():
+    for session_id, session in l0_sessions.items():
         goals = unified_memory.l0._goal_stack.get(session_id, [])
         entities = unified_memory.l0._active_entities.get(session_id, {})
         tactics = unified_memory.l0._temporary_tactics.get(session_id, {})
-        chat_summary = await chat_read_service.aget_session_summary(
-            str(session.get("user_id") or DEFAULT_USER_ID),
-            session_id,
-        )
+        chat_summary = summary_map.get(session_id)
         display = _derive_l0_session_display(
             session_id=session_id,
             goals=goals,

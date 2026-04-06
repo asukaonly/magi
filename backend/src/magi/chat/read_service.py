@@ -221,6 +221,14 @@ class ChatReadService:
         """Load one session summary without blocking the event loop."""
         return await self._run_threaded("get_session_summary", user_id, session_id)
 
+    async def aget_session_summaries_batch(
+        self,
+        user_id: str,
+        session_ids: list[str],
+    ) -> dict[str, "ChatSessionSummary"]:
+        """Fetch multiple session summaries in one query without blocking."""
+        return await self._run_threaded("get_session_summaries_batch", user_id, session_ids)
+
     async def alist_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List sessions without blocking the event loop."""
         return await self._run_threaded("list_sessions", user_id, limit)
@@ -358,6 +366,49 @@ class ChatReadService:
             (normalized_user_id, normalized_session_id),
         ).fetchone()
         return self._row_to_session_summary(row) if row is not None else None
+
+    def get_session_summaries_batch(
+        self,
+        user_id: str,
+        session_ids: list[str],
+    ) -> dict[str, ChatSessionSummary]:
+        """Fetch multiple session summaries in one query.
+
+        Returns a dict mapping session_id -> ChatSessionSummary for found sessions.
+        """
+        normalized_user_id = str(user_id).strip()
+        if not normalized_user_id or not session_ids:
+            return {}
+        if not self._chat_db_path.exists():
+            return {}
+        clean_ids = [str(sid).strip() for sid in session_ids if str(sid).strip()]
+        if not clean_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in clean_ids)
+        rows = self._get_conn().execute(
+            f"""
+            SELECT
+                session_id,
+                title,
+                title_overridden,
+                last_message_preview,
+                last_user_message_preview,
+                workspace_path,
+                updated_at_ms,
+                last_message_at_ms,
+                message_count
+            FROM {CHAT_SESSIONS_TABLE}
+            WHERE user_id = ?
+              AND session_id IN ({placeholders})
+              AND deleted_at_ms IS NULL
+              AND archived_at_ms IS NULL
+            """,
+            (normalized_user_id, *clean_ids),
+        ).fetchall()
+        return {
+            str(row["session_id"]): self._row_to_session_summary(row)
+            for row in rows
+        }
 
     def list_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List recent chat sessions for a user."""
