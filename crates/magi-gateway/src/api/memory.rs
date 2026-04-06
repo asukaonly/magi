@@ -599,7 +599,11 @@ fn build_l3_summaries(params: &SummariesQuery) -> Value {
     bind.push(rusqlite::types::Value::Integer(offset));
 
     let sql = format!(
-        "SELECT * FROM summaries {}ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+        "SELECT summary_id, summary_type, summary_category, \
+         period_start, period_end, content, key_topics, key_entities, \
+         sentiment_summary, change_and_pattern, source_event_count, \
+         importance_aggregate, created_at, updated_at \
+         FROM summaries {}ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         where_clause
     );
     let refs: Vec<&dyn rusqlite::types::ToSql> =

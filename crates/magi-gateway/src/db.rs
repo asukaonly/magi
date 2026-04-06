@@ -155,6 +155,8 @@ pub fn ensure_indexes() {
              ON knowledge_graph(status, updated_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_tom_assertions_updated \
              ON tom_trait_assertions(updated_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_summaries_updated \
+             ON summaries(updated_at DESC)",
         ];
         for sql in &stmts {
             if let Err(e) = conn.execute_batch(sql) {
