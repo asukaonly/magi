@@ -2,7 +2,7 @@
  * Router configuration.
  */
 import React from 'react';
-import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, Navigate, RouterProvider, useRouteError } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/layout/MainLayout';
 import ShellRouteHost from '../components/layout/ShellRouteHost';
@@ -84,9 +84,28 @@ const OnboardingGuard: React.FC<{ children: React.ReactElement }> = ({ children 
   return children;
 };
 
+function RouteErrorFallback() {
+  const error = useRouteError();
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background p-8 text-foreground">
+      <h1 className="text-xl font-semibold">Something went wrong</h1>
+      <pre className="max-w-xl overflow-auto rounded-md bg-muted p-4 text-sm text-muted-foreground">{message}</pre>
+      <button
+        type="button"
+        className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+        onClick={() => window.location.reload()}
+      >
+        Reload
+      </button>
+    </div>
+  );
+}
+
 const router = createBrowserRouter([
   {
     path: '/onboarding',
+    errorElement: <RouteErrorFallback />,
     element: (
       <React.Suspense fallback={<LoadingFallback />}>
         <OnboardingPage />
@@ -95,6 +114,7 @@ const router = createBrowserRouter([
   },
   {
     path: '/',
+    errorElement: <RouteErrorFallback />,
     element: (
       <OnboardingGuard>
         <MainLayout />

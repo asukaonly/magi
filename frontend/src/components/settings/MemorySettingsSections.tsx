@@ -130,7 +130,11 @@ export function MemoryGeneralSettingsSection({
 
   const patchReranker = (updater: (draft: SystemConfig['memory']['reranker']) => void) => {
     patchDraftConfig((draft) => {
-      updater(draft.memory.reranker);
+      const reranker = draft.memory.reranker;
+      reranker.layers ??= [...defaultReranker.layers];
+      reranker.local ??= { ...defaultReranker.local };
+      reranker.remote ??= { ...defaultReranker.remote };
+      updater(reranker);
     });
   };
 
