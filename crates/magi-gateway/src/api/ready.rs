@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::db;
 
-const HEARTBEAT_ROLE: &str = "runtime_worker";
+const HEARTBEAT_ROLE: &str = "ipc_worker";
 const HEARTBEAT_STALE_AFTER_MS: i64 = 15_000;
 const PENDING_COMMAND_WARNING_THRESHOLD: i64 = 100;
 
