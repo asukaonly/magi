@@ -337,7 +337,9 @@ class L1Handler(RRFSearchHandler):
         user are returned (via a post-filter against ``fact_events``).
         """
         try:
-            hits = await self._store._semantic_search_event_hits(query=query, limit=limit)
+            # Over-fetch when user_id filtering will discard cross-namespace hits
+            vec_limit = limit * 10 if user_id else limit
+            hits = await self._store._semantic_search_event_hits(query=query, limit=vec_limit)
             if not hits:
                 return []
 

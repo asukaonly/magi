@@ -9,7 +9,13 @@ import time
 import aiosqlite
 import pytest
 
-from magi.memory.hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from magi.memory.hybrid_retrieval.fts_utils import (
+    _stem_english_token,
+    build_or_fts_query,
+    build_stemmed_fts_query,
+    escape_fts_query,
+    tokenize_for_fts,
+)
 from magi.memory.event_contracts import (
     IngestTarget,
     MemoryDomain,
@@ -77,6 +83,89 @@ class TestEscapeFtsQuery:
 
     def test_special_chars_only(self) -> None:
         assert escape_fts_query("***") == ""
+
+
+class TestStemEnglishToken:
+    def test_strips_ed_suffix(self) -> None:
+        assert _stem_english_token("graduated") == "graduat"
+
+    def test_strips_ing_suffix(self) -> None:
+        assert _stem_english_token("running") == "run"
+
+    def test_strips_s_suffix(self) -> None:
+        assert _stem_english_token("books") == "book"
+
+    def test_strips_ies_suffix(self) -> None:
+        assert _stem_english_token("studies") == "study"
+
+    def test_strips_es_suffix(self) -> None:
+        assert _stem_english_token("watches") == "watch"
+
+    def test_short_words_unchanged(self) -> None:
+        assert _stem_english_token("the") == "the"
+        assert _stem_english_token("go") == "go"
+
+    def test_no_suffix_unchanged(self) -> None:
+        assert _stem_english_token("degree") == "degree"
+
+    def test_doubled_consonant_ed(self) -> None:
+        assert _stem_english_token("stopped") == "stop"
+
+    def test_doubled_consonant_ing(self) -> None:
+        assert _stem_english_token("swimming") == "swim"
+
+    def test_ing_simple_strip(self) -> None:
+        # No e-restoration: prefix matching handles it (mak* matches make)
+        assert _stem_english_token("making") == "mak"
+        assert _stem_english_token("learning") == "learn"
+
+
+class TestBuildStemmedFtsQuery:
+    def test_removes_stop_words(self) -> None:
+        result = build_stemmed_fts_query("What degree did I graduate with")
+        assert "what" not in result.lower().split()
+        assert "did" not in result.lower().split()
+        assert "with" not in result.lower().split()
+
+    def test_uses_prefix_for_stemmed_tokens(self) -> None:
+        result = build_stemmed_fts_query("What degree did I graduate with")
+        # "graduate" → unstemmed but >4 chars → chop last → "graduat*"
+        assert "graduat*" in result
+        # "degree" → unstemmed but >4 chars → "degre*"
+        assert "degre*" in result
+
+    def test_empty_after_stop_words(self) -> None:
+        result = build_stemmed_fts_query("the a an")
+        assert result == ""
+
+    def test_short_latin_tokens_exact(self) -> None:
+        result = build_stemmed_fts_query("run fast")
+        assert "run" in result
+        assert "fast" in result
+
+    def test_stemmed_prefix_matches_inflections(self) -> None:
+        result = build_stemmed_fts_query("machine learning optimization")
+        # "machine" unstemmed >4 → "machin*"
+        assert "machin*" in result
+        # "learning" stemmed → "learn*"
+        assert "learn*" in result
+
+
+class TestBuildOrFtsQuery:
+    def test_removes_stop_words(self) -> None:
+        result = build_or_fts_query("What degree did I graduate with")
+        assert "what" not in result.lower()
+        assert "did" not in result.lower().split(" OR ")
+
+    def test_includes_prefix_stems(self) -> None:
+        result = build_or_fts_query("What degree did I graduate with")
+        assert "graduat*" in result
+        assert "degre*" in result
+        assert " OR " in result
+
+    def test_empty_after_stop_words(self) -> None:
+        result = build_or_fts_query("the a an")
+        assert result == ""
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +371,26 @@ class TestBm25Search:
         await store.store(_make_event(content="hello world"))
         results = await store.bm25_search("quantumphysics", limit=10)
         assert results == []
+
+    async def test_bm25_search_stemming_matches_inflections(self, store: L1EventStore) -> None:
+        """Stemmed AND query should match 'graduated' when searching 'graduate'."""
+        await store.store(
+            _make_event(
+                event_id="evt-degree",
+                content="I graduated with a degree in Business Administration",
+            )
+        )
+        await store.store(
+            _make_event(
+                event_id="evt-other",
+                content="The podcast episode discussed the latest technology trends",
+            )
+        )
+
+        results = await store.bm25_search("What degree did I graduate with", limit=10)
+        assert len(results) > 0
+        event_ids = [r[0] for r in results]
+        assert "evt-degree" in event_ids
 
     async def test_bm25_returns_scores(self, store: L1EventStore) -> None:
         await store.store(_make_event(event_id="evt-1", content="machine learning deep learning"))
