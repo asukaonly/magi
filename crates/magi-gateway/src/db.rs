@@ -138,3 +138,13 @@ pub fn query_to_json_array(
     .map(|iter| iter.filter_map(|r| r.ok()).collect())
     .unwrap_or_default()
 }
+
+/// Execute a `SELECT COUNT(*)` query and return the result.
+pub fn count_rows(
+    conn: &Connection,
+    sql: &str,
+    params: &[&dyn rusqlite::types::ToSql],
+) -> i64 {
+    conn.query_row(sql, params, |row| row.get::<_, i64>(0))
+        .unwrap_or(0)
+}

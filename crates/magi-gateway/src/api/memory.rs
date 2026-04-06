@@ -20,6 +20,7 @@ fn clamp_limit(limit: Option<i64>, default: i64) -> i64 {
 #[derive(Deserialize)]
 pub struct L1EventsQuery {
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
     pub event_type: Option<String>,
     pub user_id: Option<String>,
     pub session_id: Option<String>,
@@ -32,15 +33,21 @@ pub struct L1EventsQuery {
 }
 
 #[derive(Deserialize)]
-pub struct LimitQuery {
+pub struct PaginationQuery {
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Deserialize)]
 pub struct SummariesQuery {
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
     pub summary_type: Option<String>,
     pub summary_category: Option<String>,
+}
+
+fn clamp_offset(offset: Option<i64>) -> i64 {
+    offset.unwrap_or(0).max(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +58,7 @@ pub struct SummariesQuery {
 pub async fn list_l1_events(Query(params): Query<L1EventsQuery>) -> Json<Value> {
     let result = tokio::task::spawn_blocking(move || build_l1_events_response(&params))
         .await
-        .unwrap_or_else(|_| json!({"events": [], "stats": {"total": 0}}));
+        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": 50, "offset": 0}));
     Json(result)
 }
 
@@ -59,7 +66,7 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
     let path = db::l1_events_db_path();
     let conn = match db::open_readonly(&path) {
         Some(c) => c,
-        None => return json!({"events": [], "stats": {"total": 0}}),
+        None => return json!({"items": [], "total": 0, "limit": 50, "offset": 0}),
     };
 
     let mut where_parts = vec!["deleted_at IS NULL".to_string()];
@@ -108,19 +115,28 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
 
+    let where_clause = where_parts.join(" AND ");
+
+    // Count total matching rows
+    let count_sql = format!("SELECT COUNT(*) FROM fact_events WHERE {}", where_clause);
+    let count_refs: Vec<&dyn rusqlite::types::ToSql> =
+        bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+    let total = db::count_rows(&conn, &count_sql, &count_refs);
+
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
+    let offset = clamp_offset(params.offset);
     bind.push(rusqlite::types::Value::Integer(limit));
+    bind.push(rusqlite::types::Value::Integer(offset));
 
     let sql = format!(
-        "SELECT * FROM fact_events WHERE {} ORDER BY timestamp DESC LIMIT ?",
-        where_parts.join(" AND ")
+        "SELECT * FROM fact_events WHERE {} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+        where_clause
     );
     let refs: Vec<&dyn rusqlite::types::ToSql> =
         bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
 
-    let events = db::query_to_json_array(&conn, &sql, &refs);
-    let total = events.len();
-    json!({"events": events, "stats": {"total": total}})
+    let items = db::query_to_json_array(&conn, &sql, &refs);
+    json!({"items": items, "total": total, "limit": limit, "offset": offset})
 }
 
 // ---------------------------------------------------------------------------
@@ -128,24 +144,32 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
 // ---------------------------------------------------------------------------
 
 /// GET /api/memory/l2/relations — active knowledge graph triples.
-pub async fn list_l2_relations(Query(params): Query<LimitQuery>) -> Json<Value> {
+pub async fn list_l2_relations(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
+    let offset = clamp_offset(params.offset);
     Json(
         tokio::task::spawn_blocking(move || {
+            let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    json!(db::query_to_json_array(
+                    let total = db::count_rows(
+                        &conn,
+                        "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'",
+                        &[],
+                    );
+                    let items = db::query_to_json_array(
                         &conn,
                         "SELECT * FROM knowledge_graph \
                          WHERE status = 'active' \
-                         ORDER BY updated_at DESC LIMIT ?1",
-                        rusqlite::params![limit],
-                    ))
+                         ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2",
+                        rusqlite::params![limit, offset],
+                    );
+                    json!({"items": items, "total": total, "limit": limit, "offset": offset})
                 })
-                .unwrap_or_else(|| json!([]))
+                .unwrap_or(empty)
         })
         .await
-        .unwrap_or_else(|_| json!([])),
+        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": limit, "offset": offset})),
     )
 }
 
@@ -154,23 +178,31 @@ pub async fn list_l2_relations(Query(params): Query<LimitQuery>) -> Json<Value> 
 // ---------------------------------------------------------------------------
 
 /// GET /api/memory/l2/assertions — ToM trait assertions.
-pub async fn list_l2_assertions(Query(params): Query<LimitQuery>) -> Json<Value> {
+pub async fn list_l2_assertions(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
+    let offset = clamp_offset(params.offset);
     Json(
         tokio::task::spawn_blocking(move || {
+            let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    json!(db::query_to_json_array(
+                    let total = db::count_rows(
+                        &conn,
+                        "SELECT COUNT(*) FROM tom_trait_assertions",
+                        &[],
+                    );
+                    let items = db::query_to_json_array(
                         &conn,
                         "SELECT * FROM tom_trait_assertions \
-                         ORDER BY updated_at DESC LIMIT ?1",
-                        rusqlite::params![limit],
-                    ))
+                         ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2",
+                        rusqlite::params![limit, offset],
+                    );
+                    json!({"items": items, "total": total, "limit": limit, "offset": offset})
                 })
-                .unwrap_or_else(|| json!([]))
+                .unwrap_or(empty)
         })
         .await
-        .unwrap_or_else(|_| json!([])),
+        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": limit, "offset": offset})),
     )
 }
 
@@ -179,25 +211,28 @@ pub async fn list_l2_assertions(Query(params): Query<LimitQuery>) -> Json<Value>
 // ---------------------------------------------------------------------------
 
 /// GET /api/memory/l2/entities — entity catalog with aliases.
-pub async fn list_l2_entities(Query(params): Query<LimitQuery>) -> Json<Value> {
+pub async fn list_l2_entities(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
-    let result = tokio::task::spawn_blocking(move || build_l2_entities(limit))
+    let offset = clamp_offset(params.offset);
+    let result = tokio::task::spawn_blocking(move || build_l2_entities(limit, offset))
         .await
-        .unwrap_or_else(|_| json!([]));
+        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": limit, "offset": offset}));
     Json(result)
 }
 
-fn build_l2_entities(limit: i64) -> Value {
+fn build_l2_entities(limit: i64, offset: i64) -> Value {
     let conn = match db::open_readonly(&db::memory_db_path()) {
         Some(c) => c,
-        None => return json!([]),
+        None => return json!({"items": [], "total": 0, "limit": limit, "offset": offset}),
     };
+
+    let total = db::count_rows(&conn, "SELECT COUNT(*) FROM entity_catalog", &[]);
 
     let entities = db::query_to_json_array(
         &conn,
         "SELECT entity_id, canonical_name, entity_type, embedding_status, last_embedded_at \
-         FROM entity_catalog ORDER BY entity_id ASC LIMIT ?1",
-        rusqlite::params![limit],
+         FROM entity_catalog ORDER BY entity_id ASC LIMIT ?1 OFFSET ?2",
+        rusqlite::params![limit, offset],
     );
 
     // Collect all aliases in one query to avoid N+1.
@@ -220,7 +255,7 @@ fn build_l2_entities(limit: i64) -> Value {
         }
     }
 
-    let merged: Vec<Value> = entities
+    let items: Vec<Value> = entities
         .into_iter()
         .map(|mut e| {
             if let Some(obj) = e.as_object_mut() {
@@ -235,7 +270,7 @@ fn build_l2_entities(limit: i64) -> Value {
         })
         .collect();
 
-    json!(merged)
+    json!({"items": items, "total": total, "limit": limit, "offset": offset})
 }
 
 // ---------------------------------------------------------------------------
@@ -243,23 +278,31 @@ fn build_l2_entities(limit: i64) -> Value {
 // ---------------------------------------------------------------------------
 
 /// GET /api/memory/l2/mentions — entity mentions.
-pub async fn list_l2_mentions(Query(params): Query<LimitQuery>) -> Json<Value> {
+pub async fn list_l2_mentions(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
+    let offset = clamp_offset(params.offset);
     Json(
         tokio::task::spawn_blocking(move || {
+            let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    json!(db::query_to_json_array(
+                    let total = db::count_rows(
+                        &conn,
+                        "SELECT COUNT(*) FROM entity_mentions",
+                        &[],
+                    );
+                    let items = db::query_to_json_array(
                         &conn,
                         "SELECT * FROM entity_mentions \
-                         ORDER BY mention_id DESC LIMIT ?1",
-                        rusqlite::params![limit],
-                    ))
+                         ORDER BY mention_id DESC LIMIT ?1 OFFSET ?2",
+                        rusqlite::params![limit, offset],
+                    );
+                    json!({"items": items, "total": total, "limit": limit, "offset": offset})
                 })
-                .unwrap_or_else(|| json!([]))
+                .unwrap_or(empty)
         })
         .await
-        .unwrap_or_else(|_| json!([])),
+        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": limit, "offset": offset})),
     )
 }
 
@@ -268,23 +311,31 @@ pub async fn list_l2_mentions(Query(params): Query<LimitQuery>) -> Json<Value> {
 // ---------------------------------------------------------------------------
 
 /// GET /api/memory/l2/snapshots — ToM entity snapshots.
-pub async fn list_l2_snapshots(Query(params): Query<LimitQuery>) -> Json<Value> {
+pub async fn list_l2_snapshots(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
+    let offset = clamp_offset(params.offset);
     Json(
         tokio::task::spawn_blocking(move || {
+            let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    json!(db::query_to_json_array(
+                    let total = db::count_rows(
+                        &conn,
+                        "SELECT COUNT(*) FROM tom_snapshots",
+                        &[],
+                    );
+                    let items = db::query_to_json_array(
                         &conn,
                         "SELECT * FROM tom_snapshots \
-                         ORDER BY last_updated_at DESC LIMIT ?1",
-                        rusqlite::params![limit],
-                    ))
+                         ORDER BY last_updated_at DESC LIMIT ?1 OFFSET ?2",
+                        rusqlite::params![limit, offset],
+                    );
+                    json!({"items": items, "total": total, "limit": limit, "offset": offset})
                 })
-                .unwrap_or_else(|| json!([]))
+                .unwrap_or(empty)
         })
         .await
-        .unwrap_or_else(|_| json!([])),
+        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": limit, "offset": offset})),
     )
 }
 
@@ -319,14 +370,16 @@ pub async fn list_l2_conflict_rules() -> Json<Value> {
 pub async fn list_l3_summaries(Query(params): Query<SummariesQuery>) -> Json<Value> {
     let result = tokio::task::spawn_blocking(move || build_l3_summaries(&params))
         .await
-        .unwrap_or_else(|_| json!([]));
+        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": 50, "offset": 0}));
     Json(result)
 }
 
 fn build_l3_summaries(params: &SummariesQuery) -> Value {
+    let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
+    let offset = clamp_offset(params.offset);
     let conn = match db::open_readonly(&db::memory_db_path()) {
         Some(c) => c,
-        None => return json!([]),
+        None => return json!({"items": [], "total": 0, "limit": limit, "offset": offset}),
     };
 
     let mut where_parts: Vec<String> = Vec::new();
@@ -341,21 +394,28 @@ fn build_l3_summaries(params: &SummariesQuery) -> Value {
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
 
-    let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
-    bind.push(rusqlite::types::Value::Integer(limit));
-
     let where_clause = if where_parts.is_empty() {
         String::new()
     } else {
         format!("WHERE {} ", where_parts.join(" AND "))
     };
 
+    // Count total matching rows
+    let count_sql = format!("SELECT COUNT(*) FROM summaries {}", where_clause);
+    let count_refs: Vec<&dyn rusqlite::types::ToSql> =
+        bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+    let total = db::count_rows(&conn, &count_sql, &count_refs);
+
+    bind.push(rusqlite::types::Value::Integer(limit));
+    bind.push(rusqlite::types::Value::Integer(offset));
+
     let sql = format!(
-        "SELECT * FROM summaries {}ORDER BY updated_at DESC LIMIT ?",
+        "SELECT * FROM summaries {}ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         where_clause
     );
     let refs: Vec<&dyn rusqlite::types::ToSql> =
         bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
 
-    json!(db::query_to_json_array(&conn, &sql, &refs))
+    let items = db::query_to_json_array(&conn, &sql, &refs);
+    json!({"items": items, "total": total, "limit": limit, "offset": offset})
 }
