@@ -453,12 +453,12 @@ class L3SummaryStore:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
-    async def list_summaries(self, *, limit: int = 100) -> List[Dict[str, Any]]:
+    async def list_summaries(self, *, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """List most recent summaries."""
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM summaries ORDER BY updated_at DESC LIMIT ?", (int(limit),)) as cursor:
+            async with db.execute("SELECT * FROM summaries ORDER BY updated_at DESC LIMIT ? OFFSET ?", (int(limit), int(offset))) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 

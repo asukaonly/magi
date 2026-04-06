@@ -85,8 +85,21 @@ export interface L1Event {
   deleted_at?: number | null;
 }
 
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PaginationParams {
+  limit?: number;
+  offset?: number;
+}
+
 export interface L1EventQueryParams {
   limit?: number;
+  offset?: number;
   event_type?: string;
   user_id?: string;
   session_id?: string;
@@ -299,25 +312,25 @@ export const memoryApi = {
 
   // L1 Event Stream
   getL1Events: (params?: L1EventQueryParams) =>
-    api.get<{ events: L1Event[]; stats: { total: number } }>('/memory/l1/events', { params }) as unknown as Promise<{ events: L1Event[]; stats: { total: number } }>,
+    api.get<PaginatedResponse<L1Event>>('/memory/l1/events', { params }) as unknown as Promise<PaginatedResponse<L1Event>>,
 
   // L2 Cognition
   getL2Statistics: () =>
     api.get<L2Statistics>('/memory/l2/statistics') as unknown as Promise<L2Statistics>,
   getIdentityLinks: () =>
     api.get<MemoryIdentityLinksResponse>('/memory/identity/links') as unknown as Promise<MemoryIdentityLinksResponse>,
-  getL2Relations: (limit?: number) =>
-    api.get<L2Relation[]>('/memory/l2/relations', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Relation[]>,
-  getL2Assertions: (limit?: number) =>
-    api.get<L2Assertion[]>('/memory/l2/assertions', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Assertion[]>,
+  getL2Relations: (params?: PaginationParams) =>
+    api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params }) as unknown as Promise<PaginatedResponse<L2Relation>>,
+  getL2Assertions: (params?: PaginationParams) =>
+    api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params }) as unknown as Promise<PaginatedResponse<L2Assertion>>,
   submitAssertionFeedback: (assertionId: string, feedback: 'confirmed' | 'rejected') =>
     api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback }) as unknown as Promise<L2Assertion>,
-  getL2Entities: (limit?: number) =>
-    api.get<L2Entity[]>('/memory/l2/entities', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Entity[]>,
-  getL2Mentions: (limit?: number) =>
-    api.get<L2Mention[]>('/memory/l2/mentions', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Mention[]>,
-  getL2Snapshots: (limit?: number) =>
-    api.get<L2Snapshot[]>('/memory/l2/snapshots', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Snapshot[]>,
+  getL2Entities: (params?: PaginationParams) =>
+    api.get<PaginatedResponse<L2Entity>>('/memory/l2/entities', { params }) as unknown as Promise<PaginatedResponse<L2Entity>>,
+  getL2Mentions: (params?: PaginationParams) =>
+    api.get<PaginatedResponse<L2Mention>>('/memory/l2/mentions', { params }) as unknown as Promise<PaginatedResponse<L2Mention>>,
+  getL2Snapshots: (params?: PaginationParams) =>
+    api.get<PaginatedResponse<L2Snapshot>>('/memory/l2/snapshots', { params }) as unknown as Promise<PaginatedResponse<L2Snapshot>>,
   getL2ConflictRules: () =>
     api.get<L2GraphConflictRule[]>('/memory/l2/conflict-rules') as unknown as Promise<L2GraphConflictRule[]>,
   createManualL2Event: (payload: ManualL2EventPayload) =>
@@ -340,12 +353,12 @@ export const memoryApi = {
     }) as unknown as Promise<L2GraphConflictRule>,
 
   // L3 Reflection
-  getL3Summaries: (params?: { limit?: number; summary_type?: string; summary_category?: string }) =>
-    api.get<L3Summary[]>('/memory/l3/summaries', { params }) as unknown as Promise<L3Summary[]>,
+  getL3Summaries: (params?: { limit?: number; offset?: number; summary_type?: string; summary_category?: string }) =>
+    api.get<PaginatedResponse<L3Summary>>('/memory/l3/summaries', { params }) as unknown as Promise<PaginatedResponse<L3Summary>>,
 
   // L4 Procedural
-  getL4Skills: (limit?: number) =>
-    api.get<L4Skill[]>('/memory/procedures', { params: limit ? { limit } : undefined }) as unknown as Promise<L4Skill[]>,
+  getL4Skills: (params?: PaginationParams) =>
+    api.get<PaginatedResponse<L4Skill>>('/memory/procedures', { params }) as unknown as Promise<PaginatedResponse<L4Skill>>,
 
   // Statistics & Search
   getStatistics: () =>

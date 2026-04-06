@@ -686,21 +686,35 @@ async def get_background_pending():
         "all_idle": all_idle,
     }
 @memory_router.get("/l2/relations")
-async def list_l2_relations(limit: int = Query(default=100, ge=1, le=500)):
+async def list_l2_relations(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
     """List knowledge graph relations."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        return []
-    return await unified_memory.l2.get_relationships(limit=limit)
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    items, total = await asyncio.gather(
+        unified_memory.l2.get_relationships(limit=limit, offset=offset),
+        unified_memory.l2.count_relationships(),
+    )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @memory_router.get("/l2/assertions")
-async def list_l2_assertions(limit: int = Query(default=100, ge=1, le=500)):
+async def list_l2_assertions(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
     """List ToM trait assertions."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        return []
-    return await unified_memory.l2.list_tom_assertions(limit=limit)
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    items, total = await asyncio.gather(
+        unified_memory.l2.list_tom_assertions(limit=limit, offset=offset),
+        unified_memory.l2.count_tom_assertions(),
+    )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 class AssertionFeedbackRequest(BaseModel):
@@ -720,30 +734,51 @@ async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRe
 
 
 @memory_router.get("/l2/entities")
-async def list_l2_entities(limit: int = Query(default=100, ge=1, le=500)):
+async def list_l2_entities(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
     """List canonical L2 entities for the frontend lab picker."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2_entity_catalog:
-        return []
-    return await unified_memory.l2_entity_catalog.list_entities(limit=limit)
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    items, total = await asyncio.gather(
+        unified_memory.l2_entity_catalog.list_entities(limit=limit, offset=offset),
+        unified_memory.l2_entity_catalog.count_entities(),
+    )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @memory_router.get("/l2/mentions")
-async def list_l2_mentions(limit: int = Query(default=100, ge=1, le=500)):
+async def list_l2_mentions(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
     """List recent entity mentions and their resolution state."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2_entity_catalog:
-        return []
-    return await unified_memory.l2_entity_catalog.list_mentions(limit=limit)
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    items, total = await asyncio.gather(
+        unified_memory.l2_entity_catalog.list_mentions(limit=limit, offset=offset),
+        unified_memory.l2_entity_catalog.count_mentions(),
+    )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @memory_router.get("/l2/snapshots")
-async def list_l2_snapshots(limit: int = Query(default=100, ge=1, le=500)):
+async def list_l2_snapshots(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
     """List materialized L2 snapshots."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        return []
-    return await unified_memory.l2.list_tom_snapshots(limit=limit)
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    items, total = await asyncio.gather(
+        unified_memory.l2.list_tom_snapshots(limit=limit, offset=offset),
+        unified_memory.l2.count_tom_snapshots(),
+    )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @memory_router.get("/l2/conflict-rules")
@@ -1001,21 +1036,25 @@ async def trigger_l2_microbatch_flush():
 
 @memory_router.get("/l3/summaries")
 async def list_l3_summaries(
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     summary_type: Optional[str] = Query(default=None, description="Filter by type: temporal, thematic, insight"),
     summary_category: Optional[str] = Query(default=None, description="Filter by category: topic, task_reflection, state_change, trend_shift, etc."),
 ):
     """List L3 reflection summaries."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l3:
-        return []
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
-    summaries = await unified_memory.l3.list_summaries(limit=limit)
+    items, total = await asyncio.gather(
+        unified_memory.l3.list_summaries(limit=limit, offset=offset),
+        unified_memory.l3.count_summaries(),
+    )
     if summary_type:
-        summaries = [s for s in summaries if s.get("summary_type") == summary_type]
+        items = [s for s in items if s.get("summary_type") == summary_type]
     if summary_category:
-        summaries = [s for s in summaries if s.get("summary_category") == summary_category]
-    return summaries
+        items = [s for s in items if s.get("summary_category") == summary_category]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 # =============================================================================
@@ -1123,6 +1162,7 @@ async def clear_memory_layers():
 @memory_router.get("/l1/events")
 async def get_l1_events(
     limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     event_type: Optional[str] = Query(default=None),
     user_id: Optional[str] = Query(default=None),
     session_id: Optional[str] = Query(default=None),
@@ -1135,7 +1175,7 @@ async def get_l1_events(
 ):
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l1:
-        return {"events": [], "stats": {"total": 0}}
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
     start_time = _parse_day_boundary(start_date, end_of_day=False)
     end_time = _parse_day_boundary(end_date, end_of_day=True)
@@ -1150,11 +1190,12 @@ async def get_l1_events(
         start_time=start_time,
         end_time=end_time,
         limit=limit,
+        offset=offset,
         include_metadata_json=False,
         include_embedding_fields=False,
     )
     total = await unified_memory.l1.count_events()
-    return {"events": [_serialize_l1_event_list_item(event) for event in events], "stats": {"total": total}}
+    return {"items": [_serialize_l1_event_list_item(event) for event in events], "total": total, "limit": limit, "offset": offset}
 
 
 @memory_router.post("/search")
@@ -1181,24 +1222,35 @@ async def search_memory(request: RetrievalRequest):
     return asdict(payload)
 
 
-@memory_router.get("/procedures", response_model=List[ProcedureResponse])
-async def list_procedures(limit: int = Query(default=100, ge=1, le=500)):
+@memory_router.get("/procedures")
+async def list_procedures(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l4:
-        return []
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
-    procedures = await unified_memory.l4.get_all_skills(limit=limit)
-    return [
-        ProcedureResponse(
-            skill_id=str(item["skill_id"]),
-            skill_name=str(item["skill_name"]),
-            skill_category=str(item["skill_category"]),
-            success_rate=float(item["success_rate"]),
-            total_attempts=int(item["total_attempts"]),
-            circuit_breaker_state=str(item["circuit_breaker_state"]),
-        )
-        for item in procedures
-    ]
+    items, total = await asyncio.gather(
+        unified_memory.l4.get_all_skills(limit=limit, offset=offset),
+        unified_memory.l4.count_skills(),
+    )
+    return {
+        "items": [
+            ProcedureResponse(
+                skill_id=str(item["skill_id"]),
+                skill_name=str(item["skill_name"]),
+                skill_category=str(item["skill_category"]),
+                success_rate=float(item["success_rate"]),
+                total_attempts=int(item["total_attempts"]),
+                circuit_breaker_state=str(item["circuit_breaker_state"]),
+            )
+            for item in items
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @memory_router.get("/tom/{entity_id}")

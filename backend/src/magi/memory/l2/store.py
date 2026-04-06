@@ -865,6 +865,7 @@ class L2CognitionStore:
         include_expired: bool = True,
         target_entity_id: Optional[str] = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         """List ToM assertions ordered by recency."""
         await self.initialize()
@@ -891,8 +892,9 @@ class L2CognitionStore:
             now = time.time()
             query += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
-        query += " ORDER BY updated_at DESC LIMIT ?"
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
+        args.append(int(offset))
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -1021,12 +1023,23 @@ class L2CognitionStore:
         )
         return await self.get_tom_assertion(assertion_id=assertion_id)
 
+    async def count_tom_snapshots(self) -> int:
+        """Count all ToM snapshots."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM tom_snapshots"
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
     async def list_tom_snapshots(
         self,
         *,
         entity_id: Optional[str] = None,
         entity_type: Optional[str] = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         """List materialized ToM snapshots ordered by recency."""
         await self.initialize()
@@ -1038,8 +1051,9 @@ class L2CognitionStore:
         if entity_type:
             query += " AND entity_type = ?"
             args.append(entity_type)
-        query += " ORDER BY last_updated_at DESC LIMIT ?"
+        query += " ORDER BY last_updated_at DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
+        args.append(int(offset))
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -1067,6 +1081,7 @@ class L2CognitionStore:
         predicates: Optional[List[str]] = None,
         object_types: Optional[List[str]] = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         await self.initialize()
@@ -1091,8 +1106,9 @@ class L2CognitionStore:
             placeholders = ", ".join("?" for _ in object_types)
             query += f" AND object_type IN ({placeholders})"
             args.extend([str(item).strip().lower() for item in object_types])
-        query += " ORDER BY updated_at DESC LIMIT ?"
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
+        args.append(int(offset))
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:

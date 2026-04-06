@@ -673,6 +673,7 @@ class L1EventStore:
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
         limit: int = 100,
+        offset: int = 0,
         include_metadata_json: bool = True,
         include_embedding_fields: bool = True,
     ) -> List[Dict[str, Any]]:
@@ -716,8 +717,9 @@ class L1EventStore:
             sql += " AND timestamp <= ?"
             args.append(float(end_time))
 
-        sql += " ORDER BY timestamp DESC LIMIT ?"
+        sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
+        args.append(int(offset))
 
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row

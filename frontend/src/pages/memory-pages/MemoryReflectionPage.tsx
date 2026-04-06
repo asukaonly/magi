@@ -9,12 +9,19 @@ import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
 } from './MemoryPageFrame';
+import { MemoryPagination, PAGE_SIZE } from './MemoryPagination';
 
 export const MemoryReflectionPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l3Summaries, refresh } = useMemory({ initialLoadScope: 'l3' });
+  const { loading, stats, l3Summaries, l3Total, loadL3Summaries, refresh } = useMemory({ initialLoadScope: 'l3' });
   const [queryDraft, setQueryDraft] = useState('');
   const [query, setQuery] = useState('');
+  const [offset, setOffset] = useState(0);
+
+  const handlePageChange = async (newOffset: number) => {
+    setOffset(newOffset);
+    await loadL3Summaries({ offset: newOffset });
+  };
 
   const filteredSummaries = useMemo(
     () =>
@@ -91,7 +98,18 @@ export const MemoryReflectionPage = () => {
         </form>
       )}
     >
-      {loading ? <LoadingSpinner /> : <L3Tab stats={stats.l3} summaries={filteredSummaries} />}
+      {loading ? <LoadingSpinner /> : (
+        <div className="space-y-4">
+          <L3Tab stats={stats.l3} summaries={filteredSummaries} />
+          <MemoryPagination
+            total={l3Total}
+            offset={offset}
+            limit={PAGE_SIZE}
+            loading={loading}
+            onPageChange={(newOffset) => void handlePageChange(newOffset)}
+          />
+        </div>
+      )}
     </MemoryPageFrame>
   );
 };

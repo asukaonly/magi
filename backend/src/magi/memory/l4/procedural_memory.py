@@ -382,8 +382,8 @@ class L4ProceduralMemoryStore:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM procedural_skills ORDER BY updated_at DESC LIMIT ?",
-                (int(limit),),
+                "SELECT * FROM procedural_skills ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                (int(limit), int(offset)),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]

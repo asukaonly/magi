@@ -14,12 +14,19 @@ import MemoryPageFrame, {
   MemoryTag,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
+import { MemoryPagination, PAGE_SIZE } from './MemoryPagination';
 
 export const MemorySkillsPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l4Skills, refresh } = useMemory({ initialLoadScope: 'l4' });
+  const { loading, stats, l4Skills, l4Total, loadL4Skills, refresh } = useMemory({ initialLoadScope: 'l4' });
   const [query, setQuery] = useState('');
   const [breakerFilter, setBreakerFilter] = useState('all');
+  const [offset, setOffset] = useState(0);
+
+  const handlePageChange = async (newOffset: number) => {
+    setOffset(newOffset);
+    await loadL4Skills({ offset: newOffset });
+  };
 
   const filteredSkills = useMemo(
     () =>
@@ -127,6 +134,14 @@ export const MemorySkillsPage = () => {
           </div>
 
           <L4Tab stats={stats.l4} skills={filteredSkills} />
+
+          <MemoryPagination
+            total={l4Total}
+            offset={offset}
+            limit={PAGE_SIZE}
+            loading={loading}
+            onPageChange={(newOffset) => void handlePageChange(newOffset)}
+          />
         </div>
       )}
     </MemoryPageFrame>

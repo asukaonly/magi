@@ -1481,6 +1481,11 @@
     "refresh": "刷新",
     "refreshSuccess": "数据已刷新",
     "loadFailed": "加载数据失败: {{message}}",
+    "pagination": {
+      "info": "{{from}}-{{to}} / 共 {{total}} 条",
+      "prev": "上一页",
+      "next": "下一页"
+    },
     "searchPlaceholder": "请输入搜索关键词...",
     "searchComplete": "搜索完成",
     "searchError": "搜索失败: {{message}}",

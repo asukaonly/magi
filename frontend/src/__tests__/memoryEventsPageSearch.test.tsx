@@ -116,6 +116,7 @@ describe('MemoryEventsPage search interactions', () => {
       source: 'chat_projector',
       start_date: '2026-03-01',
       end_date: '2026-03-02',
+      offset: 0,
     });
 
     await user.click(screen.getByRole('button', { name: 'memory.pages.events.resetButton' }));
@@ -157,6 +158,9 @@ describe('MemoryEventsPage search interactions', () => {
     expect(queryL1Events).toHaveBeenCalledWith({
       start_date: '2026-03-28',
       end_date: undefined,
+      offset: 0,
+      query: undefined,
+      source: undefined,
     });
   });
 });

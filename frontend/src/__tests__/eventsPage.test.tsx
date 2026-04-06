@@ -100,11 +100,13 @@ describe('events page', () => {
       temporary_tactics: [],
     });
     vi.mocked(memoryApi.getL1Events).mockResolvedValue({
-      events: [L1_EVENT],
-      stats: { total: 1 },
+      items: [L1_EVENT],
+      total: 1,
+      limit: 50,
+      offset: 0,
     });
-    vi.mocked(memoryApi.getL2Relations).mockResolvedValue([]);
-    vi.mocked(memoryApi.getL2Assertions).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL2Relations).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    vi.mocked(memoryApi.getL2Assertions).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
     vi.mocked(memoryApi.getL2Statistics).mockResolvedValue({
       canonical_self_id: 'user:self',
       identity_link_count: 1,
@@ -125,12 +127,12 @@ describe('events page', () => {
         },
       ],
     });
-    vi.mocked(memoryApi.getL2Entities).mockResolvedValue([]);
-    vi.mocked(memoryApi.getL2Mentions).mockResolvedValue([]);
-    vi.mocked(memoryApi.getL2Snapshots).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL2Entities).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    vi.mocked(memoryApi.getL2Mentions).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    vi.mocked(memoryApi.getL2Snapshots).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
     vi.mocked(memoryApi.getL2ConflictRules).mockResolvedValue([]);
-    vi.mocked(memoryApi.getL3Summaries).mockResolvedValue([]);
-    vi.mocked(memoryApi.getL4Skills).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL3Summaries).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    vi.mocked(memoryApi.getL4Skills).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
     vi.mocked(memoryApi.search).mockResolvedValue({
       l0_workbench: [],
       l1_events: [],

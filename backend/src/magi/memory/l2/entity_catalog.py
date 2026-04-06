@@ -308,18 +308,35 @@ class L2EntityCatalog:
             "confidence": float(row["confidence"]) if row["confidence"] is not None else None,
         }
 
+    async def count_entities(self) -> int:
+        """Count all entities in the catalog."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM entity_catalog") as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def count_mentions(self) -> int:
+        """Count all entity mentions."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM entity_mentions") as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
     async def list_entities(
         self,
         *,
         limit: int = 100,
+        offset: int = 0,
         entity_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         await self.initialize()
         if entity_ids is not None and not entity_ids:
             return []
-        return await self._list_entities(limit=limit, entity_ids=entity_ids)
+        return await self._list_entities(limit=limit, offset=offset, entity_ids=entity_ids)
 
-    async def list_mentions(self, *, limit: int = 100) -> list[dict[str, Any]]:
+    async def list_mentions(self, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -329,9 +346,9 @@ class L2EntityCatalog:
                        evidence_event_ids, evidence_text, resolved_entity_id, confidence
                 FROM entity_mentions
                 ORDER BY mention_id DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (int(limit),),
+                (int(limit), int(offset)),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [
@@ -723,6 +740,7 @@ class L2EntityCatalog:
         self,
         *,
         limit: int,
+        offset: int = 0,
         entity_type: Optional[str] = None,
         entity_ids: list[str] | None = None,
         order_by_recency: bool = False,
@@ -743,10 +761,11 @@ class L2EntityCatalog:
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         if order_by_recency:
-            query += " ORDER BY updated_at DESC LIMIT ?"
+            query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         else:
-            query += " ORDER BY entity_id ASC LIMIT ?"
+            query += " ORDER BY entity_id ASC LIMIT ? OFFSET ?"
         args.append(int(limit))
+        args.append(int(offset))
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row

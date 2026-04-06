@@ -1498,6 +1498,11 @@
     "refresh": "Refresh",
     "refreshSuccess": "Data refreshed",
     "loadFailed": "Failed to load data: {{message}}",
+    "pagination": {
+      "info": "{{from}}-{{to}} of {{total}}",
+      "prev": "Previous",
+      "next": "Next"
+    },
     "searchPlaceholder": "Search keywords...",
     "searchComplete": "Search completed",
     "searchError": "Search failed: {{message}}",

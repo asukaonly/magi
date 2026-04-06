@@ -12,6 +12,7 @@ import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
+import { MemoryPagination, PAGE_SIZE } from './MemoryPagination';
 
 const SUMMARY_PREVIEW_LIMIT = 6;
 
@@ -44,11 +45,12 @@ const normalizeDateRange = (startDate: string, endDate: string) => {
 
 export const MemoryEventsPage = () => {
   const { t } = useTranslation('app');
-  const { loading, l1Events, queryL1Events } = useMemory({ initialLoadScope: 'l1' });
+  const { loading, l1Events, l1Total, queryL1Events } = useMemory({ initialLoadScope: 'l1' });
   const [contentQuery, setContentQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [offset, setOffset] = useState(0);
   const [appliedFilters, setAppliedFilters] = useState<
     { query?: string; source?: string; start_date?: string; end_date?: string } | undefined
   >(undefined);
@@ -93,7 +95,8 @@ export const MemoryEventsPage = () => {
   const handleSearch = async () => {
     const filters = buildSearchFilters();
     setAppliedFilters(filters);
-    await queryL1Events(filters);
+    setOffset(0);
+    await queryL1Events({ ...filters, offset: 0 });
   };
 
   const handleReset = async () => {
@@ -102,7 +105,13 @@ export const MemoryEventsPage = () => {
     setStartDate('');
     setEndDate('');
     setAppliedFilters(undefined);
+    setOffset(0);
     await queryL1Events(undefined);
+  };
+
+  const handlePageChange = async (newOffset: number) => {
+    setOffset(newOffset);
+    await queryL1Events({ ...appliedFilters, offset: newOffset });
   };
 
   return (
@@ -246,6 +255,14 @@ export const MemoryEventsPage = () => {
             events={l1Events}
             showStats={false}
             formatSourceLabel={formatSourceLabel}
+          />
+
+          <MemoryPagination
+            total={l1Total}
+            offset={offset}
+            limit={PAGE_SIZE}
+            loading={loading}
+            onPageChange={(newOffset) => void handlePageChange(newOffset)}
           />
         </div>
       )}

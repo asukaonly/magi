@@ -51,6 +51,7 @@ class _FakeL1Store:
         start_time=None,
         end_time=None,
         limit=50,
+        offset=0,
         include_metadata_json=True,
         include_embedding_fields=True,
     ):
@@ -65,6 +66,7 @@ class _FakeL1Store:
             "start_time": start_time,
             "end_time": end_time,
             "limit": limit,
+            "offset": offset,
             "include_metadata_json": include_metadata_json,
             "include_embedding_fields": include_embedding_fields,
         }
@@ -120,13 +122,16 @@ class _FakeL2Store:
     async def count_tom_assertions(self):
         return 0
 
-    async def get_relationships(self, limit: int = 100):
+    async def get_relationships(self, limit: int = 100, offset: int = 0):
         return []
 
-    async def list_tom_assertions(self, limit: int = 100):
+    async def list_tom_assertions(self, limit: int = 100, offset: int = 0):
         return []
 
-    async def list_tom_snapshots(self, limit: int = 100):
+    async def count_tom_snapshots(self):
+        return 1
+
+    async def list_tom_snapshots(self, limit: int = 100, offset: int = 0):
         _ = limit
         return [
             {
@@ -169,11 +174,17 @@ class _FakeL2Store:
 
 
 class _FakeL2EntityCatalog:
-    async def list_entities(self, limit: int = 100):
+    async def count_entities(self):
+        return 1
+
+    async def list_entities(self, limit: int = 100, offset: int = 0):
         _ = limit
         return [{"entity_id": "user:u1", "canonical_name": "User U1", "entity_type": "user", "aliases": []}]
 
-    async def list_mentions(self, limit: int = 100):
+    async def count_mentions(self):
+        return 1
+
+    async def list_mentions(self, limit: int = 100, offset: int = 0):
         _ = limit
         return [{"mention_id": 1, "mention_text": "魔都", "resolved_entity_id": "place:shanghai"}]
 
@@ -187,7 +198,7 @@ class _FakeL3Store:
     async def count_summaries(self):
         return 3
 
-    async def list_summaries(self, limit: int = 100):
+    async def list_summaries(self, limit: int = 100, offset: int = 0):
         _ = limit
         return [
             {"summary_id": "sum-1", "summary_type": "insight", "summary_category": "state_change"},
@@ -214,7 +225,7 @@ class _FakeL4Store:
     async def count_skills(self):
         return 1
 
-    async def get_all_skills(self, limit: int = 100):
+    async def get_all_skills(self, limit: int = 100, offset: int = 0):
         _ = limit
         return [
             {
@@ -389,8 +400,9 @@ def test_memory_procedures_api_lists_skills(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body[0]["skill_name"] == "browser.open"
-    assert body[0]["success_rate"] == 0.75
+    assert body["items"][0]["skill_name"] == "browser.open"
+    assert body["items"][0]["success_rate"] == 0.75
+    assert body["total"] == 1
 
 
 def test_memory_eval_replay_api_writes_records(monkeypatch):
@@ -1887,7 +1899,8 @@ def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert [item["summary_id"] for item in body] == ["sum-1"]
+    assert [item["summary_id"] for item in body["items"]] == ["sum-1"]
+    assert body["total"] == 3
 
 
 def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
@@ -1922,11 +1935,11 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     )
 
     assert entities_response.status_code == 200
-    assert entities_response.json()[0]["entity_id"] == "user:u1"
+    assert entities_response.json()["items"][0]["entity_id"] == "user:u1"
     assert mentions_response.status_code == 200
-    assert mentions_response.json()[0]["mention_text"] == "魔都"
+    assert mentions_response.json()["items"][0]["mention_text"] == "魔都"
     assert snapshots_response.status_code == 200
-    assert snapshots_response.json()[0]["snapshot_id"] == "snapshot-1"
+    assert snapshots_response.json()["items"][0]["snapshot_id"] == "snapshot-1"
     assert rules_response.status_code == 200
     assert rules_response.json()[0]["predicate"] == "LIKES"
     assert manual_response.status_code == 200
@@ -2091,15 +2104,16 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["events"][0]["user_id"] == "local_user"
-    assert body["events"][0]["content"] == "hello"
-    assert body["events"][0]["memory_domain"] == "interaction"
-    assert body["events"][0]["retention_class"] == "compressible"
-    assert body["events"][0]["id"] == 101
-    assert body["events"][0]["idempotency_key"] == "chat:session-1:turn-1"
-    assert "metadata_json" not in body["events"][0]
-    assert "embedding_status" not in body["events"][0]
-    assert "embedding_profile_id" not in body["events"][0]
+    assert body["items"][0]["user_id"] == "local_user"
+    assert body["items"][0]["content"] == "hello"
+    assert body["items"][0]["memory_domain"] == "interaction"
+    assert body["items"][0]["retention_class"] == "compressible"
+    assert body["items"][0]["id"] == 101
+    assert body["items"][0]["idempotency_key"] == "chat:session-1:turn-1"
+    assert "metadata_json" not in body["items"][0]
+    assert "embedding_status" not in body["items"][0]
+    assert "embedding_profile_id" not in body["items"][0]
+    assert body["total"] == 12
 
 
 def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
