@@ -19,7 +19,7 @@ async fn main() {
 
     let ipc_socket = env::var("MAGI_IPC_SOCKET").unwrap_or_else(|_| {
         let home = env::var("HOME").unwrap_or_else(|_| ".".into());
-        format!("{home}/.magi/runtime/ipc-gateway.sock")
+        format!("{home}/.magi/runtime/ipc.sock")
     });
 
     eprintln!("Connecting to IPC worker at {ipc_socket}");

@@ -585,14 +585,23 @@ fn start_backend(
         let runtime_dir = home.join(".magi").join("runtime");
         fs::create_dir_all(&runtime_dir)
             .map_err(|e| format!("Failed to create runtime dir: {e}"))?;
+        // Clean up stale ipc-*.sock files left by previous crashed sessions
+        if let Ok(entries) = fs::read_dir(&runtime_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with("ipc") && name.ends_with(".sock") {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
         runtime_dir
-            .join(format!("ipc-{}.sock", main_port))
+            .join("ipc.sock")
             .to_string_lossy()
             .to_string()
     };
 
-    // Remove stale socket / ready file before spawning
-    let _ = fs::remove_file(&ipc_socket_path);
+    // Remove stale ready / port files before spawning
     remove_ready_file();
 
     let start = if cfg!(debug_assertions) {
