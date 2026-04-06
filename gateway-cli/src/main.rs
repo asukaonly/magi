@@ -50,6 +50,16 @@ async fn main() {
         });
     eprintln!("Magi gateway listening on http://127.0.0.1:{port}");
 
+    // Write port file so benchmark scripts can auto-discover the gateway
+    let port_file = std::path::PathBuf::from(
+        env::var("HOME").unwrap_or_else(|_| ".".into()),
+    )
+    .join(".magi")
+    .join("runtime")
+    .join("gateway.port");
+    let _ = std::fs::create_dir_all(port_file.parent().unwrap());
+    let _ = std::fs::write(&port_file, port.to_string());
+
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     // Ctrl-C handler
@@ -67,5 +77,6 @@ async fn main() {
         .ok();
 
     let _ = bridge_shutdown_tx.send(true);
+    let _ = std::fs::remove_file(&port_file);
     eprintln!("Gateway stopped");
 }

@@ -188,8 +188,17 @@ fn wait_for_ready_file(timeout: Duration) -> bool {
 /// Remove stale worker ready file.
 fn remove_ready_file() {
     if let Ok(home) = env::var("HOME").map(PathBuf::from) {
-        let ready_path = home.join(".magi").join("runtime").join("worker.ready");
-        let _ = fs::remove_file(ready_path);
+        let runtime_dir = home.join(".magi").join("runtime");
+        let _ = fs::remove_file(runtime_dir.join("worker.ready"));
+        let _ = fs::remove_file(runtime_dir.join("gateway.port"));
+    }
+}
+
+fn write_gateway_port_file(port: u16) {
+    if let Ok(home) = env::var("HOME").map(PathBuf::from) {
+        let runtime_dir = home.join(".magi").join("runtime");
+        let _ = fs::create_dir_all(&runtime_dir);
+        let _ = fs::write(runtime_dir.join("gateway.port"), port.to_string());
     }
 }
 
@@ -631,6 +640,8 @@ fn start_backend(
     std_listener
         .set_nonblocking(true)
         .map_err(|e| format!("Failed to set listener non-blocking: {e}"))?;
+
+    write_gateway_port_file(main_port);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 

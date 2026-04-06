@@ -8,10 +8,27 @@ from pathlib import Path
 
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8000
+_GATEWAY_PORT_FILE = Path.home() / ".magi" / "runtime" / "gateway.port"
 
 
 def resolve_backend_url() -> str:
-    """Read the backend URL from ~/.magi/config/agent.yaml, falling back to localhost:8000."""
+    """Return the URL of a running Magi gateway.
+
+    Discovery order:
+      1. ``~/.magi/runtime/gateway.port`` — written by the Tauri desktop app
+         or ``gateway-cli`` on startup.
+      2. ``~/.magi/config/agent.yaml``  ``server.host`` / ``server.port``
+         (legacy).
+      3. Fallback to ``http://127.0.0.1:8000``.
+    """
+    # Prefer the runtime port file (written by gateway on startup)
+    if _GATEWAY_PORT_FILE.exists():
+        try:
+            port = int(_GATEWAY_PORT_FILE.read_text(encoding="utf-8").strip())
+            return f"http://{_DEFAULT_HOST}:{port}"
+        except (ValueError, OSError):
+            pass
+
     config_file = Path.home() / ".magi" / "config" / "agent.yaml"
     host = _DEFAULT_HOST
     port = _DEFAULT_PORT
