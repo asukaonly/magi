@@ -67,10 +67,13 @@ def adapt_longmemeval_entry(entry: dict[str, Any], *, namespace: str) -> Adapted
         "question_type": str(entry.get("question_type") or ""),
         "is_abstention": _is_abstention_entry(entry),
     }
+    question_date_ts = _parse_longmemeval_timestamp(entry.get("question_date"))
+    if question_date_ts is None:
+        question_date_ts = max((record.timestamp for record in replay_records), default=0.0) + 1.0
     query = EvalMemoryQuery(
         namespace=namespace,
         query=str(entry.get("question") or ""),
-        query_timestamp=(max((record.timestamp for record in replay_records), default=0.0) + 1.0),
+        query_timestamp=question_date_ts,
     )
     return AdaptedLongMemEvalEntry(
         question_id=str(entry.get("question_id") or ""),
