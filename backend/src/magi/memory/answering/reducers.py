@@ -83,19 +83,25 @@ def _extract_explicit_calendar_date_candidates(text: str) -> list[tuple[date, tu
         day = int(month_name_match.group("day"))
         year_str = month_name_match.group("year")
         year = int(year_str) if year_str else 2000
-        candidates.append((date(year, month, day), month_name_match.span()))
+        try:
+            candidates.append((date(year, month, day), month_name_match.span()))
+        except ValueError:
+            continue
 
     for numeric_match in re.finditer(
         r"\b(?P<month>\d{1,2})[/-](?P<day>\d{1,2})(?:[/-](?P<year>\d{4}))?\b", content
     ):
         year_str = numeric_match.group("year")
         year = int(year_str) if year_str else 2000
-        candidates.append(
-            (
-                date(year, int(numeric_match.group("month")), int(numeric_match.group("day"))),
-                numeric_match.span(),
+        try:
+            candidates.append(
+                (
+                    date(year, int(numeric_match.group("month")), int(numeric_match.group("day"))),
+                    numeric_match.span(),
+                )
             )
-        )
+        except ValueError:
+            continue
     return candidates
 
 
