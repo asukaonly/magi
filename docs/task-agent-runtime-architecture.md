@@ -83,8 +83,9 @@ Important rule: bootstrap order is dependency order, not ownership order. For ex
 
 ```mermaid
 flowchart TD
-    U["User Message"] --> T["API or WebSocket Transport"]
-    T --> D["Shared Message Dispatch Service"]
+    U["User Message"] --> G["Rust Axum Gateway"]
+    G --> IPC["IPC Dispatch (UDS)"]
+    IPC --> D["Shared Message Dispatch Service"]
     D --> Q["Runtime Command Queue"]
     Q --> B["Runtime Worker Local Message Bus"]
     B --> R["Router Agent / Sensor Hub"]
@@ -316,7 +317,7 @@ Current rules:
 
 ### Shared message dispatch
 
-`api/services/message_dispatch_service.py` is the shared write path for user messages from both HTTP and websocket transports.
+`api/services/message_dispatch_service.py` is the shared write path for user messages arriving via the IPC channel from the Rust gateway.
 
 It owns:
 
@@ -326,7 +327,7 @@ It owns:
 - runtime command publication
 - queue-size reporting for callers
 
-This keeps `api/routers/messages.py` and `websocket/handlers.py` transport-thin.
+This keeps `api/routers/messages.py` transport-thin.
 
 ### Read services
 
@@ -395,7 +396,7 @@ The current runtime trace path is:
 1. chat postprocess, function-calling orchestration, and worker execution write canonical trace rows directly
 2. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, and intent-resolution records
 3. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
-4. websocket and message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
+4. the Rust gateway and IPC-dispatched message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
 
 Two rules matter here:
 
@@ -416,13 +417,19 @@ This is how plugin-backed local sources participate in timeline ingestion withou
 
 ## Transport Boundary
 
-Transport handling lives in `backend/src/magi/websocket/` plus thin HTTP app wiring.
+HTTP and WebSocket transport is owned by the Rust gateway (`crates/magi-gateway/`). The Python sidecar runs no HTTP server. FastAPI is used only as an in-memory ASGI app, with requests arriving over an IPC channel (NDJSON over Unix Domain Socket).
+
+Transport-related Python code lives in `backend/src/magi/transport/` and handles:
+
+- IPC request dispatch to FastAPI routers
+- error handling and request logging middleware
+- language context propagation
 
 Current rule:
 
-- transport code handles connection lifecycle, request translation, and push mechanics
+- the Rust gateway owns connection lifecycle, protocol handling, and static data serving
+- the Python transport layer owns IPC app wiring and middleware
 - product behavior belongs in `api/services/` or lower runtime layers
-- websocket and HTTP entry points should share business write paths where practical
 
 ## Explore Request Path
 

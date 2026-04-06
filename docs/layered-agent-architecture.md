@@ -240,7 +240,7 @@ Notes:
 
 Responsibilities:
 
-- product-facing routers
+- product-facing routers (dispatched via IPC from the Rust gateway)
 - application services
 - read and write service contracts
 
@@ -249,19 +249,22 @@ Primary packages:
 - `api/routers/`
 - `api/services/`
 
+Notes:
+
+- the Rust gateway (`crates/magi-gateway/`) handles static database reads, config file I/O, and session/task mutations natively
+- requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
+
 ### L14. Connection And Transport
 
 Responsibilities:
 
-- websocket connection lifecycle
-- websocket protocol handling
-- transport-side push and session handling
-- thin HTTP app and middleware wiring
+- IPC transport app assembly and middleware for the Python sidecar
+- HTTP and WebSocket serving (owned by the Rust gateway, not Python)
 
 Primary packages:
 
-- `websocket/`
-- thin app wiring in `backend_app.py` and related transport setup modules
+- `transport/` (Python-side IPC transport wiring)
+- `crates/magi-gateway/src/api/` (Rust-side HTTP/WebSocket handling)
 
 ## Boundary Contracts
 
@@ -353,7 +356,7 @@ The current codebase already roughly maps to this target model:
 - `agent/` -> L11 agent runtime
 - `timeline/` -> L12 timeline domain
 - `api/` -> L13 external services
-- `websocket/` and connection-specific API glue -> L14 connection and transport
+- `transport/` and `crates/magi-gateway/` -> L14 connection and transport
 
 `runtime/` should enter the deletion path as refactors land. The target package model is `bootstrap/` for the outer composition root plus `core/` for L1 infrastructure. If a module belongs to one of the numbered layers, it should eventually live there instead of remaining in a generic runtime package.
 

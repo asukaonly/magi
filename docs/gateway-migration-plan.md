@@ -146,20 +146,16 @@ Pattern per endpoint:
 - Requires Python runtime objects → Rust sends IPC request, awaits response
 - Streaming response needed → Rust sends IPC request, receives stream messages, relays to client
 
-### Phase 9: Remove Python HTTP Stack
+### Phase 9: Remove Python HTTP Stack (completed)
 
-Delete Python transport layer (~9,500 lines):
-- `api/routers/` (16 files, ~5,763 lines)
-- `api/services/` (6 files, ~2,100 lines)
-- `api/routes.py`, `api/responses.py`, and helpers (~400 lines)
-- `websocket/` (8 files, ~1,184 lines)
-- `backend_app.py` FastAPI factory (~138 lines)
+Removed standalone Python HTTP/ASGI server. Python now runs as IPC-only sidecar:
+- `worker_app.py`: IPC server + bootstrap + runtime init (no HTTP binding)
+- `transport/`: FastAPI used only as in-memory ASGI app for IPC request dispatch
+- Deleted: `backend_app.py`, `websocket/` package (renamed remaining to `transport/`), CORS middleware, auth middleware
+- Simplified `ProcessRole` to single `ipc_worker` value
+- Removed `api_ready` and `process_role` from ready/health endpoints (now vestigial)
 
-Replace with `worker_app.py`: IPC server + bootstrap + runtime init.
-
-Simplify `ProcessRole` to single `WORKER` role.
-
-Rust side: add WebSocket handler on Axum (same port as HTTP), remove `proxy.rs` and `notification_bridge.rs`.
+Rust side: Axum WebSocket handler on same port, proxy fallback removed, notification bridge decoupled.
 
 ### Phase 10: Extract magi-gateway Lib Crate
 

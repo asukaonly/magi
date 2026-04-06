@@ -2,13 +2,14 @@
 
 ## What Magi Is
 
-Magi is a local-first AI agent framework that runs as a desktop application with dual Python backend processes and a Tauri shell.
+Magi is a local-first AI agent framework that runs as a desktop application with a Rust gateway, a Python backend sidecar, and a Tauri shell.
 
 At a high level, Magi combines:
 
-- a backend runtime for bootstrap, orchestration, memory, tools, plugins, scheduling, and transport
+- a backend runtime for bootstrap, orchestration, memory, tools, plugins, scheduling, and agent execution
+- a Rust gateway (Axum) that owns HTTP/WebSocket transport, static reads, config I/O, and IPC dispatch to Python
 - a React frontend for onboarding, settings, chat, inspection, and operational workflows
-- a Tauri desktop shell that hosts the frontend and starts the backend API and runtime-worker processes locally
+- a Tauri desktop shell that hosts the frontend, starts the Rust gateway, and manages the Python sidecar process
 
 The project is optimized for local deployment and contributor control rather than cloud-first orchestration.
 
@@ -32,9 +33,9 @@ The project is optimized for local deployment and contributor control rather tha
 Magi is a desktop-only application:
 
 - Desktop mode
-  Tauri shell plus React WebView plus Python API process plus Python runtime-worker process
+  Tauri shell plus React WebView plus Rust Axum gateway plus Python sidecar (IPC worker)
 
-The backend runtime is packaged and started locally by the desktop shell.
+The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over a Unix Domain Socket IPC channel to the Python sidecar. The Python process runs no HTTP server — FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
 ## Backend Shape
 
@@ -49,8 +50,8 @@ The backend uses a thin composition root plus layer-owned runtime modules.
 - `agent/`
   The task-agent runtime, orchestration, worker execution, and task-specific flows.
 
-- `api/` and `websocket/`
-  Product-facing services and transport handling.
+- `api/`
+  Product-facing services and routers dispatched via IPC from the Rust gateway.
 
 The backend is described in more detail in [Layered Agent Architecture](./layered-agent-architecture.md) and [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md).
 
@@ -183,8 +184,10 @@ magi/
 │   │   ├── skills/         # Shared skill loading and execution
 │   │   ├── timeline/       # Timeline domain and sync workflows
 │   │   ├── tools/          # Built-in and provider-backed tools
-│   │   └── websocket/      # Connection and websocket transport handling
+│   │   └── transport/      # IPC transport app wiring and middleware
 │   └── tests/
+├── crates/
+│   └── magi-gateway/       # Rust gateway: Axum routes, IPC client, DB reader
 ├── frontend/
 ├── docs/
 ├── openspec/
