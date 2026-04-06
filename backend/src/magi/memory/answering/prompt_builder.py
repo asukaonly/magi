@@ -90,34 +90,26 @@ def build_answer_prompt_payload(
         summary = str(item.get("summary") or "").strip()
         if not summary:
             continue
-        if prioritize_timeline:
-            timeline_blocks.append(
-                f"[{index}] session={session_id} role={author_type} turn={turn_id}\n{summary}"
-            )
-        else:
-            timeline_blocks.append(
-                f"[{index}] t={timestamp} session={session_id} role={author_type} turn={turn_id}\n{summary}"
-            )
+        timeline_blocks.append(
+            f"[{index}] t={timestamp} session={session_id} role={author_type} turn={turn_id}\n{summary}"
+        )
     timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
 
     bundle_blocks: list[str] = []
-    if prioritize_timeline:
-        bundle_text = "(omitted for temporal comparison; use the timeline summary first and consult raw evidence only if needed)"
-    else:
-        for bundle_index, bundle in enumerate(evidence_bundles or [], start=1):
-            session_id = str(bundle.get("session_id") or "").strip() or "unknown-session"
-            events = list(bundle.get("events") or [])
-            lines: list[str] = [f"[bundle {bundle_index}] session={session_id}"]
-            for event in events:
-                turn_id = str(event.get("turn_id") or "").strip() or "unknown-turn"
-                timestamp = event.get("timestamp")
-                author_type = str(event.get("author_type") or "unknown").strip() or "unknown"
-                content = str(event.get("content") or "").strip()
-                if not content:
-                    continue
-                lines.append(f"- t={timestamp} role={author_type} turn={turn_id}: {content}")
-            bundle_blocks.append("\n".join(lines))
-        bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
+    for bundle_index, bundle in enumerate(evidence_bundles or [], start=1):
+        session_id = str(bundle.get("session_id") or "").strip() or "unknown-session"
+        events = list(bundle.get("events") or [])
+        lines: list[str] = [f"[bundle {bundle_index}] session={session_id}"]
+        for event in events:
+            turn_id = str(event.get("turn_id") or "").strip() or "unknown-turn"
+            timestamp = event.get("timestamp")
+            author_type = str(event.get("author_type") or "unknown").strip() or "unknown"
+            content = str(event.get("content") or "").strip()
+            if not content:
+                continue
+            lines.append(f"- t={timestamp} role={author_type} turn={turn_id}: {content}")
+        bundle_blocks.append("\n".join(lines))
+    bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
 
     timeline_instruction = ""
     if prioritize_timeline:

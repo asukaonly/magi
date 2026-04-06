@@ -320,12 +320,18 @@ async def _synthesize_eval_answer(
         relationships=l2_relationships,
         assertions=l2_assertions,
     )
+    question_date_line = ""
+    if query_timestamp is not None:
+        qdt = datetime.fromtimestamp(query_timestamp)
+        question_date_line = f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} (timestamp={query_timestamp})\n"
+
     user_prompt = (
         "Use relative time expressions in the evidence when comparing event order.\n"
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
         f"{prompt_payload.timeline_instruction}"
         f"{prompt_payload.short_answer_instruction}"
         f"{prompt_payload.preference_instruction}"
+        f"{question_date_line}"
         f"Question:\n{question}\n\n"
         f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
         f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
