@@ -72,7 +72,7 @@ export function handleApiError(error: unknown, context?: string): AppError {
 }
 
 /**
- * Handle WebSocket errors.
+ * Handle realtime connection errors.
  */
 export function handleWSError(error: unknown, context?: string): AppError {
   const message = error instanceof Error ? error.message : String(error);

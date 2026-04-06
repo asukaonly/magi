@@ -938,7 +938,7 @@ export const ChatPage: React.FC = () => {
           window.dispatchEvent(new Event(SESSION_EVENT));
           return;
         case 'error':
-          toast.error(data.message || 'WebSocket error');
+          toast.error(data.message || 'Connection error');
           return;
         default:
           break;

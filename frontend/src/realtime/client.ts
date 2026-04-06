@@ -104,7 +104,7 @@ export class RealtimeClient {
     };
 
     socket.onerror = () => {
-      this.lastError = 'WebSocket error';
+      this.lastError = 'Connection error';
       this.emitStatus();
     };
 
