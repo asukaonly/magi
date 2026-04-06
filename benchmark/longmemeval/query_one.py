@@ -70,6 +70,8 @@ async def build_single_query_payload(
         "answer_session_ids": adapted.answer_session_ids,
         "namespace": namespace,
         "answer_with_llm": answer_with_llm,
+        "query_timestamp": adapted.query.query_timestamp,
+        "replay_record_count": len(adapted.replay_records),
         "hypothesis": hypothesis,
         "answer": query_result.answer,
         "hits": [asdict(hit) for hit in query_result.hits],

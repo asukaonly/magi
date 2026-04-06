@@ -239,10 +239,23 @@ class L1Handler(RRFSearchHandler):
         if not top_ids:
             return []
 
+        logger.debug(
+            "L1 RRF fusion completed | top_ids_count=%d top_ids_sample=%s",
+            len(top_ids), top_ids[:5],
+        )
+
         # Phase 4: Hydrate, filter, rerank
         results = await self._fetch_and_filter(
             event_ids=top_ids, conditions=conditions, time_range=time_range,
             session_id=session_id, user_id=user_id,
+        )
+
+        logger.debug(
+            "L1 fetch_and_filter completed | input_count=%d output_count=%d "
+            "session_id=%s user_id=%s time_range=%s source_filters=%s domain_filters=%s",
+            len(top_ids), len(results),
+            session_id, user_id, time_range,
+            conditions.source_filters, conditions.domain_filters,
         )
 
         if time_range and results:
@@ -254,7 +267,14 @@ class L1Handler(RRFSearchHandler):
             query=conditions.content_query,
             fused_scores=dict(fused),
         )
-        return reranked[:conditions.limit]
+        final = reranked[:conditions.limit]
+        logger.debug(
+            "L1 execute returning | reranked_count=%d limit=%d final_count=%d "
+            "final_event_ids=%s",
+            len(reranked), conditions.limit, len(final),
+            [e.get("event_id") for e in final[:5]],
+        )
+        return final
 
     async def _graph_spreading_path(self, seed_event_ids: List[str], limit: int) -> List[str]:
         """Graph spreading activation via L2 knowledge graph BFS."""

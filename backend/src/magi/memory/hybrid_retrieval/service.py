@@ -163,6 +163,11 @@ class HybridRetrievalService:
             request=request,
             payload=payload,
         )
+        logger.debug(
+            "Primary plans prepared | plan_count=%d layers=%s",
+            len(primary_plans),
+            [(p.layer, p.is_fallback, getattr(p.conditions, "content_query", "")[:60]) for p in primary_plans],
+        )
         if primary_plans:
             primary_results = await asyncio.gather(
                 *[
@@ -180,6 +185,11 @@ class HybridRetrievalService:
                 if isinstance(result, Exception):
                     logger.warning("Primary plan %s failed: %s", plan.layer, result)
                     continue
+                result_len = len(result) if isinstance(result, list) else (len(result.get("entity_cards", [])) if isinstance(result, dict) else 0)
+                logger.debug(
+                    "Primary plan %s merge | result_type=%s result_len=%d",
+                    plan.layer, type(result).__name__, result_len,
+                )
                 self._merge_result(payload, plan.layer, result)
 
         # 3b. Query expansion — run additional L1 plans with reformulated queries
