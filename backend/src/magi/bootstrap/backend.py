@@ -104,7 +104,7 @@ async def initialize_agent_runtime() -> None:
     container = get_container()
     container.runtime_orchestrator.override(providers.Object(orchestrator))
     container.runtime_bootstrap_context.override(providers.Object(context))
-    logger.info("Agent runtime initialized successfully", role=role.value)
+    logger.info("Agent runtime initialized successfully")
 
 
 async def shutdown_agent_runtime() -> None:
