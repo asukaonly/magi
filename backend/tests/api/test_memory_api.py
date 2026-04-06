@@ -383,9 +383,10 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["sessions"][0]["display_title"] == "记忆设置整理"
-    assert body["sessions"][0]["display_subtitle"] == "把通用记忆设置里的 UUID 展示优化掉"
-    assert body["sessions"][0]["short_session_id"] == "379f666d"
+    assert body["items"][0]["display_title"] == "记忆设置整理"
+    assert body["items"][0]["display_subtitle"] == "把通用记忆设置里的 UUID 展示优化掉"
+    assert body["items"][0]["short_session_id"] == "379f666d"
+    assert body["total"] == 1
 
 
 def test_memory_procedures_api_lists_skills(monkeypatch):

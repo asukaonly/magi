@@ -34,9 +34,11 @@ describe('MemoryEventsPage search interactions', () => {
         l4: { skill_count: 0, open_circuit_breakers: 0 },
       },
       l0Sessions: [],
+      l0Total: 0,
       l0Workbench: null,
       selectedSessionId: null,
       selectSession: vi.fn(),
+      loadL0Sessions: vi.fn(),
       l1Events: [
         {
           event_id: 'evt-1',

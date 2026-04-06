@@ -305,8 +305,8 @@ export interface MemorySearchResultPayload {
 // Legacy API object for backward compatibility
 export const memoryApi = {
   // L0 Working Memory
-  getL0Sessions: () =>
-    api.get<{ sessions: L0Session[]; stats: L0Stats }>('/memory/l0/sessions') as unknown as Promise<{ sessions: L0Session[]; stats: L0Stats }>,
+  getL0Sessions: (params?: PaginationParams & { status?: string; query?: string }) =>
+    api.get<PaginatedResponse<L0Session> & { stats: L0Stats }>('/memory/l0/sessions', { params }) as unknown as Promise<PaginatedResponse<L0Session> & { stats: L0Stats }>,
   getL0Workbench: (sessionId: string) =>
     api.get<L0Workbench>(`/memory/l0/workbench/${sessionId}`) as unknown as Promise<L0Workbench>,
 

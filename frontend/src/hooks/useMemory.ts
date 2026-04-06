@@ -47,9 +47,11 @@ export interface UseMemoryReturn {
 
   // L0 data
   l0Sessions: L0Session[];
+  l0Total: number;
   l0Workbench: L0Workbench | null;
   selectedSessionId: string | null;
   selectSession: (sessionId: string | null) => void;
+  loadL0Sessions: (params?: PaginationParams & { status?: string; query?: string }) => Promise<void>;
 
   // L1 data
   l1Events: L1Event[];
@@ -163,6 +165,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
 
   // L0 data
   const [l0Sessions, setL0Sessions] = useState<L0Session[]>([]);
+  const [l0Total, setL0Total] = useState(0);
   const [l0Workbench, setL0Workbench] = useState<L0Workbench | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
@@ -216,10 +219,11 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     }
   }, []);
 
-  const loadL0Sessions = useCallback(async () => {
+  const loadL0Sessions = useCallback(async (params?: PaginationParams & { status?: string; query?: string }) => {
     try {
-      const data = await memoryApi.getL0Sessions();
-      setL0Sessions(data.sessions || []);
+      const data = await memoryApi.getL0Sessions({ limit: 50, ...params });
+      setL0Sessions(data.items || []);
+      setL0Total(data.total ?? 0);
     } catch (error) {
       console.error('Failed to load L0 sessions:', error);
     }
@@ -655,9 +659,11 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
 
     // L0 data
     l0Sessions,
+    l0Total,
     l0Workbench,
     selectedSessionId,
     selectSession,
+    loadL0Sessions,
 
     // L1 data
     l1Events,

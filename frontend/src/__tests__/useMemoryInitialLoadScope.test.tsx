@@ -57,7 +57,10 @@ describe('useMemory initial load scope', () => {
       l4: { skill_count: 0, open_circuit_breakers: 0 },
     });
     vi.mocked(memoryApi.getL0Sessions).mockResolvedValue({
-      sessions: [],
+      items: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
       stats: { active_sessions: 0, total_goals: 0, total_entities: 0, total_tactics: 0 },
     });
     vi.mocked(memoryApi.getL0Workbench).mockResolvedValue({

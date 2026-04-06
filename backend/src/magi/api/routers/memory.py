@@ -454,39 +454,76 @@ def _parse_day_boundary(value: str | None, *, end_of_day: bool) -> float | None:
 # =============================================================================
 
 @memory_router.get("/l0/sessions")
-async def list_l0_sessions():
-    """List all active L0 sessions with stats."""
+async def list_l0_sessions(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    status: str | None = Query(None),
+    query: str | None = Query(None),
+):
+    """List L0 sessions with pagination, sorted by last_active_at descending."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l0:
-        return {"sessions": [], "stats": {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}}
+        return {"items": [], "total": 0, "limit": limit, "offset": offset, "stats": {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}}
 
     chat_read_service = get_chat_read_service()
-
-    # Collect all session IDs and batch-fetch chat summaries in one query.
     l0_sessions = unified_memory.l0._sessions
-    all_session_ids = list(l0_sessions.keys())
-    user_ids_by_session = {
-        sid: str(sess.get("user_id") or DEFAULT_USER_ID)
-        for sid, sess in l0_sessions.items()
-    }
 
-    # Group by user_id for batch queries.
+    # Sort all sessions by last_active_at descending (most recent first).
+    sorted_ids = sorted(
+        l0_sessions.keys(),
+        key=lambda sid: l0_sessions[sid].get("last_active_at", 0),
+        reverse=True,
+    )
+
+    # Apply status filter before pagination.
+    if status:
+        sorted_ids = [sid for sid in sorted_ids if l0_sessions[sid].get("status") == status]
+
+    total = len(sorted_ids)
+
+    # Slice for the requested page.
+    page_ids = sorted_ids[offset : offset + limit]
+
+    # Only batch-fetch chat summaries for the page slice (not all sessions).
+    user_ids_by_session = {
+        sid: str(l0_sessions[sid].get("user_id") or DEFAULT_USER_ID)
+        for sid in page_ids
+    }
     sessions_by_user: dict[str, list[str]] = {}
     for sid, uid in user_ids_by_session.items():
         sessions_by_user.setdefault(uid, []).append(sid)
 
-    # Batch fetch all summaries (one DB query per user_id, usually just one).
     summary_map: dict[str, Any] = {}
     for uid, sids in sessions_by_user.items():
         batch = await chat_read_service.aget_session_summaries_batch(uid, sids)
         summary_map.update(batch)
 
-    sessions = []
+    # Apply text query filter if provided (needs summaries for display text matching).
+    if query:
+        q_lower = query.lower()
+        filtered_page_ids = []
+        for sid in page_ids:
+            session = l0_sessions[sid]
+            goals = unified_memory.l0._goal_stack.get(sid, [])
+            chat_summary = summary_map.get(sid)
+            display = _derive_l0_session_display(session_id=sid, goals=goals, chat_summary=chat_summary)
+            searchable = " ".join(filter(None, [
+                sid,
+                display.get("display_title", ""),
+                display.get("display_subtitle", ""),
+                session.get("status", ""),
+            ])).lower()
+            if q_lower in searchable:
+                filtered_page_ids.append(sid)
+        page_ids = filtered_page_ids
+
+    items = []
     total_goals = 0
     total_entities = 0
     total_tactics = 0
 
-    for session_id, session in l0_sessions.items():
+    for session_id in page_ids:
+        session = l0_sessions[session_id]
         goals = unified_memory.l0._goal_stack.get(session_id, [])
         entities = unified_memory.l0._active_entities.get(session_id, {})
         tactics = unified_memory.l0._temporary_tactics.get(session_id, {})
@@ -500,7 +537,7 @@ async def list_l0_sessions():
         total_entities += len(entities)
         total_tactics += len(tactics)
 
-        sessions.append({
+        items.append({
             "session_id": session_id,
             "user_id": session.get("user_id"),
             "status": session.get("status"),
@@ -513,9 +550,12 @@ async def list_l0_sessions():
         })
 
     return {
-        "sessions": sessions,
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
         "stats": {
-            "active_sessions": len([s for s in sessions if s["status"] == "active"]),
+            "active_sessions": len([s for s in items if s["status"] == "active"]),
             "total_goals": total_goals,
             "total_entities": total_entities,
             "total_tactics": total_tactics,

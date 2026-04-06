@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,30 +15,43 @@ import MemoryPageFrame, {
   MemoryTag,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
+import { MemoryPagination } from './MemoryPagination';
+
+const PAGE_SIZE = 50;
 
 export const MemoryWorkbenchPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l0Sessions, l0Workbench, selectedSessionId, selectSession, refresh } = useMemory({
+  const { loading, stats, l0Sessions, l0Total, l0Workbench, selectedSessionId, selectSession, loadL0Sessions } = useMemory({
     initialLoadScope: 'l0',
   });
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [offset, setOffset] = useState(0);
 
-  const filteredSessions = useMemo(
-    () =>
-      l0Sessions.filter((session) => {
-        const matchesQuery =
-          query.trim().length === 0 ||
-          session.session_id.toLowerCase().includes(query.toLowerCase()) ||
-          getL0SessionPrimaryLabel(session).toLowerCase().includes(query.toLowerCase()) ||
-          (getL0SessionSecondaryLabel(session) || '').toLowerCase().includes(query.toLowerCase()) ||
-          session.status.toLowerCase().includes(query.toLowerCase());
-        const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
-        return matchesQuery && matchesStatus;
-      }),
-    [l0Sessions, query, statusFilter]
-  );
-  const selectedSession = filteredSessions.find((session) => session.session_id === selectedSessionId) ?? null;
+  // Reload sessions when filters or page change.
+  const reloadSessions = useCallback(() => {
+    void loadL0Sessions({
+      limit: PAGE_SIZE,
+      offset,
+      ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+      ...(query.trim() ? { query: query.trim() } : {}),
+    });
+  }, [loadL0Sessions, offset, statusFilter, query]);
+
+  useEffect(() => {
+    reloadSessions();
+  }, [reloadSessions]);
+
+  // Reset offset when filters change.
+  useEffect(() => {
+    setOffset(0);
+  }, [query, statusFilter]);
+
+  const handlePageChange = useCallback((newOffset: number) => {
+    setOffset(newOffset);
+  }, []);
+
+  const selectedSession = l0Sessions.find((session) => session.session_id === selectedSessionId) ?? null;
   const statusOptions = useMemo(
     () => [
       { value: 'active', label: t('memory.filters.active') },
@@ -48,14 +61,14 @@ export const MemoryWorkbenchPage = () => {
   );
 
   useEffect(() => {
-    if (!selectedSessionId && filteredSessions.length > 0) {
-      selectSession(filteredSessions[0].session_id);
+    if (!selectedSessionId && l0Sessions.length > 0) {
+      selectSession(l0Sessions[0].session_id);
       return;
     }
-    if (selectedSessionId && filteredSessions.every((session) => session.session_id !== selectedSessionId)) {
-      selectSession(filteredSessions[0]?.session_id ?? null);
+    if (selectedSessionId && l0Sessions.every((session) => session.session_id !== selectedSessionId)) {
+      selectSession(l0Sessions[0]?.session_id ?? null);
     }
-  }, [filteredSessions, selectSession, selectedSessionId]);
+  }, [l0Sessions, selectSession, selectedSessionId]);
 
   return (
     <MemoryPageFrame
@@ -65,7 +78,7 @@ export const MemoryWorkbenchPage = () => {
         <Button
           variant="outline"
           className={MEMORY_ACTION_BUTTON_CLASS}
-          onClick={() => void refresh('l0')}
+          onClick={() => void reloadSessions()}
           disabled={loading}
         >
           {loading ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
@@ -144,7 +157,7 @@ export const MemoryWorkbenchPage = () => {
               title={t('memory.pages.workbench.queueTitle')}
             >
               <div className="space-y-2 text-sm text-[hsl(var(--memory-body))]">
-                {filteredSessions.slice(0, 6).map((session) => (
+                {l0Sessions.slice(0, 6).map((session) => (
                   <div key={session.session_id} className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate">{getL0SessionPrimaryLabel(session)}</div>
@@ -159,17 +172,25 @@ export const MemoryWorkbenchPage = () => {
                     </span>
                   </div>
                 ))}
-                {filteredSessions.length === 0 ? <div className="text-[hsl(var(--memory-muted))]">{t('memory.l0.noSessions')}</div> : null}
+                {l0Sessions.length === 0 ? <div className="text-[hsl(var(--memory-muted))]">{t('memory.l0.noSessions')}</div> : null}
               </div>
             </MemoryWorkspacePanel>
           </div>
 
           <L0Tab
             stats={stats.l0}
-            sessions={filteredSessions}
+            sessions={l0Sessions}
             workbench={l0Workbench}
             selectedSessionId={selectedSessionId}
             onSelectSession={selectSession}
+          />
+
+          <MemoryPagination
+            total={l0Total}
+            offset={offset}
+            limit={PAGE_SIZE}
+            loading={loading}
+            onPageChange={handlePageChange}
           />
         </div>
       )}

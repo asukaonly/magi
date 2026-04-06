@@ -79,7 +79,7 @@ describe('events page', () => {
       l4: { skill_count: 0, open_circuit_breakers: 0 },
     });
     vi.mocked(memoryApi.getL0Sessions).mockResolvedValue({
-      sessions: [
+      items: [
         {
           session_id: 's1',
           user_id: 'u1',
@@ -91,6 +91,9 @@ describe('events page', () => {
           tactic_count: 0,
         },
       ],
+      total: 1,
+      limit: 50,
+      offset: 0,
       stats: { active_sessions: 1, total_goals: 0, total_entities: 0, total_tactics: 0 },
     });
     vi.mocked(memoryApi.getL0Workbench).mockResolvedValue({
