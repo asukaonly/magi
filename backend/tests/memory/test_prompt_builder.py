@@ -162,6 +162,7 @@ def test_build_answer_prompt_payload_includes_preference_instruction():
     )
 
     assert "The user would prefer" in payload.preference_instruction
+    assert "SPECIFIC" in payload.preference_instruction
     assert "unknown" in payload.preference_instruction.lower()
 
 

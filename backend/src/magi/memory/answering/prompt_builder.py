@@ -142,7 +142,11 @@ def build_answer_prompt_payload(
         preference_instruction = (
             "This is a recommendation/advice question. "
             "Describe what the user would prefer based on their interests, habits, and context found in the evidence. "
-            "Start your answer with 'The user would prefer' and summarize their relevant preferences. "
+            "Start your answer with 'The user would prefer' and include SPECIFIC details from the evidence: "
+            "exact product names, brands, activities, places, people, and prior experiences the user mentioned. "
+            "Reference concrete facts (e.g. 'their Sony A7R IV camera', 'their success with lemon poppyseed cake', "
+            "'their interest in stand-up comedy on Netflix') rather than giving generic summaries. "
+            "Also mention what the user would NOT prefer if the evidence indicates dislikes or constraints. "
             "Do NOT answer 'unknown' for recommendation questions when the evidence contains any user context.\n\n"
         )
 

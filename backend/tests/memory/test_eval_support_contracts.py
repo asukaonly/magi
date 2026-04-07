@@ -38,7 +38,7 @@ def test_eval_memory_query_defaults_mode_and_top_k() -> None:
     )
 
     assert query.namespace == "benchmark/longmemeval/run-1/q-1"
-    assert query.top_k == 10
+    assert query.top_k == 20
     assert query.mode == "auto"
     assert query.query_timestamp == 456.0
 

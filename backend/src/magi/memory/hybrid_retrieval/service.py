@@ -855,7 +855,7 @@ class HybridRetrievalService:
 
     @staticmethod
     def _bundle_neighbor_window(query: str) -> int:
-        """Use a slightly wider local window for temporal comparisons that need anchors."""
+        """Use a wider local window to capture answer context near hit turns."""
         lowered = str(query or "").lower()
         temporal_markers = (
             " first",
@@ -868,7 +868,7 @@ class HybridRetrievalService:
             " happened first",
             " occurred first",
         )
-        return 2 if any(marker in lowered for marker in temporal_markers) else 1
+        return 4 if any(marker in lowered for marker in temporal_markers) else 3
 
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:
