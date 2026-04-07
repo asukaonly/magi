@@ -378,7 +378,11 @@ class L1Handler(RRFSearchHandler):
         *,
         user_id: Optional[str] = None,
     ) -> List[str]:
-        """Time-constrained BM25 search to boost recall for temporal queries."""
+        """Time-constrained BM25 search to boost recall for temporal queries.
+
+        Uses strict matching (exact tokens first, no OR fallback) to avoid
+        noise from short prefix stems flooding RRF fusion.
+        """
         try:
             hits = await self._store.bm25_search(
                 query,
@@ -386,6 +390,7 @@ class L1Handler(RRFSearchHandler):
                 user_id=user_id,
                 start_time=time_range.start,
                 end_time=time_range.end,
+                strict=True,
             )
             return [event_id for event_id, _score in hits]
         except Exception as exc:

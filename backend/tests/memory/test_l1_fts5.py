@@ -11,6 +11,7 @@ import pytest
 
 from magi.memory.hybrid_retrieval.fts_utils import (
     _stem_english_token,
+    build_exact_fts_query,
     build_or_fts_query,
     build_stemmed_fts_query,
     escape_fts_query,
@@ -166,6 +167,37 @@ class TestBuildOrFtsQuery:
     def test_empty_after_stop_words(self) -> None:
         result = build_or_fts_query("the a an")
         assert result == ""
+
+
+class TestBuildExactFtsQuery:
+    def test_removes_stop_words(self) -> None:
+        result = build_exact_fts_query("The Crown")
+        assert "the" not in result.split()
+        assert result == "crown"
+
+    def test_no_prefix_wildcard(self) -> None:
+        result = build_exact_fts_query("The Crown")
+        assert "*" not in result
+
+    def test_multiple_tokens(self) -> None:
+        result = build_exact_fts_query("Game of Thrones")
+        assert result == "game thrones"
+
+    def test_preserves_short_tokens(self) -> None:
+        result = build_exact_fts_query("run fast")
+        assert result == "run fast"
+
+    def test_long_tokens_not_truncated(self) -> None:
+        result = build_exact_fts_query("graduate programming")
+        assert result == "graduate programming"
+
+    def test_empty_after_stop_words(self) -> None:
+        result = build_exact_fts_query("the a an")
+        assert result == ""
+
+    def test_cjk_tokens_unchanged(self) -> None:
+        result = build_exact_fts_query("机器 学习")
+        assert result == "机器 学习"
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +441,63 @@ class TestBm25Search:
 
         results = await store.bm25_search("common keyword", limit=3)
         assert len(results) <= 3
+
+
+@pytest.mark.asyncio
+class TestBm25SearchStrict:
+    """Tests for strict=True mode which uses exact tokens and skips OR fallback."""
+
+    async def test_strict_exact_match_preferred(self, store: L1EventStore) -> None:
+        """strict=True should match 'crown' exactly, not 'crow*' prefix."""
+        await store.store(_make_event(event_id="evt-crown", content="I watched The Crown last night"))
+        await store.store(_make_event(event_id="evt-crowd", content="The crowd was enormous at the show"))
+        await store.store(_make_event(event_id="evt-crowded", content="The subway was very crowded today"))
+
+        results = await store.bm25_search("The Crown", limit=10, strict=True)
+        event_ids = [r[0] for r in results]
+        assert "evt-crown" in event_ids
+        assert "evt-crowd" not in event_ids
+        assert "evt-crowded" not in event_ids
+
+    async def test_strict_falls_back_to_stemmed(self, store: L1EventStore) -> None:
+        """If exact tokens match nothing, strict mode still tries stemmed AND."""
+        await store.store(
+            _make_event(event_id="evt-grad", content="She graduated with honors last year")
+        )
+
+        # "graduate" exact won't match "graduated", but stemmed "graduat*" will
+        results = await store.bm25_search("graduate honors", limit=10, strict=True)
+        event_ids = [r[0] for r in results]
+        assert "evt-grad" in event_ids
+
+    async def test_strict_skips_or_fallback(self, store: L1EventStore) -> None:
+        """strict=True should not use OR fallback, so partial matches are excluded."""
+        await store.store(
+            _make_event(event_id="evt-a", content="I love playing volleyball at the park")
+        )
+        await store.store(
+            _make_event(event_id="evt-b", content="The charity run was really fun")
+        )
+
+        # In non-strict mode, OR fallback would match both events.
+        # In strict mode, AND requires both terms → neither matches both.
+        results_strict = await store.bm25_search("volleyball charity", limit=10, strict=True)
+        results_normal = await store.bm25_search("volleyball charity", limit=10, strict=False)
+        # Strict AND: neither event has both terms
+        assert len(results_strict) == 0
+        # Normal mode falls to OR: both events match
+        assert len(results_normal) >= 2
+
+    async def test_non_strict_matches_prefix_noise(self, store: L1EventStore) -> None:
+        """Non-strict mode matches 'crow*' prefix — demonstrates the noise problem."""
+        await store.store(_make_event(event_id="evt-crown", content="I watched The Crown last night"))
+        await store.store(_make_event(event_id="evt-crowd", content="The crowd was enormous at the show"))
+
+        results = await store.bm25_search("The Crown", limit=10, strict=False)
+        event_ids = [r[0] for r in results]
+        # Non-strict stemmed query uses "crow*" which matches both
+        assert "evt-crown" in event_ids
+        assert "evt-crowd" in event_ids
 
 
 @pytest.mark.asyncio

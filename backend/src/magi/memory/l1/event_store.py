@@ -20,7 +20,7 @@ from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddin
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..embedding.embedding_text_builders import build_l1_embedding_text
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
-from ..hybrid_retrieval.fts_utils import build_or_fts_query, build_stemmed_fts_query, escape_fts_query, tokenize_for_fts
+from ..hybrid_retrieval.fts_utils import build_exact_fts_query, build_or_fts_query, build_stemmed_fts_query, escape_fts_query, tokenize_for_fts
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
@@ -900,6 +900,7 @@ class L1EventStore:
         user_id: str | None = None,
         start_time: float | None = None,
         end_time: float | None = None,
+        strict: bool = False,
     ) -> List[Tuple[str, float]]:
         """Search L1 events via FTS5 BM25 ranking.
 
@@ -908,6 +909,11 @@ class L1EventStore:
 
         When *user_id* is provided the results are scoped to events owned by
         that user via a JOIN with the fact_events table.
+
+        When *strict* is True the search uses exact token matching first
+        (no prefix stemming) and skips the OR / relaxed fallback phases.
+        This avoids noise from short prefix stems such as ``crow*`` matching
+        unrelated words like *crowd* or *crowded*.
         """
         await self.initialize()
         tokenized = tokenize_for_fts(query)
@@ -920,33 +926,45 @@ class L1EventStore:
             try:
                 phase = "none"
                 _time_kw = {"start_time": start_time, "end_time": end_time}
+                rows: list = []
+                stemmed = ""
+                # Phase 0 (strict-first): Exact AND query — no prefix truncation
+                if strict:
+                    exact = build_exact_fts_query(escaped)
+                    if exact:
+                        rows = await self._run_bm25_query(db, exact, limit=limit, user_id=user_id, **_time_kw)
+                        if rows:
+                            phase = "exact_and"
                 # Phase 1: Stemmed AND query (stop words removed, inflections expanded)
-                stemmed = build_stemmed_fts_query(escaped)
-                if stemmed:
-                    rows = await self._run_bm25_query(db, stemmed, limit=limit, user_id=user_id, **_time_kw)
-                    if rows:
-                        phase = "stemmed_and"
-                else:
-                    rows = []
+                if not rows:
+                    stemmed = build_stemmed_fts_query(escaped)
+                    if stemmed:
+                        rows = await self._run_bm25_query(db, stemmed, limit=limit, user_id=user_id, **_time_kw)
+                        if rows:
+                            phase = "stemmed_and"
+                    else:
+                        stemmed = ""
                 # Phase 2: Original escaped query (for CJK / non-English text)
                 if not rows:
                     rows = await self._run_bm25_query(db, escaped, limit=limit, user_id=user_id, **_time_kw)
                     if rows:
                         phase = "original_and"
-                # Phase 3: Relaxed phrase queries (quoted spans)
-                if not rows:
-                    for fallback_query in self._build_relaxed_fts_queries(query):
-                        rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id, **_time_kw)
-                        if rows:
-                            phase = "relaxed_phrase"
-                            break
-                # Phase 4: OR fallback with stop words removed and stems added
-                if not rows:
-                    or_query = build_or_fts_query(escaped)
-                    if or_query and or_query != escaped:
-                        rows = await self._run_bm25_query(db, or_query, limit=limit, user_id=user_id, **_time_kw)
-                        if rows:
-                            phase = "or_fallback"
+                # Phase 3 & 4: Relaxed / OR fallback — skipped in strict mode
+                if not strict:
+                    # Phase 3: Relaxed phrase queries (quoted spans)
+                    if not rows:
+                        for fallback_query in self._build_relaxed_fts_queries(query):
+                            rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id, **_time_kw)
+                            if rows:
+                                phase = "relaxed_phrase"
+                                break
+                    # Phase 4: OR fallback with stop words removed and stems added
+                    if not rows:
+                        or_query = build_or_fts_query(escaped)
+                        if or_query and or_query != escaped:
+                            rows = await self._run_bm25_query(db, or_query, limit=limit, user_id=user_id, **_time_kw)
+                            if rows:
+                                phase = "or_fallback"
                 logger.info(
                     "BM25 search completed | phase=%s escaped=%r stemmed=%r "
                     "result_count=%d user_id=%s",
