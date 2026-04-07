@@ -192,7 +192,7 @@ class TestResolveTemporalRange:
             "Can you recommend some resources for video editing?",
             _QTS,
         )
-        assert result == {"start": 0, "end": _QTS}
+        assert result == {"start": 0}
 
     def test_non_temporal_comparison_returns_wide_range(self) -> None:
         result = EvalMemoryReader._resolve_temporal_range(
@@ -200,7 +200,7 @@ class TestResolveTemporalRange:
             _QTS,
         )
         # No concrete temporal anchor → wide range
-        assert result == {"start": 0, "end": _QTS}
+        assert result == {"start": 0}
 
     def test_future_resolved_date_is_ignored(self) -> None:
         # A query that might yield a future date should still return wide
@@ -226,4 +226,4 @@ class TestResolveTemporalRange:
             "What did I do last Friday?",
             _QTS,
         )
-        assert result == {"start": 0, "end": _QTS}
+        assert result == {"start": 0}

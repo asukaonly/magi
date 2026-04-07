@@ -105,10 +105,11 @@ class EvalMemoryReader:
 
         When a temporal expression is found the returned range is narrowed to
         ``[earliest_resolved - 7 days padding, query_timestamp]``.
-        Otherwise falls back to the conservative wide range
-        ``{start: 0, end: query_timestamp}``.
+        Otherwise falls back to a start-only range so events whose
+        replay-assigned timestamps slightly exceed ``query_timestamp``
+        are not inadvertently excluded.
         """
-        wide: dict = {"start": 0, "end": query_timestamp}
+        wide: dict = {"start": 0}
 
         try:
             from dateparser.search import search_dates

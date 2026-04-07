@@ -137,8 +137,10 @@ class RuleBasedIntentDecider:
 
     def _parse_raw_time_range(self, raw: Dict[str, Any]) -> Optional[TimeRange]:
         """Parse raw_time_range dict passed by caller."""
-        if "start" in raw and "end" in raw:
-            return TimeRange(start=float(raw["start"]), end=float(raw["end"]))
+        if "start" in raw or "end" in raw:
+            start = float(raw["start"]) if "start" in raw else None
+            end = float(raw["end"]) if "end" in raw else None
+            return TimeRange(start=start, end=end)
 
         if "relative" in raw:
             rel = str(raw["relative"]).strip().lower()

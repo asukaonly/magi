@@ -275,6 +275,15 @@ class TestRawTimeRange:
         assert result.time_range.start == 1000
         assert result.time_range.end == 2000
 
+    def test_start_only_raw_time_range(self, decider: RuleBasedIntentDecider):
+        """Partial raw_time_range with start-only should not set end."""
+        raw = {"start": 0}
+        inp = IntentDeciderInput(query="something", raw_time_range=raw)
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        assert result.time_range.start == 0
+        assert result.time_range.end is None
+
     def test_no_time_range(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="tell me about Python")
         result = decider.evaluate(inp)
