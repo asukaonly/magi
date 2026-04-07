@@ -16,7 +16,7 @@ from .answerability import (
     has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
-from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
+from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, enrich_l2_conditions
 from .models import (
     IntentDeciderInput,
     L1Conditions,
@@ -495,6 +495,27 @@ class HybridRetrievalService:
             )
             augmented_plans.append(l1_plan)
             payload.trace["l1_always_injected"] = True
+
+        # Inject L2 plan when the query contains temporal markers but the
+        # intent decider (typically the LLM) routed to L1-only.  L2
+        # knowledge-graph edges carry timestamps and can directly answer
+        # "time + fact" questions (e.g. "What did I buy 10 days ago?").
+        has_l2 = any(p.layer == "L2" for p in augmented_plans)
+        if not has_l2 and has_temporal_anchor(request.query):
+            l2_conditions = L2Conditions(
+                content_query=request.query,
+                include_tom_snapshot=True,
+                include_relationships=True,
+                include_assertions=True,
+            )
+            enrich_l2_conditions(l2_conditions, request.query)
+            l2_plan = LayerQueryPlan(
+                layer="L2",
+                conditions=l2_conditions,
+                is_fallback=False,
+            )
+            augmented_plans.append(l2_plan)
+            payload.trace["l2_temporal_injected"] = True
 
         return augmented_plans
 

@@ -1438,6 +1438,47 @@ class TestServiceEvidencePackaging:
         assert [item["supporting_event_ids"] for item in result.l1_timeline_summary] == [["e1"], ["e5"]]
 
 
+class TestL2TemporalInjection:
+    """Verify that L2 plan is injected when query has temporal anchors but LLM routed to L1-only."""
+
+    @pytest.mark.asyncio
+    async def test_temporal_query_injects_l2_plan(self):
+        """When the LLM routes a temporal query to L1 only, _augment_primary_plans should add an L2 plan."""
+        l1 = _make_l1_store([{"event_id": "e1", "content": "I got a smoker today", "timestamp": 1000.0}])
+        l2 = AsyncMock()
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_list_tom_assertions.return_value = {}
+        l2.batch_get_relationships.return_value = {}
+        l2.get_relationships.return_value = []
+        l2.list_tom_assertions.return_value = []
+        mem = _make_memory(l1=l1, l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        # Temporal query: "What did I buy 10 days ago?" contains date anchor
+        result = await svc.query(_make_request(query="What did I buy 10 days ago?"))
+
+        assert result.trace.get("l2_temporal_injected") is True
+
+    @pytest.mark.asyncio
+    async def test_non_temporal_query_does_not_inject_l2_when_l2_already_present(self):
+        """When L2 already participates, no extra injection happens even for temporal queries."""
+        l1 = _make_l1_store([])
+        l2 = AsyncMock()
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_list_tom_assertions.return_value = {}
+        l2.batch_get_relationships.return_value = {}
+        l2.get_relationships.return_value = []
+        l2.list_tom_assertions.return_value = []
+        mem = _make_memory(l1=l1, l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        # Default rule engine routes L1 primary + L2 fallback, so L2 is already present
+        # when primaryCount < threshold triggers fallback. Use a query without temporal marker.
+        result = await svc.query(_make_request(query="What is my favorite food?"))
+
+        assert result.trace.get("l2_temporal_injected") is None
+
+
 class TestServiceErrorHandling:
     @pytest.mark.asyncio
     async def test_handler_exception_does_not_crash(self):
