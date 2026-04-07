@@ -1460,6 +1460,31 @@ class TestL2TemporalInjection:
         assert result.trace.get("l2_temporal_injected") is True
 
     @pytest.mark.asyncio
+    async def test_temporal_injection_uses_self_anchor(self):
+        """The injected L2 plan should set subject_hint='self' so L2Handler queries from the user entity."""
+        l1 = _make_l1_store([])
+        l2 = AsyncMock()
+        mem = _make_memory(l1=l1, l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        payload = RetrievalPayload(trace={})
+        request = _make_request(query="What did I buy 10 days ago?")
+
+        # Simulate LLM routing to L1 only (no L2 plan)
+        l1_only_plans = [
+            LayerQueryPlan(
+                layer="L1",
+                conditions=L1Conditions(content_query=request.query, limit=10),
+                is_fallback=False,
+            )
+        ]
+        augmented = svc._augment_primary_plans(l1_only_plans, request=request, payload=payload)
+
+        l2_plans = [p for p in augmented if p.layer == "L2"]
+        assert len(l2_plans) == 1
+        assert l2_plans[0].conditions.subject_hint == "self"
+        assert payload.trace.get("l2_temporal_injected") is True
+
+    @pytest.mark.asyncio
     async def test_non_temporal_query_does_not_inject_l2_when_l2_already_present(self):
         """When L2 already participates, no extra injection happens even for temporal queries."""
         l1 = _make_l1_store([])

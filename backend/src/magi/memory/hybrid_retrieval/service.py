@@ -504,6 +504,7 @@ class HybridRetrievalService:
         if not has_l2 and has_temporal_anchor(request.query):
             l2_conditions = L2Conditions(
                 content_query=request.query,
+                subject_hint="self",
                 include_tom_snapshot=True,
                 include_relationships=True,
                 include_assertions=True,
