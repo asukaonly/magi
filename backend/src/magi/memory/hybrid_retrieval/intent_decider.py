@@ -39,57 +39,32 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Time keyword patterns (Chinese + English)
+# Time keyword patterns
 # ---------------------------------------------------------------------------
 
-_RELATIVE_PATTERNS: list[tuple[re.Pattern, str]] = [
-    # "N天前" / "N days ago"
-    (re.compile(r"(\d+)\s*天前", re.IGNORECASE), "days_ago"),
-    (re.compile(r"(\d+)\s*days?\s*ago", re.IGNORECASE), "days_ago"),
-    # "N小时前" / "N hours ago"
-    (re.compile(r"(\d+)\s*小时前", re.IGNORECASE), "hours_ago"),
-    (re.compile(r"(\d+)\s*hours?\s*ago", re.IGNORECASE), "hours_ago"),
-    # "N周前" / "N weeks ago"
-    (re.compile(r"(\d+)\s*周前", re.IGNORECASE), "weeks_ago"),
-    (re.compile(r"(\d+)\s*weeks?\s*ago", re.IGNORECASE), "weeks_ago"),
-    # "N个月前" / "N months ago"
-    (re.compile(r"(\d+)\s*个?月前", re.IGNORECASE), "months_ago"),
-    (re.compile(r"(\d+)\s*months?\s*ago", re.IGNORECASE), "months_ago"),
-]
+# Keywords that imply a recent window; dateparser cannot resolve these.
+_RECENTLY_KEYWORDS: list[str] = ["最近", "recently", "近期"]
 
-# Specific date patterns: "3月10号", "3月10日", "March 5th", "March 5"
-_DATE_PATTERN_ZH = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]")
-_DATE_PATTERN_EN = re.compile(
-    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
-    r"Dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?",
+# Chinese temporal extraction — search_dates has poor support for these.
+_ZH_RELATIVE_RE = re.compile(r"\d+\s*(?:天|小时|周|个?月)前")
+_ZH_DATE_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]")
+_ZH_LAST_WEEKDAY_RE = re.compile(r"上(?:周|星期)([一二三四五六日天])")
+_ZH_THIS_WEEK_RE = re.compile(r"(?:这|本)(?:周|星期)")
+_ZH_DAY_MAP: dict[str, int] = {
+    "一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6,
+}
+
+# Heuristics for inferring range width from dateparser matched text.
+_HOUR_HINT_RE = re.compile(r"hour|小时", re.IGNORECASE)
+_WEEK_HINT_RE = re.compile(r"week|周|星期", re.IGNORECASE)
+_WEEKDAY_SPECIFIC_RE = re.compile(
+    r"周[一二三四五六日天]"
+    r"|星期[一二三四五六日天]"
+    r"|(?:mon|tues|wednes|thurs|fri|satur|sun)day",
     re.IGNORECASE,
 )
-_MONTH_NAME_MAP = {
-    "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
-    "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6,
-    "jul": 7, "july": 7, "aug": 8, "august": 8, "sep": 9, "september": 9,
-    "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
-}
-
-# Day-of-week mapping
-_DAY_OF_WEEK_ZH = {"周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4, "周六": 5, "周日": 6, "周天": 6}
-_DAY_OF_WEEK_EN = {
-    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-    "friday": 4, "saturday": 5, "sunday": 6,
-}
-
-# Static time keywords
-_TIME_KEYWORDS: list[tuple[list[str], str]] = [
-    (["昨天", "yesterday"], "yesterday"),
-    (["前天", "day before yesterday"], "day_before_yesterday"),
-    (["今天", "today"], "today"),
-    (["这周", "本周", "this week"], "this_week"),
-    (["上周", "last week"], "last_week"),
-    (["上个月", "last month"], "last_month"),
-    (["这个月", "本月", "this month"], "this_month"),
-    (["最近", "recently", "近期"], "recently"),
-]
+_MONTH_HINT_RE = re.compile(r"month|月", re.IGNORECASE)
+_DAY_NUMBER_SUFFIX_RE = re.compile(r"\d+\s*[号日]|\d+(?:st|nd|rd|th)\b", re.IGNORECASE)
 
 # Mode -> layer mapping (for query_mode hint)
 _MODE_LAYER_MAP: Dict[str, tuple[str, str]] = {
@@ -178,149 +153,176 @@ class RuleBasedIntentDecider:
         return None
 
     def _parse_time_from_query(self, query: str) -> Optional[TimeRange]:
-        """Parse time expressions from natural language query."""
+        """Parse time expressions from natural language query.
+
+        Uses a hybrid strategy:
+        1. Chinese-specific regex extraction → ``dateparser.parse()``
+        2. ``dateparser.search.search_dates()`` for English (and simple Chinese)
+        3. Range-width heuristics via ``_range_from_match``
+        """
         query_lower = query.lower()
         now = datetime.now(tz=timezone.utc)
 
-        # 1. Check relative N-ago patterns first
-        for pattern, kind in _RELATIVE_PATTERNS:
-            m = pattern.search(query)
-            if m:
-                n = int(m.group(1))
-                return self._resolve_n_ago(now, n, kind)
-
-        # 2. Check "上周X" / "last Monday" style
-        last_weekday = self._parse_last_weekday(query_lower, now)
-        if last_weekday is not None:
-            return last_weekday
-
-        # 3. Check specific dates ("3月10号", "March 5th")
-        specific_date = self._parse_specific_date(query, now)
-        if specific_date is not None:
-            return specific_date
-
-        # 4. Check static keywords
-        for keywords, kind in _TIME_KEYWORDS:
-            if any(kw in query_lower for kw in keywords):
-                return self._resolve_static_time(now, kind)
-
-        return None
-
-    def _resolve_n_ago(self, now: datetime, n: int, kind: str) -> TimeRange:
-        if kind == "days_ago":
-            target = now - timedelta(days=n)
-            return self._day_range(target)
-        if kind == "hours_ago":
+        # "recently" / "最近" → 7-day window (dateparser cannot resolve these)
+        if any(kw in query_lower for kw in _RECENTLY_KEYWORDS):
             return TimeRange(
-                start=(now - timedelta(hours=n)).timestamp(),
+                start=(now - timedelta(days=7)).timestamp(),
                 end=now.timestamp(),
             )
-        if kind == "weeks_ago":
-            target = now - timedelta(weeks=n)
-            monday = target - timedelta(days=target.weekday())
-            sunday = monday + timedelta(days=6)
-            return TimeRange(
-                start=self._start_of_day(monday),
-                end=self._end_of_day(sunday),
+
+        # 1. Chinese-specific patterns (search_dates handles these poorly)
+        zh_result = self._try_chinese_temporal(query, now)
+        if zh_result is not None:
+            return zh_result
+
+        # 2. dateparser.search_dates — good for English expressions
+        try:
+            from dateparser.search import search_dates
+        except ImportError:
+            logger.debug("dateparser not available; skipping NL time parsing")
+            return None
+
+        settings: dict = {
+            "RELATIVE_BASE": now.replace(tzinfo=None),
+            "PREFER_DATES_FROM": "past",
+        }
+
+        try:
+            results = search_dates(
+                query, settings=settings, languages=["en", "zh"],
             )
-        if kind == "months_ago":
-            year = now.year
-            month = now.month - n
-            while month <= 0:
-                month += 12
-                year -= 1
-            first_day = datetime(year, month, 1, tzinfo=timezone.utc)
-            last_day_num = calendar.monthrange(year, month)[1]
-            last_day = datetime(year, month, last_day_num, tzinfo=timezone.utc)
-            return TimeRange(
-                start=self._start_of_day(first_day),
-                end=self._end_of_day(last_day),
-            )
-        return TimeRange()
+        except Exception:
+            logger.debug("dateparser.search_dates failed for query=%r", query)
+            return None
 
-    def _parse_last_weekday(self, query_lower: str, now: datetime) -> Optional[TimeRange]:
-        """Parse '上周三' / 'last Wednesday' patterns."""
-        # Chinese: "上周X"
-        for day_name, weekday in _DAY_OF_WEEK_ZH.items():
-            if f"上{day_name}" in query_lower:
-                return self._last_week_day(now, weekday)
+        if not results:
+            return None
 
-        # English: "last Monday" etc.
-        for day_name, weekday in _DAY_OF_WEEK_EN.items():
-            if f"last {day_name}" in query_lower:
-                return self._last_week_day(now, weekday)
+        # Keep only resolved dates that are in the past.
+        past: list[tuple[str, datetime]] = []
+        for matched_text, resolved_dt in results:
+            dt_utc = resolved_dt.replace(tzinfo=timezone.utc)
+            if dt_utc <= now:
+                past.append((matched_text, dt_utc))
 
-        return None
+        if not past:
+            return None
 
-    def _last_week_day(self, now: datetime, target_weekday: int) -> TimeRange:
-        """Get the date of a specific weekday in the previous week."""
-        # Go to last week's Monday
-        current_weekday = now.weekday()
-        days_since_monday = current_weekday
-        last_monday = now - timedelta(days=days_since_monday + 7)
-        target_date = last_monday + timedelta(days=target_weekday)
-        return self._day_range(target_date)
+        if len(past) == 1:
+            text, dt = past[0]
+            return self._range_from_match(text, dt, now)
 
-    def _parse_specific_date(self, query: str, now: datetime) -> Optional[TimeRange]:
-        """Parse specific date like '3月10号' or 'March 5th'."""
-        # Chinese pattern
-        m = _DATE_PATTERN_ZH.search(query)
+        # Multiple results: span from earliest to latest
+        all_ranges = [self._range_from_match(t, d, now) for t, d in past]
+        return TimeRange(
+            start=min(r.start for r in all_ranges if r.start is not None),
+            end=max(r.end for r in all_ranges if r.end is not None),
+        )
+
+    # -----------------------------------------------------------------------
+    # Chinese temporal extraction
+    # -----------------------------------------------------------------------
+
+    def _try_chinese_temporal(
+        self, query: str, now: datetime,
+    ) -> Optional[TimeRange]:
+        """Extract and resolve Chinese temporal expressions.
+
+        ``dateparser.search_dates`` misses many Chinese relative patterns
+        (e.g. "N天前", "上周三", "3月10号").  This method detects them via
+        lightweight regex, then resolves via ``dateparser.parse()`` where
+        possible and manual calculation otherwise.
+        """
+        # 1. Relative N-ago: "3天前", "2小时前", "N周前", "N个月前"
+        m = _ZH_RELATIVE_RE.search(query)
+        if m:
+            phrase = m.group(0)
+            try:
+                from dateparser import parse as dp_parse
+            except ImportError:
+                return None
+            settings: dict = {
+                "RELATIVE_BASE": now.replace(tzinfo=None),
+                "PREFER_DATES_FROM": "past",
+            }
+            dt = dp_parse(phrase, settings=settings, languages=["zh"])
+            if dt:
+                dt_utc = dt.replace(tzinfo=timezone.utc)
+                return self._range_from_match(phrase, dt_utc, now)
+
+        # 2. Specific weekday: "上周三", "上星期五"
+        m = _ZH_LAST_WEEKDAY_RE.search(query)
+        if m:
+            weekday = _ZH_DAY_MAP.get(m.group(1))
+            if weekday is not None:
+                last_monday = now - timedelta(days=now.weekday() + 7)
+                target = last_monday + timedelta(days=weekday)
+                return self._day_range(target)
+
+        # 3. Specific date: "3月10号", "12月25日"
+        m = _ZH_DATE_RE.search(query)
         if m:
             month, day = int(m.group(1)), int(m.group(2))
-            year = now.year
             try:
-                target = datetime(year, month, day, tzinfo=timezone.utc)
+                target = datetime(now.year, month, day, tzinfo=timezone.utc)
                 return self._day_range(target)
             except ValueError:
                 pass
 
-        # English pattern
-        m = _DATE_PATTERN_EN.search(query)
-        if m:
-            # Extract month name from the full match
-            month_str = m.group(0).split()[0].lower()
-            month = _MONTH_NAME_MAP.get(month_str)
-            day = int(m.group(1))
-            if month:
-                year = now.year
-                try:
-                    target = datetime(year, month, day, tzinfo=timezone.utc)
-                    return self._day_range(target)
-                except ValueError:
-                    pass
+        # 4. This week: "这周", "本周", "这星期"
+        if _ZH_THIS_WEEK_RE.search(query):
+            monday = now - timedelta(days=now.weekday())
+            return TimeRange(
+                start=self._start_of_day(monday),
+                end=now.timestamp(),
+            )
 
         return None
 
-    def _resolve_static_time(self, now: datetime, kind: str) -> TimeRange:
-        if kind == "yesterday":
-            return self._day_range(now - timedelta(days=1))
-        if kind == "day_before_yesterday":
-            return self._day_range(now - timedelta(days=2))
-        if kind == "today":
-            return TimeRange(start=self._start_of_day(now), end=now.timestamp())
-        if kind == "this_week":
-            monday = now - timedelta(days=now.weekday())
-            return TimeRange(start=self._start_of_day(monday), end=now.timestamp())
-        if kind == "last_week":
-            monday = now - timedelta(days=now.weekday() + 7)
+    # -----------------------------------------------------------------------
+    # Range width heuristics
+    # -----------------------------------------------------------------------
+
+    def _range_from_match(
+        self, matched_text: str, resolved_dt: datetime, now: datetime,
+    ) -> TimeRange:
+        """Infer an appropriate time range from a dateparser match.
+
+        Uses simple heuristics on *matched_text* to decide whether the
+        expression refers to an hour, day, week, or month window.
+        """
+        text = matched_text.strip()
+
+        # Hour-level: "2 hours ago", "3小时前"
+        if _HOUR_HINT_RE.search(text):
+            return TimeRange(
+                start=resolved_dt.timestamp(),
+                end=now.timestamp(),
+            )
+
+        # Week-level (NOT a specific weekday): "last week", "2周前"
+        if _WEEK_HINT_RE.search(text) and not _WEEKDAY_SPECIFIC_RE.search(text):
+            monday = resolved_dt - timedelta(days=resolved_dt.weekday())
             sunday = monday + timedelta(days=6)
-            return TimeRange(start=self._start_of_day(monday), end=self._end_of_day(sunday))
-        if kind == "last_month":
-            year = now.year
-            month = now.month - 1
-            if month <= 0:
-                month = 12
-                year -= 1
-            first = datetime(year, month, 1, tzinfo=timezone.utc)
-            last_num = calendar.monthrange(year, month)[1]
-            last = datetime(year, month, last_num, tzinfo=timezone.utc)
-            return TimeRange(start=self._start_of_day(first), end=self._end_of_day(last))
-        if kind == "this_month":
-            first = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
-            return TimeRange(start=self._start_of_day(first), end=now.timestamp())
-        if kind == "recently":
-            return TimeRange(start=(now - timedelta(days=7)).timestamp(), end=now.timestamp())
-        return TimeRange()
+            return TimeRange(
+                start=self._start_of_day(monday),
+                end=min(self._end_of_day(sunday), now.timestamp()),
+            )
+
+        # Month-level (NOT a specific date): "last month", "2个月前"
+        if _MONTH_HINT_RE.search(text) and not _DAY_NUMBER_SUFFIX_RE.search(text):
+            first = resolved_dt.replace(day=1)
+            last_day_num = calendar.monthrange(
+                resolved_dt.year, resolved_dt.month,
+            )[1]
+            end_dt = resolved_dt.replace(day=last_day_num)
+            return TimeRange(
+                start=self._start_of_day(first),
+                end=min(self._end_of_day(end_dt), now.timestamp()),
+            )
+
+        # Default: single day range
+        return self._day_range(resolved_dt)
 
     # -----------------------------------------------------------------------
     # Layer routing

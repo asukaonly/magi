@@ -50,8 +50,8 @@ class TestTimeParsingStatic:
         now = datetime.now(tz=timezone.utc)
         expected_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         assert abs(result.time_range.start - expected_start) < 2
-        # end should be close to now
-        assert abs(result.time_range.end - now.timestamp()) < 5
+        # end should cover at least up to now (dateparser returns day range)
+        assert result.time_range.end >= now.timestamp() - 5
 
     def test_this_week_zh(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="这周发生了什么")
@@ -180,6 +180,60 @@ class TestTimeParsingSpecificDate:
         inp = IntentDeciderInput(query="12月25日有什么活动")
         result = decider.evaluate(inp)
         assert result.time_range is not None
+
+
+# -----------------------------------------------------------------------
+# Time parsing: dateparser-based English patterns
+# -----------------------------------------------------------------------
+
+
+class TestDateparserEnglish:
+    """Tests that exercise the dateparser.search_dates path (English)."""
+
+    def test_two_days_ago_en(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="what happened two days ago")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        now = datetime.now(tz=timezone.utc)
+        target = now - timedelta(days=2)
+        expected = target.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        assert abs(result.time_range.start - expected) < 2
+
+    def test_last_month_en(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="Give me a summary of last month")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        diff = result.time_range.end - result.time_range.start
+        assert diff >= 27 * 86400
+
+    def test_no_temporal_expression(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="tell me about Python programming")
+        result = decider.evaluate(inp)
+        assert result.time_range is None
+
+
+# -----------------------------------------------------------------------
+# Time parsing: range width heuristics
+# -----------------------------------------------------------------------
+
+
+class TestRangeWidthHeuristics:
+    """Verify _range_from_match correctly widens to hour/week/month."""
+
+    def test_hours_ago_gives_hour_range(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="3 hours ago there was a meeting")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        diff = result.time_range.end - result.time_range.start
+        # Hour range should be around 3 hours, not a full day
+        assert diff < 86400
+
+    def test_weeks_ago_gives_week_range(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="3 weeks ago we discussed the project")
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        diff = result.time_range.end - result.time_range.start
+        assert diff >= 6 * 86400
 
 
 # -----------------------------------------------------------------------
