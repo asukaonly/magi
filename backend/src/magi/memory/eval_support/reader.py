@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from .contracts import EvalMemoryHit, EvalMemoryQuery, EvalMemoryQueryResult
 from .trace import build_eval_query_result
 from ..hybrid_retrieval import build_query
+
+logger = logging.getLogger(__name__)
+
+# Padding (seconds) added before the earliest resolved temporal anchor
+# so the hard time-range filter does not accidentally exclude nearby events.
+_TEMPORAL_PADDING_SECS = 7 * 86_400  # 7 days
 
 _STOP_WORDS = {
     "a",
@@ -61,14 +69,14 @@ class EvalMemoryReader:
         if query.mode == "l1_only":
             return await self._query_l1_only(query)
 
-        # Benchmark data uses fictional timestamps that don't align with the
-        # current wall-clock time.  Supply an explicit wide time_range so the
-        # intent-decider's rule engine does NOT parse temporal keywords like
-        # "last month" relative to *now*.  Temporal reasoning is left to the
-        # LLM working on retrieved evidence.
+        # Resolve relative time phrases (e.g. "last Friday", "two weeks ago")
+        # against query_timestamp so the retrieval layer can narrow its search
+        # window instead of scanning all events.
         time_range: dict = {}
         if query.query_timestamp:
-            time_range = {"start": 0, "end": query.query_timestamp}
+            time_range = self._resolve_temporal_range(
+                query.query, query.query_timestamp,
+            )
 
         request = build_query(
             query=query.query,
@@ -82,6 +90,63 @@ class EvalMemoryReader:
         )
         payload = await self._retrieval_service.query(request)
         return build_eval_query_result(payload)
+
+    # ------------------------------------------------------------------
+    # Temporal range resolution
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_temporal_range(query: str, query_timestamp: float) -> dict:
+        """Resolve relative time phrases in *query* against *query_timestamp*.
+
+        Uses ``dateparser.search`` to detect temporal expressions (e.g.
+        "last Friday", "two weeks ago") and anchors them to the
+        *query_timestamp* instead of wall-clock *now*.
+
+        When a temporal expression is found the returned range is narrowed to
+        ``[earliest_resolved - 7 days padding, query_timestamp]``.
+        Otherwise falls back to the conservative wide range
+        ``{start: 0, end: query_timestamp}``.
+        """
+        wide: dict = {"start": 0, "end": query_timestamp}
+
+        try:
+            from dateparser.search import search_dates
+        except ImportError:
+            return wide
+
+        reference_dt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
+        settings = {
+            "RELATIVE_BASE": reference_dt.replace(tzinfo=None),
+            "PREFER_DATES_FROM": "past",
+        }
+
+        try:
+            results = search_dates(query, settings=settings, languages=["en"])
+        except Exception:
+            logger.debug("dateparser.search_dates failed for query=%r", query)
+            return wide
+
+        if not results:
+            return wide
+
+        # Keep only resolved dates in the past relative to the question.
+        resolved: list[float] = []
+        for _matched_text, resolved_dt in results:
+            ts = resolved_dt.replace(tzinfo=timezone.utc).timestamp()
+            if ts <= query_timestamp:
+                resolved.append(ts)
+
+        if not resolved:
+            return wide
+
+        earliest = min(resolved)
+        start = max(0, earliest - _TEMPORAL_PADDING_SECS)
+        logger.debug(
+            "Temporal range narrowed query=%r earliest=%s start=%s end=%s",
+            query, earliest, start, query_timestamp,
+        )
+        return {"start": start, "end": query_timestamp}
 
     async def _query_l1_only(self, query: EvalMemoryQuery) -> EvalMemoryQueryResult:
         if self._l1_store is None:

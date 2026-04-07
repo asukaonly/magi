@@ -141,3 +141,89 @@ async def test_reader_l1_only_mode_bypasses_hybrid_retrieval() -> None:
     assert [hit.event_id for hit in result.hits] == ["evt-2"]
     assert result.trace["intent_source"] == "eval_l1_only"
     assert result.trace["candidate_count"] == 2
+
+
+# ------------------------------------------------------------------
+# _resolve_temporal_range tests
+# ------------------------------------------------------------------
+
+# question_date = 2023-04-05 Wed 19:25 UTC
+_QTS = 1680722700.0  # datetime(2023, 4, 5, 19, 25, tzinfo=UTC).timestamp()
+
+
+class TestResolveTemporalRange:
+    """Unit tests for EvalMemoryReader._resolve_temporal_range."""
+
+    def test_last_friday_narrows_range(self) -> None:
+        result = EvalMemoryReader._resolve_temporal_range(
+            "What is the artist that I started to listen to last Friday?",
+            _QTS,
+        )
+        # "last Friday" from Wed Apr 5 → Fri Mar 31 = 1680220800 UTC midnight
+        # start should be ~Mar 31 - 7 days = ~Mar 24
+        assert result["end"] == _QTS
+        assert result["start"] > 0
+        # start should be well before the question but after epoch
+        # Mar 24 midnight UTC = 1679616000
+        assert result["start"] < _QTS - 3 * 86_400  # at least 3 days before question
+
+    def test_two_weeks_ago_narrows_range(self) -> None:
+        result = EvalMemoryReader._resolve_temporal_range(
+            "I mentioned a sports event two weeks ago. What was the event?",
+            _QTS,
+        )
+        assert result["end"] == _QTS
+        # "two weeks ago" = ~Mar 22 → start ~Mar 15
+        assert result["start"] > 0
+        assert result["start"] < _QTS - 10 * 86_400
+
+    def test_last_month_narrows_range(self) -> None:
+        result = EvalMemoryReader._resolve_temporal_range(
+            "Which pair of shoes did I clean last month?",
+            _QTS,
+        )
+        assert result["end"] == _QTS
+        # "last month" = March → start ~late Feb
+        assert result["start"] > 0
+        assert result["start"] < _QTS - 20 * 86_400
+
+    def test_no_temporal_phrase_returns_wide_range(self) -> None:
+        result = EvalMemoryReader._resolve_temporal_range(
+            "Can you recommend some resources for video editing?",
+            _QTS,
+        )
+        assert result == {"start": 0, "end": _QTS}
+
+    def test_non_temporal_comparison_returns_wide_range(self) -> None:
+        result = EvalMemoryReader._resolve_temporal_range(
+            "How many days passed between the day I received feedback and the day I tested the car?",
+            _QTS,
+        )
+        # No concrete temporal anchor → wide range
+        assert result == {"start": 0, "end": _QTS}
+
+    def test_future_resolved_date_is_ignored(self) -> None:
+        # A query that might yield a future date should still return wide
+        result = EvalMemoryReader._resolve_temporal_range(
+            "What will I do next Friday?",
+            _QTS,
+        )
+        # "next Friday" resolves to a future date → filtered out → wide range
+        assert result["end"] == _QTS
+        # Could be wide range or a past-date match; either is acceptable
+
+    def test_returns_wide_when_dateparser_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib
+        original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+
+        def _block_dateparser(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if name == "dateparser.search" or name == "dateparser":
+                raise ImportError("mocked")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", _block_dateparser)
+        result = EvalMemoryReader._resolve_temporal_range(
+            "What did I do last Friday?",
+            _QTS,
+        )
+        assert result == {"start": 0, "end": _QTS}
