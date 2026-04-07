@@ -732,13 +732,18 @@ class HybridRetrievalService:
     ) -> list[str]:
         comparison_spans = extract_comparison_spans(query)
         if not comparison_spans:
+            # Fallback: extract quoted entity names (e.g. 'The Crown' or "Game of Thrones")
+            comparison_spans = extract_quoted_spans(query)
+        if not comparison_spans:
             return []
-        if HybridRetrievalService._count_results(payload) > 0 and HybridRetrievalService._rule_backstop_reason(
-            query=query,
-            payload=payload,
-            decision_source=decision_source,
-        ) != "missing_comparison_coverage":
-            return []
+        if HybridRetrievalService._count_results(payload) > 0:
+            backstop_reason = HybridRetrievalService._rule_backstop_reason(
+                query=query,
+                payload=payload,
+                decision_source=decision_source,
+            )
+            if backstop_reason not in ("missing_comparison_coverage", "missing_quoted_coverage"):
+                return []
 
         temporal_tokens = [
             token

@@ -1170,6 +1170,82 @@ class TestServiceFallback:
         assert result.trace["comparison_backstop_triggered"] is True
 
     @pytest.mark.asyncio
+    async def test_comparison_backstop_uses_quoted_spans_for_single_quoted_entities(self):
+        """When entities are single-quoted ('The Crown' or 'Game of Thrones'),
+        extract_comparison_spans returns [] but extract_quoted_spans succeeds."""
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        llm_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="The Crown vs Game of Thrones watch order", limit=10),
+            is_fallback=False,
+        )
+        rule_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(
+                content_query="Which show did I start watching first, 'The Crown' or 'Game of Thrones'?",
+                limit=10,
+            ),
+            is_fallback=False,
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[llm_plan],
+                source="llm",
+                reasoning="llm found comparison question",
+            )
+        )
+        svc._intent_decider._rule_engine.evaluate = MagicMock(
+            return_value=IntentDecision(
+                plans=[rule_plan],
+                source="rule_fallback",
+                reasoning="rule retries the original query",
+            )
+        )
+
+        got_event = {
+            "event_id": "evt-got",
+            "session_id": "answer_fb793c87_2",
+            "turn_id": "answer_fb793c87_2:turn-1",
+            "timestamp": 10.0,
+            "content": "I've been meaning to check out Game of Thrones for a while, and I finally started it about a month ago.",
+            "author_type": "user",
+        }
+        crown_event = {
+            "event_id": "evt-crown",
+            "session_id": "answer_abc12345_1",
+            "turn_id": "answer_abc12345_1:turn-3",
+            "timestamp": 5.0,
+            "content": "I started watching The Crown last week and I'm really enjoying it so far.",
+            "author_type": "user",
+        }
+
+        async def _execute_plan_side_effect(plan, **kwargs):
+            query = plan.conditions.content_query
+            if query == llm_plan.conditions.content_query:
+                return [got_event]
+            if query == rule_plan.conditions.content_query:
+                return [got_event]
+            if query == "crown":
+                return [crown_event]
+            if query == "game throne":
+                return [got_event]
+            raise AssertionError(f"Unexpected query plan: {query}")
+
+        with patch(
+            "magi.memory.hybrid_retrieval.service.execute_plan",
+            new=AsyncMock(side_effect=_execute_plan_side_effect),
+        ):
+            result = await svc.query(
+                _make_request(
+                    query="Which show did I start watching first, 'The Crown' or 'Game of Thrones'?"
+                )
+            )
+
+        assert {event["event_id"] for event in result.l1_events} == {"evt-got", "evt-crown"}
+        assert result.trace["comparison_backstop_triggered"] is True
+
+    @pytest.mark.asyncio
     async def test_temporal_distance_backstop_runs_anchor_queries_when_primary_is_empty(self):
         mem = _make_memory()
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
