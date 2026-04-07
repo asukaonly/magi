@@ -180,16 +180,25 @@ class L1Handler(RRFSearchHandler):
         fetch_k = max(conditions.limit * 5, 20)
 
         # Phase 1: Run 3 core retrieval paths in parallel
-        results_or_errors = await asyncio.gather(
+        retrieval_coros = [
             self._bm25_path(conditions.content_query, fetch_k, user_id=user_id),
             self._vector_path(conditions.content_query, fetch_k, user_id=user_id),
             self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id),
-            return_exceptions=True,
-        )
+        ]
+        has_temporal = time_range is not None and (time_range.start is not None or time_range.end is not None)
+        if has_temporal:
+            retrieval_coros.append(
+                self._temporal_bm25_path(conditions.content_query, fetch_k, time_range, user_id=user_id),
+            )
+
+        results_or_errors = await asyncio.gather(*retrieval_coros, return_exceptions=True)
 
         bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
         vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
         kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
+        temporal_bm25_ids: List[str] = []
+        if has_temporal:
+            temporal_bm25_ids = results_or_errors[3] if isinstance(results_or_errors[3], list) else []
 
         for i, res in enumerate(results_or_errors):
             if isinstance(res, BaseException):
@@ -197,13 +206,15 @@ class L1Handler(RRFSearchHandler):
 
         logger.info(
             "L1 retrieval paths completed | content_query=%r user_id=%s "
-            "bm25_count=%d vec_count=%d kw_count=%d fetch_k=%d",
+            "bm25_count=%d vec_count=%d kw_count=%d temporal_bm25_count=%d fetch_k=%d",
             conditions.content_query, user_id,
-            len(bm25_ids), len(vec_ids), len(kw_ids), fetch_k,
+            len(bm25_ids), len(vec_ids), len(kw_ids), len(temporal_bm25_ids), fetch_k,
         )
 
         # Phase 2: Entity co-occurrence expansion using top seed IDs
-        seed_ids: List[str] = list(dict.fromkeys(bm25_ids[:10] + vec_ids[:10] + kw_ids[:10]))
+        seed_ids: List[str] = list(dict.fromkeys(
+            bm25_ids[:10] + vec_ids[:10] + kw_ids[:10] + temporal_bm25_ids[:10]
+        ))
         entity_ids: List[str] = []
         if seed_ids:
             try:
@@ -211,7 +222,7 @@ class L1Handler(RRFSearchHandler):
             except Exception as exc:
                 logger.warning("L1 entity expansion failed: %s", exc)
 
-        if not bm25_ids and not vec_ids and not kw_ids and not entity_ids:
+        if not bm25_ids and not vec_ids and not kw_ids and not entity_ids and not temporal_bm25_ids:
             return []
 
         cfg = self._config
@@ -233,6 +244,9 @@ class L1Handler(RRFSearchHandler):
         if graph_ids:
             ranked_lists.append(graph_ids)
             weights.append(cfg.rrf_weight_graph)
+        if temporal_bm25_ids:
+            ranked_lists.append(temporal_bm25_ids)
+            weights.append(cfg.rrf_weight_bm25)
 
         fused = rrf_fuse(ranked_lists, weights, k=cfg.rrf_k)
         top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
@@ -354,6 +368,28 @@ class L1Handler(RRFSearchHandler):
             return [event_id for event_id, _score in hits]
         except Exception as exc:
             logger.warning("BM25 path failed: %s", exc)
+            return []
+
+    async def _temporal_bm25_path(
+        self,
+        query: str,
+        limit: int,
+        time_range: TimeRange,
+        *,
+        user_id: Optional[str] = None,
+    ) -> List[str]:
+        """Time-constrained BM25 search to boost recall for temporal queries."""
+        try:
+            hits = await self._store.bm25_search(
+                query,
+                limit=limit,
+                user_id=user_id,
+                start_time=time_range.start,
+                end_time=time_range.end,
+            )
+            return [event_id for event_id, _score in hits]
+        except Exception as exc:
+            logger.warning("Temporal BM25 path failed: %s", exc)
             return []
 
     async def _vector_path(self, query: str, limit: int, *, user_id: Optional[str] = None) -> List[str]:

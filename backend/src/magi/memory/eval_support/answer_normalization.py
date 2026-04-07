@@ -75,6 +75,20 @@ def normalize_eval_answer(raw_answer: str) -> str:
     answer = str(raw_answer or "").strip()
     if not answer:
         return "unknown"
+
+    # If the answer contains enumeration (numbered lists) with a final total,
+    # extract the total/conclusion from the last meaningful line.
+    lines = [ln.strip() for ln in answer.splitlines() if ln.strip()]
+    if len(lines) > 2:
+        last_line = lines[-1]
+        total_match = re.match(
+            r"^(?:total|answer|result|sum|combined|in total|the (?:total|answer) is)[:\s]*(.+)$",
+            last_line,
+            flags=re.IGNORECASE,
+        )
+        if total_match:
+            return total_match.group(1).strip() or last_line
+
     first_block = re.split(r"\n\s*\n", answer, maxsplit=1)[0].strip()
     first_line = first_block.splitlines()[0].strip() if first_block else ""
     normalized = first_line or first_block or answer

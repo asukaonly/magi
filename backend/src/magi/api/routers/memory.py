@@ -263,6 +263,15 @@ def _format_l2_context(
     return "\n".join(blocks) if blocks else "(no knowledge graph context)"
 
 
+def _is_counting_or_aggregation_question(question: str) -> bool:
+    """Detect questions that require multi-step counting, aggregation, or temporal math."""
+    lowered = str(question or "").lower()
+    return bool(re.search(
+        r"\bhow many\b|\btotal\b|\bcombined\b|\ball together\b|\bsum\b|\baverage\b|\bhow old\b|\bhow long\b|\bhow much faster\b|\bhow much older\b",
+        lowered,
+    ))
+
+
 async def _synthesize_eval_answer(
     *,
     question: str,
@@ -309,11 +318,13 @@ async def _synthesize_eval_answer(
         "Return only the final answer span with no explanation.\n"
         "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
         "When asked about order, count, duration, or time difference, reason over timestamps and content to derive the answer.\n"
-        "When asked 'how many' or 'total', scan ALL bundles and timeline entries, enumerate each item, then sum them up.\n"
+        "When asked 'how many' or 'total', enumerate EVERY relevant item from ALL bundles, timeline entries, and evidence, then sum to get the final count.\n"
         "When asked about 'X ago' or relative dates ('last Tuesday'), compute the delta between the event timestamp and the question date.\n"
         "When evidence spans multiple bundles, cross-reference and aggregate information across all of them.\n"
-        "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete.\n"
-        "Answer exactly 'unknown' only when the evidence contains nothing relevant at all."
+        "Look for answers in BOTH user messages AND assistant responses within the evidence.\n"
+        "If the question asks about a specific detail (name, place, date, amount), check assistant replies — they often restate or confirm the user's information.\n"
+        "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete or indirect.\n"
+        "Answer exactly 'unknown' only when no piece of evidence mentions anything related to the question topic."
     )
     l2_context_text = _format_l2_context(
         entity_cards=l2_entity_cards,
@@ -356,9 +367,10 @@ async def _synthesize_eval_answer(
             "==== END ANSWER LLM INPUT ===="
         ),
     )
+    _needs_reasoning = _is_counting_or_aggregation_question(question)
     answer = await adapter.chat(
         llm_messages,
-        max_tokens=256,
+        max_tokens=512 if _needs_reasoning else 256,
         temperature=0.0,
         disable_thinking=True,
     )

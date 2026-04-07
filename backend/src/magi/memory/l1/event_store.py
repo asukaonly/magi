@@ -898,6 +898,8 @@ class L1EventStore:
         *,
         limit: int = 20,
         user_id: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> List[Tuple[str, float]]:
         """Search L1 events via FTS5 BM25 ranking.
 
@@ -917,23 +919,24 @@ class L1EventStore:
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             try:
                 phase = "none"
+                _time_kw = {"start_time": start_time, "end_time": end_time}
                 # Phase 1: Stemmed AND query (stop words removed, inflections expanded)
                 stemmed = build_stemmed_fts_query(escaped)
                 if stemmed:
-                    rows = await self._run_bm25_query(db, stemmed, limit=limit, user_id=user_id)
+                    rows = await self._run_bm25_query(db, stemmed, limit=limit, user_id=user_id, **_time_kw)
                     if rows:
                         phase = "stemmed_and"
                 else:
                     rows = []
                 # Phase 2: Original escaped query (for CJK / non-English text)
                 if not rows:
-                    rows = await self._run_bm25_query(db, escaped, limit=limit, user_id=user_id)
+                    rows = await self._run_bm25_query(db, escaped, limit=limit, user_id=user_id, **_time_kw)
                     if rows:
                         phase = "original_and"
                 # Phase 3: Relaxed phrase queries (quoted spans)
                 if not rows:
                     for fallback_query in self._build_relaxed_fts_queries(query):
-                        rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id)
+                        rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id, **_time_kw)
                         if rows:
                             phase = "relaxed_phrase"
                             break
@@ -941,7 +944,7 @@ class L1EventStore:
                 if not rows:
                     or_query = build_or_fts_query(escaped)
                     if or_query and or_query != escaped:
-                        rows = await self._run_bm25_query(db, or_query, limit=limit, user_id=user_id)
+                        rows = await self._run_bm25_query(db, or_query, limit=limit, user_id=user_id, **_time_kw)
                         if rows:
                             phase = "or_fallback"
                 logger.info(
@@ -961,25 +964,41 @@ class L1EventStore:
         *,
         limit: int,
         user_id: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> list[tuple[Any, Any]]:
         """Execute a single FTS5 BM25 query.
 
         When *user_id* is provided the FTS5 results are joined with
         ``fact_events`` so only events belonging to that user are ranked.
+        When *start_time* / *end_time* are given, results are constrained
+        to the timestamp range via ``fact_events.timestamp``.
         """
         if user_id:
+            clauses = [
+                "l1_events_fts MATCH ?",
+                "fe.user_id = ?",
+                "fe.deleted_at IS NULL",
+            ]
+            params: list[Any] = [match_query, user_id]
+            if start_time is not None:
+                clauses.append("fe.timestamp >= ?")
+                params.append(start_time)
+            if end_time is not None:
+                clauses.append("fe.timestamp <= ?")
+                params.append(end_time)
+            params.append(limit)
+            where = " AND ".join(clauses)
             async with db.execute(
-                """
+                f"""
                 SELECT fts.event_id, bm25(l1_events_fts) AS score
                 FROM l1_events_fts fts
                 JOIN fact_events fe ON fe.event_id = fts.event_id
-                WHERE l1_events_fts MATCH ?
-                  AND fe.user_id = ?
-                  AND fe.deleted_at IS NULL
+                WHERE {where}
                 ORDER BY score
                 LIMIT ?
                 """,
-                (match_query, user_id, limit),
+                tuple(params),
             ) as cursor:
                 return await cursor.fetchall()
         async with db.execute(

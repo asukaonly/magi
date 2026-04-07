@@ -797,7 +797,7 @@ class HybridRetrievalService:
         neighbor_window = self._bundle_neighbor_window(query)
         bundles: List[Dict[str, Any]] = []
         for session_id, session_hits in grouped_hits.items():
-            session_events = await self._load_session_events(session_id, limit=max(len(session_hits) * 6, 12))
+            session_events = await self._load_session_events(session_id, limit=max(len(session_hits) * 8, 24))
             bundle_events, neighbor_expansion_applied = self._select_bundle_events(
                 session_events=session_events,
                 session_hits=session_hits,
@@ -890,7 +890,7 @@ class HybridRetrievalService:
             " happened first",
             " occurred first",
         )
-        return 4 if any(marker in lowered for marker in temporal_markers) else 3
+        return 6 if any(marker in lowered for marker in temporal_markers) else 5
 
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:
