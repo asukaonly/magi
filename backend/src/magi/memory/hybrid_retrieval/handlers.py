@@ -1100,6 +1100,18 @@ class L2Handler:
         if resolved or self._entity_catalog is None or not conditions.content_query:
             return resolved
 
+        # When subject_hint is "self" with an unknown predicate family, the
+        # user entity is the subject and the answer (object) is completely
+        # unknown.  Skip content_query vector search to avoid resolving
+        # irrelevant entities that would wrongly filter outgoing edges.
+        # For known families like "preference", target resolution is still
+        # valuable (e.g. "Do I like sushi?" → resolve "sushi").
+        if conditions.subject_hint == "self" and (
+            not conditions.predicate_family
+            or conditions.predicate_family == "unknown"
+        ):
+            return resolved
+
         query_matches = await self._entity_catalog.resolve_query_entities(
             conditions.content_query,
             limit=max(conditions.limit, 5),
