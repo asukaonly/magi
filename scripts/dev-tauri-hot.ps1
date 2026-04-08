@@ -24,21 +24,21 @@ function Stop-ListenersOnPort {
   $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
   if (-not $connections) { return }
 
-  $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
-  Write-Host "Port $Port is in use, stopping existing listener(s): $($pids -join ', ')"
+  $procIds = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+  Write-Host "Port $Port is in use, stopping existing listener(s): $($procIds -join ', ')"
 
-  foreach ($pid in $pids) {
-    try { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue } catch {}
+  foreach ($p in $procIds) {
+    try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
   }
 
   Start-Sleep -Seconds 1
 
   $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
   if ($connections) {
-    $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
-    Write-Host "Port $Port listener(s) still active after stop, forcing: $($pids -join ', ')"
-    foreach ($pid in $pids) {
-      try { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue } catch {}
+    $procIds = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+    Write-Host "Port $Port listener(s) still active after stop, forcing: $($procIds -join ', ')"
+    foreach ($p in $procIds) {
+      try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
     }
   }
 }
