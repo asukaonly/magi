@@ -170,7 +170,7 @@ fn wait_for_health(host: &str, port: u16, timeout: Duration) -> bool {
 
 /// Wait for Python IPC worker to write its ready file.
 fn wait_for_ready_file(timeout: Duration) -> bool {
-    let home = match env::var("HOME").map(PathBuf::from) {
+    let home = match env::var("HOME").or_else(|_| env::var("USERPROFILE")).map(PathBuf::from) {
         Ok(h) => h,
         Err(_) => return false,
     };
@@ -187,7 +187,7 @@ fn wait_for_ready_file(timeout: Duration) -> bool {
 
 /// Remove stale worker ready file.
 fn remove_ready_file() {
-    if let Ok(home) = env::var("HOME").map(PathBuf::from) {
+    if let Ok(home) = env::var("HOME").or_else(|_| env::var("USERPROFILE")).map(PathBuf::from) {
         let runtime_dir = home.join(".magi").join("runtime");
         let _ = fs::remove_file(runtime_dir.join("worker.ready"));
         let _ = fs::remove_file(runtime_dir.join("gateway.port"));
@@ -195,7 +195,7 @@ fn remove_ready_file() {
 }
 
 fn write_gateway_port_file(port: u16) {
-    if let Ok(home) = env::var("HOME").map(PathBuf::from) {
+    if let Ok(home) = env::var("HOME").or_else(|_| env::var("USERPROFILE")).map(PathBuf::from) {
         let runtime_dir = home.join(".magi").join("runtime");
         let _ = fs::create_dir_all(&runtime_dir);
         let _ = fs::write(runtime_dir.join("gateway.port"), port.to_string());
@@ -578,8 +578,14 @@ fn start_backend(
     let session_token = generate_session_token();
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, main_port);
 
-    // Compute IPC socket path (Unix domain socket on macOS/Linux)
-    let ipc_socket_path = {
+    // Compute IPC socket address.
+    // Unix: domain socket under ~/.magi/runtime/ipc.sock
+    // Windows: TCP loopback 127.0.0.1:<port>
+    let ipc_socket_path = if cfg!(windows) {
+        let ipc_port = pick_open_port()
+            .map_err(|e| format!("Failed to pick IPC port: {e}"))?;
+        format!("127.0.0.1:{}", ipc_port)
+    } else {
         let home = env::var("HOME")
             .map(PathBuf::from)
             .map_err(|_| "HOME is not set".to_string())?;
