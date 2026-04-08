@@ -25,6 +25,8 @@ _SNAPSHOT_HISTORY_LIMIT = 5
 _MOOD_TRAJECTORY_FAMILIES = {"mood", "stress", "engagement"}
 _MOOD_TRAJECTORY_LIMIT = 20
 DEFAULT_FUTURE_INTENT_TTL_SECONDS = 30 * 24 * 3600  # 30 days
+# Maximum evidence event IDs retained per edge/facet/assertion.
+MAX_EVIDENCE_EVENT_IDS = 50
 logger = get_logger(__name__)
 
 
@@ -543,6 +545,8 @@ class L2CognitionStore:
                 merged_evidence = sorted(
                     set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
                 )
+                if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
+                    merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
                 observation_count = int(existing["observation_count"]) + 1
                 first_observed_at = float(existing["first_observed_at"])
                 old_confidence = float(existing["confidence"])
@@ -665,6 +669,8 @@ class L2CognitionStore:
             merged_evidence = sorted(
                 set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
             )
+            if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
+                merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
             observation_count = int(existing["observation_count"]) + 1
             accumulated_confidence = _accumulate_confidence(float(existing["confidence"]), float(new_confidence))
             # Keep the longer evidence_text
@@ -733,6 +739,8 @@ class L2CognitionStore:
 
             if existing:
                 merged_evidence = sorted(set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids))
+                if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
+                    merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
                 accumulated_confidence = _accumulate_confidence(float(existing["confidence"]), float(confidence))
                 await db.execute(
                     """
@@ -1965,6 +1973,8 @@ class L2CognitionStore:
             evidence = sorted(
                 set(json.loads(existing["evidence_events"] or "[]")).union(normalized_candidate["evidence_events"])
             )
+            if len(evidence) > MAX_EVIDENCE_EVENT_IDS:
+                evidence = evidence[-MAX_EVIDENCE_EVENT_IDS:]
             first_inferred_at = float(existing["first_inferred_at"])
             last_validated_at = float(normalized_candidate["last_validated_at"])
             existing_value = str(existing["trait_value"])

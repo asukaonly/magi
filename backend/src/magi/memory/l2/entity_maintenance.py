@@ -46,7 +46,12 @@ def _canonical_entity_id(entity_type: str, canonical_name: str) -> str:
     return f"{entity_type}:{_slugify_entity_id_suffix(canonical_name)}"
 
 
-def _merge_evidence_json(a: str, b: str) -> str:
+# Maximum number of evidence event IDs retained per edge/facet merge.
+# When exceeded, the oldest entries are dropped.
+MAX_EVIDENCE_EVENT_IDS = 50
+
+
+def _merge_evidence_json(a: str, b: str, *, max_items: int = MAX_EVIDENCE_EVENT_IDS) -> str:
     try:
         la = json.loads(a or "[]")
         lb = json.loads(b or "[]")
@@ -63,6 +68,9 @@ def _merge_evidence_json(a: str, b: str) -> str:
         if s not in seen:
             seen.add(s)
             out.append(item)
+    # Keep only the most recent entries when the list exceeds the cap.
+    if len(out) > max_items:
+        out = out[-max_items:]
     return json.dumps(out)
 
 
@@ -79,10 +87,13 @@ class L2EntityMaintenanceStats:
     orphans_pruned: int = 0
     expired_future_intents: int = 0
     expired_assertions: int = 0
+    stale_snapshots_cleaned: int = 0
     entities_reconciled: int = 0
     snapshots_refreshed: int = 0
     open_predicates_consolidated: int = 0
     edges_archived: int = 0
+    edges_purged: int = 0
+    edge_embeddings_cleaned: int = 0
     edges_embedded: int = 0
     errors: list[str] = field(default_factory=list)
 
@@ -100,6 +111,9 @@ class L2EntityMaintenance:
     ARCHIVE_CONFIDENCE_THRESHOLD: float = 0.3
     ARCHIVE_STALENESS_SECONDS: float = 90 * 86400   # 90 days
     ARCHIVE_SINGLE_OBS_STALENESS: float = 180 * 86400  # 180 days for observation_count == 1
+
+    # Hard-delete archived/expired edges older than this.
+    PURGE_TERMINAL_EDGE_STALENESS: float = 365 * 86400  # 1 year
 
     def __init__(
         self,
@@ -128,9 +142,11 @@ class L2EntityMaintenance:
         prune_orphans: bool = True,
         expire_future_intents: bool = True,
         expire_decayed_assertions: bool = True,
+        clean_stale_snapshots: bool = True,
         reconcile_stale: bool = True,
         consolidate_open_predicates: bool = True,
         archive_stale_edges: bool = True,
+        purge_terminal_edges: bool = True,
         embed_edges: bool = True,
     ) -> L2EntityMaintenanceStats:
         if self._run_lock.locked():
@@ -144,9 +160,11 @@ class L2EntityMaintenance:
                 prune_orphans=prune_orphans,
                 expire_future_intents=expire_future_intents,
                 expire_decayed_assertions=expire_decayed_assertions,
+                clean_stale_snapshots=clean_stale_snapshots,
                 reconcile_stale=reconcile_stale,
                 consolidate_open_predicates=consolidate_open_predicates,
                 archive_stale_edges=archive_stale_edges,
+                purge_terminal_edges=purge_terminal_edges,
                 embed_edges=embed_edges,
             )
 
@@ -159,9 +177,11 @@ class L2EntityMaintenance:
         prune_orphans: bool,
         expire_future_intents: bool,
         expire_decayed_assertions: bool,
+        clean_stale_snapshots: bool,
         reconcile_stale: bool,
         consolidate_open_predicates: bool,
         archive_stale_edges: bool,
+        purge_terminal_edges: bool,
         embed_edges: bool,
     ) -> L2EntityMaintenanceStats:
         stats = L2EntityMaintenanceStats()
@@ -175,12 +195,16 @@ class L2EntityMaintenance:
             await self._expire_stale_future_intents(stats)
         if expire_decayed_assertions:
             await self._expire_decayed_assertions(stats)
+        if clean_stale_snapshots:
+            await self._clean_stale_snapshots(stats)
         if reconcile_stale:
             await self._reconcile_stale_entities(stats)
         if consolidate_open_predicates:
             await self._consolidate_open_predicates(stats)
         if archive_stale_edges:
             await self._archive_stale_edges(stats)
+        if purge_terminal_edges:
+            await self._purge_terminal_edges(stats)
         if embed_edges:
             await self._embed_pending_edges(stats)
         if any(
@@ -192,10 +216,13 @@ class L2EntityMaintenance:
                 stats.orphans_pruned,
                 stats.expired_future_intents,
                 stats.expired_assertions,
+                stats.stale_snapshots_cleaned,
                 stats.entities_reconciled,
                 stats.snapshots_refreshed,
                 stats.open_predicates_consolidated,
                 stats.edges_archived,
+                stats.edges_purged,
+                stats.edge_embeddings_cleaned,
                 stats.edges_embedded,
             )
         ):
@@ -210,10 +237,13 @@ class L2EntityMaintenance:
                 orphans_pruned=stats.orphans_pruned,
                 expired_future_intents=stats.expired_future_intents,
                 expired_assertions=stats.expired_assertions,
+                stale_snapshots_cleaned=stats.stale_snapshots_cleaned,
                 entities_reconciled=stats.entities_reconciled,
                 snapshots_refreshed=stats.snapshots_refreshed,
                 open_predicates_consolidated=stats.open_predicates_consolidated,
                 edges_archived=stats.edges_archived,
+                edges_purged=stats.edges_purged,
+                edge_embeddings_cleaned=stats.edge_embeddings_cleaned,
                 edges_embedded=stats.edges_embedded,
             )
         return stats
@@ -571,6 +601,12 @@ class L2EntityMaintenance:
                     "UPDATE tom_snapshots SET entity_id = ? WHERE entity_id = ?",
                     (winner_id, loser_id),
                 )
+                # Reassign facets; on conflict just drop the loser's row.
+                await db.execute(
+                    "UPDATE OR IGNORE entity_facets SET entity_id = ? WHERE entity_id = ?",
+                    (winner_id, loser_id),
+                )
+                await db.execute("DELETE FROM entity_facets WHERE entity_id = ?", (loser_id,))
                 await db.execute("DELETE FROM entity_catalog WHERE entity_id = ?", (loser_id,))
                 await db.commit()
             except Exception:
@@ -668,7 +704,11 @@ class L2EntityMaintenance:
                 logger.warning("L2 orphan prune failed", entity_id=entity_id, error=str(exc))
 
     async def _check_and_delete_orphan(self, entity_id: str) -> bool:
-        """Atomically verify entity is unreferenced and delete it."""
+        """Atomically verify entity is unreferenced in KG/assertions and delete it.
+
+        Snapshots are cleaned together with the entity; they are derived data
+        and should not prevent orphan pruning.
+        """
         async with sqlite_connection_async(self._db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
@@ -686,13 +726,8 @@ class L2EntityMaintenance:
                     if await cur.fetchone():
                         await db.rollback()
                         return False
-                async with db.execute(
-                    "SELECT 1 FROM tom_snapshots WHERE entity_id = ? LIMIT 1",
-                    (entity_id,),
-                ) as cur:
-                    if await cur.fetchone():
-                        await db.rollback()
-                        return False
+                await db.execute("DELETE FROM tom_snapshots WHERE entity_id = ?", (entity_id,))
+                await db.execute("DELETE FROM entity_facets WHERE entity_id = ?", (entity_id,))
                 await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (entity_id,))
                 await db.execute("DELETE FROM entity_mentions WHERE resolved_entity_id = ?", (entity_id,))
                 await db.execute("DELETE FROM entity_catalog WHERE entity_id = ?", (entity_id,))
@@ -748,6 +783,29 @@ class L2EntityMaintenance:
             )
             stats.expired_assertions = cursor.rowcount
             await db.commit()
+
+    async def _clean_stale_snapshots(self, stats: L2EntityMaintenanceStats) -> None:
+        """Delete snapshots for entities that have no active/corroborated/tentative assertions.
+
+        After assertion expiry runs, some entities may have all their
+        assertions in terminal states (expired, user_rejected, contradicted).
+        Their snapshots become stale and should be removed so orphan pruning
+        can reclaim the entity later.
+        """
+        async with sqlite_connection_async(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                DELETE FROM tom_snapshots
+                WHERE entity_id NOT IN (
+                    SELECT DISTINCT entity_id FROM tom_trait_assertions
+                    WHERE validation_state IN ('tentative', 'corroborated', 'stable')
+                )
+                """
+            )
+            cleaned = cursor.rowcount
+            if cleaned:
+                await db.commit()
+            stats.stale_snapshots_cleaned = cleaned
 
     async def _reconcile_stale_entities(self, stats: L2EntityMaintenanceStats) -> None:
         """Re-reconcile entities whose assertions haven't been reviewed recently.
@@ -898,7 +956,8 @@ class L2EntityMaintenance:
                 else:
                     # No existing edge — rename to first core predicate (alphabetically).
                     target_predicate = core_predicates[0]
-                    new_triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{row['subject_id']}:{target_predicate}:{row['object_id']}')}"
+                    triple_key = f"{row['subject_id']}:{target_predicate}:{row['object_id']}"
+                    new_triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, triple_key)}"
                     await db.execute(
                         """
                         UPDATE knowledge_graph
@@ -946,6 +1005,58 @@ class L2EntityMaintenance:
             if archived:
                 await db.commit()
             stats.edges_archived = archived
+
+        # Clean embeddings for edges that are no longer active.
+        await self._clean_non_active_edge_embeddings(stats)
+
+    async def _clean_non_active_edge_embeddings(self, stats: L2EntityMaintenanceStats) -> None:
+        """Remove vector embeddings for edges that are no longer 'active'."""
+        if self._edge_vector_index is None:
+            return
+        async with sqlite_connection_async(self._db_path) as db:
+            async with db.execute(
+                """
+                SELECT triple_id FROM knowledge_graph
+                WHERE status != 'active' AND embedding_status = 'ready'
+                LIMIT 500
+                """
+            ) as cur:
+                rows = await cur.fetchall()
+        if not rows:
+            return
+        for row in rows:
+            triple_id = str(row[0])
+            try:
+                await self._edge_vector_index.delete_entity(entity_id=triple_id)
+            except Exception:
+                pass
+        triple_ids = [str(r[0]) for r in rows]
+        placeholders = ", ".join("?" for _ in triple_ids)
+        async with sqlite_connection_async(self._db_path) as db:
+            await db.execute(
+                f"UPDATE knowledge_graph SET embedding_status = 'disabled' WHERE triple_id IN ({placeholders})",
+                tuple(triple_ids),
+            )
+            await db.commit()
+        stats.edge_embeddings_cleaned = len(triple_ids)
+
+    async def _purge_terminal_edges(self, stats: L2EntityMaintenanceStats) -> None:
+        """Hard-delete archived/expired edges older than PURGE_TERMINAL_EDGE_STALENESS."""
+        now = time.time()
+        cutoff = now - self.PURGE_TERMINAL_EDGE_STALENESS
+        async with sqlite_connection_async(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                DELETE FROM knowledge_graph
+                WHERE status IN ('archived', 'expired')
+                  AND updated_at < ?
+                """,
+                (cutoff,),
+            )
+            purged = cursor.rowcount
+            if purged:
+                await db.commit()
+            stats.edges_purged = purged
 
     async def _embed_pending_edges(
         self,

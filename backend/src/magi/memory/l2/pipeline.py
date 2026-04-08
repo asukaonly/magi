@@ -132,6 +132,8 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         self._snapshot_worker: asyncio.Task[None] | None = None
         self._staging_buckets: dict[str, L2PendingBatchBucket] = {}
         self._staging_lock = asyncio.Lock()
+        self._entity_locks: dict[str, asyncio.Lock] = {}
+        self._entity_locks_guard = asyncio.Lock()
         self._session_touched_entities: dict[str, set[str]] = {}
         self._entity_resolution_cache: dict[tuple[str, str | None], tuple[str | None, float | None]] = {}
         self._stats = L2PipelineStats()
@@ -1226,25 +1228,38 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         corroborate_count = 0
         facet_count = 0
         assertion_count = 0
-        for candidate in graph_candidates:
-            await self._cognition_store.upsert_knowledge_edge(**candidate)
-            relation_count += 1
 
-        for target in corroborate_targets:
-            updated = await self._cognition_store.corroborate_edge(**target)
-            if updated:
-                corroborate_count += 1
+        # Acquire per-entity locks before persisting to prevent concurrent
+        # workers from interleaving read-then-write sequences on the same entity.
+        persist_entity_ids = sorted(
+            {str(c.get("subject_id", "")) for c in graph_candidates + direct_write_candidates if c.get("subject_id")}
+            | {str(c.get("object_id", "")) for c in graph_candidates + direct_write_candidates if c.get("object_id")}
+            | {str(c.get("entity_id", "")) for c in assertion_candidates if c.get("entity_id")}
+        )
+        entity_locks = await self._acquire_entity_locks(persist_entity_ids)
+        try:
+            for candidate in graph_candidates:
+                await self._cognition_store.upsert_knowledge_edge(**candidate)
+                relation_count += 1
 
-        for candidate in facet_candidates:
-            await self._cognition_store.upsert_entity_facet(**candidate)
-            facet_count += 1
+            for target in corroborate_targets:
+                updated = await self._cognition_store.corroborate_edge(**target)
+                if updated:
+                    corroborate_count += 1
 
-        for candidate in assertion_candidates:
-            await self._cognition_store.upsert_assertion_candidate(candidate)
-            assertion_count += 1
+            for candidate in facet_candidates:
+                await self._cognition_store.upsert_entity_facet(**candidate)
+                facet_count += 1
 
-        for hint in contradiction_hints:
-            await self._cognition_store.apply_contradiction_hint(hint)
+            for candidate in assertion_candidates:
+                await self._cognition_store.upsert_assertion_candidate(candidate)
+                assertion_count += 1
+
+            for hint in contradiction_hints:
+                await self._cognition_store.apply_contradiction_hint(hint)
+        finally:
+            for lock in entity_locks:
+                lock.release()
 
         logger.info(
             "L2 persistence completed",
@@ -1300,6 +1315,22 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
         if stored_event is None:
             return event
         return stored_event
+
+    async def _acquire_entity_locks(self, entity_ids: list[str]) -> list[asyncio.Lock]:
+        """Acquire per-entity locks in sorted order to prevent deadlocks.
+
+        Returns the list of acquired locks (caller must release them).
+        """
+        locks: list[asyncio.Lock] = []
+        for eid in sorted(entity_ids):
+            async with self._entity_locks_guard:
+                lock = self._entity_locks.get(eid)
+                if lock is None:
+                    lock = asyncio.Lock()
+                    self._entity_locks[eid] = lock
+            await lock.acquire()
+            locks.append(lock)
+        return locks
 
     async def _load_batch_events(self, job: L2BatchJob) -> list[MemoryEvent]:
         batch_events: list[MemoryEvent] = []
