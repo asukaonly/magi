@@ -11,6 +11,7 @@ export type LLMProvider =
   | 'openai'
   | 'anthropic'
   | 'glm'
+  | 'glm_codeplan'
   | 'gemini'
   | 'deepseek'
   | 'kimi'

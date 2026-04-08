@@ -116,8 +116,8 @@ class LLMProviderBridge:
         return isinstance(self.llm, AnthropicAdapter)
 
     def is_glm(self) -> bool:
-        """Check if using GLM provider."""
-        return self._provider_name() == "glm"
+        """Check if using GLM provider (including CodePlan)."""
+        return self._provider_name() in ("glm", "glm_codeplan")
 
     @staticmethod
     def _disabled_thinking_extra_body(disable_thinking: bool | None) -> Dict[str, Any] | None:
@@ -209,7 +209,7 @@ class LLMProviderBridge:
             existing = kwargs.get("extra_body", {})
             kwargs["extra_body"] = {**existing, **extra_body}
 
-        elif provider == "glm":
+        elif provider in ("glm", "glm_codeplan"):
             extra_body = self._build_glm_thinking_params(thinking_depth)
             if extra_body:
                 existing = kwargs.get("extra_body", {})

@@ -191,6 +191,10 @@
         "name": "Z.ai",
         "desc": "Fast general-purpose models from Z.ai"
       },
+      "glm_codeplan": {
+        "name": "Z.ai CodePlan",
+        "desc": "Z.ai CodePlan coding models, no embedding support"
+      },
       "custom": {
         "name": "Custom Provider",
         "desc": "Connect OpenAI/Anthropic compatible or custom format services"

@@ -190,6 +190,10 @@
         "name": "Z.ai",
         "desc": "Z.ai 的通用模型，中文场景体验友好"
       },
+      "glm_codeplan": {
+        "name": "Z.ai CodePlan",
+        "desc": "Z.ai CodePlan 编程模型，不支持向量"
+      },
       "custom": {
         "name": "自定义 Provider",
         "desc": "接入兼容 OpenAI/Anthropic 或自定义格式的服务"

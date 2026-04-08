@@ -15,6 +15,7 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GLM = "glm"
+    GLM_CODEPLAN = "glm_codeplan"
     GEMINI = "gemini"
     DEEPSEEK = "deepseek"
     KIMI = "kimi"

@@ -201,6 +201,123 @@ providers:
         visible: true
         required: false
 
+  - id: glm_codeplan
+    display_name: Z.ai CodePlan
+    description: Z.ai CodePlan models (no embedding support)
+    icon: zai
+    default_model: glm-5.1
+    default_classify_model: glm-4.5-air
+    default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
+    chat_models:
+      - id: glm-5.1
+        label: GLM-5.1
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 204800
+          max_output_tokens: 131072
+          max_concurrency: 4
+        provider_options_example:
+          thinking:
+            type: disabled
+      - id: glm-5
+        label: GLM-5
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 204800
+          max_output_tokens: 131072
+          max_concurrency: 4
+        provider_options_example:
+          thinking:
+            type: disabled
+      - id: glm-5-turbo
+        label: GLM-5 Turbo
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 204800
+          max_output_tokens: 131072
+          max_concurrency: 6
+        provider_options_example:
+          thinking:
+            type: disabled
+      - id: glm-4.7
+        label: GLM-4.7
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 128000
+          max_output_tokens: 65536
+          max_concurrency: 4
+        provider_options_example:
+          thinking:
+            type: disabled
+      - id: glm-4.6
+        label: GLM-4.6
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 128000
+          max_output_tokens: 131072
+          max_concurrency: 4
+        provider_options_example:
+          thinking:
+            type: disabled
+      - id: glm-4.5
+        label: GLM-4.5
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 128000
+          max_output_tokens: 65536
+          max_concurrency: 4
+        provider_options_example:
+          thinking:
+            type: disabled
+      - id: glm-4.5-air
+        label: GLM-4.5 Air
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 128000
+          max_output_tokens: 65536
+          max_concurrency: 6
+        provider_options_example:
+          thinking:
+            type: disabled
+    fields:
+      model:
+        visible: true
+        required: true
+      api_key:
+        visible: true
+        required: true
+      base_url:
+        visible: true
+        required: false
+
   - id: gemini
     display_name: Google Gemini
     description: Multimodal models from Google
