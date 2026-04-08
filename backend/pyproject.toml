@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "magi"
 version = "0.1.0"
-description = "一个轻量级、可本地部署的AI Agent框架"
+description = "Local-first AI agent with personality, memory, and temporal awareness"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Magi Contributors" }]
-keywords = ["ai", "agent", "llm", "autonomous"]
+keywords = ["ai", "agent", "llm", "memory", "desktop"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -19,7 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 
 dependencies = [
@@ -33,12 +32,8 @@ dependencies = [
     # 依赖注入
     "dependency-injector>=4.41.0",
 
-    # 异步支持
-    "asyncio>=3.4.3",
-
     # 配置管理
     "pyyaml>=6.0.1",
-    "python-dotenv>=1.0.0",
 
     # 日志
     "structlog>=24.1.0",
@@ -48,17 +43,11 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "apscheduler>=3.10.0",
 
-    # 消息总线（可选Redis）
-    "redis>=5.0.1",
-
     # 向量数据库
     "sqlite-vec>=0.1.6",
 
     # 全文检索分词
     "jieba>=0.42.1",
-
-    # 图数据库
-    "networkx>=3.2.1",
 
     # LLM SDK
     "openai>=1.10.0",
@@ -67,10 +56,6 @@ dependencies = [
     # WebSocket
     "python-socketio>=5.11.0",
     "aiohttp>=3.9.0",
-
-    # 认证
-    "pyjwt>=2.8.0",
-    "passlib[bcrypt]>=1.7.4",
 
     # 工具
     "httpx>=0.26.0",
@@ -97,9 +82,7 @@ local-embedding = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/magi"
-Documentation = "https://magi.readthedocs.io"
-Repository = "https://github.com/your-org/magi"
+Repository = "https://github.com/illufly/magi"
 
 [tool.setuptools.packages.find]
 where = ["src"]
