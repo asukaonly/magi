@@ -583,7 +583,8 @@ def test_plugin_get_sensors():
     """Test that NeteaseMusicPlugin returns correct sensor specification."""
     plugin = NeteaseMusicPlugin()
 
-    sensors = plugin.get_sensors()
+    with patch('sys.platform', 'darwin'):
+        sensors = plugin.get_sensors()
 
     # Should return one sensor
     assert len(sensors) == 1
@@ -622,7 +623,8 @@ def test_plugin_get_sensors_with_settings():
     }
     plugin.settings = test_settings
 
-    sensors = plugin.get_sensors()
+    with patch('sys.platform', 'darwin'):
+        sensors = plugin.get_sensors()
     sensor_id, sensor_instance, sensor_spec = sensors[0]
 
     # Check that settings were applied

@@ -16,7 +16,7 @@ from magi.awareness import (
     SensorSyncResult,
 )
 
-from .chrome_reader import ChromeHistoryReader, DEFAULT_MACOS_CHROME_ROOT
+from .chrome_reader import ChromeHistoryReader, _default_chrome_root
 from .normalizers import build_relation_candidates, normalize_domain, parse_title_entities
 
 
@@ -93,7 +93,7 @@ class ChromeHistoryTimelineSensor(SensorBase):
             if isinstance(context.plugin_settings.get("sensors", {}), dict)
             else {}
         )
-        source_path = str(sensor_settings.get("source_path") or self.source_path or DEFAULT_MACOS_CHROME_ROOT)
+        source_path = str(sensor_settings.get("source_path") or self.source_path or _default_chrome_root())
         profile = str(sensor_settings.get("profile") or self.profile or "Default")
         lookback_hours = int(sensor_settings.get("lookback_hours", self.lookback_hours))
         initial_sync_policy = str(sensor_settings.get("initial_sync_policy") or "lookback_days")

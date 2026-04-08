@@ -1,6 +1,8 @@
 """NetEase Cloud Music timeline plugin."""
 from __future__ import annotations
 
+import sys
+
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 from .reader import DEFAULT_DB_PATH
 from .sensor import NeteaseMusicTimelineSensor
@@ -125,6 +127,9 @@ class NeteaseMusicPlugin(Plugin):
     """Registers the NetEase Music timeline source."""
 
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
+        if sys.platform != "darwin":
+            return []
+
         settings = {}
         sensors_settings = self.settings.get("sensors", {})
         if isinstance(sensors_settings, dict):

@@ -6,7 +6,7 @@ from typing import Any
 
 from magi.plugins import ActivationFlowSpec, ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 
-from .chrome_reader import DEFAULT_MACOS_CHROME_ROOT
+from .chrome_reader import _default_chrome_root
 from .sensor import ChromeHistoryTimelineSensor
 
 
@@ -162,7 +162,7 @@ class ChromeHistoryPlugin(Plugin):
             settings = dict(sensors_settings.get("chrome_history", {}))
         sensor = ChromeHistoryTimelineSensor(
             retention_mode=str(settings.get("default_retention_mode") or DEFAULT_SETTINGS["default_retention_mode"]),
-            source_path=str(settings.get("source_path") or DEFAULT_MACOS_CHROME_ROOT),
+            source_path=str(settings.get("source_path") or _default_chrome_root()),
             fetch_page_content=bool(settings.get("fetch_page_content", DEFAULT_SETTINGS["fetch_page_content"])),
             profile=str(settings.get("profile") or DEFAULT_SETTINGS["profile"]),
             lookback_hours=int(settings.get("lookback_hours", DEFAULT_SETTINGS["lookback_hours"])),

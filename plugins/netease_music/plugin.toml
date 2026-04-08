@@ -7,4 +7,5 @@ author = "Magi Team"
 entry_module = "plugin"
 entry_class = "NeteaseMusicPlugin"
 official = true
+platforms = ["macos"]
 contribution_types = ["sensor"]

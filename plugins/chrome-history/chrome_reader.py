@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -17,13 +18,24 @@ from .normalizers import (
 )
 
 DEFAULT_MACOS_CHROME_ROOT = "~/Library/Application Support/Google/Chrome"
+DEFAULT_WINDOWS_CHROME_ROOT = "~/AppData/Local/Google/Chrome/User Data"
+DEFAULT_LINUX_CHROME_ROOT = "~/.config/google-chrome"
+
+
+def _default_chrome_root() -> str:
+    """Return the platform-appropriate default Chrome profile root."""
+    if sys.platform == "win32":
+        return DEFAULT_WINDOWS_CHROME_ROOT
+    if sys.platform == "linux":
+        return DEFAULT_LINUX_CHROME_ROOT
+    return DEFAULT_MACOS_CHROME_ROOT
 
 
 class ChromeHistoryReader:
     """Read and normalize Google Chrome history visits."""
 
     def resolve_root(self, source_path: str | None = None) -> Path:
-        root = Path(source_path or DEFAULT_MACOS_CHROME_ROOT).expanduser()
+        root = Path(source_path or _default_chrome_root()).expanduser()
         return root
 
     def resolve_profile_dir(self, source_path: str | None = None, profile: str = "Default") -> Path:
