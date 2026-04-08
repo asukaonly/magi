@@ -161,7 +161,7 @@ class TestResolveTemporalRange:
         )
         # "last Friday" from Wed Apr 5 → Fri Mar 31 = 1680220800 UTC midnight
         # start should be ~Mar 31 - 7 days = ~Mar 24
-        assert result["end"] == _QTS
+        assert "end" not in result
         assert result["start"] > 0
         # start should be well before the question but after epoch
         # Mar 24 midnight UTC = 1679616000
@@ -172,7 +172,7 @@ class TestResolveTemporalRange:
             "I mentioned a sports event two weeks ago. What was the event?",
             _QTS,
         )
-        assert result["end"] == _QTS
+        assert "end" not in result
         # "two weeks ago" = ~Mar 22 → start ~Mar 15
         assert result["start"] > 0
         assert result["start"] < _QTS - 10 * 86_400
@@ -182,7 +182,7 @@ class TestResolveTemporalRange:
             "Which pair of shoes did I clean last month?",
             _QTS,
         )
-        assert result["end"] == _QTS
+        assert "end" not in result
         # "last month" = March → month-level → start = March 1
         assert result["start"] > 0
         assert result["start"] < _QTS - 20 * 86_400
@@ -194,7 +194,7 @@ class TestResolveTemporalRange:
             "What is the order of the sports events I watched in January?",
             jan30_qts,
         )
-        assert result["end"] == jan30_qts
+        assert "end" not in result
         # start should be Jan 1, not Jan 23 (which would miss early-January events)
         from datetime import datetime, timezone
 
@@ -223,7 +223,7 @@ class TestResolveTemporalRange:
             _QTS,
         )
         # "next Friday" resolves to a future date → filtered out → wide range
-        assert result["end"] == _QTS
+        assert "end" not in result
         # Could be wide range or a past-date match; either is acceptable
 
     def test_returns_wide_when_dateparser_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:

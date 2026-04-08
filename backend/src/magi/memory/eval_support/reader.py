@@ -116,7 +116,10 @@ class EvalMemoryReader:
         *query_timestamp* instead of wall-clock *now*.
 
         When a temporal expression is found the returned range is narrowed to
-        ``[earliest_resolved - 7 days padding, query_timestamp]``.
+        ``[earliest_resolved - padding, ∞)``.  The end is left open so
+        that events whose replay-assigned timestamps slightly exceed
+        *query_timestamp* are not inadvertently excluded (the BM25 /
+        vector paths already handle relevance scoring).
         Otherwise falls back to a start-only range so events whose
         replay-assigned timestamps slightly exceed ``query_timestamp``
         are not inadvertently excluded.
@@ -172,11 +175,11 @@ class EvalMemoryReader:
             start = max(0, earliest - _TEMPORAL_PADDING_SECS)
 
         logger.debug(
-            "Temporal range narrowed query=%r earliest=%s start=%s end=%s"
+            "Temporal range narrowed query=%r earliest=%s start=%s"
             " month_level=%s",
-            query, earliest, start, query_timestamp, is_month_level,
+            query, earliest, start, is_month_level,
         )
-        return {"start": start, "end": query_timestamp}
+        return {"start": start}
 
     async def _query_l1_only(self, query: EvalMemoryQuery) -> EvalMemoryQueryResult:
         if self._l1_store is None:
