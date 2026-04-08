@@ -41,14 +41,23 @@ from ..tools.lifecycle import ToolsModule
 
 def _build_runtime_trace_module(context: RuntimeBootstrapContext) -> LifecycleModule:
     async def _init_runtime_trace() -> None:
+        from dependency_injector import providers as di_providers
+        from ..core.container import get_container
+
         runtime_paths = context.core.runtime_paths
         if runtime_paths is None:
             raise RuntimeError("runtime paths is not initialized")
         store = RuntimeTraceStore(db_path=str(runtime_paths.runtime_trace_db_path))
         await store.initialize()
         context.runtime_trace.store = store
+        # Eagerly register DI binding so heartbeat and other infra consumers
+        # work even when later modules (e.g. LLM) defer initialization.
+        get_container().runtime_trace_store.override(di_providers.Object(store))
 
     async def _shutdown_runtime_trace() -> None:
+        from ..core.container import get_container
+
+        get_container().runtime_trace_store.reset_override()
         if context.runtime_trace.store is not None:
             await context.runtime_trace.store.shutdown()
             context.runtime_trace.store = None
