@@ -422,6 +422,108 @@ providers:
         visible: true
         required: false
 
+  - id: dashscope
+    display_name: 阿里云百炼
+    description: Qwen models via Alibaba Cloud DashScope
+    icon: bailian
+    default_model: qwen3-235b-a22b
+    default_classify_model: qwen3-30b-a3b
+    default_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    chat_models:
+      - id: qwen3-235b-a22b
+        label: Qwen3 235B-A22B
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 131072
+          max_output_tokens: 16384
+          max_concurrency: 3
+      - id: qwen3-32b
+        label: Qwen3 32B
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 131072
+          max_output_tokens: 16384
+          max_concurrency: 4
+      - id: qwen3-30b-a3b
+        label: Qwen3 30B-A3B
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 131072
+          max_output_tokens: 16384
+          max_concurrency: 6
+      - id: qwen-max
+        label: Qwen Max
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 131072
+          max_output_tokens: 16384
+          max_concurrency: 3
+      - id: qwen-plus
+        label: Qwen Plus
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 131072
+          max_output_tokens: 16384
+          max_concurrency: 6
+      - id: qwen-turbo
+        label: Qwen Turbo
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 131072
+          max_output_tokens: 16384
+          max_concurrency: 6
+      - id: qwq-plus
+        label: QwQ Plus
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 131072
+          max_output_tokens: 16384
+          max_concurrency: 4
+    embedding_models:
+      - id: text-embedding-v3
+        label: Text Embedding v3
+        dimensions: [1024, 768, 512]
+        limits:
+          max_concurrency: 6
+    fields:
+      model:
+        visible: true
+        required: true
+      api_key:
+        visible: true
+        required: true
+      base_url:
+        visible: true
+        required: false
+
   - id: kimi
     display_name: Kimi
     description: Long-context models from Moonshot AI

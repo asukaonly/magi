@@ -14,6 +14,7 @@ export type LLMProvider =
   | 'glm_codeplan'
   | 'gemini'
   | 'deepseek'
+  | 'dashscope'
   | 'kimi'
   | 'minimax'
   | 'custom'

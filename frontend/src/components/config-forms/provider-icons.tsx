@@ -1,4 +1,5 @@
 import anthropicIcon from '@/assets/provider-icons/anthropic.svg?raw';
+import bailianIcon from '@/assets/provider-icons/bailian-color.svg?raw';
 import deepseekIcon from '@/assets/provider-icons/deepseek-color.svg?raw';
 import geminiIcon from '@/assets/provider-icons/gemini-color.svg?raw';
 import kimiIcon from '@/assets/provider-icons/kimi.svg?raw';
@@ -36,6 +37,8 @@ const ICON_SVGS: Record<string, string> = {
   zai: zaiIcon,
   gemini: geminiIcon,
   deepseek: deepseekIcon,
+  dashscope: bailianIcon,
+  bailian: bailianIcon,
   kimi: kimiIcon,
   minimax: minimaxIcon,
 };

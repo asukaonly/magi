@@ -195,6 +195,10 @@
         "name": "Z.ai CodePlan",
         "desc": "Z.ai CodePlan coding models, no embedding support"
       },
+      "dashscope": {
+        "name": "Alibaba Bailian",
+        "desc": "Qwen models via Alibaba Cloud DashScope platform"
+      },
       "custom": {
         "name": "Custom Provider",
         "desc": "Connect OpenAI/Anthropic compatible or custom format services"

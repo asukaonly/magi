@@ -18,6 +18,7 @@ class LLMProvider(str, Enum):
     GLM_CODEPLAN = "glm_codeplan"
     GEMINI = "gemini"
     DEEPSEEK = "deepseek"
+    DASHSCOPE = "dashscope"
     KIMI = "kimi"
     MINIMAX = "minimax"
     LOCAL = "local"
