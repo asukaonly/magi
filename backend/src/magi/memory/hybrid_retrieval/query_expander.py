@@ -10,18 +10,22 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _EXPANSION_SYSTEM_PROMPT = """\
-You are a query expansion assistant for a memory retrieval system.
-Given a user's memory query, generate 2 alternative reformulations that:
-1. Use different wording but preserve the core intent
-2. May add likely related terms or synonyms
-3. Should NOT change the meaning or scope
+You are a query expansion assistant for a personal memory retrieval system.
+Memories are stored as short conversational snippets about daily life events.
 
-Return a JSON array of strings, each being one reformulated query.
-Example: ["reformulation 1", "reformulation 2"]
+Given a user's memory query, generate 2 alternative search queries that:
+1. Replace abstract or general terms with likely concrete instances
+   (e.g. "kitchen appliance" → "coffee maker, blender, toaster, smoker";
+    "sports event" → "soccer match, marathon, basketball tournament")
+2. Use different wording, synonyms, or related terms while preserving intent
+3. Keep temporal references ("last week", "two months ago") unchanged
+
+Return a JSON array of strings, each being one alternative query.
+Example: ["alternative 1", "alternative 2"]
 
 Rules:
 - Output ONLY the JSON array, no other text
-- Each reformulation should be concise (similar length to original)
+- Focus on expanding general categories into specific examples the user might have mentioned
 - Reformulations should be in the same language as the original query
 - Do not repeat the original query
 """

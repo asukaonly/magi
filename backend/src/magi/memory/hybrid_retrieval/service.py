@@ -25,6 +25,7 @@ from .models import (
     RetrievalConfig,
     RetrievalPayload,
     RetrievalQuery,
+    TimeRange,
 )
 from .manifest_selector import ManifestSelector
 from .reranker import build_retrieval_reranker
@@ -198,6 +199,7 @@ class HybridRetrievalService:
                 original_query=request.query,
                 request=request,
                 payload=payload,
+                time_range=decision.time_range,
             )
 
         # 4. Fallback if primary results are insufficient
@@ -599,6 +601,7 @@ class HybridRetrievalService:
         original_query: str,
         request: RetrievalQuery,
         payload: RetrievalPayload,
+        time_range: Optional[TimeRange] = None,
     ) -> None:
         """Generate expanded query variants and run additional L1 plans."""
         from .query_expander import QueryExpander
@@ -622,6 +625,7 @@ class HybridRetrievalService:
                     domain_filters=request.domain_filters or None,
                     limit=10,
                 ),
+                time_range=time_range,
                 is_fallback=False,
             )
             for eq in expanded_queries

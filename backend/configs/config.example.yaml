@@ -34,7 +34,7 @@ agent:
         managed_model_id: null
 
     query_expansion:
-      enabled: false
+      enabled: true
       timeout_seconds: 3.0
 
     graph_spreading:
