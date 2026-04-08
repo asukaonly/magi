@@ -82,7 +82,7 @@ local-embedding = [
 ]
 
 [project.urls]
-Repository = "https://github.com/illufly/magi"
+Repository = "https://github.com/asukaonly/magi"
 
 [tool.setuptools.packages.find]
 where = ["src"]
