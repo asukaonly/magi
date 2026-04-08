@@ -118,3 +118,23 @@ python benchmark/longmemeval/evaluate_official.py \
 ```
 
 This reads the current run's `predictions.jsonl`, calls LongMemEval's official `evaluate_qa.py`, and writes `official_eval_summary.json` next to the benchmark outputs.
+
+Wrong-answer analysis:
+
+```bash
+python benchmark/longmemeval/error_report.py \
+  --dataset /absolute/path/to/longmemeval_s_cleaned.json \
+  --output-root /absolute/path/to/LongMemEval/outputs \
+  --run-id 0402-15-16-test \
+  --judge-model zen-gpt-4o
+```
+
+This reads the run's `predictions_with_trace.jsonl` and official `predictions.jsonl.eval-results-<judge-model>`,
+then writes:
+
+- `error_report.csv`
+- `error_report.jsonl`
+- `error_report_summary.json`
+
+The report buckets wrong answers into retrieval misses, same-session bundle misses, and synthesis/judge misses using
+the same local bundle-window heuristic as the current evaluation query path.
