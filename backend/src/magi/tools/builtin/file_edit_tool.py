@@ -2,10 +2,32 @@
 File edit tool - performs precise string replacement in files.
 """
 import os
+import sys
 import tempfile
-import fcntl
 from typing import Dict, Any, List, Tuple
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+
+_IS_WINDOWS = sys.platform == "win32"
+
+if _IS_WINDOWS:
+    import msvcrt
+
+    def _lock_file(f):
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _unlock_file(f):
+        try:
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+else:
+    import fcntl
+
+    def _lock_file(f):
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
+    def _unlock_file(f):
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 # Maximum file size to edit (10MB)
 MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -218,8 +240,7 @@ class FileEditTool(Tool):
         matched_lines: List[int] = []
 
         with open(file_path, "r", encoding=encoding, newline='') as f:
-            # Acquire exclusive lock
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            _lock_file(f)
 
             try:
                 content = f.read()
@@ -253,8 +274,7 @@ class FileEditTool(Tool):
 
                 return content, matched_lines
             finally:
-                # Release lock
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                _unlock_file(f)
 
     def _atomic_write(self, file_path: str, content: str, encoding: str) -> None:
         """
@@ -269,14 +289,13 @@ class FileEditTool(Tool):
         try:
             # Write to temp file
             with os.fdopen(fd, 'w', encoding=encoding, newline='') as f:
-                # Acquire exclusive lock on temp file
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                _lock_file(f)
                 try:
                     f.write(content)
                     f.flush()
-                    os.fsync(f.fileno())  # Ensure data is written to disk
+                    os.fsync(f.fileno())
                 finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    _unlock_file(f)
 
             # Atomic rename
             os.replace(temp_path, file_path)
