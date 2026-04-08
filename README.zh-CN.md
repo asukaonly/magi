@@ -98,7 +98,7 @@ Magi 当前将运行数据存放在：
 
 ```bash
 cd backend
-pip install -r requirements.txt
+pip install -e ".[dev]"
 python run_server.py
 ```
 

@@ -94,8 +94,7 @@ magi/
 │   │   └── websocket/          # WebSocket events/server
 │   ├── tests/                  # Backend tests
 │   ├── configs/                # Runtime/provider configs
-│   ├── pyproject.toml
-│   └── requirements.txt
+│   └── pyproject.toml
 ├── frontend/
 │   ├── src/
 │   │   ├── api/                # Axios client + API modules

@@ -100,7 +100,7 @@ This launcher keeps backend lifecycle ownership inside the Tauri debug app so cl
 
 ```bash
 cd backend
-pip install -r requirements.txt
+pip install -e ".[dev]"
 python run_server.py
 ```
 

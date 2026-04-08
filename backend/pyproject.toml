@@ -54,6 +54,9 @@ dependencies = [
     # 向量数据库
     "sqlite-vec>=0.1.6",
 
+    # 全文检索分词
+    "jieba>=0.42.1",
+
     # 图数据库
     "networkx>=3.2.1",
 
