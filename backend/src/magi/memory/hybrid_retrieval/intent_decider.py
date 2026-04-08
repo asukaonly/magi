@@ -66,6 +66,10 @@ _WEEKDAY_SPECIFIC_RE = re.compile(
 _MONTH_HINT_RE = re.compile(r"month|月", re.IGNORECASE)
 _DAY_NUMBER_SUFFIX_RE = re.compile(r"\d+\s*[号日]|\d+(?:st|nd|rd|th)\b", re.IGNORECASE)
 
+# Regex to strip a leading preposition that search_dates may have greedily
+# absorbed into the matched span (e.g. "in a week ago" instead of "a week ago").
+_LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
+
 # Mode -> layer mapping (for query_mode hint)
 _MODE_LAYER_MAP: Dict[str, tuple[str, str]] = {
     "detail": ("L1", "L3"),
@@ -206,6 +210,12 @@ class RuleBasedIntentDecider:
             dt_utc = resolved_dt.replace(tzinfo=timezone.utc)
             if dt_utc <= now:
                 past.append((matched_text, dt_utc))
+
+        if not past:
+            # Fallback: search_dates may mismatch spans (e.g. "in a week
+            # ago" parsed as "in a week" → future).  Re-parse each matched
+            # text after stripping a leading preposition.
+            past = _reparse_with_stripped_preposition(results, settings, now)
 
         if not past:
             return None
@@ -451,6 +461,43 @@ class RuleBasedIntentDecider:
     @staticmethod
     def _end_of_day(dt: datetime) -> float:
         return dt.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
+
+
+# ---------------------------------------------------------------------------
+# Temporal re-parse fallback
+# ---------------------------------------------------------------------------
+
+
+def _reparse_with_stripped_preposition(
+    results: list[tuple[str, Any]],
+    settings: dict,
+    now: datetime,
+) -> list[tuple[str, datetime]]:
+    """Re-parse matched texts after stripping a leading preposition.
+
+    ``dateparser.search.search_dates`` sometimes captures a preceding
+    preposition as part of the temporal span (e.g. *"in a week ago"*
+    instead of *"a week ago"*), causing a future-directed parse.  This
+    helper strips the preposition and retries ``dateparser.parse``.
+    """
+    import dateparser
+
+    past: list[tuple[str, datetime]] = []
+    for matched_text, _ in results:
+        stripped = _LEADING_PREP_RE.sub("", matched_text)
+        if stripped == matched_text:
+            continue
+        retry_dt = dateparser.parse(stripped, settings=settings)
+        if retry_dt is None:
+            continue
+        dt_utc = retry_dt.replace(tzinfo=timezone.utc)
+        if dt_utc <= now:
+            past.append((stripped, dt_utc))
+            logger.debug(
+                "Temporal reparse succeeded: %r → %r → %s",
+                matched_text, stripped, retry_dt,
+            )
+    return past
 
 
 # ---------------------------------------------------------------------------

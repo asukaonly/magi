@@ -135,6 +135,18 @@ class TestTimeParsingRelative:
         diff = result.time_range.end - result.time_range.start
         assert diff >= 27 * 86400  # at least 27 days
 
+    def test_in_a_week_ago_strips_preposition(self, decider: RuleBasedIntentDecider):
+        # "participated in a week ago" → search_dates captures "in a week ago"
+        # (future).  Fallback should strip "in" and resolve "a week ago".
+        inp = IntentDeciderInput(
+            query="What was the event that I participated in a week ago?",
+        )
+        result = decider.evaluate(inp)
+        assert result.time_range is not None
+        now = datetime.now(tz=timezone.utc)
+        # "a week ago" → ~7 days before now; start should be well before now
+        assert result.time_range.start < (now - timedelta(days=5)).timestamp()
+
 
 # -----------------------------------------------------------------------
 # Time parsing: weekday patterns
