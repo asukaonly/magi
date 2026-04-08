@@ -81,17 +81,30 @@ function Ensure-SidecarPlaceholder {
   }
 
   $triple = $null
-  try {
-    $rustInfo = & rustc -vV 2>&1
-    $hostLine = $rustInfo | Select-String -Pattern "^host:\s+(.+)$"
-    if ($hostLine) {
-      $triple = $hostLine.Matches[0].Groups[1].Value.Trim()
-    }
-  } catch {}
+
+  # Try rustc in PATH first, then common install locations
+  $rustcCmd = Get-Command rustc -ErrorAction SilentlyContinue
+  if (-not $rustcCmd) {
+    $candidatePaths = @(
+      "$env:USERPROFILE\.cargo\bin\rustc.exe",
+      "$env:CARGO_HOME\bin\rustc.exe"
+    ) | Where-Object { $_ -and (Test-Path $_) }
+    if ($candidatePaths) { $rustcCmd = $candidatePaths[0] }
+  }
+
+  if ($rustcCmd) {
+    try {
+      $rustInfo = & $rustcCmd -vV 2>&1
+      $hostLine = $rustInfo | Select-String -Pattern "^host:\s+(.+)$"
+      if ($hostLine) {
+        $triple = $hostLine.Matches[0].Groups[1].Value.Trim()
+      }
+    } catch {}
+  }
 
   if (-not $triple) {
-    Write-Error "Failed to detect rust target triple for Tauri sidecar placeholder."
-    exit 1
+    $triple = "x86_64-pc-windows-msvc"
+    Write-Host "rustc not found, using default target triple: $triple"
   }
 
   $sidecarPath = Join-Path $TauriBinDir "magi-backend-${triple}.exe"
