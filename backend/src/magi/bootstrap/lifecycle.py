@@ -16,6 +16,15 @@ async def _noop() -> None:
     """Default no-op hook."""
 
 
+class LifecycleInitDeferred(Exception):
+    """A module signals deferred init — already-started modules stay alive.
+
+    Raised when a non-critical module cannot initialize yet (e.g. LLM provider
+    not configured during onboarding) but infrastructure modules that were
+    already started should keep running.
+    """
+
+
 class LifecycleModule:
     """Base lifecycle module with optional hook-based constructor."""
 
@@ -84,6 +93,16 @@ class ModuleLifecycleOrchestrator:
             self._initialized_modules = initialized
             self._started = True
             logger.info("Lifecycle startup completed", module_count=len(initialized))
+        except LifecycleInitDeferred:
+            # Graceful deferral — keep infrastructure modules alive so that
+            # services like heartbeat, settings UI, etc. remain operational.
+            self._initialized_modules = initialized
+            self._started = True
+            logger.info(
+                "Lifecycle startup deferred",
+                module_count=len(initialized),
+            )
+            raise
         except Exception:
             await self._shutdown_modules(initialized)
             raise

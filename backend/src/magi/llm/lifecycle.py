@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..bootstrap.lifecycle import LifecycleModule
+from ..bootstrap.lifecycle import LifecycleInitDeferred, LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from . import LLMScenario, ScenarioLLMPool, get_llm_usage_store
@@ -11,7 +11,7 @@ from .factory import create_core_llm_adapter, create_scenario_llm_pool, is_llm_s
 logger = get_logger(__name__)
 
 
-class RuntimeInitializationDeferred(Exception):
+class RuntimeInitializationDeferred(LifecycleInitDeferred):
     """Raised when runtime initialization should be deferred (usually onboarding stage)."""
 
     def __init__(self, *, pending_selection: bool, cause: Exception | None = None) -> None:
