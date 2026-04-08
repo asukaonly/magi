@@ -9,6 +9,8 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
+import math
+from collections import defaultdict
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -56,6 +58,94 @@ def rrf_fuse(
         for rank_1based, doc_id in enumerate(ranked_ids, start=1):
             scores[doc_id] = scores.get(doc_id, 0.0) + weight / (k + rank_1based)
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+
+def _session_diversified_select(
+    reranked: List[Dict[str, Any]],
+    limit: int,
+    *,
+    cutoff_ratio: float = 0.7,
+    max_per_session: int = 3,
+    budget_multiplier: float = 1.5,
+) -> List[Dict[str, Any]]:
+    """Session-aware selection that maximises session diversity.
+
+    Instead of a simple ``reranked[:limit]``, this function ensures the
+    returned events cover as many distinct sessions as possible while
+    maintaining a quality floor.
+
+    Algorithm:
+    1. If only 1-2 sessions exist in candidates, skip diversification
+       (single-session queries don't benefit).
+    2. Compute a quality floor: ``reranked[limit-1].score × cutoff_ratio``.
+    3. Cap each session to ``ceil(budget / n_sessions)`` events (bounded
+       by *max_per_session*).
+    4. Round-robin across sessions (ordered by best event score) until
+       the budget is filled or no qualifying events remain.
+    """
+    if not reranked:
+        return []
+    if len(reranked) <= limit:
+        return list(reranked)
+
+    # Group by session
+    by_session: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for event in reranked:
+        sid = str(event.get("session_id") or "")
+        by_session[sid].append(event)
+
+    n_sessions = len(by_session)
+    if n_sessions <= 2:
+        return reranked[:limit]
+
+    # Quality floor based on the would-be last included event
+    floor_idx = min(limit - 1, len(reranked) - 1)
+    floor_score = float(reranked[floor_idx].get("reranker_score", 0.0)) * cutoff_ratio
+
+    budget = min(int(math.ceil(limit * budget_multiplier)), len(reranked))
+    per_session_cap = min(max(math.ceil(budget / n_sessions), 1), max_per_session)
+
+    # Order sessions by their best event score (descending)
+    session_order = sorted(
+        by_session.keys(),
+        key=lambda sid: float(by_session[sid][0].get("reranker_score", 0.0)),
+        reverse=True,
+    )
+
+    selected: List[Dict[str, Any]] = []
+    cursors: Dict[str, int] = {sid: 0 for sid in session_order}
+    session_counts: Dict[str, int] = {sid: 0 for sid in session_order}
+
+    while len(selected) < budget:
+        picked_any = False
+        for sid in session_order:
+            if len(selected) >= budget:
+                break
+            if session_counts[sid] >= per_session_cap:
+                continue
+            events = by_session[sid]
+            idx = cursors[sid]
+            if idx >= len(events):
+                continue
+            event = events[idx]
+            score = float(event.get("reranker_score", 0.0))
+            cursors[sid] = idx + 1
+            if score < floor_score:
+                continue
+            selected.append(event)
+            session_counts[sid] += 1
+            picked_any = True
+        if not picked_any:
+            break
+
+    selected_session_count = sum(1 for c in session_counts.values() if c > 0)
+    logger.debug(
+        "session_diversified_select | candidates=%d sessions=%d limit=%d "
+        "budget=%d floor_score=%.4f per_session_cap=%d → selected=%d covering=%d sessions",
+        len(reranked), n_sessions, limit, budget, floor_score,
+        per_session_cap, len(selected), selected_session_count,
+    )
+    return selected
 
 
 # ---------------------------------------------------------------------------
@@ -178,11 +268,15 @@ class L1Handler(RRFSearchHandler):
         if not conditions.content_query:
             return []
         fetch_k = max(conditions.limit * 5, 20)
+        # Vector path contributes fewer candidates than BM25 to prevent
+        # low-relevance semantic matches from overwhelming keyword-based
+        # paths in RRF fusion.
+        vec_k = max(conditions.limit * 2, 20)
 
         # Phase 1: Run 3 core retrieval paths in parallel
         retrieval_coros = [
             self._bm25_path(conditions.content_query, fetch_k, user_id=user_id),
-            self._vector_path(conditions.content_query, fetch_k, user_id=user_id),
+            self._vector_path(conditions.content_query, vec_k, user_id=user_id),
             self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id),
         ]
         has_temporal = time_range is not None and (time_range.start is not None or time_range.end is not None)
@@ -281,7 +375,7 @@ class L1Handler(RRFSearchHandler):
             query=conditions.content_query,
             fused_scores=dict(fused),
         )
-        final = reranked[:conditions.limit]
+        final = _session_diversified_select(reranked, conditions.limit)
         logger.debug(
             "L1 execute returning | reranked_count=%d limit=%d final_count=%d "
             "final_event_ids=%s",
@@ -401,13 +495,14 @@ class L1Handler(RRFSearchHandler):
         """Vector similarity search via sqlite-vec.
 
         Resolves chunk-level entity IDs returned by the vector index back to
-        event IDs.  When *user_id* is provided, only events belonging to that
-        user are returned (via a post-filter against ``fact_events``).
+        event IDs.  When *user_id* is provided, the vec0 partition key is used
+        to pre-filter KNN results so only vectors belonging to that user are
+        considered.
         """
         try:
-            # Over-fetch when user_id filtering will discard cross-namespace hits
-            vec_limit = limit * 10 if user_id else limit
-            hits = await self._store._semantic_search_event_hits(query=query, limit=vec_limit)
+            hits = await self._store._semantic_search_event_hits(
+                query=query, limit=limit, user_id=user_id,
+            )
             if not hits:
                 return []
 
@@ -419,9 +514,6 @@ class L1Handler(RRFSearchHandler):
                 if eid not in seen:
                     seen.add(eid)
                     event_ids.append(eid)
-
-            if user_id and event_ids:
-                event_ids = await self._filter_ids_by_user(event_ids, user_id)
 
             return event_ids
         except Exception as exc:
