@@ -398,8 +398,9 @@ fn dev_backend_log_path() -> Result<PathBuf, String> {
     }
 
     let home_dir = env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
         .map(PathBuf::from)
-        .map_err(|_| "HOME is not set for desktop dev backend logging".to_string())?;
+        .map_err(|_| "Neither HOME nor USERPROFILE is set for desktop dev backend logging".to_string())?;
     Ok(home_dir.join(".magi").join("logs").join("backend-dev-hot.log"))
 }
 

@@ -118,12 +118,11 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
     @app.get("/api/ready", tags=["Health"])
     async def ready_check():
         runtime_status = await get_runtime_system_status(app)
-        ready = runtime_status["status"] == "ready"
         return {
             "success": True,
             "message": "Backend startup state",
             "data": {
-                "ready": ready,
+                "ready": True,
                 "status": runtime_status["status"],
                 "runtime_ready": runtime_status["runtime_ready"],
                 "runtime_status": runtime_status["runtime_status"],

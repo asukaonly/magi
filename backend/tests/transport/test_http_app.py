@@ -35,7 +35,7 @@ def test_transport_app_exposes_ready_state(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["data"] == {
-        "ready": False,
+        "ready": True,
         "status": "degraded",
         "runtime_ready": False,
         "runtime_status": "offline",
