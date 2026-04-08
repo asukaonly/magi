@@ -226,6 +226,18 @@ class TestResolveTemporalRange:
         assert "end" not in result
         # Could be wide range or a past-date match; either is acceptable
 
+    def test_in_a_week_ago_strips_preposition(self) -> None:
+        # search_dates greedily captures "in a week ago" (future-directed).
+        # The reparse fallback should strip "in" and correctly resolve
+        # "a week ago" to a past date.
+        result = EvalMemoryReader._resolve_temporal_range(
+            "What was the life event that I participated in a week ago?",
+            _QTS,
+        )
+        assert result["start"] > 0
+        # "a week ago" from Apr 5 → Mar 29, minus 7d padding → ~Mar 22
+        assert result["start"] < _QTS - 10 * 86_400
+
     def test_returns_wide_when_dateparser_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import importlib
         original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__

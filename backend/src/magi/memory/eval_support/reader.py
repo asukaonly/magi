@@ -29,6 +29,45 @@ _MONTH_LEVEL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Regex to strip a leading preposition that `search_dates` may have
+# greedily absorbed into the matched span, e.g. "in a week ago" where
+# "in" belongs to the verb phrase ("participated in") not the temporal
+# expression ("a week ago").
+_LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
+
+
+def _reparse_with_stripped_preposition(
+    results: list[tuple[str, Any]],
+    settings: dict,
+    query_timestamp: float,
+) -> list[float]:
+    """Re-parse matched texts after stripping a leading preposition.
+
+    ``dateparser.search.search_dates`` sometimes captures a preceding
+    preposition as part of the temporal span (e.g. *"in a week ago"*
+    instead of *"a week ago"*), causing a future-directed parse.  This
+    helper strips the preposition and retries ``dateparser.parse``.
+    """
+    import dateparser
+
+    resolved: list[float] = []
+    for matched_text, _ in results:
+        stripped = _LEADING_PREP_RE.sub("", matched_text)
+        if stripped == matched_text:
+            continue
+        retry_dt = dateparser.parse(stripped, settings=settings)
+        if retry_dt is None:
+            continue
+        ts = retry_dt.replace(tzinfo=timezone.utc).timestamp()
+        if ts <= query_timestamp:
+            resolved.append(ts)
+            logger.debug(
+                "Temporal reparse succeeded: %r → %r → %s",
+                matched_text, stripped, retry_dt,
+            )
+    return resolved
+
+
 _STOP_WORDS = {
     "a",
     "an",
@@ -152,6 +191,14 @@ class EvalMemoryReader:
             ts = resolved_dt.replace(tzinfo=timezone.utc).timestamp()
             if ts <= query_timestamp:
                 resolved.append(ts)
+
+        if not resolved:
+            # Fallback: search_dates may mismatch spans (e.g. "in a week
+            # ago" parsed as "in a week" → future).  Re-parse each matched
+            # text after stripping a leading preposition.
+            resolved = _reparse_with_stripped_preposition(
+                results, settings, query_timestamp,
+            )
 
         if not resolved:
             return wide
