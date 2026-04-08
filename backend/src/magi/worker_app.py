@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 import time
 import uuid
 
@@ -93,13 +94,20 @@ async def _run_worker() -> None:
 
     # Wait for shutdown signal
     shutdown_event = asyncio.Event()
-
-    def _signal_handler() -> None:
-        shutdown_event.set()
-
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, _signal_handler)
+
+    if sys.platform == "win32":
+        def _signal_handler(signum, frame):
+            loop.call_soon_threadsafe(shutdown_event.set)
+
+        signal.signal(signal.SIGTERM, _signal_handler)
+        signal.signal(signal.SIGINT, _signal_handler)
+    else:
+        def _signal_handler() -> None:
+            shutdown_event.set()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _signal_handler)
 
     await shutdown_event.wait()
     logger.info("IPC worker shutting down")
@@ -187,7 +195,9 @@ async def _publish_runtime_heartbeat(
             )
         )
     except Exception as exc:
-        logger.warning("Failed to publish runtime heartbeat", error=str(exc))
+        if not getattr(_publish_runtime_heartbeat, "_warned", False):
+            logger.warning("Failed to publish runtime heartbeat", error=str(exc))
+            _publish_runtime_heartbeat._warned = True
 
 
 async def _load_pending_command_count() -> int:
