@@ -17,6 +17,18 @@ logger = logging.getLogger(__name__)
 # so the hard time-range filter does not accidentally exclude nearby events.
 _TEMPORAL_PADDING_SECS = 7 * 86_400  # 7 days
 
+# Regex matching month-level temporal expressions (e.g. "in January",
+# "last month", "during February 2023").  When the dateparser match text
+# corresponds to an entire month the padding is expanded to cover the
+# full calendar month instead of the default 7-day window.
+_MONTH_LEVEL_RE = re.compile(
+    r"(?:in|during)\s+"
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+    r"(?:\s+\d{4})?"
+    r"|last\s+month",
+    re.IGNORECASE,
+)
+
 _STOP_WORDS = {
     "a",
     "an",
@@ -142,10 +154,27 @@ class EvalMemoryReader:
             return wide
 
         earliest = min(resolved)
-        start = max(0, earliest - _TEMPORAL_PADDING_SECS)
+
+        # When all matched expressions are month-level references
+        # (e.g. "in January", "last month"), expand padding to cover
+        # the full calendar month instead of the default 7-day window.
+        matched_texts = [mt for mt, _ in results]
+        is_month_level = all(
+            _MONTH_LEVEL_RE.search(mt) for mt in matched_texts
+        )
+        if is_month_level:
+            earliest_dt = datetime.fromtimestamp(earliest, tz=timezone.utc)
+            month_start = earliest_dt.replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0,
+            )
+            start = max(0, month_start.timestamp())
+        else:
+            start = max(0, earliest - _TEMPORAL_PADDING_SECS)
+
         logger.debug(
-            "Temporal range narrowed query=%r earliest=%s start=%s end=%s",
-            query, earliest, start, query_timestamp,
+            "Temporal range narrowed query=%r earliest=%s start=%s end=%s"
+            " month_level=%s",
+            query, earliest, start, query_timestamp, is_month_level,
         )
         return {"start": start, "end": query_timestamp}
 

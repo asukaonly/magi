@@ -183,9 +183,23 @@ class TestResolveTemporalRange:
             _QTS,
         )
         assert result["end"] == _QTS
-        # "last month" = March → start ~late Feb
+        # "last month" = March → month-level → start = March 1
         assert result["start"] > 0
         assert result["start"] < _QTS - 20 * 86_400
+
+    def test_in_january_uses_full_month_range(self) -> None:
+        # Question on Jan 30 asking about "in January" should cover the whole month.
+        jan30_qts = 1675043580.0  # 2023-01-30 01:53 UTC
+        result = EvalMemoryReader._resolve_temporal_range(
+            "What is the order of the sports events I watched in January?",
+            jan30_qts,
+        )
+        assert result["end"] == jan30_qts
+        # start should be Jan 1, not Jan 23 (which would miss early-January events)
+        from datetime import datetime, timezone
+
+        jan1 = datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp()
+        assert result["start"] == jan1
 
     def test_no_temporal_phrase_returns_wide_range(self) -> None:
         result = EvalMemoryReader._resolve_temporal_range(
