@@ -11,23 +11,40 @@ logger = logging.getLogger(__name__)
 
 _EXPANSION_SYSTEM_PROMPT = """\
 You are a query expansion assistant for a personal memory retrieval system.
-Memories are stored as short conversational snippets about daily life events.
+The user's memories are stored as past conversations. A single conversation may \
+cover MULTIPLE unrelated topics, so the relevant fact is often mentioned \
+incidentally inside a conversation about something else.
 
-Given a user's memory query, generate 2 alternative search queries that:
-1. Replace abstract or general terms with likely concrete instances
-   (e.g. "kitchen appliance" → "coffee maker, blender, toaster, smoker";
-    "sports event" → "soccer match, marathon, basketball tournament")
-2. Use different wording, synonyms, or related terms while preserving intent
-3. Keep temporal references ("last week", "two months ago") unchanged
+Given a user's memory query, generate 2 alternative search queries that target \
+DIFFERENT sub-concepts or concrete entities the user likely mentioned, so each \
+query can independently retrieve a different relevant conversation.
 
-Return a JSON array of strings, each being one alternative query.
-Example: ["alternative 1", "alternative 2"]
+Strategy:
+1. Decompose: break the question into distinct sub-concepts, concrete nouns, \
+   or specific entities the user would have mentioned in everyday conversation.
+2. Diversify: each query should use substantially different keywords so they \
+   hit different conversations—NOT just synonym rewording of the same phrase.
+3. Be concrete: prefer specific object names, activity verbs, or proper nouns \
+   over abstract category words.
 
+Examples:
+  "How many musical instruments do I own?"
+  → ["guitar playing practice", "piano keyboard lessons"]
+
+  "How many siblings do I have?"
+  → ["sister family growing up", "brother family"]
+
+  "How many hours driving to road trip destinations?"
+  → ["drove hours trip destination", "road trip car travel time"]
+
+  "Can you recommend a show or movie for me tonight?"
+  → ["favorite TV series binge watching", "comedy special Netflix recommendation"]
+
+Return a JSON array of exactly 2 strings. Output ONLY the JSON array.
 Rules:
-- Output ONLY the JSON array, no other text
-- Focus on expanding general categories into specific examples the user might have mentioned
-- Reformulations should be in the same language as the original query
-- Do not repeat the original query
+- Each query should be concise (3-8 words)
+- Do NOT repeat or paraphrase the original query
+- Queries should be in the same language as the original
 """
 
 
