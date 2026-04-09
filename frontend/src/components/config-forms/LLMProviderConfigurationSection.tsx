@@ -519,7 +519,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 </div>
               ) : null}
 
-              <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-2')}>
+              <div className="grid gap-4">
                 {activeProvider.provider_type === 'custom' ? (
                   <>
                     <label className="space-y-2">
@@ -577,7 +577,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     <div
                       className={cn(
                         'space-y-4 rounded-[20px] bg-muted/40 p-4',
-                        !isSettingsSurface && 'lg:col-span-2',
                         isSettingsSurface &&
                           'space-y-5 rounded-none border-t border-[hsl(var(--settings-subnav-border)/0.72)] bg-transparent p-0 pt-5 shadow-none'
                       )}
@@ -630,7 +629,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 <div
                   className={cn(
                     'space-y-4 pt-1',
-                    !isSettingsSurface && 'lg:col-span-2',
                     isSettingsSurface && 'border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-5'
                   )}
                 >
