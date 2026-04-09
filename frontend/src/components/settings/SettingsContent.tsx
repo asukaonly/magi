@@ -26,6 +26,7 @@ import {
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
 import ActionsSection from '@/components/settings/ActionsSection';
+import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import PersonalityModern from '@/pages/PersonalityModern';
@@ -257,6 +258,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 />
               </div>
             </section>
+
+            <DesktopUpdateSection />
           </SettingsSectionShell>
         );
 

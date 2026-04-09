@@ -170,7 +170,10 @@ fn wait_for_health(host: &str, port: u16, timeout: Duration) -> bool {
 
 /// Wait for Python IPC worker to write its ready file.
 fn wait_for_ready_file(timeout: Duration) -> bool {
-    let home = match env::var("HOME").or_else(|_| env::var("USERPROFILE")).map(PathBuf::from) {
+    let home = match env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .map(PathBuf::from)
+    {
         Ok(h) => h,
         Err(_) => return false,
     };
@@ -187,7 +190,10 @@ fn wait_for_ready_file(timeout: Duration) -> bool {
 
 /// Remove stale worker ready file.
 fn remove_ready_file() {
-    if let Ok(home) = env::var("HOME").or_else(|_| env::var("USERPROFILE")).map(PathBuf::from) {
+    if let Ok(home) = env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .map(PathBuf::from)
+    {
         let runtime_dir = home.join(".magi").join("runtime");
         let _ = fs::remove_file(runtime_dir.join("worker.ready"));
         let _ = fs::remove_file(runtime_dir.join("gateway.port"));
@@ -195,7 +201,10 @@ fn remove_ready_file() {
 }
 
 fn write_gateway_port_file(port: u16) {
-    if let Ok(home) = env::var("HOME").or_else(|_| env::var("USERPROFILE")).map(PathBuf::from) {
+    if let Ok(home) = env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .map(PathBuf::from)
+    {
         let runtime_dir = home.join(".magi").join("runtime");
         let _ = fs::create_dir_all(&runtime_dir);
         let _ = fs::write(runtime_dir.join("gateway.port"), port.to_string());
@@ -400,8 +409,13 @@ fn dev_backend_log_path() -> Result<PathBuf, String> {
     let home_dir = env::var("HOME")
         .or_else(|_| env::var("USERPROFILE"))
         .map(PathBuf::from)
-        .map_err(|_| "Neither HOME nor USERPROFILE is set for desktop dev backend logging".to_string())?;
-    Ok(home_dir.join(".magi").join("logs").join("backend-dev-hot.log"))
+        .map_err(|_| {
+            "Neither HOME nor USERPROFILE is set for desktop dev backend logging".to_string()
+        })?;
+    Ok(home_dir
+        .join(".magi")
+        .join("logs")
+        .join("backend-dev-hot.log"))
 }
 
 fn open_dev_backend_log_stdio() -> Result<(Stdio, Stdio), String> {
@@ -480,8 +494,12 @@ fn spawn_sidecar_backend(
     Ok(ManagedBackendStart { process, pid })
 }
 
-fn spawn_dev_backend_pair(session_token: &str, ipc_socket_path: &str) -> Result<ManagedBackendStart, String> {
-    let (process, pid) = spawn_dev_backend_role("ipc_worker", None, session_token, ipc_socket_path)?;
+fn spawn_dev_backend_pair(
+    session_token: &str,
+    ipc_socket_path: &str,
+) -> Result<ManagedBackendStart, String> {
+    let (process, pid) =
+        spawn_dev_backend_role("ipc_worker", None, session_token, ipc_socket_path)?;
     Ok(ManagedBackendStart { process, pid })
 }
 
@@ -582,8 +600,7 @@ fn start_backend(
     // Unix: domain socket under ~/.magi/runtime/ipc.sock
     // Windows: TCP loopback 127.0.0.1:<port>
     let ipc_socket_path = if cfg!(windows) {
-        let ipc_port = pick_open_port()
-            .map_err(|e| format!("Failed to pick IPC port: {e}"))?;
+        let ipc_port = pick_open_port().map_err(|e| format!("Failed to pick IPC port: {e}"))?;
         format!("127.0.0.1:{}", ipc_port)
     } else {
         let home = env::var("HOME")
@@ -602,10 +619,7 @@ fn start_backend(
                 }
             }
         }
-        runtime_dir
-            .join("ipc.sock")
-            .to_string_lossy()
-            .to_string()
+        runtime_dir.join("ipc.sock").to_string_lossy().to_string()
     };
 
     // Remove stale ready / port files before spawning
@@ -614,7 +628,12 @@ fn start_backend(
     let start = if cfg!(debug_assertions) {
         spawn_dev_backend_pair(&session_token, &ipc_socket_path)?
     } else {
-        spawn_sidecar_backend(&app, &session_token, &ipc_socket_path, state.recent_errors.clone())?
+        spawn_sidecar_backend(
+            &app,
+            &session_token,
+            &ipc_socket_path,
+            state.recent_errors.clone(),
+        )?
     };
 
     if !wait_for_ready_file(STARTUP_TIMEOUT) {
@@ -646,9 +665,7 @@ fn start_backend(
         }
     };
 
-    let api_state = api::state::ApiState {
-        ipc_client,
-    };
+    let api_state = api::state::ApiState { ipc_client };
     let router = api::build_router(api_state);
 
     // Ensure performance-critical indexes exist on SQLite databases
@@ -678,9 +695,10 @@ fn start_backend(
     // Start notification bridge (polls runtime_trace.db → Tauri events)
     let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::watch::channel(false);
     let bridge_app = app.clone();
-    let event_emitter: notification_bridge::EventEmitFn = std::sync::Arc::new(move |event, payload| {
-        let _ = bridge_app.emit(event, payload);
-    });
+    let event_emitter: notification_bridge::EventEmitFn =
+        std::sync::Arc::new(move |event, payload| {
+            let _ = bridge_app.emit(event, payload);
+        });
     tauri::async_runtime::spawn(async move {
         notification_bridge::run_notification_bridge(Some(event_emitter), bridge_shutdown_rx).await;
     });
@@ -759,6 +777,8 @@ fn cancel_exit_request() -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(BackendState::default())

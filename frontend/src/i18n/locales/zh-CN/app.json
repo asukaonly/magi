@@ -432,6 +432,34 @@
     "toolsDesc": "配置内置工具和技能",
     "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
     "systemDesc": "高级系统配置参数",
+    "updates": {
+      "title": "桌面更新",
+      "description": "检查 GitHub Releases 中最新的 stable 版本，下载已签名的更新包，并在你准备好时重启 Magi 完成安装。",
+      "currentVersionLabel": "当前版本",
+      "channelLabel": "更新通道",
+      "channelValue": "GitHub Releases stable",
+      "unavailableVersion": "当前运行环境不可用",
+      "desktopOnly": "自动更新仅在打包后的 Tauri 桌面应用内可用。",
+      "checkAction": "检查更新",
+      "checking": "检查中...",
+      "installAction": "下载并安装",
+      "installing": "安装中...",
+      "restartAction": "重启以应用",
+      "lastChecked": "上次检查时间：{{time}}",
+      "availableVersion": "版本 {{version}} 已可用",
+      "releaseDate": "发布于 {{date}}",
+      "noReleaseNotes": "这个 release 没有附带更新说明。",
+      "downloadPreparing": "正在准备下载...",
+      "downloadProgress": "正在下载更新：{{progress}}%",
+      "upToDate": "你现在已经是最新的 stable 版本。",
+      "restartHint": "版本 {{version}} 已安装完成。重启 Magi 以完成更新。",
+      "availableToast": "发现新版本 {{version}}",
+      "upToDateToast": "Magi 已是最新版本",
+      "installSuccess": "版本 {{version}} 已安装",
+      "checkFailed": "检查更新失败：{{message}}",
+      "installFailed": "安装更新失败：{{message}}",
+      "restartFailed": "重启应用失败：{{message}}"
+    },
     "llmSaveHint": "LLM 配置需要手动保存，其他设置会自动生效。",
     "saveLLM": "保存 LLM 配置",
     "activeState": "当前",
@@ -466,7 +494,6 @@
       "loopInterval": "循环间隔（秒）",
       "busBackend": "消息总线后端",
       "busQueueSize": "消息总线队列大小",
-
       "logLevel": "日志级别",
       "clearMemory": "清除所有记忆",
       "clearMemoryDesc": "清除 L1-L5 所有层级的记忆数据。此操作不可恢复，请谨慎操作。",
@@ -1106,14 +1133,32 @@
         "name": "照片库",
         "description": "扫描本地照片目录，提取 EXIF 元数据并接入时间线",
         "options": {
-          "enabled": { "true": "启用", "false": "停用" },
-          "sync_mode": { "manual": "手动", "interval": "定时" },
-          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" }
+          "enabled": {
+            "true": "启用",
+            "false": "停用"
+          },
+          "sync_mode": {
+            "manual": "手动",
+            "interval": "定时"
+          },
+          "default_retention_mode": {
+            "analyze_only": "仅分析",
+            "retain_raw": "保留原始"
+          }
         },
         "fields": {
-          "enabled": { "label": "启用", "description": "开启照片库同步。" },
-          "source_path": { "label": "照片目录", "description": "要扫描的本地照片所在目录。" },
-          "sync_mode": { "label": "同步方式", "description": "选择手动触发还是定时自动同步。" },
+          "enabled": {
+            "label": "启用",
+            "description": "开启照片库同步。"
+          },
+          "source_path": {
+            "label": "照片目录",
+            "description": "要扫描的本地照片所在目录。"
+          },
+          "sync_mode": {
+            "label": "同步方式",
+            "description": "选择手动触发还是定时自动同步。"
+          },
           "sync_interval_minutes": {
             "label": "定时间隔（分钟）",
             "description": "定时同步时的拉取间隔。"
@@ -1127,7 +1172,10 @@
             "description": "照片原始数据的处理方式。"
           }
         },
-        "sections": { "general": "常规", "storage": "存储" }
+        "sections": {
+          "general": "常规",
+          "storage": "存储"
+        }
       },
       "core-tools": {
         "name": "核心工具",
@@ -1137,15 +1185,24 @@
         "name": "核心执行器",
         "description": "内置执行器，用于代理对外操作能力",
         "options": {
-          "delivery_mode": { "console": "控制台（调试）", "smtp": "SMTP", "sendgrid": "SendGrid" }
+          "delivery_mode": {
+            "console": "控制台（调试）",
+            "smtp": "SMTP",
+            "sendgrid": "SendGrid"
+          }
         },
-        "sections": { "email": "邮件" }
+        "sections": {
+          "email": "邮件"
+        }
       },
       "calendar": {
         "name": "日历",
         "description": "日历事件接入时间线",
         "fields": {
-          "enabled": { "label": "启用", "description": "开启日历事件同步。" },
+          "enabled": {
+            "label": "启用",
+            "description": "开启日历事件同步。"
+          },
           "sync_mode": {
             "label": "同步方式",
             "description": "选择手动触发，还是按固定时间自动同步。"
@@ -1164,7 +1221,10 @@
           }
         },
         "options": {
-          "sync_mode": { "manual": "手动", "interval": "定时" },
+          "sync_mode": {
+            "manual": "手动",
+            "interval": "定时"
+          },
           "sync_interval_minutes": {
             "15": "15 分钟",
             "30": "30 分钟",
@@ -1172,7 +1232,10 @@
             "360": "6 小时"
           }
         },
-        "sections": { "general": "常规", "sync": "同步" },
+        "sections": {
+          "general": "常规",
+          "sync": "同步"
+        },
         "activation": {
           "title": "连接日历",
           "description": "允许 Magi 读取你的日历事件，用于时间线同步。",
@@ -1216,25 +1279,51 @@
           }
         },
         "options": {
-          "enabled": { "true": "启用", "false": "停用" },
-          "sync_mode": { "manual": "手动", "interval": "定时" },
-          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
-          "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
+          "enabled": {
+            "true": "启用",
+            "false": "停用"
+          },
+          "sync_mode": {
+            "manual": "手动",
+            "interval": "定时"
+          },
+          "default_retention_mode": {
+            "analyze_only": "仅分析",
+            "retain_raw": "保留原始"
+          },
+          "storage_mode": {
+            "managed": "托管",
+            "external_reference": "外部引用"
+          },
           "initial_sync_policy": {
             "full": "同步全部历史",
             "lookback_days": "同步最近几天",
             "from_now": "仅同步新记录"
           },
-          "fetch_page_content": { "true": "是", "false": "否" }
+          "fetch_page_content": {
+            "true": "是",
+            "false": "否"
+          }
         },
-        "sections": { "general": "常规", "sync": "同步", "storage": "存储", "activation": "激活" }
+        "sections": {
+          "general": "常规",
+          "sync": "同步",
+          "storage": "存储",
+          "activation": "激活"
+        }
       },
       "git-activity": {
         "name": "Git 活动",
         "description": "Git 仓库活动接入时间线",
         "options": {
-          "enabled": { "true": "启用", "false": "停用" },
-          "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" },
+          "enabled": {
+            "true": "启用",
+            "false": "停用"
+          },
+          "default_retention_mode": {
+            "analyze_only": "仅分析",
+            "full": "完整保留"
+          },
           "initial_sync_policy": {
             "full": "同步全部历史",
             "lookback_days": "同步最近几天",
@@ -1246,23 +1335,43 @@
             "include": "包含所有内容"
           }
         },
-        "sections": { "general": "常规", "retention": "保留策略", "privacy": "隐私" }
+        "sections": {
+          "general": "常规",
+          "retention": "保留策略",
+          "privacy": "隐私"
+        }
       },
       "netease-music": {
         "name": "网易云音乐",
         "description": "本地网易云音乐播放历史接入时间线",
         "options": {
-          "enabled": { "true": "启用", "false": "停用" },
-          "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },
-          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
-          "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
+          "enabled": {
+            "true": "启用",
+            "false": "停用"
+          },
+          "sync_mode": {
+            "manual": "手动",
+            "interval": "定时",
+            "watch": "监听"
+          },
+          "default_retention_mode": {
+            "analyze_only": "仅分析",
+            "retain_raw": "保留原始"
+          },
+          "storage_mode": {
+            "managed": "托管",
+            "external_reference": "外部引用"
+          },
           "initial_sync_policy": {
             "full": "同步全部历史",
             "lookback_days": "同步最近几天",
             "from_now": "仅同步新曲目"
           }
         },
-        "sections": { "general": "常规", "storage": "存储" }
+        "sections": {
+          "general": "常规",
+          "storage": "存储"
+        }
       },
       "screen-time": {
         "name": "应用使用情况",
@@ -1285,14 +1394,23 @@
             "60": "每 60 分钟"
           }
         },
-        "sections": { "general": "常规", "sync": "同步" }
+        "sections": {
+          "general": "常规",
+          "sync": "同步"
+        }
       },
       "terminal-history": {
         "name": "终端历史",
         "description": "终端命令历史接入时间线",
         "options": {
-          "enabled": { "true": "启用", "false": "停用" },
-          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
+          "enabled": {
+            "true": "启用",
+            "false": "停用"
+          },
+          "default_retention_mode": {
+            "analyze_only": "仅分析",
+            "retain_raw": "保留原始"
+          },
           "initial_sync_policy": {
             "full": "同步全部历史",
             "lookback_days": "同步最近几天",
@@ -1311,8 +1429,7 @@
           "activation": "激活"
         }
       }
-    },
-    "saving": "保存中..."
+    }
   },
   "memory": {
     "title": "记忆查看",

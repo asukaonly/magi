@@ -18,6 +18,8 @@
         }
       ]
     },
-    "shell:allow-kill"
+    "shell:allow-kill",
+    "process:default",
+    "updater:default"
   ]
 }
