@@ -533,7 +533,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     return cloneLLMConfig(formCtx?.values?.llm as LLMConfig | undefined);
   }, [controlled, formCtx?.values?.llm, value]);
   const initialProvidersRef = useRef(currentValue.providers);
-  const fillAvailableHeight = surface === 'settings' && view === 'providers';
+  const fillAvailableHeight = view === 'providers';
 
   const updateValue = (updater: (draft: LLMConfig) => void) => {
     const next = cloneLLMConfig(currentValue);

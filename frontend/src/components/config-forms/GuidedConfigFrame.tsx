@@ -41,7 +41,7 @@ export const GuidedConfigFrame: React.FC<GuidedConfigFrameProps> = ({
       ) : null}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-        <div className={cn('min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 lg:p-7', contentClassName)}>
+        <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto p-5 sm:p-6 lg:p-7', contentClassName)}>
           {children}
         </div>
         {footer ? (

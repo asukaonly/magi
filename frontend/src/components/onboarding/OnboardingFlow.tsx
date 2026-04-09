@@ -500,6 +500,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           >
             <AnimatePresence mode="wait">
               <motion.div
+                className="flex min-h-0 flex-1 flex-col"
                 key={`${renderLanguage}-${mode ?? 'none'}-${current}`}
                 initial={shouldReduceMotion ? false : { opacity: 0, x: 24 }}
                 animate={{ opacity: 1, x: 0 }}

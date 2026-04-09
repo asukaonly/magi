@@ -290,8 +290,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     <section
       data-testid="llm-provider-configuration-section"
       className={cn(
-        'space-y-4',
-        isSettingsSurface && 'flex h-full min-h-0 flex-col space-y-0'
+        'flex min-h-0 flex-1 flex-col space-y-4',
+        isSettingsSurface && 'space-y-0'
       )}
     >
       {showSectionIntro ? (
@@ -314,9 +314,9 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       <div
         data-testid="llm-provider-workbench"
         className={cn(
-          'grid min-h-0 gap-4 overflow-hidden rounded-[28px] bg-muted/35 p-3 sm:p-4',
+          'grid min-h-0 flex-1 gap-4 overflow-hidden rounded-[28px] bg-muted/35 p-3 sm:p-4',
           workbenchColumnsClassName,
-          'md:h-[clamp(440px,56vh,680px)] xl:items-stretch',
+          'md:min-h-[440px] xl:items-stretch',
           isSettingsSurface &&
             cn(
               'h-full gap-0 rounded-none bg-transparent p-0 sm:p-0 md:h-full',
