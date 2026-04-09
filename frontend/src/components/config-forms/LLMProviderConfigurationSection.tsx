@@ -50,55 +50,6 @@ const badgeClassName =
 const fieldClassName =
   'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
 
-/** Format a token count for display: 128000 → "128K", 1500 → "1500" */
-const formatTokenCount = (value: number | null | undefined): string => {
-  if (value == null) return '';
-  if (value >= 1000 && value % 1000 === 0) return `${value / 1000}K`;
-  return String(value);
-};
-
-/** Parse a token count string that may contain K/k suffix: "128K" → 128000 */
-const parseTokenCount = (raw: string): number | undefined => {
-  const trimmed = raw.trim();
-  if (!trimmed) return undefined;
-  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*[Kk]$/);
-  if (match) return Math.round(Number(match[1]) * 1000);
-  const num = Number(trimmed);
-  return Number.isFinite(num) && num > 0 ? num : undefined;
-};
-
-/** Input that shows token counts with K suffix, raw while editing. */
-const TokenCountInput: React.FC<{
-  value: number | null | undefined;
-  onChange: (value: number | undefined) => void;
-  ariaLabel: string;
-  className?: string;
-}> = ({ value, onChange, ariaLabel, className }) => {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-
-  const displayed = editing ? draft : formatTokenCount(value);
-
-  return (
-    <input
-      aria-label={ariaLabel}
-      className={className}
-      type="text"
-      inputMode="numeric"
-      value={displayed}
-      onFocus={() => {
-        setEditing(true);
-        setDraft(formatTokenCount(value));
-      }}
-      onChange={(e) => {
-        setDraft(e.target.value);
-        onChange(parseTokenCount(e.target.value));
-      }}
-      onBlur={() => setEditing(false)}
-    />
-  );
-};
-
 interface ProviderWorkbenchModelItem {
   id: string;
   label: string;
@@ -884,30 +835,44 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-3')}>
                             <label className="space-y-2">
                               <span className="text-sm font-medium">{t('llm.modelFields.contextWindow')}</span>
-                              <TokenCountInput
-                                ariaLabel={t('llm.modelFields.contextWindow')}
-                                className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                value={activeModelOverride?.limits?.context_window ?? activeWorkbenchModel.limits.context_window}
-                                onChange={(next) =>
-                                  updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                    draft.limits = { ...(draft.limits || {}), context_window: next };
-                                  })
-                                }
-                              />
+                              <div className="relative">
+                                <input
+                                  aria-label={t('llm.modelFields.contextWindow')}
+                                  className={cn(fieldClassName, 'pr-8', isSettingsSurface && 'rounded-lg')}
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  value={((activeModelOverride?.limits?.context_window ?? activeWorkbenchModel.limits.context_window) ?? 0) / 1000 || ''}
+                                  onChange={(event) =>
+                                    updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                      const v = event.target.value.trim();
+                                      draft.limits = { ...(draft.limits || {}), context_window: v ? Number(v) * 1000 : undefined };
+                                    })
+                                  }
+                                />
+                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">K</span>
+                              </div>
                             </label>
 
                             <label className="space-y-2">
                               <span className="text-sm font-medium">{t('llm.modelFields.maxOutputTokens')}</span>
-                              <TokenCountInput
-                                ariaLabel={t('llm.modelFields.maxOutputTokens')}
-                                className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                                value={activeModelOverride?.limits?.max_output_tokens ?? activeWorkbenchModel.limits.max_output_tokens}
-                                onChange={(next) =>
-                                  updateModelOverride(activeWorkbenchModel.id, (draft) => {
-                                    draft.limits = { ...(draft.limits || {}), max_output_tokens: next };
-                                  })
-                                }
-                              />
+                              <div className="relative">
+                                <input
+                                  aria-label={t('llm.modelFields.maxOutputTokens')}
+                                  className={cn(fieldClassName, 'pr-8', isSettingsSurface && 'rounded-lg')}
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  value={((activeModelOverride?.limits?.max_output_tokens ?? activeWorkbenchModel.limits.max_output_tokens) ?? 0) / 1000 || ''}
+                                  onChange={(event) =>
+                                    updateModelOverride(activeWorkbenchModel.id, (draft) => {
+                                      const v = event.target.value.trim();
+                                      draft.limits = { ...(draft.limits || {}), max_output_tokens: v ? Number(v) * 1000 : undefined };
+                                    })
+                                  }
+                                />
+                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">K</span>
+                              </div>
                             </label>
 
                             <label className="space-y-2">
