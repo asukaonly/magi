@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Rocket, Settings } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import magiMark from '@/assets/magi-mark.png';
 
 type LanguageCode = 'zh' | 'en';
 
@@ -26,7 +27,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const shouldReduceMotion = useReducedMotion();
 
   return (
-    <div className="relative flex min-h-screen w-full flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-orange-50/80 via-background to-amber-50/60">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-orange-50/80 via-background to-amber-50/60">
       {/* Decorative background */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -right-40 -top-40 h-[500px] w-[500px] rounded-full bg-primary/5 blur-3xl" />
@@ -41,9 +42,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         transition={{ duration: shouldReduceMotion ? 0 : 0.5, ease: 'easeOut' }}
       >
         {/* Logo / Brand */}
-        <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-          <span className="text-2xl font-bold">M</span>
-        </div>
+        <img src={magiMark} alt="Magi" className="mb-3 h-16 w-16" />
 
         {/* Title */}
         <h1 className="mb-2 text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
