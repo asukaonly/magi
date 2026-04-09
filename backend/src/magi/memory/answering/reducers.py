@@ -66,10 +66,15 @@ def _score_anchor_overlap(anchor_tokens: set[str], text: str) -> float:
     return score
 
 
-def _extract_explicit_calendar_date_candidates(text: str) -> list[tuple[date, tuple[int, int]]]:
+def _extract_explicit_calendar_date_candidates(
+    text: str,
+    *,
+    entry_date: date | None = None,
+) -> list[tuple[date, tuple[int, int]]]:
     content = str(text or "").strip()
     if not content:
         return []
+    default_year = entry_date.year if entry_date else 2000
 
     candidates: list[tuple[date, tuple[int, int]]] = []
 
@@ -82,7 +87,7 @@ def _extract_explicit_calendar_date_candidates(text: str) -> list[tuple[date, tu
         month = _MONTH_NAMES[str(month_name_match.group("month") or "").lower()]
         day = int(month_name_match.group("day"))
         year_str = month_name_match.group("year")
-        year = int(year_str) if year_str else 2000
+        year = int(year_str) if year_str else default_year
         try:
             candidates.append((date(year, month, day), month_name_match.span()))
         except ValueError:
@@ -92,7 +97,7 @@ def _extract_explicit_calendar_date_candidates(text: str) -> list[tuple[date, tu
         r"\b(?P<month>\d{1,2})[/-](?P<day>\d{1,2})(?:[/-](?P<year>\d{4}))?\b", content
     ):
         year_str = numeric_match.group("year")
-        year = int(year_str) if year_str else 2000
+        year = int(year_str) if year_str else default_year
         try:
             candidates.append(
                 (
@@ -174,10 +179,12 @@ def _extract_anchor_calendar_date(
     *,
     anchor_query: str | None = None,
     reference_date: date | None = None,
+    entry_date: date | None = None,
 ) -> date | None:
-    candidates = _extract_explicit_calendar_date_candidates(text)
-    candidates.extend(_extract_relative_week_date_candidates(text, reference_date=reference_date))
-    candidates.extend(_extract_relative_month_date_candidates(text, reference_date=reference_date))
+    candidates = _extract_explicit_calendar_date_candidates(text, entry_date=entry_date)
+    rel_ref = entry_date or reference_date
+    candidates.extend(_extract_relative_week_date_candidates(text, reference_date=rel_ref))
+    candidates.extend(_extract_relative_month_date_candidates(text, reference_date=rel_ref))
     if not candidates:
         return None
     if len(candidates) == 1 or not anchor_tokens:
@@ -255,11 +262,18 @@ def resolve_temporal_distance_answer(
             if turn_id in used_turn_ids:
                 continue
             summary = str(item.get("summary") or "").strip()
+            item_ts = item.get("timestamp")
+            item_entry_date = (
+                datetime.fromtimestamp(item_ts).date()
+                if item_ts is not None
+                else None
+            )
             parsed_date = _extract_anchor_calendar_date(
                 summary,
                 anchor_tokens,
                 anchor_query=anchor_query,
                 reference_date=reference_date,
+                entry_date=item_entry_date,
             )
             if parsed_date is None:
                 continue
@@ -273,11 +287,18 @@ def resolve_temporal_distance_answer(
         if best_item is None:
             return None
         used_turn_ids.add(str(best_item.get("turn_id") or ""))
+        best_item_ts = best_item.get("timestamp")
+        best_entry_date = (
+            datetime.fromtimestamp(best_item_ts).date()
+            if best_item_ts is not None
+            else None
+        )
         chosen_date = _extract_anchor_calendar_date(
             str(best_item.get("summary") or ""),
             anchor_tokens,
             anchor_query=anchor_query,
             reference_date=reference_date,
+            entry_date=best_entry_date,
         )
         if chosen_date is None:
             return None

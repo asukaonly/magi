@@ -119,6 +119,54 @@ def test_resolve_temporal_distance_answer_computes_month_delta_from_relative():
     assert answer == "1 month"
 
 
+def test_resolve_temporal_distance_answer_infers_year_from_entry_timestamp():
+    """Dates without an explicit year should use the timeline entry's year, not 2000."""
+    timeline_summary = [
+        {
+            "timestamp": datetime(2023, 3, 20, 10, 0).timestamp(),
+            "session_id": "sess-magazine",
+            "turn_id": "sess-magazine:turn-1",
+            "author_type": "user",
+            "summary": "I started reading the March 15th issue of The New Yorker.",
+            "supporting_event_ids": ["evt-magazine"],
+            "reason_codes": ["phrase_match", "temporal_anchor"],
+        },
+    ]
+
+    answer = resolve_temporal_distance_answer(
+        question="How many days ago did I start reading the March 15th issue of The New Yorker?",
+        timeline_summary=timeline_summary,
+        query_timestamp=datetime(2023, 3, 27, 12, 0).timestamp(),
+    )
+
+    assert answer == "12 days"
+
+
+def test_resolve_temporal_distance_answer_relative_date_uses_entry_timestamp():
+    """Relative dates like 'last month' should be relative to the entry, not the query."""
+    timeline_summary = [
+        {
+            "timestamp": datetime(2023, 4, 5, 10, 0).timestamp(),
+            "session_id": "sess-workshop",
+            "turn_id": "sess-workshop:turn-1",
+            "author_type": "user",
+            "summary": "I attended a photography workshop last month.",
+            "supporting_event_ids": ["evt-workshop"],
+            "reason_codes": ["phrase_match", "temporal_anchor"],
+        },
+    ]
+
+    answer = resolve_temporal_distance_answer(
+        question="How many months ago did I attend the photography workshop?",
+        timeline_summary=timeline_summary,
+        query_timestamp=datetime(2023, 6, 15, 12, 0).timestamp(),
+    )
+
+    # entry is from April, "last month" relative to entry = March.
+    # query is June. delta = June - March = 3 months.
+    assert answer == "3 months"
+
+
 def test_resolve_temporal_distance_answer_survives_invalid_numeric_date():
     """Numeric patterns like 14/5 (from text like 'session 14/5') must not crash."""
     timeline_summary = [
