@@ -52,6 +52,9 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 - Extension and plugin maintainers
   Read [Unified Plugin Extension Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
 
+- Release maintainers
+  Start with [Project Overview](./project-overview.md) for the current desktop distribution and GitHub Release automation flow.
+
 ## Maintenance Rules
 
 - Keep `docs/` aligned with the current codebase, not historical intent.

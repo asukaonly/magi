@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-tauri:
+    name: Publish desktop bundle (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Intel
+            runner: macos-13
+            target: x86_64-apple-darwin
+          - label: macOS Apple Silicon
+            runner: macos-14
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+
+      - name: Validate version metadata against release tag
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+          import tomllib
+
+          root = pathlib.Path(".")
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected_version = tag.removeprefix("v")
+
+          versions = {
+              "frontend/package.json": json.loads(
+                  (root / "frontend/package.json").read_text(encoding="utf-8")
+              )["version"],
+              "frontend/src-tauri/tauri.conf.json": json.loads(
+                  (root / "frontend/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
+              )["version"],
+              "frontend/src-tauri/Cargo.toml": tomllib.loads(
+                  (root / "frontend/src-tauri/Cargo.toml").read_text(encoding="utf-8")
+              )["package"]["version"],
+              "backend/pyproject.toml": tomllib.loads(
+                  (root / "backend/pyproject.toml").read_text(encoding="utf-8")
+              )["project"]["version"],
+          }
+
+          mismatches = {
+              path: version for path, version in versions.items() if version != expected_version
+          }
+
+          if mismatches:
+              details = "\n".join(
+                  f"- {path}: expected {expected_version}, found {version}"
+                  for path, version in mismatches.items()
+              )
+              raise SystemExit(f"Release tag does not match version metadata:\n{details}")
+
+          print(f"Validated release version {expected_version} across metadata files.")
+          PY
+
+      - name: Install backend dependencies
+        working-directory: backend
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" pyinstaller
+
+      - name: Build Python sidecar
+        shell: bash
+        run: ./scripts/build-sidecar.sh
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        shell: bash
+        run: npm ci
+
+      - name: Run frontend validation
+        working-directory: frontend
+        shell: bash
+        run: |
+          npm run type-check
+          npm run test
+          npm run lint
+
+      - name: Run backend validation
+        working-directory: backend
+        shell: bash
+        run: pytest
+
+      - name: Export optional macOS signing secrets
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+            echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ]; then
+            echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_SIGNING_IDENTITY }}" ]; then
+            echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_ID }}" ]; then
+            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_PASSWORD }}" ]; then
+            echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_TEAM_ID }}" ]; then
+            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build and publish Tauri bundle
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: frontend
+          tagName: ${{ github.ref_name }}
+          releaseName: Magi ${{ github.ref_name }}
+          releaseBody: |
+            Automated desktop build for ${{ github.ref_name }}.
+            Download the installer assets attached to this release.
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: --target ${{ matrix.target }}

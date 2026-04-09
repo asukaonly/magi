@@ -13,6 +13,19 @@ At a high level, Magi combines:
 
 The project is optimized for local deployment and contributor control rather than cloud-first orchestration.
 
+## Distribution And Releases
+
+Desktop artifacts are distributed through GitHub Releases.
+
+The repository automation source of truth is `.github/workflows/release.yml`.
+Current release expectations are:
+
+- maintainers publish desktop builds by pushing a version tag in the form `vX.Y.Z`
+- the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
+- release automation builds the Python sidecar first, then runs frontend and backend validation, then executes the Tauri bundle build
+- release jobs create or update a draft GitHub Release and attach the generated desktop installers
+- macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
+
 ## Core Goals
 
 - local-first deployment and data ownership
