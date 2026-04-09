@@ -474,10 +474,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
   // Guided phase: step-by-step config
   return (
-    <div className="flex min-h-screen items-center justify-center overflow-y-auto bg-background px-4 py-6 md:px-6 md:py-8">
-      <div className="w-full max-w-6xl">
+    <div className="fixed inset-0 flex items-center justify-center overflow-y-auto bg-background p-[4vh_4vw]">
+      <div className="h-full w-full max-h-[960px] max-w-[1400px]">
         <GuidedConfigFrame
-          className="h-[clamp(620px,82vh,840px)]"
+          className="h-full"
           layoutClassName="h-full"
           sidebarClassName="lg:w-44"
           sidebar={<StepIndicator steps={steps} current={current} />}
