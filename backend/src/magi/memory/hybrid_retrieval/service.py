@@ -193,13 +193,6 @@ class HybridRetrievalService:
                 )
                 self._merge_result(payload, plan.layer, result)
 
-        # 3a. L2 backtrack — use L2 entity labels to generate supplementary L1 queries
-        await self._run_l2_backtrack(
-            request=request,
-            payload=payload,
-            time_range=decision.time_range,
-        )
-
         # 3b. Query expansion — run additional L1 plans with reformulated queries
         if self._config.query_expansion_enabled and self._llm_provider_bridge:
             await self._run_query_expansion(
@@ -269,7 +262,7 @@ class HybridRetrievalService:
                         content_query=content_query,
                         source_filters=request.source_filters or None,
                         domain_filters=request.domain_filters or None,
-                        limit=request.limit,
+                        limit=10,
                     ),
                     is_fallback=False,
                 )
@@ -308,7 +301,7 @@ class HybridRetrievalService:
                         content_query=content_query,
                         source_filters=request.source_filters or None,
                         domain_filters=request.domain_filters or None,
-                        limit=request.limit,
+                        limit=10,
                     ),
                     is_fallback=False,
                 )
@@ -498,7 +491,7 @@ class HybridRetrievalService:
                     content_query=request.query,
                     source_filters=request.source_filters or None,
                     domain_filters=request.domain_filters or None,
-                    limit=request.limit,
+                    limit=10,
                 ),
                 is_fallback=False,
             )
@@ -602,97 +595,6 @@ class HybridRetrievalService:
             + len(payload.l4_procedures)
         )
 
-    @staticmethod
-    def _extract_l2_backtrack_queries(payload: RetrievalPayload) -> List[str]:
-        """Extract search-worthy entity labels from L2 relationships and assertions.
-
-        Returns a list of short query strings derived from object names,
-        predicate descriptions, evidence text, and assertion trait values.
-        These are used to run additional L1 searches to find the original
-        conversations where the L2 facts were mentioned.
-        """
-        candidates: list[str] = []
-        seen: set[str] = set()
-
-        def _add(text: str | None) -> None:
-            if not text:
-                return
-            text = text.strip()
-            # Skip IDs, UUIDs, and very short/long strings
-            if not text or len(text) < 2 or len(text) > 120:
-                return
-            key = text.lower()
-            if key not in seen:
-                seen.add(key)
-                candidates.append(text)
-
-        for rel in payload.l2_relationships:
-            _add(rel.get("natural_summary"))
-            _add(rel.get("evidence_text"))
-
-        for assertion in payload.l2_assertions:
-            trait_name = assertion.get("trait_name") or ""
-            trait_value = str(assertion.get("trait_value") or "")
-            if trait_name and trait_value:
-                _add(f"{trait_name} {trait_value}")
-            elif trait_value:
-                _add(trait_value)
-
-        return candidates
-
-    async def _run_l2_backtrack(
-        self,
-        *,
-        request: RetrievalQuery,
-        payload: RetrievalPayload,
-        time_range: Optional[TimeRange] = None,
-    ) -> None:
-        """Use L2 entity data to generate additional L1 queries for source conversations."""
-        if not payload.l2_relationships and not payload.l2_assertions:
-            return
-
-        backtrack_queries = self._extract_l2_backtrack_queries(payload)
-        if not backtrack_queries:
-            return
-
-        payload.trace["l2_backtrack_queries"] = backtrack_queries
-
-        backtrack_plans = [
-            LayerQueryPlan(
-                layer="L1",
-                conditions=L1Conditions(
-                    content_query=bq,
-                    source_filters=request.source_filters or None,
-                    domain_filters=request.domain_filters or None,
-                    limit=request.limit,
-                ),
-                time_range=time_range,
-                is_fallback=False,
-            )
-            for bq in backtrack_queries
-        ]
-        backtrack_results = await asyncio.gather(
-            *[
-                execute_plan(
-                    plan,
-                    l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                    session_id=request.session_id,
-                    user_id=request.user_id,
-                )
-                for plan in backtrack_plans
-            ],
-            return_exceptions=True,
-        )
-        added = 0
-        for plan, result in zip(backtrack_plans, backtrack_results):
-            if isinstance(result, Exception):
-                logger.warning("L2 backtrack plan failed: %s", result)
-                continue
-            if isinstance(result, list):
-                added += len(result)
-            self._merge_result(payload, plan.layer, result)
-        payload.trace["l2_backtrack_added"] = added
-
     async def _run_query_expansion(
         self,
         *,
@@ -721,7 +623,7 @@ class HybridRetrievalService:
                     content_query=eq,
                     source_filters=request.source_filters or None,
                     domain_filters=request.domain_filters or None,
-                    limit=request.limit,
+                    limit=10,
                 ),
                 time_range=time_range,
                 is_fallback=False,
