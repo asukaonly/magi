@@ -13,6 +13,7 @@ jobs:
   publish-tauri:
     name: Publish desktop bundle (${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
+    environment: release
     permissions:
       contents: write
 
