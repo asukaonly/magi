@@ -440,7 +440,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     } else {
       // Expert: 0=Providers, 1=Models, 2=Personality, 3=Memory, 4=Sensors, 5=Tools, 6=Complete
       if (current === 0) return <LLMForm quickMode={false} view="providers" />;
-      if (current === 1) return <LLMForm quickMode={false} view="models" />;
+      if (current === 1) {
+        const embeddingConfig = form.getFieldValue(['memory', 'embedding']) as
+          import('@/api/modules/config').EmbeddingConfig | undefined;
+        return (
+          <LLMForm
+            quickMode={false}
+            view="models"
+            embeddingConfig={embeddingConfig}
+            onEmbeddingConfigChange={(updater) => {
+              const current = form.getFieldValue(['memory', 'embedding']) as
+                import('@/api/modules/config').EmbeddingConfig;
+              const draft = { ...current, local: { ...current.local } };
+              updater(draft);
+              form.setFieldValue(['memory', 'embedding'], draft);
+              saveProgress(form.getFieldsValue(true));
+            }}
+          />
+        );
+      }
       if (current === 2) return <PersonalityForm quickMode={false} language={language} />;
       if (current === 3) return <MemoryForm />;
       if (current === 4) return <SensorConfigForm />;
