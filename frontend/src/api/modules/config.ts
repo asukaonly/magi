@@ -25,6 +25,7 @@ export type LLMScenario = 'context_decider' | 'core' | 'embedding';
 export interface UserPreferences {
   onboarding_completed: boolean;
   user_mode: UserMode;
+  scenario?: string | null;
   language: LanguageCode;
   close_to_tray_enabled: boolean;
   default_chat_workspace_path: string | null;
@@ -365,6 +366,13 @@ export interface TimelineSourceConfig {
 export interface TimelineConfig {
   sources: {
     photo_library: TimelineSourceConfig;
+    calendar?: TimelineSourceConfig;
+    chrome_history?: TimelineSourceConfig;
+    git_activity?: TimelineSourceConfig;
+    screen_time?: TimelineSourceConfig;
+    terminal_history?: TimelineSourceConfig;
+    netease_music?: TimelineSourceConfig;
+    [key: string]: TimelineSourceConfig | undefined;
   };
 }
 
@@ -524,6 +532,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   preferences: {
     onboarding_completed: false,
     user_mode: null,
+    scenario: null,
     language: 'zh',
     close_to_tray_enabled: true,
     default_chat_workspace_path: '~/.magi/chat-workspace',

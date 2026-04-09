@@ -179,6 +179,7 @@ class MemoryConfigModel(BaseModel):
 class UserPreferencesModel(BaseModel):
     onboarding_completed: bool = Field(default=False)
     user_mode: Optional[str] = Field(default=None)
+    scenario: Optional[str] = Field(default=None)
     language: str = Field(default="zh")
     close_to_tray_enabled: bool = Field(default=True)
     default_chat_workspace_path: Optional[str] = Field(default="~/.magi/chat-workspace")
@@ -238,6 +239,12 @@ class TimelineSourcesConfigModel(BaseModel):
             edge_whitelist=["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
         )
     )
+    calendar: Optional[TimelineSourceConfigModel] = Field(default=None)
+    chrome_history: Optional[TimelineSourceConfigModel] = Field(default=None)
+    git_activity: Optional[TimelineSourceConfigModel] = Field(default=None)
+    screen_time: Optional[TimelineSourceConfigModel] = Field(default=None)
+    terminal_history: Optional[TimelineSourceConfigModel] = Field(default=None)
+    netease_music: Optional[TimelineSourceConfigModel] = Field(default=None)
 
 
 class TimelineConfigModel(BaseModel):

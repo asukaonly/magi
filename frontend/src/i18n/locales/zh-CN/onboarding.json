@@ -7,11 +7,13 @@
   "steps": {
     "language": "语言",
     "mode": "模式选择",
+    "scenario": "场景选择",
     "llm": "LLM",
     "llmProviders": "供应商配置",
     "llmModels": "模型选择",
     "personality": "人格",
     "memory": "记忆",
+    "sensors": "传感器",
     "tools": "工具",
     "complete": "完成"
   },
@@ -46,6 +48,63 @@
     "expert": "专家模式",
     "quickDesc": "仅配置语言、LLM、人格，适合快速开始。",
     "expertDesc": "配置完整参数（记忆层、工具管理等）。"
+  },
+  "welcome": {
+    "title": "欢迎来到 Magi",
+    "subtitle": "你的智能生活伙伴",
+    "quickMode": "快速模式",
+    "quickModeDesc": "选好场景，几分钟上手",
+    "expertMode": "专家模式",
+    "expertModeDesc": "完全掌控每一项配置"
+  },
+  "scenario": {
+    "title": "选择使用场景",
+    "description": "不同场景会预置不同的基础配置，你随时可以在设置中修改。",
+    "chatAssistant": "对话助手",
+    "chatAssistantDesc": "和 AI 自由聊天、问答、写作辅助",
+    "lifeMonitor": "生活记录",
+    "lifeMonitorDesc": "自动记录和分析你的数字生活轨迹",
+    "knowledgePartner": "知识伙伴",
+    "knowledgePartnerDesc": "积累知识、管理记忆、深度分析",
+    "decideLater": "稍后再决定",
+    "decideLaterDesc": "使用系统默认配置，之后在设置中调整"
+  },
+  "sensors": {
+    "title": "传感器配置",
+    "description": "选择要启用的数据来源。传感器会自动采集和分析你的数字生活数据。",
+    "syncModeLabel": "同步模式",
+    "syncModes": {
+      "manual": "手动",
+      "interval": "定时"
+    },
+    "photoLibrary": {
+      "label": "照片库",
+      "desc": "同步本地照片库，提取 EXIF 信息"
+    },
+    "calendar": {
+      "label": "日历",
+      "desc": "同步日历事件和日程安排"
+    },
+    "chromeHistory": {
+      "label": "浏览器历史",
+      "desc": "记录浏览器访问历史和阅读轨迹"
+    },
+    "gitActivity": {
+      "label": "Git 活动",
+      "desc": "追踪代码仓库的提交和变更"
+    },
+    "screenTime": {
+      "label": "屏幕使用",
+      "desc": "记录应用使用时长和习惯"
+    },
+    "terminalHistory": {
+      "label": "终端历史",
+      "desc": "记录终端命令和操作历史"
+    },
+    "neteaseMusic": {
+      "label": "网易云音乐",
+      "desc": "同步音乐播放记录和收藏"
+    }
   },
   "hero": {
     "title": "为你的 AI 助手打造专属起点",

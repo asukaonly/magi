@@ -7,11 +7,13 @@
   "steps": {
     "language": "Language",
     "mode": "Mode",
+    "scenario": "Use Case",
     "llm": "LLM",
     "llmProviders": "Provider Configuration",
     "llmModels": "Model Selection",
     "personality": "Personality",
     "memory": "Memory",
+    "sensors": "Sensors",
     "tools": "Tools",
     "complete": "Done"
   },
@@ -45,6 +47,63 @@
     "expert": "Expert Mode",
     "quickDesc": "Configure language, LLM and personality for a fast start.",
     "expertDesc": "Configure all settings, including memory layers and tools."
+  },
+  "welcome": {
+    "title": "Welcome to Magi",
+    "subtitle": "Your Intelligent Life Companion",
+    "quickMode": "Quick Mode",
+    "quickModeDesc": "Pick a scenario and get started in minutes",
+    "expertMode": "Expert Mode",
+    "expertModeDesc": "Full control over every setting"
+  },
+  "scenario": {
+    "title": "Choose Your Use Case",
+    "description": "Each scenario comes with tailored defaults. You can always change them later in Settings.",
+    "chatAssistant": "Chat Assistant",
+    "chatAssistantDesc": "Chat freely with AI for Q&A, writing, and more",
+    "lifeMonitor": "Life Monitor",
+    "lifeMonitorDesc": "Automatically record and analyze your digital life",
+    "knowledgePartner": "Knowledge Partner",
+    "knowledgePartnerDesc": "Accumulate knowledge, manage memory, deep analysis",
+    "decideLater": "Decide Later",
+    "decideLaterDesc": "Use system defaults and configure in Settings later"
+  },
+  "sensors": {
+    "title": "Sensor Configuration",
+    "description": "Choose data sources to enable. Sensors automatically collect and analyze your digital life data.",
+    "syncModeLabel": "Sync Mode",
+    "syncModes": {
+      "manual": "Manual",
+      "interval": "Scheduled"
+    },
+    "photoLibrary": {
+      "label": "Photo Library",
+      "desc": "Sync local photo library and extract EXIF metadata"
+    },
+    "calendar": {
+      "label": "Calendar",
+      "desc": "Sync calendar events and schedules"
+    },
+    "chromeHistory": {
+      "label": "Browser History",
+      "desc": "Track browser visits and reading history"
+    },
+    "gitActivity": {
+      "label": "Git Activity",
+      "desc": "Track code repository commits and changes"
+    },
+    "screenTime": {
+      "label": "Screen Time",
+      "desc": "Record app usage duration and habits"
+    },
+    "terminalHistory": {
+      "label": "Terminal History",
+      "desc": "Record terminal commands and operations"
+    },
+    "neteaseMusic": {
+      "label": "Netease Music",
+      "desc": "Sync music playback records and favorites"
+    }
   },
   "hero": {
     "title": "Shape your AI assistant from the start",
