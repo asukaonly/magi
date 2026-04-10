@@ -123,10 +123,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [saving, setSaving] = useState(false);
   const [renderLanguage, setRenderLanguage] = useState(i18n.resolvedLanguage || i18n.language);
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | undefined>(
-    () => form.getFieldValue(['memory', 'embedding']) as EmbeddingConfig | undefined
+    () => initialConfig.memory?.embedding
   );
   const [crossEncoderConfig, setCrossEncoderConfig] = useState<CrossEncoderConfig | undefined>(
-    () => form.getFieldValue(['memory', 'reranker', 'cross_encoder']) as CrossEncoderConfig | undefined
+    () => initialConfig.memory?.reranker?.cross_encoder
   );
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
   const isQuickMode = mode === 'quick';

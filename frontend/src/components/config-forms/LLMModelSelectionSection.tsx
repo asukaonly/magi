@@ -370,7 +370,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               allowEmpty={false}
               options={[
                 { label: tApp('settings.options.off'), value: 'off' },
-                { label: tApp('settings.options.remote'), value: 'remote' },
+                ...(allEmbeddingModels.length > 0 ? [{ label: tApp('settings.options.remote'), value: 'remote' }] : []),
                 { label: tApp('settings.options.local'), value: 'local' },
               ]}
               onChange={(val) => onEmbeddingConfigChange((emb) => {
