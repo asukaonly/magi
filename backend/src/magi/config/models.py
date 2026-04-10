@@ -258,7 +258,7 @@ class LLMSettings(BaseModel):
 class EmbeddingSettings(BaseModel):
     """Embedding configuration. Note: embedding model is configured via LLM EMBEDDING scenario."""
     backend: EmbeddingBackend = Field(default=EmbeddingBackend.SQLITE_VEC)
-    mode: EmbeddingMode = Field(default=EmbeddingMode.REMOTE)
+    mode: EmbeddingMode = Field(default=EmbeddingMode.OFF)
     local: "LocalEmbeddingSettings" = Field(default_factory=lambda: LocalEmbeddingSettings())
 
 

@@ -31,7 +31,7 @@ const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
   chat_assistant: {
     memory: {
       db_path: '~/.magi/data/memories',
-      embedding: { mode: 'remote', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
+      embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
       reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
       l0: { enabled: true, checkpoint_interval_seconds: 30, runtime_replay_include_l0_only: false },
       l1: { enabled: true, retention_days: 7, t1_importance_enabled: true, vectors_enabled: true },
@@ -51,7 +51,7 @@ const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
   life_monitor: {
     memory: {
       db_path: '~/.magi/data/memories',
-      embedding: { mode: 'remote', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
+      embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
       reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
       l0: { enabled: true, checkpoint_interval_seconds: 30, runtime_replay_include_l0_only: false },
       l1: { enabled: true, retention_days: 7, t1_importance_enabled: true, vectors_enabled: true },
@@ -78,7 +78,7 @@ const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
   knowledge_partner: {
     memory: {
       db_path: '~/.magi/data/memories',
-      embedding: { mode: 'remote', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
+      embedding: { mode: 'off', local: { model_source: 'managed', managed_model_id: null, model_dir_path: null, idle_timeout_seconds: 1800 } },
       reranker: { top_k: 8, cross_encoder: { enabled: false, managed_model_id: null } },
       l0: { enabled: true, checkpoint_interval_seconds: 30, runtime_replay_include_l0_only: false },
       l1: { enabled: true, retention_days: 7, t1_importance_enabled: true, vectors_enabled: true },
@@ -315,6 +315,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const hasValidSelections = (): boolean => {
     const llmConfig = form.getFieldValue(['llm']);
     return BUILTIN_SCENARIOS.every((scenario) => {
+      // Skip embedding validation when embedding mode is off
+      if (scenario === 'embedding' && embeddingConfig?.mode === 'off') return true;
       const selection = llmConfig?.selections?.[scenario];
       return Boolean(
         selection?.provider_id &&
