@@ -325,11 +325,12 @@ async def _synthesize_eval_answer(
         "Look for answers in BOTH user messages AND assistant responses within the evidence.\n"
         "If the question asks about a specific detail (name, place, date, amount), check assistant replies — they often restate or confirm the user's information.\n"
         "\n"
-        "ENTITY VERIFICATION (critical):\n"
-        "If the question asks about a SPECIFIC named entity (person, place, product, activity) "
-        "and NO evidence mentions that EXACT entity, answer 'unknown'. "
-        "Do NOT substitute a similar entity (e.g. do not answer about 'Dr. Smith' when asked about 'Dr. Johnson', "
-        "or about 'tennis' when asked about 'table tennis', or about 'vintage cameras' when asked about 'vintage films').\n"
+        "ENTITY VERIFICATION:\n"
+        "If the question asks about a SPECIFIC named entity and NO evidence mentions that entity "
+        "or a clearly equivalent variant, answer 'unknown'. "
+        "Do NOT substitute a genuinely DIFFERENT entity (e.g. do not answer about 'Dr. Smith' when asked about 'Dr. Johnson'). "
+        "However, treat minor wording differences as matches (e.g. 'University of Melbourne' matches 'University of Melbourne in Australia'; "
+        "'Spotify' matches 'a Spotify subscription'). When in doubt, prefer giving an answer over returning 'unknown'.\n"
         "\n"
         "CURRENT STATE (knowledge-update) questions:\n"
         "When the question asks about a current/present state ('where do I currently keep', 'how long have I been', "
@@ -338,8 +339,8 @@ async def _synthesize_eval_answer(
         "If something was updated or changed over time, report only the latest value.\n"
         "\n"
         "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete or indirect.\n"
-        "Answer exactly 'unknown' only when no piece of evidence mentions anything related to the question topic, "
-        "or when the specific entity in the question cannot be found in the evidence."
+        "Scan ALL evidence sections thoroughly — answers may appear in any bundle, timeline entry, or assistant reply.\n"
+        "Answer exactly 'unknown' only as a last resort when no piece of evidence mentions anything related to the question topic."
     )
     l2_context_text = _format_l2_context(
         entity_cards=l2_entity_cards,

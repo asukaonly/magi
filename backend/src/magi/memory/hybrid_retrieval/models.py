@@ -92,7 +92,7 @@ class L1Conditions:
     source_filters: Optional[List[str]] = None
     domain_filters: Optional[List[str]] = None
     importance_min: Optional[float] = None
-    limit: int = 10
+    limit: int = 15
 
 
 @dataclass
