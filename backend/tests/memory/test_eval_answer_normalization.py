@@ -6,10 +6,9 @@ from magi.memory.eval_support.answer_normalization import (
 )
 
 
-def test_normalize_eval_answer_keeps_first_span_and_strips_article():
-    normalized = normalize_eval_answer("the bike\n\nBecause it appeared earlier in the evidence.")
-
-    assert normalized == "bike"
+def test_normalize_eval_answer_passes_through_raw_answer():
+    raw = "the bike\n\nBecause it appeared earlier in the evidence."
+    assert normalize_eval_answer(raw) == raw
 
 
 def test_normalize_eval_answer_returns_unknown_for_empty_text():

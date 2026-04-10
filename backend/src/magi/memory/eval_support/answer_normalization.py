@@ -72,31 +72,11 @@ def canonicalize_issue_component_answer(
 
 
 def normalize_eval_answer(raw_answer: str) -> str:
+    """Minimal normalization: strip whitespace only.
+
+    Evaluation uses an LLM judge that understands free-text answers,
+    so aggressive truncation (first-line extraction, article stripping)
+    is unnecessary and can destroy multi-line answers like ordered lists.
+    """
     answer = str(raw_answer or "").strip()
-    if not answer:
-        return "unknown"
-
-    # If the answer contains enumeration (numbered lists) with a final total,
-    # extract the total/conclusion from the last meaningful line.
-    lines = [ln.strip() for ln in answer.splitlines() if ln.strip()]
-    if len(lines) > 2:
-        last_line = lines[-1]
-        total_match = re.match(
-            r"^(?:total|answer|result|sum|combined|in total|the (?:total|answer) is)[:\s]*(.+)$",
-            last_line,
-            flags=re.IGNORECASE,
-        )
-        if total_match:
-            return total_match.group(1).strip() or last_line
-
-    # If answer is a numbered/bulleted list, preserve the full list.
-    first_block = re.split(r"\n\s*\n", answer, maxsplit=1)[0].strip()
-    block_lines = first_block.splitlines() if first_block else []
-    if len(block_lines) > 1 and re.match(r"^[1-9][\.\)]\s", block_lines[0].strip()):
-        normalized = first_block
-    else:
-        first_line = block_lines[0].strip() if block_lines else ""
-        normalized = first_line or first_block or answer
-    if '"' not in normalized and "'" not in normalized and len(normalized.split()) <= 3:
-        normalized = re.sub(r"^(?:the|a|an)\s+", "", normalized, flags=re.IGNORECASE).strip()
-    return normalized.strip() or "unknown"
+    return answer or "unknown"
