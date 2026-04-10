@@ -82,10 +82,6 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
     isSettingsSurface && 'rounded-lg'
   );
-  const providerBadgeClassName = cn(
-    'rounded-full border border-border/60 bg-transparent px-2 py-0.5 text-xs text-muted-foreground',
-    isSettingsSurface && 'border-0 bg-[hsl(var(--settings-shell-elevated)/0.58)] px-2.5 py-1 text-[11px] text-[hsl(var(--settings-nav-foreground))]'
-  );
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<LLMScenario, boolean>>(() =>
     Object.fromEntries(SCENARIOS.map((scenario) => [scenario, showAdvancedByDefault])) as Record<LLMScenario, boolean>
   );
@@ -769,47 +765,11 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     return renderScenarioContent(tab);
   };
 
-  // Settings surface: use tabs to separate scenarios
-  if (isSettingsSurface) {
-    return (
-      <section
-        data-testid="llm-model-selection-section"
-        className="space-y-3"
-      >
-        {showSectionIntro ? (
-          <div className="space-y-1">
-            <h3 className="text-base font-semibold text-foreground">{t('llm.modelSelection.title')}</h3>
-            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.modelSelection.desc')}</p>
-          </div>
-        ) : null}
+  // Determine visible tabs: include reranker only when cross-encoder config is provided
+  const visibleTabs: ModelTab[] = crossEncoderConfig
+    ? MODEL_TABS
+    : SCENARIOS;
 
-        <Tabs defaultValue="context_decider">
-          <TabsList className="w-full justify-start">
-            {MODEL_TABS.map((tab) => (
-              <TabsTrigger key={tab} value={tab}>
-                {t(`llm.scenarios.${tab}.title`)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-
-          {MODEL_TABS.map((tab) => (
-            <TabsContent
-              key={tab}
-              value={tab}
-              data-testid={`llm-scenario-${tab}`}
-              className="mt-4 space-y-3 data-[state=inactive]:hidden"
-              forceMount
-            >
-              <p className="text-xs leading-5 text-muted-foreground">{t(`llm.scenarios.${tab}.desc`)}</p>
-              {renderTabContent(tab)}
-            </TabsContent>
-          ))}
-        </Tabs>
-      </section>
-    );
-  }
-
-  // Onboarding surface: keep original stacked card layout
   return (
     <section
       data-testid="llm-model-selection-section"
@@ -822,47 +782,28 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         </div>
       ) : null}
 
-      <div className="grid gap-3">
-        {SCENARIOS.map((scenario) => {
-          const selection = value.selections[scenario];
-          const provider = value.providers[selection.provider_id];
-          const isEmbeddingScenario = scenario === 'embedding';
+      <Tabs defaultValue="context_decider">
+        <TabsList className="w-full justify-start">
+          {visibleTabs.map((tab) => (
+            <TabsTrigger key={tab} value={tab}>
+              {t(`llm.scenarios.${tab}.title`)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-          return (
-            <article
-              key={scenario}
-              data-testid={`llm-scenario-${scenario}`}
-              className="rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-            >
-              <div className="space-y-1 mb-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
-                  {isEmbeddingScenario ? (
-                    isLocalEmbeddingMode ? (
-                      <span className={providerBadgeClassName}>
-                        {tApp('settings.options.local')}
-                      </span>
-                    ) : (
-                      allEmbeddingModels[0] && (
-                        <span className={providerBadgeClassName}>
-                          {allEmbeddingModels[0].providerName}
-                        </span>
-                      )
-                    )
-                  ) : (
-                    <span className={providerBadgeClassName}>
-                      {provider?.display_name || selection.provider_id}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs leading-5 text-muted-foreground">{t(`llm.scenarios.${scenario}.desc`)}</p>
-              </div>
-
-              {renderScenarioContent(scenario)}
-            </article>
-          );
-        })}
-      </div>
+        {visibleTabs.map((tab) => (
+          <TabsContent
+            key={tab}
+            value={tab}
+            data-testid={`llm-scenario-${tab}`}
+            className="mt-4 space-y-3 data-[state=inactive]:hidden"
+            forceMount
+          >
+            <p className="text-xs leading-5 text-muted-foreground">{t(`llm.scenarios.${tab}.desc`)}</p>
+            {renderTabContent(tab)}
+          </TabsContent>
+        ))}
+      </Tabs>
     </section>
   );
 };
