@@ -354,7 +354,7 @@ class MemoryRerankerSettings(BaseModel):
 class QueryExpansionSettings(BaseModel):
     """LLM-based query expansion settings for retrieval."""
 
-    enabled: bool = Field(default=True)
+    enabled: bool = Field(default=False)
 
 
 class GraphSpreadingSettings(BaseModel):
