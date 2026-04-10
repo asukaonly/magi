@@ -89,9 +89,14 @@ def normalize_eval_answer(raw_answer: str) -> str:
         if total_match:
             return total_match.group(1).strip() or last_line
 
+    # If answer is a numbered/bulleted list, preserve the full list.
     first_block = re.split(r"\n\s*\n", answer, maxsplit=1)[0].strip()
-    first_line = first_block.splitlines()[0].strip() if first_block else ""
-    normalized = first_line or first_block or answer
+    block_lines = first_block.splitlines() if first_block else []
+    if len(block_lines) > 1 and re.match(r"^[1-9][\.\)]\s", block_lines[0].strip()):
+        normalized = first_block
+    else:
+        first_line = block_lines[0].strip() if block_lines else ""
+        normalized = first_line or first_block or answer
     if '"' not in normalized and "'" not in normalized and len(normalized.split()) <= 3:
         normalized = re.sub(r"^(?:the|a|an)\s+", "", normalized, flags=re.IGNORECASE).strip()
     return normalized.strip() or "unknown"
