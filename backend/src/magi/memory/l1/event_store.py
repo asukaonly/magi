@@ -71,6 +71,7 @@ class L1EventStore:
                 registry_table="l1_event_chunk_vectors",
                 entity_column="chunk_id",
                 vec_table_prefix="l1_event_vec",
+                partition_key_column="user_id",
             )
             if embedding_service is not None or vector_enabled
             else None
@@ -1107,6 +1108,7 @@ class L1EventStore:
                         "event_id": event.event_id,
                         "event_type": event.event_type,
                         "source": event.source,
+                        "partition_value": event.user_id,
                     },
                     payload=event,
                 )
@@ -1152,14 +1154,14 @@ class L1EventStore:
             vector_index=self._vector_index,
         )
 
-    async def _semantic_search_event_hits(self, *, query: str, limit: int) -> list[VectorSearchHit]:
+    async def _semantic_search_event_hits(self, *, query: str, limit: int, user_id: str | None = None) -> list[VectorSearchHit]:
         if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
             return []
         try:
-            return await self._vector_index.search(embedding=embedding, limit=limit)
+            return await self._vector_index.search(embedding=embedding, limit=limit, partition_value=user_id)
         except Exception as exc:
             logger.warning("Failed semantic search over L1 events: %s", exc)
             return []

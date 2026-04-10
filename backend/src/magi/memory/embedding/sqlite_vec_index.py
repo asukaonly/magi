@@ -38,11 +38,13 @@ class SqliteVecIndex:
         registry_table: str,
         entity_column: str,
         vec_table_prefix: str,
+        partition_key_column: str | None = None,
     ) -> None:
         self._db_path = db_path
         self._registry_table = registry_table
         self._entity_column = entity_column
         self._vec_table_prefix = self._sanitize_identifier(vec_table_prefix)
+        self._partition_key_column = partition_key_column
         self._db: aiosqlite.Connection | None = None
         self._db_lock = asyncio.Lock()
         self._initialized = False
@@ -108,6 +110,7 @@ class SqliteVecIndex:
         embedding: EmbeddingResult,
         limit: int,
         max_distance: float | None = None,
+        partition_value: str | None = None,
     ) -> list[VectorSearchHit]:
         await self.initialize()
         vec_table = self._vec_table_name(embedding.model_name, embedding.dimension)
@@ -117,14 +120,19 @@ class SqliteVecIndex:
             if not await self._table_exists(db, vec_table):
                 return []
 
+            clauses = ['embedding MATCH ?']
+            params: list[Any] = [sqlite_vec.serialize_float32(embedding.vector)]
             if max_distance is not None:
-                sql = f'SELECT rowid, distance FROM "{vec_table}" WHERE embedding MATCH ? AND distance < ? ORDER BY distance LIMIT ?'
-                params = (sqlite_vec.serialize_float32(embedding.vector), float(max_distance), int(limit))
-            else:
-                sql = f'SELECT rowid, distance FROM "{vec_table}" WHERE embedding MATCH ? ORDER BY distance LIMIT ?'
-                params = (sqlite_vec.serialize_float32(embedding.vector), int(limit))
+                clauses.append('distance < ?')
+                params.append(float(max_distance))
+            if partition_value is not None and self._partition_key_column:
+                clauses.append(f'{self._partition_key_column} = ?')
+                params.append(partition_value)
+            params.append(int(limit))
+            where = ' AND '.join(clauses)
+            sql = f'SELECT rowid, distance FROM "{vec_table}" WHERE {where} ORDER BY distance LIMIT ?'
 
-            async with db.execute(sql, params) as cursor:
+            async with db.execute(sql, tuple(params)) as cursor:
                 vector_rows = await cursor.fetchall()
 
             if not vector_rows:
@@ -259,8 +267,9 @@ class SqliteVecIndex:
     async def _ensure_vec_table(self, db: aiosqlite.Connection, table_name: str, dimension: int) -> None:
         if await self._table_exists(db, table_name):
             return
+        pk_clause = f', {self._partition_key_column} text partition key' if self._partition_key_column else ''
         await db.execute(
-            f'CREATE VIRTUAL TABLE "{table_name}" USING vec0(embedding float[{int(dimension)}])'
+            f'CREATE VIRTUAL TABLE "{table_name}" USING vec0(embedding float[{int(dimension)}]{pk_clause})'
         )
 
     async def _load_extension(self, db: aiosqlite.Connection) -> None:
@@ -357,7 +366,16 @@ class SqliteVecIndex:
         if previous_table:
             await db.execute(f'DELETE FROM "{previous_table}" WHERE rowid = ?', (vec_rowid,))
         await db.execute(f'DELETE FROM "{vec_table}" WHERE rowid = ?', (vec_rowid,))
-        await db.execute(
-            f'INSERT INTO "{vec_table}"(rowid, embedding) VALUES (?, ?)',
-            (vec_rowid, sqlite_vec.serialize_float32(embedding.vector)),
-        )
+
+        pk_col = self._partition_key_column
+        partition_value = (metadata or {}).get("partition_value") if pk_col else None
+        if pk_col and partition_value is not None:
+            await db.execute(
+                f'INSERT INTO "{vec_table}"(rowid, embedding, {pk_col}) VALUES (?, ?, ?)',
+                (vec_rowid, sqlite_vec.serialize_float32(embedding.vector), partition_value),
+            )
+        else:
+            await db.execute(
+                f'INSERT INTO "{vec_table}"(rowid, embedding) VALUES (?, ?)',
+                (vec_rowid, sqlite_vec.serialize_float32(embedding.vector)),
+            )
