@@ -10,8 +10,8 @@ from typing import Any
 
 
 # Sentence-based truncation parameters for assistant replies.
-_ASSISTANT_MAX_SENTENCES = 12
-_ASSISTANT_HARD_MAX = 2000
+_ASSISTANT_MAX_SENTENCES = 8
+_ASSISTANT_HARD_MAX = 1200
 
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 
