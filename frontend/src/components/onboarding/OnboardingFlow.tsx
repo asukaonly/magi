@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { configApi } from '../../api/modules/config';
-import type { SystemConfig } from '../../api/modules/config';
+import type { SystemConfig, EmbeddingConfig, CrossEncoderConfig } from '../../api/modules/config';
 import LLMForm from '../config-forms/LLMForm';
 import PersonalityForm from '../config-forms/PersonalityForm';
 import MemoryForm from '../config-forms/MemoryForm';
@@ -122,6 +122,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [current, setCurrent] = useState(0);
   const [saving, setSaving] = useState(false);
   const [renderLanguage, setRenderLanguage] = useState(i18n.resolvedLanguage || i18n.language);
+  const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | undefined>(
+    () => form.getFieldValue(['memory', 'embedding']) as EmbeddingConfig | undefined
+  );
+  const [crossEncoderConfig, setCrossEncoderConfig] = useState<CrossEncoderConfig | undefined>(
+    () => form.getFieldValue(['memory', 'reranker', 'cross_encoder']) as CrossEncoderConfig | undefined
+  );
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
   const isQuickMode = mode === 'quick';
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
@@ -441,20 +447,31 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       // Expert: 0=Providers, 1=Models, 2=Personality, 3=Memory, 4=Sensors, 5=Tools, 6=Complete
       if (current === 0) return <LLMForm quickMode={false} view="providers" />;
       if (current === 1) {
-        const embeddingConfig = form.getFieldValue(['memory', 'embedding']) as
-          import('@/api/modules/config').EmbeddingConfig | undefined;
         return (
           <LLMForm
             quickMode={false}
             view="models"
             embeddingConfig={embeddingConfig}
             onEmbeddingConfigChange={(updater) => {
-              const current = form.getFieldValue(['memory', 'embedding']) as
-                import('@/api/modules/config').EmbeddingConfig;
-              const draft = { ...current, local: { ...current.local } };
-              updater(draft);
-              form.setFieldValue(['memory', 'embedding'], draft);
-              saveProgress(form.getFieldsValue(true));
+              setEmbeddingConfig((prev) => {
+                const base = prev ?? (form.getFieldValue(['memory', 'embedding']) as EmbeddingConfig);
+                const draft = { ...base, local: { ...base.local } };
+                updater(draft);
+                form.setFieldValue(['memory', 'embedding'], draft);
+                saveProgress(form.getFieldsValue(true));
+                return draft;
+              });
+            }}
+            crossEncoderConfig={crossEncoderConfig}
+            onCrossEncoderConfigChange={(updater) => {
+              setCrossEncoderConfig((prev) => {
+                const base = prev ?? { enabled: false, managed_model_id: null };
+                const draft = { ...base };
+                updater(draft);
+                form.setFieldValue(['memory', 'reranker', 'cross_encoder'], draft);
+                saveProgress(form.getFieldsValue(true));
+                return draft;
+              });
             }}
           />
         );
