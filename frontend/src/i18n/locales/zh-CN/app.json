@@ -803,7 +803,8 @@
       "casual": "随意",
       "formal": "正式",
       "local": "本地",
-      "remote": "远程"
+      "remote": "远程",
+      "off": "关闭"
     },
     "toolStatus": {
       "ready": "已就绪",

@@ -804,7 +804,8 @@
       "casual": "Casual",
       "formal": "Formal",
       "local": "Local",
-      "remote": "Remote"
+      "remote": "Remote",
+      "off": "Off"
     },
     "toolStatus": {
       "ready": "Ready",

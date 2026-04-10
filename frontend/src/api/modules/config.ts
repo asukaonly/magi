@@ -322,7 +322,7 @@ export interface MemoryRerankerConfig {
   cross_encoder: CrossEncoderConfig;
 }
 
-export type EmbeddingMode = 'remote' | 'local';
+export type EmbeddingMode = 'off' | 'remote' | 'local';
 export type LocalEmbeddingModelSource = 'managed' | 'external';
 
 export interface LocalEmbeddingConfig {

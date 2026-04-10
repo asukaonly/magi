@@ -105,6 +105,7 @@ class EmbeddingBackend(str, Enum):
 
 class EmbeddingMode(str, Enum):
     """Embedding execution mode."""
+    OFF = "off"
     REMOTE = "remote"
     LOCAL = "local"
 

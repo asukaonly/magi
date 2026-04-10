@@ -111,7 +111,14 @@ class MemoryEmbeddingService:
         config = get_config()
         return config.agent.memory.embedding.mode == EmbeddingMode.LOCAL
 
+    def _is_off_mode(self) -> bool:
+        """Check if embedding is disabled."""
+        config = get_config()
+        return config.agent.memory.embedding.mode == EmbeddingMode.OFF
+
     def get_active_profile(self, *, text_builder_version: str) -> Optional[EmbeddingProfile]:
+        if self._is_off_mode():
+            return None
         if self._is_local_mode():
             manager = self._get_local_manager()
             if manager is None:

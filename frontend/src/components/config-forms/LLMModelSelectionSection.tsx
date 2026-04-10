@@ -10,6 +10,7 @@ import { localEmbeddingApi } from '@/api/modules/local-embedding';
 import type { LocalRerankerModelInfo } from '@/api/modules/local-reranker';
 import { localRerankerApi } from '@/api/modules/local-reranker';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { pickDirectory } from '@/runtime/desktop';
 import { cn } from '@/lib/utils';
@@ -368,6 +369,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               value={embeddingConfig.mode}
               allowEmpty={false}
               options={[
+                { label: tApp('settings.options.off'), value: 'off' },
                 { label: tApp('settings.options.remote'), value: 'remote' },
                 { label: tApp('settings.options.local'), value: 'local' },
               ]}
@@ -378,7 +380,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           </label>
         ) : null}
 
-        {isLocalEmbeddingMode && embeddingConfig && onEmbeddingConfigChange ? (
+        {embeddingConfig?.mode === 'off' ? null : isLocalEmbeddingMode && embeddingConfig && onEmbeddingConfigChange ? (
           <div className="space-y-3">
             <label className="space-y-2">
               <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_model_source.label')}</span>
@@ -586,7 +588,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           </>
         )}
 
-        {renderAdvancedSettings(scenario)}
+        {embeddingConfig?.mode !== 'off' ? renderAdvancedSettings(scenario) : null}
       </>
     );
   };
@@ -684,8 +686,20 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
     return (
       <div className="space-y-3">
-        <label className="space-y-2">
-          <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_model.label')}</span>
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_enabled.label')}</span>
+          <Switch
+            checked={crossEncoderConfig.enabled}
+            onCheckedChange={(checked) => onCrossEncoderConfigChange((ce) => {
+              ce.enabled = checked;
+            })}
+          />
+        </label>
+
+        {crossEncoderConfig.enabled ? (
+          <>
+            <label className="space-y-2">
+              <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_model.label')}</span>
           <SelectField
             className="w-full"
             triggerClassName={inputClassName}
@@ -756,6 +770,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             </>
           );
         })() : null}
+          </>
+        ) : null}
       </div>
     );
   };
