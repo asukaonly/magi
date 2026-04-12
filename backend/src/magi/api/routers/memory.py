@@ -13,8 +13,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
 from ...chat import get_chat_read_service
-from ...config.models import LLMScenario
+from ...config.models import LLMScenario, ThinkingDepth
 from ...core.logger import get_logger
+from ...llm import LLMProviderBridge
 from ...core.runtime_bindings import (
     require_hybrid_retrieval_service,
     require_memory_integration,
@@ -283,6 +284,122 @@ def _is_temporal_reasoning_question(question: str) -> bool:
     ))
 
 
+_EVAL_ANSWER_TIMEOUT = 300  # 5 minutes — generous for thinking-enabled models
+
+
+async def _stream_eval_chat(
+    *,
+    adapter: Any,
+    bridge: LLMProviderBridge,
+    system_prompt: str,
+    user_prompt: str,
+    question: str,
+) -> tuple[str, str]:
+    """Stream eval answer with thinking-aware logging.
+
+    Returns (answer_text, thinking_text).
+    """
+    # Fallback for test adapters without a real client
+    if not getattr(adapter, "_client", None):
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        answer = await adapter.chat(messages, max_tokens=4096, temperature=0.0)
+        return str(answer or ""), ""
+
+    if bridge.is_anthropic():
+        thinking_params = LLMProviderBridge._build_anthropic_thinking_params(ThinkingDepth.MEDIUM)
+        if thinking_params:
+            return await _stream_anthropic_eval(
+                adapter, system_prompt, user_prompt, question, thinking_params,
+            )
+    return await _stream_openai_eval(
+        adapter, bridge, system_prompt, user_prompt, question,
+    )
+
+
+async def _stream_anthropic_eval(
+    adapter: Any,
+    system_prompt: str,
+    user_prompt: str,
+    question: str,
+    thinking_params: dict[str, Any],
+) -> tuple[str, str]:
+    """Anthropic streaming with extended thinking capture."""
+    thinking_parts: list[str] = []
+    answer_parts: list[str] = []
+    current_block_type: str | None = None
+    budget_tokens = thinking_params.get("thinking", {}).get("budget_tokens", 8192)
+
+    stream = await adapter._client.messages.create(
+        model=adapter.model_name,
+        max_tokens=budget_tokens + 8192,
+        temperature=1.0,  # Anthropic requires temperature=1 for extended thinking
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+        stream=True,
+        timeout=_EVAL_ANSWER_TIMEOUT,
+        **thinking_params,
+    )
+
+    async for event in stream:
+        if event.type == "content_block_start":
+            current_block_type = getattr(event.content_block, "type", None)
+            if current_block_type == "thinking":
+                logger.info("eval_thinking_started", question=question[:100])
+        elif event.type == "content_block_delta":
+            delta = event.delta
+            if getattr(delta, "type", None) == "thinking_delta":
+                thinking_parts.append(delta.thinking)
+            elif getattr(delta, "type", None) == "text_delta":
+                answer_parts.append(delta.text)
+        elif event.type == "content_block_stop":
+            if current_block_type == "thinking":
+                full_thinking = "".join(thinking_parts)
+                logger.info(
+                    "eval_thinking_completed",
+                    question=question[:100],
+                    thinking_length=len(full_thinking),
+                    thinking=full_thinking,
+                )
+            current_block_type = None
+
+    return "".join(answer_parts), "".join(thinking_parts)
+
+
+async def _stream_openai_eval(
+    adapter: Any,
+    bridge: LLMProviderBridge,
+    system_prompt: str,
+    user_prompt: str,
+    question: str,
+) -> tuple[str, str]:
+    """OpenAI-compatible streaming (reasoning tokens not visible in stream)."""
+    kwargs: dict[str, Any] = {}
+    kwargs = bridge._apply_provider_options(kwargs, ThinkingDepth.MEDIUM)
+
+    stream = await adapter._client.chat.completions.create(
+        model=adapter.model_name,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=4096,
+        temperature=0.0,
+        stream=True,
+        timeout=_EVAL_ANSWER_TIMEOUT,
+        **kwargs,
+    )
+
+    answer_parts: list[str] = []
+    async for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            answer_parts.append(chunk.choices[0].delta.content)
+
+    return "".join(answer_parts), ""
+
+
 async def _synthesize_eval_answer(
     *,
     question: str,
@@ -303,6 +420,7 @@ async def _synthesize_eval_answer(
         )
 
     adapter = llm_pool.get(LLMScenario.CORE)
+    bridge = LLMProviderBridge(adapter)
     prompt_payload = build_answer_prompt_payload(
         question=question,
         hits=hits,
@@ -402,13 +520,14 @@ async def _synthesize_eval_answer(
             "==== END ANSWER LLM INPUT ===="
         ),
     )
-    answer = await adapter.chat(
-        llm_messages,
-        max_tokens=4096,
-        temperature=0.0,
-        disable_thinking=False,
+    raw_answer, thinking_text = await _stream_eval_chat(
+        adapter=adapter,
+        bridge=bridge,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        question=question,
     )
-    raw_answer = str(answer or "")
+    raw_answer = str(raw_answer or "")
     normalized_answer = normalize_eval_answer(raw_answer)
     logger.info(
         "Eval query answer synthesis completed",
@@ -416,6 +535,7 @@ async def _synthesize_eval_answer(
         evidence_hit_count=len(hits),
         raw_answer=raw_answer,
         answer=normalized_answer,
+        thinking_length=len(thinking_text),
     )
     l2_count = len(l2_entity_cards or []) + len(l2_relationships or []) + len(l2_assertions or [])
     answer_trace = {
@@ -424,6 +544,7 @@ async def _synthesize_eval_answer(
         "evidence_hit_count": len(hits) + l2_count,
         "evidence_bundle_count": len(evidence_bundles or []),
         "evidence_timeline_count": len(timeline_summary or []),
+        "thinking_length": len(thinking_text),
     }
     if show_prompt:
         answer_trace["prompt"] = user_prompt

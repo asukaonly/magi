@@ -1074,23 +1074,25 @@ def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
             )
 
     class _FakeLLMAdapter:
-        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
-            _ = (max_tokens, temperature)
-            assert messages[0]["role"] == "system"
-            assert messages[1]["role"] == "user"
-            assert kwargs["disable_thinking"] is False
-            return "Sushi"
+        model_name = "test-model"
+        _client = None
 
     class _FakeLLMPool:
         def get(self, scenario):
             _ = scenario
             return _FakeLLMAdapter()
 
+    async def fake_stream_eval_chat(*, adapter, bridge, system_prompt, user_prompt, question):
+        assert "retrieved memory evidence only" in system_prompt
+        assert "What food do I prefer?" in user_prompt
+        return "Sushi", ""
+
     def fake_log(message, **kwargs):
         log_calls.append((message, kwargs))
 
     monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
     monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr("magi.api.routers.memory._stream_eval_chat", fake_stream_eval_chat)
     monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
 
     client = TestClient(app)
