@@ -12,7 +12,6 @@ from .answerability import (
     extract_comparison_spans,
     extract_query_tokens,
     extract_quoted_spans,
-    extract_temporal_distance_queries,
     has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
@@ -289,45 +288,6 @@ class HybridRetrievalService:
             primary_count = self._count_results(payload)
             payload.trace["comparison_backstop_triggered"] = True
             payload.trace["comparison_backstop_count"] = primary_count
-
-        temporal_distance_backstop_queries = self._temporal_distance_backstop_queries(
-            query=request.query,
-            payload=payload,
-        )
-        if temporal_distance_backstop_queries:
-            temporal_distance_plans = [
-                LayerQueryPlan(
-                    layer="L1",
-                    conditions=L1Conditions(
-                        content_query=content_query,
-                        source_filters=request.source_filters or None,
-                        domain_filters=request.domain_filters or None,
-                        limit=request.limit,
-                    ),
-                    is_fallback=False,
-                )
-                for content_query in temporal_distance_backstop_queries
-            ]
-            temporal_distance_results = await asyncio.gather(
-                *[
-                    execute_plan(
-                        plan,
-                        l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                        session_id=request.session_id,
-                        user_id=request.user_id,
-                    )
-                    for plan in temporal_distance_plans
-                ],
-                return_exceptions=True,
-            )
-            for plan, result in zip(temporal_distance_plans, temporal_distance_results):
-                if isinstance(result, Exception):
-                    logger.warning("Temporal distance backstop plan %s failed: %s", plan.layer, result)
-                    continue
-                self._merge_result(payload, plan.layer, result)
-            primary_count = self._count_results(payload)
-            payload.trace["temporal_distance_backstop_triggered"] = True
-            payload.trace["temporal_distance_backstop_count"] = len(temporal_distance_backstop_queries)
 
         payload.trace["primary_count"] = primary_count
 
@@ -762,30 +722,6 @@ class HybridRetrievalService:
             if candidate_query and candidate_query not in queries:
                 queries.append(candidate_query)
         return queries
-
-    @staticmethod
-    def _temporal_distance_backstop_queries(
-        *,
-        query: str,
-        payload: RetrievalPayload,
-    ) -> list[str]:
-        candidate_queries = extract_temporal_distance_queries(query)
-        if not candidate_queries:
-            return []
-
-        normalized_events = [
-            set(extract_query_tokens(str(event.get("content") or "")))
-            for event in payload.l1_events
-        ]
-        missing_queries: list[str] = []
-        for candidate_query in candidate_queries:
-            candidate_tokens = set(extract_query_tokens(candidate_query))
-            if not candidate_tokens:
-                continue
-            if any(candidate_tokens.issubset(event_tokens) for event_tokens in normalized_events):
-                continue
-            missing_queries.append(candidate_query)
-        return missing_queries
 
     async def _build_l1_evidence_bundles(
         self,

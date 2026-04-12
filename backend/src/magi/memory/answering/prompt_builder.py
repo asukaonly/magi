@@ -27,6 +27,17 @@ def _format_ts(ts: float | None) -> str:
         return ""
 
 
+def _format_date(ts: float | None) -> str:
+    """Return a date-only string (no time) to avoid replay-timestamp pollution."""
+    if ts is None:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d %a")
+    except (OSError, OverflowError, ValueError):
+        return ""
+
+
 def _truncate_assistant_content(
     content: str,
     max_sentences: int = _ASSISTANT_MAX_SENTENCES,
@@ -64,9 +75,7 @@ class AnswerPromptPayload:
     timeline_text: str
     bundle_text: str
     prioritize_timeline: bool
-    short_answer_instruction: str
     timeline_instruction: str
-    preference_instruction: str
 
 
 def should_prioritize_timeline(question: str, timeline_summary: list[dict[str, Any]] | None) -> bool:
@@ -85,32 +94,6 @@ def should_prioritize_timeline(question: str, timeline_summary: list[dict[str, A
         " occurred first",
     )
     return any(marker in lowered for marker in temporal_markers)
-
-
-def should_request_short_issue_answer(question: str) -> bool:
-    lowered = str(question or "").lower()
-    return any(marker in lowered for marker in (" issue", " problem", " wrong with"))
-
-
-def is_preference_question(question: str) -> bool:
-    """Detect recommendation / suggestion / advice questions."""
-    lowered = str(question or "").lower()
-    preference_markers = (
-        "recommend",
-        "suggest",
-        "any tips",
-        "any advice",
-        "any ideas",
-        "what do you think",
-        "do you think it would be",
-        "do you think it might",
-        "do you think I should",
-        "what should I",
-        "any suggestions",
-        "documentary recommendations",
-        "any recommendations",
-    )
-    return any(marker in lowered for marker in preference_markers)
 
 
 def build_answer_prompt_payload(
@@ -139,8 +122,9 @@ def build_answer_prompt_payload(
         summary = str(item.get("summary") or "").strip()
         if not summary:
             continue
+        date_prefix = f"{_format_date(timestamp)} " if timestamp else ""
         timeline_blocks.append(
-            f"[{index}] {_format_ts(timestamp)} session={session_id} role={author_type} turn={turn_id}\n{summary}"
+            f"[{index}] {date_prefix}session={session_id} role={author_type} turn={turn_id}\n{summary}"
         )
     timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
 
@@ -150,16 +134,19 @@ def build_answer_prompt_payload(
         session_id = str(bundle.get("session_id") or "").strip() or "unknown-session"
         events = list(bundle.get("events") or [])
         lines: list[str] = [f"[bundle {bundle_index}] session={session_id}"]
+        seen_turn_ids: set[str] = set()
         for event in events:
             turn_id = str(event.get("turn_id") or "").strip() or "unknown-turn"
-            timestamp = event.get("timestamp")
+            if turn_id in seen_turn_ids:
+                continue
+            seen_turn_ids.add(turn_id)
             author_type = str(event.get("author_type") or "unknown").strip() or "unknown"
             content = str(event.get("content") or "").strip()
             if not content:
                 continue
             if author_type == "assistant":
                 content = _truncate_assistant_content(content)
-            lines.append(f"- {_format_ts(timestamp)} role={author_type} turn={turn_id}: {content}")
+            lines.append(f"- role={author_type} turn={turn_id}: {content}")
             bundle_turn_ids[turn_id] = bundle_index
         bundle_blocks.append("\n".join(lines))
     bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
@@ -191,27 +178,10 @@ def build_answer_prompt_payload(
     if prioritize_timeline:
         timeline_instruction = (
             "Answer from the Timeline Summary first for temporal or comparison questions.\n"
-            "Use Session Evidence Bundles or Retrieved Evidence only if the timeline summary is ambiguous.\n\n"
-        )
-
-    short_answer_instruction = ""
-    if should_request_short_issue_answer(question):
-        short_answer_instruction = (
-            "For issue or event questions, answer with the short issue name or event phrase only.\n"
-            "Do not include dates, justification, or extra explanation.\n\n"
-        )
-
-    preference_instruction = ""
-    if is_preference_question(question):
-        preference_instruction = (
-            "This is a recommendation/advice question. "
-            "Describe what the user would prefer based on their interests, habits, and context found in the evidence. "
-            "Start your answer with 'The user would prefer' and include SPECIFIC details from the evidence: "
-            "exact product names, brands, activities, places, people, and prior experiences the user mentioned. "
-            "Reference concrete facts (e.g. 'their Sony A7R IV camera', 'their success with lemon poppyseed cake', "
-            "'their interest in stand-up comedy on Netflix') rather than giving generic summaries. "
-            "Also mention what the user would NOT prefer if the evidence indicates dislikes or constraints. "
-            "Do NOT answer 'unknown' for recommendation questions when the evidence contains any user context.\n\n"
+            "Use Session Evidence Bundles or Retrieved Evidence only if the timeline summary is ambiguous.\n"
+            "IMPORTANT: Timeline dates are *conversation* dates, not necessarily *event* dates. "
+            "If bundle content mentions a specific event date (e.g. 'on February 20th', "
+            "'last Tuesday', 'on Black Friday'), use that date instead of the session's timeline date.\n\n"
         )
 
     return AnswerPromptPayload(
@@ -219,7 +189,5 @@ def build_answer_prompt_payload(
         timeline_text=timeline_text,
         bundle_text=bundle_text,
         prioritize_timeline=prioritize_timeline,
-        short_answer_instruction=short_answer_instruction,
         timeline_instruction=timeline_instruction,
-        preference_instruction=preference_instruction,
     )

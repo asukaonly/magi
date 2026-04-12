@@ -22,7 +22,6 @@ from ...core.runtime_bindings import (
     require_unified_memory,
 )
 from ...memory.eval_support.answer_normalization import (
-    canonicalize_issue_component_answer,
     normalize_eval_answer,
 )
 from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
@@ -32,8 +31,6 @@ from ...memory.event_contracts import MemoryEvent
 from ...memory.hybrid_retrieval import build_query
 from ...memory.answering import (
     build_answer_prompt_payload,
-    resolve_temporal_distance_answer,
-    should_request_short_issue_answer,
 )
 from ...memory.l2.models import ManualL2EventRequest
 from ...runtime_defaults import DEFAULT_USER_ID
@@ -284,20 +281,6 @@ async def _synthesize_eval_answer(
     query_timestamp: float | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    deterministic_temporal_distance = resolve_temporal_distance_answer(
-        question=question,
-        timeline_summary=timeline_summary,
-        query_timestamp=query_timestamp,
-    )
-    if deterministic_temporal_distance is not None:
-        answer_trace = {
-            "answer_source": "deterministic_temporal_distance",
-            "evidence_hit_count": len(hits),
-            "evidence_bundle_count": len(evidence_bundles or []),
-            "evidence_timeline_count": len(timeline_summary or []),
-        }
-        return deterministic_temporal_distance, answer_trace
-
     llm_pool = _resolve_scenario_llm_pool()
     if llm_pool is None:
         raise HTTPException(
@@ -313,7 +296,7 @@ async def _synthesize_eval_answer(
         timeline_summary=timeline_summary,
     )
     system_prompt = (
-        "You are answering a benchmark question using retrieved memory evidence only.\n"
+        "You are answering a question using retrieved memory evidence only.\n"
         "Return a concise final answer to the question.\n"
         "Return only the final answer span with no explanation.\n"
         "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
@@ -322,6 +305,10 @@ async def _synthesize_eval_answer(
         "Only count items that EXACTLY match the question criteria; do NOT count similar but different items. "
         "Ignore items mentioned in unrelated topics or different contexts. If an item is mentioned multiple times across bundles, count it only ONCE.\n"
         "When asked about 'X ago' or relative dates ('last Tuesday'), compute the delta between the event timestamp and the question date.\n"
+        "IMPORTANT: If the question specifies a different reference point (e.g. 'when I did Y', 'at the time of Y', 'since I started X'), "
+        "compute the delta relative to THAT event's date, NOT the question date. "
+        "Example: 'How many days ago did I launch my website when I signed a contract?' — find the website-launch date and "
+        "the contract-signing date, then compute (contract date minus launch date).\n"
         "When evidence spans multiple bundles, cross-reference and aggregate information across all of them.\n"
         "Look for answers in BOTH user messages AND assistant responses within the evidence.\n"
         "If the question asks about a specific detail (name, place, date, amount), check assistant replies — they often restate or confirm the user's information.\n"
@@ -357,8 +344,6 @@ async def _synthesize_eval_answer(
         "Use relative time expressions in the evidence when comparing event order.\n"
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
         f"{prompt_payload.timeline_instruction}"
-        f"{prompt_payload.short_answer_instruction}"
-        f"{prompt_payload.preference_instruction}"
         f"{question_date_line}"
         f"Question:\n{question}\n\n"
         f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
@@ -393,12 +378,6 @@ async def _synthesize_eval_answer(
     )
     raw_answer = str(answer or "")
     normalized_answer = normalize_eval_answer(raw_answer)
-    normalized_answer = canonicalize_issue_component_answer(
-        question=question,
-        answer=normalized_answer,
-        timeline_summary=timeline_summary,
-        hits=hits,
-    )
     logger.info(
         "Eval query answer synthesis completed",
         question=question,

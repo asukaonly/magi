@@ -20,7 +20,6 @@ from .answerability import (
     extract_comparison_spans,
     extract_query_tokens,
     extract_quoted_spans,
-    extract_temporal_distance_queries,
 )
 from .models import (
     IntentDeciderInput,
@@ -624,7 +623,6 @@ Rules:
 - You may return multiple layer plans. Plans with is_fallback=true run only when primary retrieval is insufficient.
 - Keep quoted titles verbatim. Do not replace a quoted title with a broad topic.
 - For comparison questions, keep both candidate events explicit; produce separate L1 plans per candidate.
-- For temporal-distance questions, produce anchor-specific content_query text for each event anchor. Do not collapse both anchors into one generic topic query.
 
 Routing guidance:
 - Questions about preferences, profile facts, relationships, or long-lived personal attributes should prefer L2.
@@ -845,16 +843,6 @@ class LLMIntentDecider:
                 if span
             )
             if not has_comparison_coverage:
-                return normalized_query
-
-        temporal_distance_queries = extract_temporal_distance_queries(normalized_query)
-        if temporal_distance_queries:
-            has_anchor_overlap = any(
-                set(extract_query_tokens(anchor_query)) & content_tokens
-                for anchor_query in temporal_distance_queries
-                if anchor_query
-            )
-            if not has_anchor_overlap:
                 return normalized_query
 
         # Guard: reject LLM expansions that hallucinate too many novel tokens.
