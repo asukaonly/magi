@@ -2,10 +2,12 @@
 
 from .prompt_builder import (
     build_answer_prompt_payload,
+    is_preference_question,
     should_prioritize_timeline,
 )
 
 __all__ = [
     "build_answer_prompt_payload",
+    "is_preference_question",
     "should_prioritize_timeline",
 ]

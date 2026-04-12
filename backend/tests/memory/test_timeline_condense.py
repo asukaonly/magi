@@ -213,6 +213,73 @@ def test_prefers_first_service_anchor_over_generic_new_car_activity():
     assert [item["supporting_event_ids"] for item in summary] == [["evt-service"], ["evt-issue"]]
 
 
+def test_prefers_experiential_events_over_topic_discussion():
+    """First-person action statements should beat generic discussion events
+    with higher token overlap when building the timeline summary."""
+    bundles = [
+        {
+            "session_id": "session-train",
+            "events": [
+                {
+                    "event_id": "evt-train-action",
+                    "session_id": "session-train",
+                    "turn_id": "session-train:turn-1",
+                    "timestamp": 30.0,
+                    "author_type": "user",
+                    "content": "I took a train ride to visit my family in the countryside today.",
+                },
+                {
+                    "event_id": "evt-transport-discussion",
+                    "session_id": "session-train",
+                    "turn_id": "session-train:turn-5",
+                    "timestamp": 50.0,
+                    "author_type": "user",
+                    "content": (
+                        "I have been tracking my travel expenses and modes of transport, "
+                        "and I've noticed that I've reduced my carbon emissions by around 20%."
+                    ),
+                },
+            ],
+        },
+        {
+            "session_id": "session-bus",
+            "events": [
+                {
+                    "event_id": "evt-bus-action",
+                    "session_id": "session-bus",
+                    "turn_id": "session-bus:turn-1",
+                    "timestamp": 20.0,
+                    "author_type": "user",
+                    "content": "I just got back from a bus ride to attend a friend's wedding today!",
+                },
+                {
+                    "event_id": "evt-train-topic",
+                    "session_id": "session-bus",
+                    "turn_id": "session-bus:turn-6",
+                    "timestamp": 27.0,
+                    "author_type": "assistant",
+                    "content": (
+                        "Japan is known for its extensive rail network, and trains are a popular "
+                        "mode of transportation for both locals and tourists."
+                    ),
+                },
+            ],
+        },
+    ]
+
+    summary = build_timeline_summary(
+        question="Which mode of transport did I use most recently, a bus or a train?",
+        evidence_bundles=bundles,
+    )
+
+    selected_ids = [item["supporting_event_ids"][0] for item in summary]
+    assert "evt-bus-action" in selected_ids
+    assert "evt-train-action" in selected_ids
+    # Discussion events should not be selected
+    assert "evt-transport-discussion" not in selected_ids
+    assert "evt-train-topic" not in selected_ids
+
+
 def test_prefers_sentence_with_month_date_in_service_summary():
     bundles = [
         {
