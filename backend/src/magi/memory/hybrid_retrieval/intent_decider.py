@@ -390,7 +390,7 @@ class RuleBasedIntentDecider:
                 content_query=inp.query,
                 source_filters=final_sources,
                 domain_filters=final_domains,
-                limit=10,
+                limit=inp.l1_limit,
             )
         elif layer == "L2":
             conditions = L2Conditions(

@@ -73,6 +73,7 @@ class IntentDeciderInput:
     domain_filters: List[str] = field(default_factory=list)
     recall_intent_hint: Optional[str] = None
     query_mode_hint: Optional[str] = None  # from RetrievalQuery.query_mode
+    l1_limit: int = 10  # per-plan L1 event limit, forwarded from request
 
 
 @dataclass
@@ -228,7 +229,7 @@ class RetrievalConfig:
     confidence_fallback_top_k: int = 5
 
     # ResultFusion
-    default_max_tokens: int = 8192
+    default_max_tokens: int = 16384
     fallback_trigger_threshold: int = 1
     l0_max_tokens: int = 512
     l0_budget_ratio: float = 0.5

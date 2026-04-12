@@ -126,6 +126,7 @@ class HybridRetrievalService:
             domain_filters=request.domain_filters,
             recall_intent_hint=request.recall_intent,
             query_mode_hint=request.query_mode,
+            l1_limit=request.limit,
         )
         decision = await self._intent_decider.decide(intent_input)
         payload.trace["intent_source"] = decision.source
@@ -262,7 +263,7 @@ class HybridRetrievalService:
                         content_query=content_query,
                         source_filters=request.source_filters or None,
                         domain_filters=request.domain_filters or None,
-                        limit=10,
+                        limit=request.limit,
                     ),
                     is_fallback=False,
                 )
@@ -301,7 +302,7 @@ class HybridRetrievalService:
                         content_query=content_query,
                         source_filters=request.source_filters or None,
                         domain_filters=request.domain_filters or None,
-                        limit=10,
+                        limit=request.limit,
                     ),
                     is_fallback=False,
                 )
@@ -491,7 +492,7 @@ class HybridRetrievalService:
                     content_query=request.query,
                     source_filters=request.source_filters or None,
                     domain_filters=request.domain_filters or None,
-                    limit=10,
+                    limit=request.limit,
                 ),
                 is_fallback=False,
             )
@@ -623,7 +624,7 @@ class HybridRetrievalService:
                     content_query=eq,
                     source_filters=request.source_filters or None,
                     domain_filters=request.domain_filters or None,
-                    limit=10,
+                    limit=request.limit,
                 ),
                 time_range=time_range,
                 is_fallback=False,
