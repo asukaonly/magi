@@ -941,7 +941,8 @@ def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypat
             assert messages[0]["role"] == "system"
             assert "retrieved memory evidence only" in messages[0]["content"]
             prompt = messages[-1]["content"]
-            assert "Answer from the Timeline Summary first for temporal or comparison questions." in prompt
+            assert "TIMELINE PRIORITY" in prompt
+            assert "Timeline Summary (use this for temporal/ordering questions):" in prompt
             assert "t=11.0" not in prompt
             assert "t=15.0" not in prompt
             return '"Data Analysis using Python" webinar'
@@ -1077,7 +1078,7 @@ def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
             _ = (max_tokens, temperature)
             assert messages[0]["role"] == "system"
             assert messages[1]["role"] == "user"
-            assert kwargs["disable_thinking"] is True
+            assert kwargs["disable_thinking"] is False
             return "Sushi"
 
     class _FakeLLMPool:

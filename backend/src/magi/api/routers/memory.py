@@ -402,12 +402,11 @@ async def _synthesize_eval_answer(
             "==== END ANSWER LLM INPUT ===="
         ),
     )
-    _needs_reasoning = _is_counting_or_aggregation_question(question) or _is_temporal_reasoning_question(question)
     answer = await adapter.chat(
         llm_messages,
-        max_tokens=512 if _needs_reasoning else 256,
+        max_tokens=4096,
         temperature=0.0,
-        disable_thinking=not _needs_reasoning,
+        disable_thinking=False,
     )
     raw_answer = str(answer or "")
     normalized_answer = normalize_eval_answer(raw_answer)
