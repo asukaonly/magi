@@ -269,6 +269,20 @@ def _is_counting_or_aggregation_question(question: str) -> bool:
     ))
 
 
+def _is_temporal_reasoning_question(question: str) -> bool:
+    """Detect questions that benefit from step-by-step temporal reasoning."""
+    lowered = str(question or "").lower()
+    return bool(re.search(
+        r"\bhow many days\b|\bhow many weeks\b|\bhow many months\b|\bhow long ago\b|"
+        r"\bdays? ago\b|\bweeks? ago\b|\bmonths? ago\b|\byears? ago\b|"
+        r"\bmost recent\b|\bhappened first\b|\bwhich came first\b|"
+        r"\bwhat day\b|\bwhat date\b|\bbefore or after\b|"
+        r"\bfirst\b.{1,30}\bor\b.{1,30}\b(?:last|later|second)\b|"
+        r"\blast\b.{1,30}\btime\b.{1,30}\b(?:did|was|were)\b",
+        lowered,
+    ))
+
+
 async def _synthesize_eval_answer(
     *,
     question: str,
@@ -301,6 +315,8 @@ async def _synthesize_eval_answer(
         "Return only the final answer span with no explanation.\n"
         "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
         "When asked about order, count, duration, or time difference, reason over timestamps and content to derive the answer.\n"
+        "For recency or ordering questions, rely on the Timeline Summary chronological order — "
+        "do NOT judge recency by how much a topic is discussed in the evidence bundles.\n"
         "When asked 'how many' or 'total', enumerate EVERY relevant item from ALL bundles, timeline entries, and evidence, then sum to get the final count. "
         "Only count items that EXACTLY match the question criteria; do NOT count similar but different items. "
         "Ignore items mentioned in unrelated topics or different contexts. If an item is mentioned multiple times across bundles, count it only ONCE.\n"
@@ -340,17 +356,34 @@ async def _synthesize_eval_answer(
         qdt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
         question_date_line = f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} UTC (timestamp={query_timestamp})\n"
 
-    user_prompt = (
-        "Use relative time expressions in the evidence when comparing event order.\n"
-        "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
-        f"{prompt_payload.timeline_instruction}"
-        f"{question_date_line}"
-        f"Question:\n{question}\n\n"
-        f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
-        f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
-        f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
-        f"Knowledge Graph Context:\n{l2_context_text}\n"
-    )
+    # For temporal questions, place Timeline Summary AFTER bundles so the LLM
+    # reads it last (mitigates lost-in-the-middle attention decay).
+    if prompt_payload.prioritize_timeline:
+        user_prompt = (
+            "Use relative time expressions in the evidence when comparing event order.\n"
+            "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
+            f"{prompt_payload.timeline_instruction}"
+            f"{prompt_payload.preference_instruction}"
+            f"{question_date_line}"
+            f"Question:\n{question}\n\n"
+            f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
+            f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
+            f"Knowledge Graph Context:\n{l2_context_text}\n\n"
+            f"Timeline Summary (use this for temporal/ordering questions):\n{prompt_payload.timeline_text}\n"
+        )
+    else:
+        user_prompt = (
+            "Use relative time expressions in the evidence when comparing event order.\n"
+            "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
+            f"{prompt_payload.timeline_instruction}"
+            f"{prompt_payload.preference_instruction}"
+            f"{question_date_line}"
+            f"Question:\n{question}\n\n"
+            f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
+            f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
+            f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
+            f"Knowledge Graph Context:\n{l2_context_text}\n"
+        )
     llm_messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -369,12 +402,12 @@ async def _synthesize_eval_answer(
             "==== END ANSWER LLM INPUT ===="
         ),
     )
-    _needs_reasoning = _is_counting_or_aggregation_question(question)
+    _needs_reasoning = _is_counting_or_aggregation_question(question) or _is_temporal_reasoning_question(question)
     answer = await adapter.chat(
         llm_messages,
         max_tokens=512 if _needs_reasoning else 256,
         temperature=0.0,
-        disable_thinking=True,
+        disable_thinking=not _needs_reasoning,
     )
     raw_answer = str(answer or "")
     normalized_answer = normalize_eval_answer(raw_answer)

@@ -138,3 +138,32 @@ def extract_comparison_spans(text: str) -> list[str]:
 def has_temporal_anchor(content: str) -> bool:
     """Check whether content contains concrete time anchors."""
     return any(pattern.search(content) for pattern in _TEMPORAL_PATTERNS)
+
+
+# Richer regex for extracting human-readable event-date mentions from content.
+_EVENT_DATE_RE = re.compile(
+    r"(?:on\s+)?"
+    r"(?:"
+    # "March 3rd" / "January 15, 2024"
+    r"(?:january|february|march|april|may|june|july|august|september|october|november|december)"
+    r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?"
+    r")"
+    r"|"
+    # "3/15" / "03-15-2024"
+    r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
+    r"|"
+    # "last Monday" / "this Friday"
+    r"(?:last|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    r"|"
+    # "3 days ago" / "two weeks ago"
+    r"(?:\d+\s+(?:days?|weeks?|months?|years?)\s+ago)"
+    r"|"
+    # "yesterday" / "last week" / "last night"
+    r"(?:yesterday|today|last\s+(?:week|month|year|night))",
+    re.IGNORECASE,
+)
+
+
+def extract_event_dates(content: str) -> list[str]:
+    """Extract human-readable date mentions from content text."""
+    return [m.group(0).strip() for m in _EVENT_DATE_RE.finditer(str(content or ""))]

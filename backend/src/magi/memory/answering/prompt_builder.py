@@ -67,6 +67,27 @@ def _truncate_assistant_content(
     return result
 
 
+def is_preference_question(question: str) -> bool:
+    """Detect recommendation / suggestion / advice questions."""
+    lowered = str(question or "").lower()
+    preference_markers = (
+        "recommend",
+        "suggest",
+        "any tips",
+        "any advice",
+        "any ideas",
+        "what do you think",
+        "do you think it would be",
+        "do you think it might",
+        "do you think i should",
+        "what should i",
+        "any suggestions",
+        "documentary recommendations",
+        "any recommendations",
+    )
+    return any(marker in lowered for marker in preference_markers)
+
+
 @dataclass(frozen=True)
 class AnswerPromptPayload:
     """Formatted evidence payload for narrow memory answer synthesis."""
@@ -76,6 +97,7 @@ class AnswerPromptPayload:
     bundle_text: str
     prioritize_timeline: bool
     timeline_instruction: str
+    preference_instruction: str
 
 
 def should_prioritize_timeline(question: str, timeline_summary: list[dict[str, Any]] | None) -> bool:
@@ -123,8 +145,10 @@ def build_answer_prompt_payload(
         if not summary:
             continue
         date_prefix = f"{_format_date(timestamp)} " if timestamp else ""
+        event_date = item.get("event_date")
+        event_date_note = f" (event date: {event_date})" if event_date else ""
         timeline_blocks.append(
-            f"[{index}] {date_prefix}session={session_id} role={author_type} turn={turn_id}\n{summary}"
+            f"[{index}] {date_prefix}session={session_id} role={author_type} turn={turn_id}{event_date_note}\n{summary}"
         )
     timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
 
@@ -177,11 +201,24 @@ def build_answer_prompt_payload(
     timeline_instruction = ""
     if prioritize_timeline:
         timeline_instruction = (
-            "Answer from the Timeline Summary first for temporal or comparison questions.\n"
-            "Use Session Evidence Bundles or Retrieved Evidence only if the timeline summary is ambiguous.\n"
+            "TIMELINE PRIORITY — Timeline Summary entries are sorted chronologically (oldest first).\n"
+            "For 'most recently' / 'last time' questions, the LAST entry mentioning the relevant topic is the answer.\n"
+            "For 'first time' questions, the FIRST entry mentioning the relevant topic is the answer.\n"
+            "Do NOT let the volume or frequency of a topic in Session Evidence Bundles override the timeline ordering.\n"
+            "Use Session Evidence Bundles or Retrieved Evidence only to clarify details when the timeline summary is ambiguous.\n"
             "IMPORTANT: Timeline dates are *conversation* dates, not necessarily *event* dates. "
             "If bundle content mentions a specific event date (e.g. 'on February 20th', "
             "'last Tuesday', 'on Black Friday'), use that date instead of the session's timeline date.\n\n"
+        )
+
+    preference_instruction = ""
+    if is_preference_question(question):
+        preference_instruction = (
+            "This question asks for recommendations or suggestions. "
+            "Ground your answer in the user's specific context from the evidence: "
+            "mention their actual interests, past experiences, owned items, stated preferences, "
+            "and constraints (budget, time, skill level, etc.). "
+            "Do not give generic advice that ignores the user's personal context.\n\n"
         )
 
     return AnswerPromptPayload(
@@ -190,4 +227,5 @@ def build_answer_prompt_payload(
         bundle_text=bundle_text,
         prioritize_timeline=prioritize_timeline,
         timeline_instruction=timeline_instruction,
+        preference_instruction=preference_instruction,
     )
