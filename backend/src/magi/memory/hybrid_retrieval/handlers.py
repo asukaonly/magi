@@ -717,7 +717,12 @@ class L3Handler(RRFSearchHandler):
 
 
 class L4Handler(RRFSearchHandler):
-    """Execute L4 procedural memory queries with triple-path RRF fusion."""
+    """Execute L4 procedural memory queries with BM25 + keyword fusion.
+
+    The procedural_skills table is small (one row per tool/workflow, typically
+    <1000 rows).  BM25 + keyword provides equivalent recall to triple-path
+    RRF without the per-query embedding cost that the vector path incurs.
+    """
 
     layer_name = "L4"
 
@@ -729,7 +734,7 @@ class L4Handler(RRFSearchHandler):
         conditions: L4Conditions,
         time_range: Optional[TimeRange] = None,
     ) -> List[Dict[str, Any]]:
-        """Query L4 using BM25 + vector + keyword, fused via RRF."""
+        """Query L4 using BM25 + keyword, fused via RRF."""
         if not conditions.content_query:
             return []
         cfg = self._config
@@ -738,7 +743,7 @@ class L4Handler(RRFSearchHandler):
             content_query=conditions.content_query,
             limit=conditions.limit,
             bm25_coro=self._bm25_path(conditions.content_query, fetch_k),
-            vector_coro=self._vector_path(conditions.content_query, fetch_k),
+            vector_coro=self._noop_vector(),
             keyword_coro=self._keyword_path(conditions.content_query, fetch_k),
             hydrate_coro_fn=self._fetch_by_ids,
         )
@@ -751,13 +756,10 @@ class L4Handler(RRFSearchHandler):
             logger.warning("L4 BM25 path failed: %s", exc)
             return []
 
-    async def _vector_path(self, query: str, limit: int) -> List[str]:
-        try:
-            results = await self._store._semantic_query_strategies(query=query, limit=limit)
-            return [r["skill_id"] for r in results]
-        except Exception as exc:
-            logger.warning("L4 vector path failed: %s", exc)
-            return []
+    @staticmethod
+    async def _noop_vector() -> List[str]:
+        """Disabled: procedural_skills is too small to justify per-query embedding."""
+        return []
 
     async def _keyword_path(self, query: str, limit: int) -> List[str]:
         try:

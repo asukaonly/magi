@@ -1089,9 +1089,6 @@ class TestL4Handler:
         async def _bm25_path(_query, _limit):
             return ["skill-generic", "skill-specific"]
 
-        async def _vector_path(_query, _limit):
-            return []
-
         async def _keyword_path(_query, _limit):
             return ["skill-generic", "skill-specific"]
 
@@ -1115,7 +1112,6 @@ class TestL4Handler:
             ]
 
         monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
-        monkeypatch.setattr(handler, "_vector_path", _vector_path)
         monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
         monkeypatch.setattr(handler, "_fetch_by_ids", _fetch_by_ids)
 
