@@ -1379,6 +1379,7 @@ class ChatPostProcessService:
                 cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
                 cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
                 thinking_enabled=bool(llm_trace.get("thinking_enabled")),
+                request_preview=str(llm_trace.get("request_preview") or "")[:240] or None,
                 response_preview=str(response_preview or "")[:240] or None,
             )
         )
@@ -1438,6 +1439,7 @@ class ChatPostProcessService:
                 cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
                 cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
                 thinking_enabled=bool(llm_trace.get("thinking_enabled")),
+                request_preview=(user_message or "")[:240] or None,
             )
         )
 

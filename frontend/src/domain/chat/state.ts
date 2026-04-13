@@ -68,6 +68,9 @@ export interface NormalizedExecutionTraceSummary {
   continuedFromTraceId?: string | null;
   supersededByTurnId?: string | null;
   supersessionReason?: string | null;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalReasoningTokens: number;
 }
 
 export interface NormalizedExecutionPlanSummary {
@@ -185,6 +188,9 @@ export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSum
     continuedFromTraceId: summary.continued_from_trace_id || null,
     supersededByTurnId: summary.superseded_by_turn_id || null,
     supersessionReason: summary.supersession_reason || null,
+    totalInputTokens: Number(summary.total_input_tokens || 0),
+    totalOutputTokens: Number(summary.total_output_tokens || 0),
+    totalReasoningTokens: Number(summary.total_reasoning_tokens || 0),
   };
 };
 

@@ -135,6 +135,9 @@ export interface ExecutionTraceSummary {
   continued_from_trace_id?: string | null;
   superseded_by_turn_id?: string | null;
   supersession_reason?: string | null;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_reasoning_tokens?: number;
 }
 
 export interface ExecutionTraceNode {

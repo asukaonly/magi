@@ -187,6 +187,7 @@ class RuntimeTraceStore:
                 """
             )
             await self._ensure_trace_turn_columns(db)
+            await self._ensure_trace_detail_columns(db)
             await db.commit()
         self._initialized = True
 
@@ -374,9 +375,10 @@ class RuntimeTraceStore:
                 cache_write_tokens,
                 thinking_enabled,
                 request_preview,
-                response_preview
+                response_preview,
+                thinking_content
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(span_id) DO UPDATE SET
                 provider = excluded.provider,
                 model = excluded.model,
@@ -387,7 +389,8 @@ class RuntimeTraceStore:
                 cache_write_tokens = excluded.cache_write_tokens,
                 thinking_enabled = excluded.thinking_enabled,
                 request_preview = excluded.request_preview,
-                response_preview = excluded.response_preview
+                response_preview = excluded.response_preview,
+                thinking_content = excluded.thinking_content
             """,
             (
                 record.span_id,
@@ -403,6 +406,7 @@ class RuntimeTraceStore:
                 int(record.thinking_enabled),
                 record.request_preview,
                 record.response_preview,
+                record.thinking_content,
             ),
         )
 
@@ -420,9 +424,10 @@ class RuntimeTraceStore:
                 execution_time_ms,
                 error_code,
                 error_message,
-                result_preview
+                result_preview,
+                result_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(span_id) DO UPDATE SET
                 tool_name = excluded.tool_name,
                 tool_call_id = excluded.tool_call_id,
@@ -431,7 +436,8 @@ class RuntimeTraceStore:
                 execution_time_ms = excluded.execution_time_ms,
                 error_code = excluded.error_code,
                 error_message = excluded.error_message,
-                result_preview = excluded.result_preview
+                result_preview = excluded.result_preview,
+                result_json = excluded.result_json
             """,
             (
                 record.span_id,
@@ -445,6 +451,7 @@ class RuntimeTraceStore:
                 record.error_code,
                 record.error_message,
                 record.result_preview,
+                record.result_json,
             ),
         )
 
@@ -467,6 +474,19 @@ class RuntimeTraceStore:
             await db.execute("ALTER TABLE trace_turns ADD COLUMN superseded_by_turn_id TEXT")
         if "supersession_reason" not in column_names:
             await db.execute("ALTER TABLE trace_turns ADD COLUMN supersession_reason TEXT")
+
+    async def _ensure_trace_detail_columns(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(trace_llm_calls)")
+        rows = await cursor.fetchall()
+        llm_columns = {str(row[1]) for row in rows}
+        if "thinking_content" not in llm_columns:
+            await db.execute("ALTER TABLE trace_llm_calls ADD COLUMN thinking_content TEXT")
+
+        cursor = await db.execute("PRAGMA table_info(trace_tools)")
+        rows = await cursor.fetchall()
+        tool_columns = {str(row[1]) for row in rows}
+        if "result_json" not in tool_columns:
+            await db.execute("ALTER TABLE trace_tools ADD COLUMN result_json TEXT")
 
     async def get_span(self, span_id: str) -> TraceSpanRecord | None:
         row = await self._fetchone(

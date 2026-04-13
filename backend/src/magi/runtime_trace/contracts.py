@@ -82,6 +82,7 @@ class TraceLlmCallRecord:
     thinking_depth: str = "none"
     request_preview: str | None = None
     response_preview: str | None = None
+    thinking_content: str | None = None
 
 
 @dataclass(slots=True)
@@ -97,6 +98,7 @@ class TraceToolRecord:
     error_code: str | None = None
     error_message: str | None = None
     result_preview: str | None = None
+    result_json: str | None = None
 
 
 @dataclass(slots=True)

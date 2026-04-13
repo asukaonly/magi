@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock3, Hourglass, Loader2 } from 'lucide-react';
+import { Brain, Clock3, Hammer, Hourglass, Loader2, MessageSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Sheet,
@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/sheet';
 import TraceTree from './TraceTree';
 import { flattenPlanningNodeForDisplay, type NormalizedExecutionTraceNode, type NormalizedExecutionTraceSnapshot } from '@/domain/chat/state';
-import { formatTraceKind, formatTraceLabel, formatTraceMode, formatTraceStatus } from './traceDisplay';
+import { formatTraceKind, formatTraceLabel, formatTraceStatus } from './traceDisplay';
 
 interface ToolchainDrawerProps {
   open: boolean;
@@ -81,11 +81,35 @@ const stringifyStructuredValue = (value: unknown): string => {
   }
 };
 
+const formatTokenCount = (input?: number, output?: number, reasoning?: number): string => {
+  const parts: string[] = [];
+  if (input) parts.push(`In ${input.toLocaleString()}`);
+  if (output) parts.push(`Out ${output.toLocaleString()}`);
+  if (reasoning) parts.push(`Think ${reasoning.toLocaleString()}`);
+  return parts.length > 0 ? parts.join(' / ') : '--';
+};
+
 const DetailBlock = ({ label, value }: { label: string; value: string }) => (
   <div className="rounded-2xl border border-border/50 bg-background/80 px-3 py-3">
     <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</div>
     <div className="mt-2 text-sm font-medium text-foreground">{value}</div>
   </div>
+);
+
+const ContentSection = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
+  <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
+    <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
+      {icon}
+      {label}
+    </div>
+    {children}
+  </div>
+);
+
+const PreBlock = ({ children }: { children: string }) => (
+  <pre className="overflow-x-auto rounded-2xl border border-border/50 bg-background/80 p-4 text-xs leading-6 text-muted-foreground whitespace-pre-wrap break-words">
+    {children}
+  </pre>
 );
 
 const ContinuationNotice = ({ children }: { children: React.ReactNode }) => (
@@ -148,10 +172,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     },
     [selectedMetadata],
   );
-  const selectedTags = React.useMemo(
-    () => asRecord(selectedMetadata.tags),
-    [selectedMetadata],
-  );
+
   const nodeDurationValue = React.useMemo(() => (
     Number(selectedMetadata.duration_ms || 0) > 0
       ? formatMilliseconds(selectedMetadata.duration_ms)
@@ -177,7 +198,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="trace-theme-surface flex h-full w-[min(1180px,calc(100vw-72px))] max-w-[1180px] flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0 shadow-2xl"
+        className="trace-theme-surface my-3 mr-2 flex h-[calc(100%-1.5rem)] w-[min(1180px,calc(100vw-72px))] max-w-[1180px] flex-col overflow-hidden rounded-3xl border border-border/60 bg-card p-0 shadow-2xl"
       >
         <SheetHeader className="border-b border-border/50 bg-muted/30 px-8 py-6">
           <SheetTitle className="text-[28px] font-semibold tracking-[-0.04em] text-foreground">{title}</SheetTitle>
@@ -242,9 +263,13 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                   </div>
                 </div>
                 <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
-                  <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryMode')}</div>
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryTokens')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">
-                    {formatTraceMode(snapshot.mode, t)}
+                    {formatTokenCount(
+                      snapshot.summary.totalInputTokens,
+                      snapshot.summary.totalOutputTokens,
+                      snapshot.summary.totalReasoningTokens,
+                    )}
                   </div>
                 </div>
               </div>
@@ -254,7 +279,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                     <TraceTree node={displayRoot} selectedNodeId={selectedNode?.id || null} onSelectNode={setSelectedNode} />
                   )}
                 </div>
-                <div className="min-h-0 min-w-0 overflow-y-auto bg-muted/30 px-6 py-6 xl:px-7">
+                <div className="min-h-0 min-w-0 overflow-y-auto bg-muted/30 px-6 py-6 pb-10 xl:px-7">
                   {selectedNode ? (
                     <div className="space-y-4">
                       <div className="rounded-3xl border border-border/50 bg-card px-6 py-5 shadow-sm">
@@ -288,90 +313,114 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                         />
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <DetailBlock
-                          label={t('chat.trace.model')}
-                          value={String(selectedMetrics.model || selectedMetadata.model || '--')}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.provider')}
-                          value={String(selectedMetrics.provider || selectedMetadata.provider || '--')}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.attempt')}
-                          value={String(selectedMetadata.attempt_index || '1')}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.retryCount')}
-                          value={String(selectedMetadata.retry_count || '0')}
-                        />
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <DetailBlock
-                          label={t('chat.trace.inputTokens')}
-                          value={formatCount(selectedMetrics.input_tokens)}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.outputTokens')}
-                          value={formatCount(selectedMetrics.output_tokens)}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.reasoningTokens')}
-                          value={formatCount(selectedMetrics.reasoning_tokens)}
-                        />
-                        <DetailBlock
-                          label={t('chat.trace.thinking')}
-                          value={formatBoolean(selectedMetrics.thinking_enabled, t('chat.trace.enabled'), t('chat.trace.disabled'))}
-                        />
-                      </div>
-
-                      {selectedNode.resultPreview && (
-                        <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
-                          <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
-                            <Hourglass className="h-3.5 w-3.5" />
-                            {t('chat.trace.result')}
+                      {/* -- LLM-specific detail -- */}
+                      {(selectedNode.kind === 'llm' || selectedNode.kind === 'llm_call') && (
+                        <>
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            <DetailBlock label={t('chat.trace.model')} value={String(selectedMetrics.model || selectedMetadata.model || '--')} />
+                            <DetailBlock label={t('chat.trace.provider')} value={String(selectedMetrics.provider || selectedMetadata.provider || '--')} />
+                            <DetailBlock label={t('chat.trace.inputTokens')} value={formatCount(selectedMetrics.input_tokens)} />
+                            <DetailBlock label={t('chat.trace.outputTokens')} value={formatCount(selectedMetrics.output_tokens)} />
                           </div>
-                          <div className="rounded-2xl border border-border/50 bg-background/80 px-4 py-4 text-sm leading-7 text-foreground">
-                            {selectedNode.resultPreview}
+                          {(Number(selectedMetrics.reasoning_tokens) > 0 || selectedMetrics.thinking_enabled) && (
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                              <DetailBlock label={t('chat.trace.reasoningTokens')} value={formatCount(selectedMetrics.reasoning_tokens)} />
+                              <DetailBlock label={t('chat.trace.thinking')} value={formatBoolean(selectedMetrics.thinking_enabled, t('chat.trace.enabled'), t('chat.trace.disabled'))} />
+                            </div>
+                          )}
+                          {selectedMetadata.request_preview && (
+                            <ContentSection icon={<MessageSquare className="h-3.5 w-3.5" />} label={t('chat.trace.requestPreview')}>
+                              <PreBlock>{String(selectedMetadata.request_preview)}</PreBlock>
+                            </ContentSection>
+                          )}
+                          {selectedMetadata.response_preview && (
+                            <ContentSection icon={<MessageSquare className="h-3.5 w-3.5" />} label={t('chat.trace.responsePreview')}>
+                              <PreBlock>{String(selectedMetadata.response_preview)}</PreBlock>
+                            </ContentSection>
+                          )}
+                          {selectedMetadata.thinking_content && (
+                            <ContentSection icon={<Brain className="h-3.5 w-3.5" />} label={t('chat.trace.thinkingContent')}>
+                              <PreBlock>{String(selectedMetadata.thinking_content)}</PreBlock>
+                            </ContentSection>
+                          )}
+                        </>
+                      )}
+
+                      {/* -- Tool-specific detail -- */}
+                      {(selectedNode.kind === 'tool' || selectedNode.kind === 'tool_call') && (
+                        <>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <DetailBlock label={t('chat.trace.toolName')} value={String(selectedMetadata.tool_name || selectedNode.label || '--')} />
+                            <DetailBlock label={t('chat.trace.executionTime')} value={executionTimeValue} />
                           </div>
-                        </div>
+                          {selectedMetadata.tool_arguments && (
+                            <ContentSection icon={<Hammer className="h-3.5 w-3.5" />} label={t('chat.trace.toolArguments')}>
+                              <PreBlock>{stringifyStructuredValue(selectedMetadata.tool_arguments)}</PreBlock>
+                            </ContentSection>
+                          )}
+                          {selectedMetadata.result_json && (
+                            <ContentSection icon={<Hourglass className="h-3.5 w-3.5" />} label={t('chat.trace.toolResult')}>
+                              <PreBlock>{stringifyStructuredValue(selectedMetadata.result_json)}</PreBlock>
+                            </ContentSection>
+                          )}
+                          {!selectedMetadata.result_json && selectedNode.resultPreview && (
+                            <ContentSection icon={<Hourglass className="h-3.5 w-3.5" />} label={t('chat.trace.result')}>
+                              <div className="rounded-2xl border border-border/50 bg-background/80 px-4 py-4 text-sm leading-7 text-foreground">
+                                {selectedNode.resultPreview}
+                              </div>
+                            </ContentSection>
+                          )}
+                        </>
                       )}
 
-                      {!!Object.keys(selectedInput).length && (
-                        <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
-                          <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.input')}</div>
-                          <pre className="overflow-x-auto rounded-2xl border border-border/50 bg-background/80 p-4 text-xs leading-6 text-muted-foreground">
-                            {stringifyStructuredValue(selectedInput)}
-                          </pre>
-                        </div>
+                      {/* -- Intent-specific detail -- */}
+                      {(selectedNode.kind === 'intent' || selectedNode.kind === 'intent_resolution') && (
+                        <>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            {!!selectedMetadata.intent_label && <DetailBlock label={t('chat.trace.intentLabel')} value={String(selectedMetadata.intent_label)} />}
+                            {!!selectedMetadata.execution_mode && <DetailBlock label={t('chat.trace.executionMode')} value={String(selectedMetadata.execution_mode)} />}
+                          </div>
+                          {selectedMetadata.route_reason && (
+                            <ContentSection label={t('chat.trace.routeReason')}>
+                              <PreBlock>{String(selectedMetadata.route_reason)}</PreBlock>
+                            </ContentSection>
+                          )}
+                          {selectedMetadata.selected_tools && (
+                            <ContentSection label={t('chat.trace.selectedTools')}>
+                              <PreBlock>{stringifyStructuredValue(selectedMetadata.selected_tools)}</PreBlock>
+                            </ContentSection>
+                          )}
+                        </>
                       )}
 
-                      {!!Object.keys(selectedOutput).length && (
-                        <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
-                          <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.output')}</div>
-                          <pre className="overflow-x-auto rounded-2xl border border-border/50 bg-background/80 p-4 text-xs leading-6 text-muted-foreground">
-                            {stringifyStructuredValue(selectedOutput)}
-                          </pre>
-                        </div>
-                      )}
-
-                      {!!Object.keys(selectedMetrics).length && (
-                        <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
-                          <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.metrics')}</div>
-                          <pre className="overflow-x-auto rounded-2xl border border-border/50 bg-background/80 p-4 text-xs leading-6 text-muted-foreground">
-                            {stringifyStructuredValue(selectedMetrics)}
-                          </pre>
-                        </div>
-                      )}
-
-                      {!!Object.keys(selectedTags).length && (
-                        <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
-                          <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.tags')}</div>
-                          <pre className="overflow-x-auto rounded-2xl border border-border/50 bg-background/80 p-4 text-xs leading-6 text-muted-foreground">
-                            {stringifyStructuredValue(selectedTags)}
-                          </pre>
-                        </div>
+                      {/* -- Generic fallback for other kinds -- */}
+                      {selectedNode.kind !== 'llm' && selectedNode.kind !== 'llm_call' &&
+                       selectedNode.kind !== 'tool' && selectedNode.kind !== 'tool_call' &&
+                       selectedNode.kind !== 'intent' && selectedNode.kind !== 'intent_resolution' && (
+                        <>
+                          {selectedNode.resultPreview && (
+                            <ContentSection icon={<Hourglass className="h-3.5 w-3.5" />} label={t('chat.trace.result')}>
+                              <div className="rounded-2xl border border-border/50 bg-background/80 px-4 py-4 text-sm leading-7 text-foreground">
+                                {selectedNode.resultPreview}
+                              </div>
+                            </ContentSection>
+                          )}
+                          {!!Object.keys(selectedInput).length && (
+                            <ContentSection label={t('chat.trace.input')}>
+                              <PreBlock>{stringifyStructuredValue(selectedInput)}</PreBlock>
+                            </ContentSection>
+                          )}
+                          {!!Object.keys(selectedOutput).length && (
+                            <ContentSection label={t('chat.trace.output')}>
+                              <PreBlock>{stringifyStructuredValue(selectedOutput)}</PreBlock>
+                            </ContentSection>
+                          )}
+                          {!!Object.keys(selectedMetrics).length && (
+                            <ContentSection label={t('chat.trace.metrics')}>
+                              <PreBlock>{stringifyStructuredValue(selectedMetrics)}</PreBlock>
+                            </ContentSection>
+                          )}
+                        </>
                       )}
 
                       {selectedNode.error && (
@@ -382,15 +431,16 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                           </div>
                         </div>
                       )}
-                      <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
-                        <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
+
+                      <details className="rounded-3xl border border-border/50 bg-card shadow-sm">
+                        <summary className="cursor-pointer px-5 py-4 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 flex items-center gap-2 select-none">
                           <Clock3 className="h-3.5 w-3.5" />
                           {t('chat.trace.metadata')}
+                        </summary>
+                        <div className="px-5 pb-5">
+                          <PreBlock>{JSON.stringify(selectedNode.metadata, null, 2)}</PreBlock>
                         </div>
-                        <pre className="overflow-x-auto rounded-2xl border border-border/50 bg-background/80 p-4 text-xs leading-6 text-muted-foreground">
-                          {JSON.stringify(selectedNode.metadata, null, 2)}
-                        </pre>
-                      </div>
+                      </details>
                     </div>
                   ) : (
                     <div className="text-sm text-muted-foreground">{t('chat.trace.noSelection')}</div>

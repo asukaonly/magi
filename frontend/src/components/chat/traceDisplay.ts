@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 
 const ROUND_LABEL_PATTERN = /^Round\s+(\d+)$/i;
+const ITERATION_LABEL_PATTERN = /^Iteration\s+(\d+)$/i;
 
 export const formatTraceStatus = (status: string, t: TFunction<'app'>): string => {
   if (status === 'completed') return t('chat.trace.statusCompleted');
@@ -24,12 +25,16 @@ export const formatTraceKind = (kind: string, t: TFunction<'app'>): string => {
     parallel_group: 'chat.trace.kindParallelGroup',
     worker: 'chat.trace.kindWorker',
     tool: 'chat.trace.kindTool',
+    tool_call: 'chat.trace.kindTool',
     iteration: 'chat.trace.kindIteration',
     intent: 'chat.trace.kindIntent',
+    intent_resolution: 'chat.trace.kindIntent',
     llm: 'chat.trace.kindLlm',
+    llm_call: 'chat.trace.kindLlm',
     response: 'chat.trace.kindResponse',
     dispatch: 'chat.trace.kindDispatch',
     attempt: 'chat.trace.kindAttempt',
+    step: 'chat.trace.kindStep',
   };
   const key = mapping[kind];
   return key ? t(key) : kind;
@@ -50,6 +55,10 @@ export const formatTraceLabel = (
   const roundMatch = ROUND_LABEL_PATTERN.exec(label);
   if (roundMatch) {
     return t('chat.trace.node.roundLabel', { count: Number(roundMatch[1]) || 0 });
+  }
+  const iterMatch = ITERATION_LABEL_PATTERN.exec(label);
+  if (iterMatch) {
+    return t('chat.trace.node.roundLabel', { count: Number(iterMatch[1]) || 0 });
   }
   return label;
 };

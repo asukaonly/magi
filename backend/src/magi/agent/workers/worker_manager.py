@@ -1103,6 +1103,7 @@ class WorkerAgentManager(Tool):
                 error_code=str(payload.get("error_code") or "") or None,
                 error_message=str(payload.get("error") or "") or None,
                 result_preview=result_preview,
+                result_json=self._serialize_tool_result_json(payload.get("data")),
             )
         )
 
@@ -1113,6 +1114,17 @@ class WorkerAgentManager(Tool):
     @staticmethod
     def _build_trace_id(turn_id: str) -> str:
         return f"trace:{turn_id}"
+
+    @staticmethod
+    def _serialize_tool_result_json(data: Any) -> str | None:
+        if data is None:
+            return None
+        if isinstance(data, str):
+            return data
+        try:
+            return json.dumps(data)
+        except (TypeError, ValueError):
+            return str(data)
 
     @staticmethod
     def _build_root_span_id(turn_id: str) -> str:

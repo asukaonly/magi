@@ -70,6 +70,9 @@ class ExecutionTraceSummary:
     continued_from_trace_id: Optional[str] = None
     superseded_by_turn_id: Optional[str] = None
     supersession_reason: Optional[str] = None
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_reasoning_tokens: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -88,6 +91,9 @@ class ExecutionTraceSummary:
             "continued_from_trace_id": self.continued_from_trace_id,
             "superseded_by_turn_id": self.superseded_by_turn_id,
             "supersession_reason": self.supersession_reason,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_reasoning_tokens": self.total_reasoning_tokens,
         }
 
 
@@ -301,6 +307,9 @@ class ChatTraceReadService:
         root.started_at = root.started_at if root.started_at is not None else started_at
         root.ended_at = ended_at if self._is_terminal_status(status) else None
         active_steps, completed_steps, failed_steps = self._count_steps(root)
+        total_input_tokens = sum(self._safe_int(lc.get("input_tokens"), default=0) for lc in llm_calls)
+        total_output_tokens = sum(self._safe_int(lc.get("output_tokens"), default=0) for lc in llm_calls)
+        total_reasoning_tokens = sum(self._safe_int(lc.get("reasoning_tokens"), default=0) for lc in llm_calls)
         summary = ExecutionTraceSummary(
             turn_id=turn_id,
             mode=mode,
@@ -326,6 +335,9 @@ class ChatTraceReadService:
             continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
             superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
             supersession_reason=self._optional_text(turn.get("supersession_reason")),
+            total_input_tokens=total_input_tokens,
+            total_output_tokens=total_output_tokens,
+            total_reasoning_tokens=total_reasoning_tokens,
         )
         return ExecutionTraceSnapshot(
             turn_id=turn_id,
@@ -443,6 +455,9 @@ class ChatTraceReadService:
                     "cache_read_tokens": self._safe_int(llm_call.get("cache_read_tokens"), default=0),
                     "cache_write_tokens": self._safe_int(llm_call.get("cache_write_tokens"), default=0),
                     "thinking_enabled": bool(llm_call.get("thinking_enabled")),
+                    "request_preview": llm_call.get("request_preview") or None,
+                    "response_preview": llm_call.get("response_preview") or None,
+                    "thinking_content": llm_call.get("thinking_content") or None,
                 }
             )
         if tool_call is not None:
@@ -452,6 +467,7 @@ class ChatTraceReadService:
                     "tool_name": tool_call.get("tool_name"),
                     "arguments": self._parse_json_object(tool_call.get("arguments_json")),
                     "execution_time": tool_call.get("execution_time_ms"),
+                    "result_json": self._parse_json_value(tool_call.get("result_json")),
                 }
             )
 
@@ -558,6 +574,17 @@ class ChatTraceReadService:
         except Exception:
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _parse_json_value(raw_value: Any) -> Any:
+        if not raw_value:
+            return None
+        if not isinstance(raw_value, str):
+            return raw_value
+        try:
+            return json.loads(raw_value)
+        except Exception:
+            return raw_value
 
     def _build_snapshot(
         self,

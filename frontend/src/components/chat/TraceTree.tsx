@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, ChevronRight, CircleDashed, GitBranch, Hammer, Layers3, Workflow, XCircle } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronRight, CircleDashed, GitBranch, Hammer, Layers3, MessageSquare, Search, Workflow, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { NormalizedExecutionTraceNode } from '@/domain/chat/state';
@@ -31,17 +31,33 @@ const kindIcon = (kind: string) => {
   if (kind === 'planning') return <Workflow className="h-4 w-4" />;
   if (kind === 'parallel_group') return <GitBranch className="h-4 w-4" />;
   if (kind === 'worker') return <Layers3 className="h-4 w-4" />;
-  if (kind === 'tool') return <Hammer className="h-4 w-4" />;
+  if (kind === 'tool' || kind === 'tool_call') return <Hammer className="h-4 w-4" />;
+  if (kind === 'llm' || kind === 'llm_call') return <Brain className="h-4 w-4" />;
+  if (kind === 'intent' || kind === 'intent_resolution') return <Search className="h-4 w-4" />;
+  if (kind === 'response') return <MessageSquare className="h-4 w-4" />;
   return <Workflow className="h-4 w-4" />;
+};
+
+const nodeSubtitle = (node: NormalizedExecutionTraceNode): string => {
+  const meta = node.metadata as Record<string, unknown> | undefined;
+  if (!meta) return '';
+  if (node.kind === 'tool' || node.kind === 'tool_call') {
+    return String(meta.tool_name || '');
+  }
+  if (node.kind === 'llm' || node.kind === 'llm_call') {
+    return String(meta.model || '');
+  }
+  return '';
 };
 
 const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelectNode, depth = 0 }) => {
   const { t } = useTranslation('app');
   const [open, setOpen] = React.useState(depth < 2 || node.status === 'running');
   const hasChildren = node.children.length > 0;
-  const isToolNode = node.kind === 'tool';
+  const isToolNode = node.kind === 'tool' || node.kind === 'tool_call';
   const compact = depth >= 1;
   const selected = selectedNodeId === node.id;
+  const subtitle = nodeSubtitle(node);
   const preview = isToolNode
     ? ''
     : (node.resultPreview || '').replace(/\s+/g, ' ').trim();
@@ -100,6 +116,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
             </div>
             <div className={cn('mt-0.5 text-muted-foreground', compact ? 'text-[12px] leading-4.5' : 'text-[12px] leading-5')}>
               {formatTraceKind(node.kind, t)}
+              {subtitle && <span className="ml-1.5 text-muted-foreground/60">· {subtitle}</span>}
             </div>
             {preview && (
               <div className={cn(

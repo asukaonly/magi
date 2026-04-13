@@ -40,6 +40,9 @@ const SNAPSHOT: NormalizedExecutionTraceSnapshot = {
     continuedFromTraceId: 'trace:turn-0',
     supersededByTurnId: null,
     supersessionReason: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalReasoningTokens: 0,
   },
   root: {
     id: 'root',
@@ -91,7 +94,7 @@ describe('toolchain drawer', () => {
       />
     );
 
-    expect(await screen.findAllByText('weather')).toHaveLength(2);
+    expect(await screen.findAllByText('weather')).toHaveLength(3);
 
     const dialog = screen.getByRole('dialog');
     expect(dialog.className).toContain('flex');
@@ -109,9 +112,8 @@ describe('toolchain drawer', () => {
 
     const timestampValues = screen.getAllByText(/\d{2}:\d{2}:\d{2}\.\d{3}/);
     expect(timestampValues.length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('glm-5')).toBeInTheDocument();
-    expect(screen.getByText('glm')).toBeInTheDocument();
-    expect(screen.getByText('2125')).toBeInTheDocument();
+    // Tool-kind nodes no longer show model/provider in dedicated blocks;
+    // those are available inside the collapsed raw metadata section.
     expect(screen.getByText('chat.trace.continuedFromTurn')).toBeInTheDocument();
     expect(screen.getByText('turn-0')).toBeInTheDocument();
     expect(screen.queryByText('Execution Timeline')).not.toBeInTheDocument();

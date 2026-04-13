@@ -665,6 +665,7 @@ class FunctionCallingOrchestrator:
         execution_agent_id: str,
         llm_trace: Any,
         response_preview: str | None = None,
+        request_preview: str | None = None,
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self.runtime_trace_store is None or not normalized_turn_id or not isinstance(llm_trace, dict):
@@ -705,6 +706,7 @@ class FunctionCallingOrchestrator:
                 cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
                 cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
                 thinking_enabled=bool(llm_trace.get("thinking_enabled")),
+                request_preview=(request_preview or "")[:240] or None,
                 response_preview=(response_preview or "")[:240] or None,
             )
         )
@@ -726,6 +728,12 @@ class FunctionCallingOrchestrator:
         started_at_ms = max(0, ended_at_ms - duration_ms)
         span_id = self._build_tool_span_id(normalized_turn_id, iteration, tool_call.id)
         result_preview = str(result.data or result.error or "")[:240] or None
+        result_json_str: str | None = None
+        if result.data is not None:
+            try:
+                result_json_str = json.dumps(result.data) if not isinstance(result.data, str) else result.data
+            except (TypeError, ValueError):
+                result_json_str = str(result.data)
         await self.runtime_trace_store.upsert_span(
             TraceSpanRecord(
                 span_id=span_id,
@@ -759,6 +767,7 @@ class FunctionCallingOrchestrator:
                 error_code=result.error_code,
                 error_message=result.error,
                 result_preview=result_preview,
+                result_json=result_json_str,
             )
         )
 
