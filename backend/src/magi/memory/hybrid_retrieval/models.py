@@ -199,6 +199,8 @@ class RetrievalConfig:
 
     # RRF
     rrf_k: int = 60
+    rrf_over_fetch_multiplier: int = 5
+    rrf_over_fetch_minimum: int = 20
     rrf_weight_bm25: float = 1.0
     rrf_weight_vector: float = 1.0
     rrf_weight_keyword: float = 0.5

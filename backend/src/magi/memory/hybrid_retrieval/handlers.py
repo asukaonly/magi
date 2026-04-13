@@ -12,6 +12,8 @@ import logging
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import aiosqlite
+
 from ...core.sqlite import sqlite_connection_async
 from .answerability import (
     extract_query_tokens,
@@ -91,7 +93,8 @@ class RRFSearchHandler(abc.ABC):
         if not content_query:
             return []
 
-        fetch_k = max(limit * 5, 20)
+        cfg = self._config
+        fetch_k = max(limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
 
         results_or_errors = await asyncio.gather(
             bm25_coro, vector_coro, keyword_coro, return_exceptions=True,
@@ -177,7 +180,8 @@ class L1Handler(RRFSearchHandler):
         """Query L1 using BM25 + vector + keyword + entity expansion, fused via RRF."""
         if not conditions.content_query:
             return []
-        fetch_k = max(conditions.limit * 5, 20)
+        cfg = self._config
+        fetch_k = max(conditions.limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
 
         # Phase 1: Run 3 core retrieval paths in parallel
         retrieval_coros = [
@@ -306,8 +310,6 @@ class L1Handler(RRFSearchHandler):
         # Resolve seed event_ids → entity_ids via l1_event_entities
         seed_entity_ids: List[str] = []
         try:
-            from ...core.sqlite import sqlite_connection_async
-
             ph = ", ".join("?" for _ in seed_event_ids)
             async with sqlite_connection_async(self._store.db_path) as db:
                 async with db.execute(
@@ -337,8 +339,6 @@ class L1Handler(RRFSearchHandler):
                         reverse=True,
                     )[:20]
                     entity_ids_to_lookup = [eid for eid, _ in top_entities]
-                    from ...core.sqlite import sqlite_connection_async
-
                     eph = ", ".join("?" for _ in entity_ids_to_lookup)
                     async with sqlite_connection_async(self._store.db_path) as db:
                         async with db.execute(
@@ -498,8 +498,6 @@ class L1Handler(RRFSearchHandler):
 
         if not event_ids:
             return []
-
-        import aiosqlite
 
         query = "SELECT * FROM fact_events WHERE deleted_at IS NULL"
         args: list[Any] = []
@@ -761,31 +759,7 @@ class L2Handler:
             "assertion_count": len(results["assertions"]),
             "edge_vector_supplement_count": edge_vector_supplement_count,
         }
-        logger.info(
-            "L2 retrieval executed | content_query=%r requested_entities=%s resolved_entities=%s subject_hint=%s "
-            "predicate_family=%s predicates=%s status_filters=%s relation_direction=%s target_entity_id=%s "
-            "relationship_object_id=%s relationship_object_types=%s include_tom_snapshot=%s "
-            "include_relationships=%s include_assertions=%s limit=%s entity_card_count=%s "
-            "relationship_count=%s assertion_count=%s",
-            conditions.content_query,
-            results["trace"]["requested_entities"],
-            resolved_entities,
-            conditions.subject_hint or "none",
-            predicate_family,
-            predicates or [],
-            status_filters or [],
-            relation_direction,
-            target_entity_id,
-            query_frame["relationship_object_id"],
-            query_frame["relationship_object_types"],
-            conditions.include_tom_snapshot,
-            conditions.include_relationships,
-            conditions.include_assertions,
-            conditions.limit,
-            len(results["entity_cards"]),
-            len(results["relationships"]),
-            len(results["assertions"]),
-        )
+        logger.info("L2 retrieval executed | %s", results["trace"])
         return results
 
     async def _execute_semantic_relationship_plan(
@@ -1549,7 +1523,8 @@ class L3Handler(RRFSearchHandler):
             return []
         summary_type = conditions.summary_types[0] if conditions.summary_types else None
         summary_category = conditions.summary_categories[0] if conditions.summary_categories else None
-        fetch_k = max(conditions.limit * 5, 20)
+        cfg = self._config
+        fetch_k = max(conditions.limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
         return await self._rrf_execute(
             content_query=conditions.content_query,
             limit=conditions.limit,
@@ -1633,7 +1608,6 @@ class L3Handler(RRFSearchHandler):
     ) -> List[Dict[str, Any]]:
         if not summary_ids:
             return []
-        import aiosqlite
 
         placeholders = ", ".join("?" for _ in summary_ids)
         sql = f"SELECT * FROM summaries WHERE summary_id IN ({placeholders})"
@@ -1679,7 +1653,8 @@ class L4Handler(RRFSearchHandler):
         """Query L4 using BM25 + vector + keyword, fused via RRF."""
         if not conditions.content_query:
             return []
-        fetch_k = max(conditions.limit * 5, 20)
+        cfg = self._config
+        fetch_k = max(conditions.limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
         return await self._rrf_execute(
             content_query=conditions.content_query,
             limit=conditions.limit,
@@ -1728,7 +1703,6 @@ class L4Handler(RRFSearchHandler):
     async def _fetch_by_ids(self, skill_ids: List[str]) -> List[Dict[str, Any]]:
         if not skill_ids:
             return []
-        import aiosqlite
 
         placeholders = ", ".join("?" for _ in skill_ids)
         async with sqlite_connection_async(self._store.db_path) as db:
