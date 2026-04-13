@@ -21,6 +21,7 @@ from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingServi
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +59,20 @@ class L4ProceduralMemoryStore:
         db_path: str = "~/.magi/data/memory/memory.db",
         embedding_service: MemoryEmbeddingService | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
+        scenario_llm_pool: Any | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
         breaker_failure_threshold: int = 3,
         breaker_recovery_successes: int = 2,
+        strategy_extraction_threshold: int = DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
         self._memory_config_getter = memory_config_getter
+        self._strategy_extractor: L4StrategyExtractor | None = (
+            L4StrategyExtractor(scenario_llm_pool) if scenario_llm_pool is not None else None
+        )
+        self._strategy_extraction_threshold = max(1, int(strategy_extraction_threshold))
         self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
         self._default_async_embeddings = bool(async_embeddings)
         self._vector_index = (
@@ -411,6 +418,21 @@ class L4ProceduralMemoryStore:
                 event=event,
                 identity=identity,
             )
+            # Trigger strategy extraction if enough new traces accumulated
+            # or circuit breaker just opened.
+            pending = (existing["pending_trace_count"] or 0) + 1
+            breaker_just_opened = (
+                breaker_state == "open"
+                and str(existing["circuit_breaker_state"]) != "open"
+            )
+            if pending >= self._strategy_extraction_threshold or breaker_just_opened:
+                await self._maybe_extract_strategy(
+                    skill_id=str(existing["skill_id"]),
+                    skill_name=skill_name,
+                    skill_category=skill_category,
+                    total_attempts=total_attempts,
+                    success_rate=float(success_count / total_attempts),
+                )
             return str(existing["skill_id"])
 
     async def get_skill(self, *, skill_name: str, skill_category: str) -> Optional[Dict[str, Any]]:
@@ -763,6 +785,71 @@ class L4ProceduralMemoryStore:
             }
             for row in rows
         ]
+
+    async def _maybe_extract_strategy(
+        self,
+        *,
+        skill_id: str,
+        skill_name: str,
+        skill_category: str,
+        total_attempts: int,
+        success_rate: float,
+    ) -> None:
+        """Conditionally run LLM strategy extraction and persist the result."""
+        if self._strategy_extractor is None:
+            return
+        traces = await self.get_recent_traces(skill_id, limit=20)
+        if not traces:
+            return
+        strategy = await self._strategy_extractor.extract_strategy(
+            skill_name=skill_name,
+            skill_category=skill_category,
+            total_attempts=total_attempts,
+            success_rate=success_rate,
+            traces=traces,
+        )
+        if strategy is None:
+            return
+        await self._persist_strategy(
+            skill_id=skill_id,
+            strategy=strategy,
+        )
+
+    async def _persist_strategy(
+        self,
+        *,
+        skill_id: str,
+        strategy: ExtractedStrategy,
+    ) -> None:
+        """Write extracted strategy to the procedural_skills row and reset pending count."""
+        now = time.time()
+        strategy_json = strategy.to_json()
+        context_affinity_json = json.dumps(strategy.context_preferences, ensure_ascii=False)
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE procedural_skills
+                SET optimized_prompt = ?,
+                    context_affinity = ?,
+                    optimization_score = ?,
+                    pending_trace_count = 0,
+                    updated_at = ?
+                WHERE skill_id = ?
+                """,
+                (
+                    strategy_json,
+                    context_affinity_json,
+                    strategy.confidence,
+                    now,
+                    skill_id,
+                ),
+            )
+            await db.commit()
+        logger.info(
+            "L4 strategy persisted for skill %s (confidence=%.2f)",
+            skill_id,
+            strategy.confidence,
+        )
 
     def _rolling_average(self, current_value: Any, current_count: int, next_value: float) -> float:
         current = float(current_value or 0.0)
