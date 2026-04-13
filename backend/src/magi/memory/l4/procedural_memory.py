@@ -25,9 +25,28 @@ from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 logger = logging.getLogger(__name__)
 
 SKILL_CHUNKS_TABLE = "l4_skill_chunks"
+EXECUTION_TRACES_TABLE = "l4_execution_traces"
 EMBEDDING_TEXT_BUILDER_VERSION = "l4_skill_v1"
 EMBEDDING_STATUS_READY = "ready"
 EMBEDDING_STATUS_DISABLED = "disabled"
+
+# Trace pruning: keep at most this many traces per skill.
+MAX_TRACES_PER_SKILL = 50
+
+# Default threshold: extract strategy after this many new traces.
+DEFAULT_STRATEGY_EXTRACTION_THRESHOLD = 5
+
+
+def _truncate(value: Any, max_chars: int) -> Optional[str]:
+    """Truncate a value to a string of at most *max_chars* characters."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars - 3] + "..."
 
 
 class L4ProceduralMemoryStore:
@@ -131,8 +150,30 @@ class L4ProceduralMemoryStore:
                     content,
                     tokenize='unicode61'
                 );
+
+                CREATE TABLE IF NOT EXISTS l4_execution_traces (
+                    trace_id TEXT PRIMARY KEY,
+                    skill_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    duration_ms REAL,
+                    error_summary TEXT,
+                    input_summary TEXT,
+                    output_summary TEXT,
+                    task_context TEXT,
+                    created_at REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_l4_traces_skill
+                    ON l4_execution_traces(skill_id, created_at DESC);
                 """
             )
+            # Add pending_trace_count column if missing (migration-safe).
+            try:
+                await db.execute(
+                    "ALTER TABLE procedural_skills ADD COLUMN pending_trace_count INTEGER NOT NULL DEFAULT 0"
+                )
+            except Exception:
+                pass  # Column already exists
             if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
@@ -182,7 +223,12 @@ class L4ProceduralMemoryStore:
             return None
 
         await self.initialize()
-        skill_name, skill_category, skill_type, success, duration_ms, error, optimized_prompt = identity
+        skill_name: str = identity["skill_name"]
+        skill_category: str = identity["skill_category"]
+        skill_type: str = identity["skill_type"]
+        success: bool = identity["success"]
+        duration_ms: float = identity["duration_ms"]
+        optimized_prompt: Optional[str] = identity["optimized_prompt"]
         now = time.time()
 
         async with sqlite_connection_async(self.db_path) as db:
@@ -266,6 +312,11 @@ class L4ProceduralMemoryStore:
                     skill_category=skill_category,
                     optimized_prompt=optimized_prompt,
                 )
+                await self._insert_execution_trace(
+                    skill_id=skill_id,
+                    event=event,
+                    identity=identity,
+                )
                 return skill_id
 
             total_attempts = int(existing["total_attempts"]) + 1
@@ -308,7 +359,8 @@ class L4ProceduralMemoryStore:
                     avg_execution_time_ms = ?, min_execution_time_ms = ?, max_execution_time_ms = ?, p95_execution_time_ms = ?,
                     circuit_breaker_state = ?, circuit_breaker_opened_at = ?, circuit_breaker_failure_count = ?,
                     circuit_breaker_success_count = ?, optimized_prompt = COALESCE(?, optimized_prompt),
-                    source_event_ids = ?, last_used_at = ?, last_success_at = ?, last_failure_at = ?, updated_at = ?
+                    source_event_ids = ?, last_used_at = ?, last_success_at = ?, last_failure_at = ?, updated_at = ?,
+                    pending_trace_count = COALESCE(pending_trace_count, 0) + 1
                 WHERE skill_id = ?
                 """,
                 (
@@ -353,6 +405,11 @@ class L4ProceduralMemoryStore:
                 skill_name=skill_name,
                 skill_category=skill_category,
                 optimized_prompt=optimized_prompt or existing["optimized_prompt"],
+            )
+            await self._insert_execution_trace(
+                skill_id=str(existing["skill_id"]),
+                event=event,
+                identity=identity,
             )
             return str(existing["skill_id"])
 
@@ -418,6 +475,7 @@ class L4ProceduralMemoryStore:
                 count = int(row[0]) if row else 0
             await db.execute("DELETE FROM procedural_skills")
             await db.execute(f"DELETE FROM {SKILL_CHUNKS_TABLE}")
+            await db.execute(f"DELETE FROM {EXECUTION_TRACES_TABLE}")
             await db.execute("DELETE FROM l4_skills_fts")
             await db.commit()
         if self._vector_index is not None:
@@ -552,47 +610,159 @@ class L4ProceduralMemoryStore:
     def _extract_skill_identity(
         self,
         event: MemoryEvent,
-    ) -> Optional[tuple[str, str, str, bool, float, Optional[str], Optional[str]]]:
+    ) -> Optional[Dict[str, Any]]:
+        """Extract skill identity and trace data from a MemoryEvent.
+
+        Returns a dict with keys:
+            skill_name, skill_category, skill_type, success, duration_ms,
+            error_summary, optimized_prompt, input_summary, output_summary,
+            task_context
+        """
         if event.event_type == "ActionExecuted":
             skill_name = str(event.source_item_id or event.content or "").strip()
             if not skill_name:
                 return None
-            optimized_prompt = event.content if str(event.content or "").strip() and str(event.content).strip() != skill_name else None
-            return (
-                skill_name,
-                "tool",
-                "external_tool",
-                int(event.level) < 3,
-                0.0,
-                None,
-                optimized_prompt,
-            )
+            meta = event.metadata_json or {}
+            content_str = str(event.content or "").strip()
+            optimized_prompt = content_str if content_str and content_str != skill_name else None
+            success = int(event.level) < 3
+            return {
+                "skill_name": skill_name,
+                "skill_category": "tool",
+                "skill_type": "external_tool",
+                "success": success,
+                "duration_ms": float(meta.get("duration_ms", 0.0)),
+                "error_summary": _truncate(meta.get("error"), 500) if not success else None,
+                "optimized_prompt": optimized_prompt,
+                "input_summary": _truncate(meta.get("input") or meta.get("params"), 500),
+                "output_summary": _truncate(meta.get("output") or meta.get("result"), 500),
+                "task_context": meta.get("task_category") or event.task_id,
+            }
 
         if event.event_type == "TaskCompleted":
             skill_name = str(event.task_id or "task").strip()
-            return (
-                skill_name,
-                "workflow",
-                "composite",
-                True,
-                0.0,
-                None,
-                str(event.content or "").strip() or None,
-            )
+            content_str = str(event.content or "").strip() or None
+            return {
+                "skill_name": skill_name,
+                "skill_category": "workflow",
+                "skill_type": "composite",
+                "success": True,
+                "duration_ms": 0.0,
+                "error_summary": None,
+                "optimized_prompt": content_str,
+                "input_summary": None,
+                "output_summary": _truncate(content_str, 500),
+                "task_context": event.task_id,
+            }
 
         if event.event_type == "TaskFailed":
             skill_name = str(event.task_id or "task").strip()
-            return (
-                skill_name,
-                "workflow",
-                "composite",
-                False,
-                0.0,
-                None,
-                str(event.content or "").strip() or None,
-            )
+            content_str = str(event.content or "").strip() or None
+            return {
+                "skill_name": skill_name,
+                "skill_category": "workflow",
+                "skill_type": "composite",
+                "success": False,
+                "duration_ms": 0.0,
+                "error_summary": _truncate(content_str, 500),
+                "optimized_prompt": content_str,
+                "input_summary": None,
+                "output_summary": None,
+                "task_context": event.task_id,
+            }
 
         return None
+
+    async def _insert_execution_trace(
+        self,
+        *,
+        skill_id: str,
+        event: MemoryEvent,
+        identity: Dict[str, Any],
+    ) -> None:
+        """Insert a structured execution trace and prune old ones."""
+        trace_id = f"trace_{uuid.uuid4().hex}"
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                f"""
+                INSERT INTO {EXECUTION_TRACES_TABLE}(
+                    trace_id, skill_id, event_id, success, duration_ms,
+                    error_summary, input_summary, output_summary, task_context,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    trace_id,
+                    skill_id,
+                    event.event_id,
+                    1 if identity["success"] else 0,
+                    identity["duration_ms"],
+                    identity.get("error_summary"),
+                    identity.get("input_summary"),
+                    identity.get("output_summary"),
+                    identity.get("task_context"),
+                    now,
+                ),
+            )
+            await db.commit()
+        await self._prune_old_traces(skill_id)
+
+    async def _prune_old_traces(self, skill_id: str) -> None:
+        """Keep at most MAX_TRACES_PER_SKILL traces per skill."""
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                f"""
+                DELETE FROM {EXECUTION_TRACES_TABLE}
+                WHERE skill_id = ? AND trace_id NOT IN (
+                    SELECT trace_id FROM {EXECUTION_TRACES_TABLE}
+                    WHERE skill_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                )
+                """,
+                (skill_id, skill_id, MAX_TRACES_PER_SKILL),
+            )
+            await db.commit()
+
+    async def get_recent_traces(
+        self,
+        skill_id: str,
+        *,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Return the most recent execution traces for a skill."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT trace_id, skill_id, event_id, success, duration_ms,
+                       error_summary, input_summary, output_summary, task_context,
+                       created_at
+                FROM {EXECUTION_TRACES_TABLE}
+                WHERE skill_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (skill_id, int(limit)),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "trace_id": str(row["trace_id"]),
+                "skill_id": str(row["skill_id"]),
+                "event_id": str(row["event_id"]),
+                "success": bool(row["success"]),
+                "duration_ms": float(row["duration_ms"] or 0.0),
+                "error_summary": row["error_summary"],
+                "input_summary": row["input_summary"],
+                "output_summary": row["output_summary"],
+                "task_context": row["task_context"],
+                "created_at": float(row["created_at"]),
+            }
+            for row in rows
+        ]
 
     def _rolling_average(self, current_value: Any, current_count: int, next_value: float) -> float:
         current = float(current_value or 0.0)
@@ -633,6 +803,7 @@ class L4ProceduralMemoryStore:
             "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] else None,
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
+            "pending_trace_count": int(row["pending_trace_count"]) if row["pending_trace_count"] is not None else 0,
         }
 
     async def _maybe_upsert_skill_embedding(
