@@ -1606,10 +1606,9 @@ class L3Handler(RRFSearchHandler):
         limit: int,
     ) -> List[str]:
         try:
-            import aiosqlite
-
-            sql = "SELECT summary_id FROM summaries WHERE content LIKE ?"
-            args: list[Any] = [f"%{query}%"]
+            sql = "SELECT summary_id FROM summaries WHERE content LIKE ? ESCAPE '\\'"
+            escaped_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            args: list[Any] = [f"%{escaped_query}%"]
             if summary_type:
                 sql += " AND summary_type = ?"
                 args.append(summary_type)
@@ -1708,14 +1707,13 @@ class L4Handler(RRFSearchHandler):
 
     async def _keyword_path(self, query: str, limit: int) -> List[str]:
         try:
-            import aiosqlite
-
-            like_query = f"%{query}%"
+            escaped_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            like_query = f"%{escaped_query}%"
             async with sqlite_connection_async(self._store.db_path) as db:
                 async with db.execute(
                     """
                     SELECT skill_id FROM procedural_skills
-                    WHERE skill_name LIKE ? OR COALESCE(optimized_prompt, '') LIKE ?
+                    WHERE skill_name LIKE ? ESCAPE '\\' OR COALESCE(optimized_prompt, '') LIKE ? ESCAPE '\\'
                     ORDER BY success_rate DESC, updated_at DESC
                     LIMIT ?
                     """,

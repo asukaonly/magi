@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 
 _TURN_NUMBER_RE = re.compile(r"turn-(\d+)$")
 
+# Over-fetch factor for session event loading in evidence bundles.
+# Loads N× the hit count per session so neighbor-turn expansion has
+# enough context without fetching the entire session.
+_SESSION_EVENTS_OVER_FETCH = 8
+
 
 def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalConfig:
     """Build retrieval config from the runtime app config."""
@@ -786,7 +791,9 @@ class HybridRetrievalService:
 
         # Load session events in parallel instead of sequentially
         session_ids = list(grouped_hits.keys())
-        session_limits = [max(len(grouped_hits[sid]) * 8, 24) for sid in session_ids]
+        # Over-fetch factor: load N× more events per session than the hit
+        # count so _select_bundle_events can expand to neighbor turns.
+        session_limits = [max(len(grouped_hits[sid]) * _SESSION_EVENTS_OVER_FETCH, 24) for sid in session_ids]
         session_events_list = await asyncio.gather(
             *(
                 self._load_session_events(sid, limit=lim)

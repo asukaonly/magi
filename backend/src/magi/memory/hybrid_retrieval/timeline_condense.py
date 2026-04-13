@@ -230,7 +230,8 @@ def _find_salient_anchor_index(content: str, *, quoted_spans: list[str]) -> int 
     for phrase in quoted_spans:
         if not phrase:
             continue
-        collapsed = phrase.replace(" ", r"\s+")
+        escaped = re.escape(phrase)
+        collapsed = escaped.replace(r"\ ", r"\s+")
         match = re.search(collapsed, content, flags=re.IGNORECASE)
         if match:
             return match.start()

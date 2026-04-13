@@ -98,6 +98,7 @@ class ResultFusion:
                     item_id = str(item[key])
                     break
             if item_id is None:
+                logger.debug("Dedup: item without any expected key (%s), passing through", keys)
                 result.append(item)
                 continue
             if item_id not in seen:

@@ -202,6 +202,8 @@ class CrossEncoderScorer:
                     break
         except asyncio.CancelledError:
             pass
+        except Exception:
+            logger.warning("Cross-encoder idle unload loop failed", exc_info=True)
 
     # ── ONNX inference ──────────────────────────────────────────────────
 
