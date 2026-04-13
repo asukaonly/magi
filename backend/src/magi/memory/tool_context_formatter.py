@@ -315,7 +315,6 @@ def _compact_trace_meta(trace: Any) -> dict[str, Any]:
         "rule_backstop_triggered",
         "rule_backstop_reason",
         "comparison_backstop_triggered",
-        "temporal_distance_backstop_triggered",
     )
     return {key: trace.get(key) for key in allowed_keys if key in trace}
 

@@ -134,13 +134,6 @@ class HybridRetrievalService:
         # 2b. Adaptive parameter tuning based on intent signals
         effective_query_mode = request.query_mode
         effective_recall_intent = request.recall_intent
-        # Also pick up hints from the LLM decision if available
-        for plan in decision.plans:
-            if not plan.is_fallback:
-                conds = plan.conditions
-                if hasattr(conds, "content_query"):
-                    if effective_query_mode is None and hasattr(conds, "subject_hint"):
-                        pass  # query_mode comes from request
         if effective_query_mode or effective_recall_intent:
             from .adaptive_params import adapt_config
 
@@ -363,20 +356,37 @@ class HybridRetrievalService:
         return (str(getattr(plan, "layer", "")), str(content_query), bool(getattr(plan, "is_fallback", False)))
 
     def _refresh_handlers(self) -> None:
-        """Refresh layer handlers in case stores are initialized after service construction."""
+        """Rebuild layer handlers only when the underlying stores change.
+
+        The previous implementation unconditionally rebuilt every handler on
+        each ``query()`` call, wasting object creation and discarding any
+        per-query config overrides applied earlier.  This version checks
+        whether the store references have actually changed before rebuilding.
+        """
+        l1_store = getattr(self._memory, "l1", None)
         l2_store = getattr(self._memory, "l2", None)
-        self._l1 = (
-            L1Handler(self._memory.l1, self._config, l2_store=l2_store)
-            if getattr(self._memory, "l1", None)
-            else None
-        )
-        self._l2 = (
-            self._build_l2_handler(self._memory)
-            if getattr(self._memory, "l2", None)
-            else None
-        )
-        self._l3 = L3Handler(self._memory.l3, self._config) if getattr(self._memory, "l3", None) else None
-        self._l4 = L4Handler(self._memory.l4, self._config) if getattr(self._memory, "l4", None) else None
+        l3_store = getattr(self._memory, "l3", None)
+        l4_store = getattr(self._memory, "l4", None)
+
+        if l1_store and (self._l1 is None or self._l1._store is not l1_store):
+            self._l1 = L1Handler(l1_store, self._config, l2_store=l2_store)
+        elif not l1_store:
+            self._l1 = None
+
+        if l2_store and (self._l2 is None):
+            self._l2 = self._build_l2_handler(self._memory)
+        elif not l2_store:
+            self._l2 = None
+
+        if l3_store and (self._l3 is None or self._l3._store is not l3_store):
+            self._l3 = L3Handler(l3_store, self._config)
+        elif not l3_store:
+            self._l3 = None
+
+        if l4_store and (self._l4 is None or self._l4._store is not l4_store):
+            self._l4 = L4Handler(l4_store, self._config)
+        elif not l4_store:
+            self._l4 = None
 
     @staticmethod
     def _build_l2_handler(memory: Any) -> L2Handler:
@@ -544,11 +554,14 @@ class HybridRetrievalService:
 
     @staticmethod
     def _count_results(payload: RetrievalPayload) -> int:
-        """Count total non-L0 results."""
+        """Count total non-L0 retrieval results.
+
+        Only counts items populated during the retrieval phase.
+        ``l1_evidence_bundles`` and ``l1_timeline_summary`` are assembled
+        *after* retrieval and should not influence fallback decisions.
+        """
         return (
             len(payload.l1_events)
-            + len(payload.l1_evidence_bundles)
-            + len(payload.l1_timeline_summary)
             + len(payload.l2_entity_cards)
             + len(payload.l2_relationships)
             + len(payload.l2_assertions)
@@ -822,21 +835,9 @@ class HybridRetrievalService:
         return unique_events or list(session_hits), neighbor_expansion_applied
 
     @staticmethod
-    def _bundle_neighbor_window(query: str) -> int:
-        """Use a wider local window to capture answer context near hit turns."""
-        lowered = str(query or "").lower()
-        temporal_markers = (
-            " first",
-            " before",
-            " after",
-            " earlier",
-            " later",
-            " last ",
-            " most recent",
-            " happened first",
-            " occurred first",
-        )
-        return 6 if any(marker in lowered for marker in temporal_markers) else 5
+    def _bundle_neighbor_window(_query: str) -> int:
+        """Return the neighbor turn window for evidence bundle assembly."""
+        return 5
 
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:
