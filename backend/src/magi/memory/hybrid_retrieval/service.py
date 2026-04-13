@@ -27,7 +27,6 @@ from .models import (
     TimeRange,
 )
 from .manifest_selector import ManifestSelector
-from .reranker import build_retrieval_reranker
 from .result_fusion import ResultFusion
 from .timeline_condense import build_timeline_summary
 
@@ -139,10 +138,11 @@ class HybridRetrievalService:
         payload.trace["intent_reasoning"] = decision.reasoning
 
         # 2b. Adaptive parameter tuning based on intent signals
+        # Build a per-query L1 handler copy when config adaptation is needed
+        # so concurrent queries never interfere with each other.
+        effective_l1 = self._l1
         effective_query_mode = request.query_mode
         effective_recall_intent = request.recall_intent
-        saved_l1_config = None
-        saved_l1_reranker = None
         if effective_query_mode or effective_recall_intent:
             from .adaptive_params import adapt_config
 
@@ -152,22 +152,14 @@ class HybridRetrievalService:
                 recall_intent=effective_recall_intent,
             )
             if adapted is not self._config and self._l1 is not None:
-                # Save original config/reranker so we can restore after this query
-                saved_l1_config = self._l1._config
-                saved_l1_reranker = self._l1._reranker
-                self._l1._config = adapted
-                self._l1._reranker = build_retrieval_reranker(adapted)
+                effective_l1 = L1Handler(
+                    self._l1._store, adapted, l2_store=self._l1._l2_store,
+                )
                 payload.trace["adaptive_params_applied"] = True
                 payload.trace["adaptive_query_mode"] = effective_query_mode
                 payload.trace["adaptive_recall_intent"] = effective_recall_intent
 
-        try:
-            return await self._execute_query(request, decision, intent_input, payload)
-        finally:
-            # Restore L1 handler config so concurrent/subsequent queries are not affected
-            if saved_l1_config is not None and self._l1 is not None:
-                self._l1._config = saved_l1_config
-                self._l1._reranker = saved_l1_reranker
+        return await self._execute_query(request, decision, intent_input, payload, effective_l1=effective_l1)
 
     async def _execute_query(
         self,
@@ -175,8 +167,16 @@ class HybridRetrievalService:
         decision: Any,
         intent_input: IntentDeciderInput,
         payload: RetrievalPayload,
+        *,
+        effective_l1: Optional[L1Handler] = None,
     ) -> RetrievalPayload:
-        """Inner query execution, separated so adaptive config can be restored via try/finally."""
+        """Inner query execution.
+
+        *effective_l1* is the L1 handler to use for this query; it may
+        differ from ``self._l1`` when adaptive parameter tuning creates
+        a per-query handler copy.
+        """
+        l1 = effective_l1 if effective_l1 is not None else self._l1
         # 3. Execute primary plans in parallel
         primary_plans = self._augment_primary_plans(
             [p for p in decision.plans if not p.is_fallback],
@@ -193,7 +193,7 @@ class HybridRetrievalService:
                 *[
                     execute_plan(
                         plan,
-                        l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                        l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
                         session_id=request.session_id,
                         user_id=request.user_id,
                     )
@@ -219,6 +219,7 @@ class HybridRetrievalService:
                 request=request,
                 payload=payload,
                 time_range=decision.time_range,
+                l1=l1,
             )
 
         # 4. Fallback if primary results are insufficient
@@ -250,7 +251,7 @@ class HybridRetrievalService:
                     *[
                         execute_plan(
                             plan,
-                            l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                            l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
                             session_id=request.session_id,
                             user_id=request.user_id,
                         )
@@ -291,7 +292,7 @@ class HybridRetrievalService:
                 *[
                     execute_plan(
                         plan,
-                        l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                        l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
                         session_id=request.session_id,
                         user_id=request.user_id,
                     )
@@ -335,7 +336,7 @@ class HybridRetrievalService:
                     *[
                         execute_plan(
                             plan,
-                            l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                            l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
                             session_id=request.session_id,
                             user_id=request.user_id,
                         )
@@ -609,9 +610,12 @@ class HybridRetrievalService:
         request: RetrievalQuery,
         payload: RetrievalPayload,
         time_range: Optional[TimeRange] = None,
+        l1: Optional[L1Handler] = None,
     ) -> None:
         """Generate expanded query variants and run additional L1 plans."""
         from .query_expander import QueryExpander
+
+        effective_l1 = l1 if l1 is not None else self._l1
 
         expander = QueryExpander(
             self._llm_provider_bridge,
@@ -641,7 +645,7 @@ class HybridRetrievalService:
             *[
                 execute_plan(
                     plan,
-                    l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                    l1=effective_l1, l2=self._l2, l3=self._l3, l4=self._l4,
                     session_id=request.session_id,
                     user_id=request.user_id,
                 )
