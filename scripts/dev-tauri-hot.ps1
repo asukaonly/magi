@@ -47,12 +47,11 @@ function Stop-StaleDevBackends {
   $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object {
     $_.ProcessName -match "python" -and
     (($_.CommandLine -match "run_server\.py") -or ($_.Path -and (& {
-          try {
-            $wmi = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue
-            $wmi.CommandLine -match "run_server\.py"
-          }
-          catch { $false }
-        })))
+      try {
+        $wmi = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue
+        $wmi.CommandLine -match "run_server\.py"
+      } catch { $false }
+    })))
   }
 
   if (-not $procs) { return }
@@ -100,8 +99,7 @@ function Ensure-SidecarPlaceholder {
       if ($hostLine) {
         $triple = $hostLine.Matches[0].Groups[1].Value.Trim()
       }
-    }
-    catch {}
+    } catch {}
   }
 
   if (-not $triple) {
@@ -147,8 +145,7 @@ Push-Location $FrontendDir
 try {
   $env:VITE_DEV_SERVER_PORT = $FrontendPort
   npm run tauri:dev
-}
-finally {
+} finally {
   Pop-Location
   Write-Host ""
   Write-Host "dev-tauri-hot.ps1 shutting down..."
