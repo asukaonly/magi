@@ -333,6 +333,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
             thinking_depth=request.thinking_depth,
             user_id=request.context.user_id,
             session_id=request.context.session_id,
+            session_run_id=request.context.session_run_id,
+            session_run_revision=current_revision,
             turn_id=current_turn_id,
             intent=request.intent.intent,
             execution_agent_id=request.context.runtime_key,

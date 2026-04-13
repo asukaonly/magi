@@ -380,7 +380,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           </label>
         ) : null}
 
-        {embeddingConfig?.mode === 'off' ? null : isLocalEmbeddingMode && embeddingConfig && onEmbeddingConfigChange ? (
+        {embeddingConfig?.mode === 'off' ? (
+          <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <p className="text-xs leading-5 text-amber-800 dark:text-amber-300">{t('llm.scenarios.embedding.offHint')}</p>
+          </div>
+        ) : isLocalEmbeddingMode && embeddingConfig && onEmbeddingConfigChange ? (
           <div className="space-y-3">
             <label className="space-y-2">
               <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_model_source.label')}</span>

@@ -423,7 +423,7 @@
     "defaultChatWorkspacePickFailed": "选择默认对话目录失败：{{message}}",
     "llmDesc": "管理大模型的供应商和场景模型设置",
     "llmProvidersDesc": "配置模型供应商的连接信息、启用状态和可用模型。",
-    "llmModelsDesc": "为不同运行场景分别选择供应商和模型。",
+    "llmModelsDesc": "为不同场景分别选择模型——规划模型负责快速决策，核心模型负责深度推理。",
     "statisticsDesc": "集中查看历史模型用量与当前系统运行状态",
     "statisticsLlmDesc": "查看 7 天和 30 天的模型用量、耗时、成本与输入输出结构",
     "statisticsRuntimeDesc": "查看系统资源、TTFT、成功率、队列与调度运行状态",

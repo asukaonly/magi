@@ -423,7 +423,7 @@
     "defaultChatWorkspacePickFailed": "Failed to choose a default chat directory: {{message}}",
     "llmDesc": "Manage provider connections and scenario-specific model choices.",
     "llmProvidersDesc": "Configure provider connection details, availability, and model sources.",
-    "llmModelsDesc": "Choose providers and models for each runtime scenario.",
+    "llmModelsDesc": "Assign models for each task — the planning model handles quick decisions, the core model handles deep reasoning.",
     "statisticsDesc": "Review historical model usage and current runtime health in one place.",
     "statisticsLlmDesc": "Inspect 7-day and 30-day model usage, latency, cost, and prompt/completion structure.",
     "statisticsRuntimeDesc": "Inspect system resources, TTFT, success rates, queues, and scheduler activity.",

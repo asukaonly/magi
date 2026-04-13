@@ -115,7 +115,7 @@
   "llm": {
     "modelSelection": {
       "title": "Model Selection",
-      "desc": "Choose models per runtime scenario. For now we split intent detection and core conversation.",
+      "desc": "Assign models for different tasks. The planning model handles quick decisions; the core model handles deep reasoning.",
       "empty": "Enable at least one provider first, then come back to assign models.",
       "selectEmbeddingModel": "Select embedding model",
       "selectEmbeddingDimension": "Select embedding dimension",
@@ -158,20 +158,21 @@
     },
     "scenarios": {
       "context_decider": {
-        "title": "Intent Model",
-        "desc": "Used by ContextDecider for intent and execution-path decisions."
+        "title": "Planning Model",
+        "desc": "Quickly analyzes each message to determine intent, select tools, and plan the execution path. A fast, cost-effective model is recommended."
       },
       "core": {
-        "title": "Core LLM Model",
-        "desc": "Used for final responses, tool calling, and multimodal input."
+        "title": "Core Model",
+        "desc": "Handles deep reasoning, final responses, and tool calling — the primary AI engine. Choose the most capable model available."
       },
       "embedding": {
         "title": "Embedding Model",
-        "desc": "Used for memory vectorization storage and semantic search. This section only configures model and dimension selection; enablement is controlled in Memory settings."
+        "desc": "Converts text into vectors for semantic search and memory retrieval, significantly improving recall accuracy when enabled. Enablement is controlled by the Embedding Mode selector above.",
+        "offHint": "Embedding is currently disabled. When enabled, AI gains semantic memory retrieval — much better at understanding and recalling past conversations and knowledge. Recommended for any memory-related scenario."
       },
       "reranker": {
         "title": "Reranker",
-        "desc": "Use a local Cross-Encoder model to semantically rerank retrieval results, improving memory recall quality. Must be enabled in Memory → General Settings."
+        "desc": "Re-ranks retrieval results with a second semantic pass, further improving memory recall accuracy. Must be enabled in Memory → General Settings first."
       }
     },
     "fields": {
