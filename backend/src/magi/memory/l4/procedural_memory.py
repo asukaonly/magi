@@ -21,13 +21,33 @@ from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingServi
 from ..event_contracts import MemoryEvent
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
 
 logger = logging.getLogger(__name__)
 
 SKILL_CHUNKS_TABLE = "l4_skill_chunks"
+EXECUTION_TRACES_TABLE = "l4_execution_traces"
 EMBEDDING_TEXT_BUILDER_VERSION = "l4_skill_v1"
 EMBEDDING_STATUS_READY = "ready"
 EMBEDDING_STATUS_DISABLED = "disabled"
+
+# Trace pruning: keep at most this many traces per skill.
+MAX_TRACES_PER_SKILL = 50
+
+# Default threshold: extract strategy after this many new traces.
+DEFAULT_STRATEGY_EXTRACTION_THRESHOLD = 5
+
+
+def _truncate(value: Any, max_chars: int) -> Optional[str]:
+    """Truncate a value to a string of at most *max_chars* characters."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars - 3] + "..."
 
 
 class L4ProceduralMemoryStore:
@@ -39,14 +59,20 @@ class L4ProceduralMemoryStore:
         db_path: str = "~/.magi/data/memory/memory.db",
         embedding_service: MemoryEmbeddingService | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
+        scenario_llm_pool: Any | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
         breaker_failure_threshold: int = 3,
         breaker_recovery_successes: int = 2,
+        strategy_extraction_threshold: int = DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
         self._memory_config_getter = memory_config_getter
+        self._strategy_extractor: L4StrategyExtractor | None = (
+            L4StrategyExtractor(scenario_llm_pool) if scenario_llm_pool is not None else None
+        )
+        self._strategy_extraction_threshold = max(1, int(strategy_extraction_threshold))
         self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
         self._default_async_embeddings = bool(async_embeddings)
         self._vector_index = (
@@ -131,8 +157,30 @@ class L4ProceduralMemoryStore:
                     content,
                     tokenize='unicode61'
                 );
+
+                CREATE TABLE IF NOT EXISTS l4_execution_traces (
+                    trace_id TEXT PRIMARY KEY,
+                    skill_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    duration_ms REAL,
+                    error_summary TEXT,
+                    input_summary TEXT,
+                    output_summary TEXT,
+                    task_context TEXT,
+                    created_at REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_l4_traces_skill
+                    ON l4_execution_traces(skill_id, created_at DESC);
                 """
             )
+            # Add pending_trace_count column if missing (migration-safe).
+            try:
+                await db.execute(
+                    "ALTER TABLE procedural_skills ADD COLUMN pending_trace_count INTEGER NOT NULL DEFAULT 0"
+                )
+            except Exception:
+                pass  # Column already exists
             if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
@@ -182,7 +230,12 @@ class L4ProceduralMemoryStore:
             return None
 
         await self.initialize()
-        skill_name, skill_category, skill_type, success, duration_ms, error, optimized_prompt = identity
+        skill_name: str = identity["skill_name"]
+        skill_category: str = identity["skill_category"]
+        skill_type: str = identity["skill_type"]
+        success: bool = identity["success"]
+        duration_ms: float = identity["duration_ms"]
+        optimized_prompt: Optional[str] = identity["optimized_prompt"]
         now = time.time()
 
         async with sqlite_connection_async(self.db_path) as db:
@@ -266,6 +319,11 @@ class L4ProceduralMemoryStore:
                     skill_category=skill_category,
                     optimized_prompt=optimized_prompt,
                 )
+                await self._insert_execution_trace(
+                    skill_id=skill_id,
+                    event=event,
+                    identity=identity,
+                )
                 return skill_id
 
             total_attempts = int(existing["total_attempts"]) + 1
@@ -308,7 +366,8 @@ class L4ProceduralMemoryStore:
                     avg_execution_time_ms = ?, min_execution_time_ms = ?, max_execution_time_ms = ?, p95_execution_time_ms = ?,
                     circuit_breaker_state = ?, circuit_breaker_opened_at = ?, circuit_breaker_failure_count = ?,
                     circuit_breaker_success_count = ?, optimized_prompt = COALESCE(?, optimized_prompt),
-                    source_event_ids = ?, last_used_at = ?, last_success_at = ?, last_failure_at = ?, updated_at = ?
+                    source_event_ids = ?, last_used_at = ?, last_success_at = ?, last_failure_at = ?, updated_at = ?,
+                    pending_trace_count = COALESCE(pending_trace_count, 0) + 1
                 WHERE skill_id = ?
                 """,
                 (
@@ -354,6 +413,26 @@ class L4ProceduralMemoryStore:
                 skill_category=skill_category,
                 optimized_prompt=optimized_prompt or existing["optimized_prompt"],
             )
+            await self._insert_execution_trace(
+                skill_id=str(existing["skill_id"]),
+                event=event,
+                identity=identity,
+            )
+            # Trigger strategy extraction if enough new traces accumulated
+            # or circuit breaker just opened.
+            pending = (existing["pending_trace_count"] or 0) + 1
+            breaker_just_opened = (
+                breaker_state == "open"
+                and str(existing["circuit_breaker_state"]) != "open"
+            )
+            if pending >= self._strategy_extraction_threshold or breaker_just_opened:
+                await self._maybe_extract_strategy(
+                    skill_id=str(existing["skill_id"]),
+                    skill_name=skill_name,
+                    skill_category=skill_category,
+                    total_attempts=total_attempts,
+                    success_rate=float(success_count / total_attempts),
+                )
             return str(existing["skill_id"])
 
     async def get_skill(self, *, skill_name: str, skill_category: str) -> Optional[Dict[str, Any]]:
@@ -388,6 +467,203 @@ class L4ProceduralMemoryStore:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    async def get_tool_advisory(
+        self,
+        tool_names: List[str],
+        task_context: str | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Return lightweight advisory for each requested tool.
+
+        Each advisory dict contains:
+            tool_name, available (bool), breaker_state, success_rate,
+            total_attempts, strategy_hint, context_fit, risk_note
+        """
+        if not tool_names:
+            return []
+        await self.initialize()
+        placeholders = ", ".join("?" for _ in tool_names)
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT skill_name, circuit_breaker_state, success_rate,
+                       total_attempts, optimized_prompt, context_affinity,
+                       failure_count, last_failure_at
+                FROM procedural_skills
+                WHERE skill_category = 'tool' AND skill_name IN ({placeholders})
+                """,
+                tuple(tool_names),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        known = {str(row["skill_name"]): row for row in rows}
+        result: List[Dict[str, Any]] = []
+
+        for name in tool_names:
+            row = known.get(name)
+            if row is None:
+                # Tool has no execution history — no advisory.
+                continue
+
+            breaker = str(row["circuit_breaker_state"])
+            available = breaker != "open"
+            success_rate = float(row["success_rate"])
+            total_attempts = int(row["total_attempts"])
+
+            # Extract strategy hint from optimized_prompt (may be JSON or plain text).
+            strategy_hint = self._extract_strategy_hint(row["optimized_prompt"])
+
+            # Compute context fit if task_context provided.
+            context_fit = self._compute_context_fit(
+                row["context_affinity"], task_context
+            )
+
+            # Build risk note.
+            risk_note = None
+            if breaker == "open":
+                risk_note = "Circuit breaker open: consecutive failures detected"
+            elif breaker == "half_open":
+                risk_note = "Circuit breaker recovering: recent failures observed"
+            elif success_rate < 0.5 and total_attempts >= 3:
+                risk_note = f"Low success rate ({success_rate:.0%} over {total_attempts} attempts)"
+
+            result.append(
+                {
+                    "tool_name": name,
+                    "available": available,
+                    "breaker_state": breaker,
+                    "success_rate": success_rate,
+                    "total_attempts": total_attempts,
+                    "strategy_hint": strategy_hint,
+                    "context_fit": context_fit,
+                    "risk_note": risk_note,
+                }
+            )
+
+        return result
+
+    async def get_notable_advisories(
+        self,
+        task_context: str | None = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Return advisories for tools with actionable status.
+
+        Selects tools whose circuit breaker is not closed, that have an
+        extracted strategy, or that have a low success rate (< 0.7 with
+        at least 3 attempts).  This avoids requiring the caller to know
+        which tool names to query up-front.
+        """
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT skill_name, circuit_breaker_state, success_rate,
+                       total_attempts, optimized_prompt, context_affinity,
+                       failure_count, last_failure_at
+                FROM procedural_skills
+                WHERE skill_category = 'tool'
+                  AND (
+                      circuit_breaker_state != 'closed'
+                      OR (optimized_prompt IS NOT NULL AND optimized_prompt != '' AND optimized_prompt != '{}')
+                      OR (success_rate < 0.7 AND total_attempts >= 3)
+                  )
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (int(limit * 2),),  # fetch extra to allow post-filter
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            breaker = str(row["circuit_breaker_state"])
+            available = breaker != "open"
+            success_rate = float(row["success_rate"])
+            total_attempts = int(row["total_attempts"])
+            strategy_hint = self._extract_strategy_hint(row["optimized_prompt"])
+            context_fit = self._compute_context_fit(row["context_affinity"], task_context)
+
+            # Post-filter: only include truly notable tools.
+            is_notable = (
+                breaker != "closed"
+                or strategy_hint is not None
+                or (success_rate < 0.7 and total_attempts >= 3)
+            )
+            if not is_notable:
+                continue
+
+            risk_note = None
+            if breaker == "open":
+                risk_note = "Circuit breaker open: consecutive failures detected"
+            elif breaker == "half_open":
+                risk_note = "Circuit breaker recovering: recent failures observed"
+            elif success_rate < 0.5 and total_attempts >= 3:
+                risk_note = f"Low success rate ({success_rate:.0%} over {total_attempts} attempts)"
+
+            result.append(
+                {
+                    "tool_name": str(row["skill_name"]),
+                    "available": available,
+                    "breaker_state": breaker,
+                    "success_rate": success_rate,
+                    "total_attempts": total_attempts,
+                    "strategy_hint": strategy_hint,
+                    "context_fit": context_fit,
+                    "risk_note": risk_note,
+                }
+            )
+            if len(result) >= limit:
+                break
+        return result
+
+    @staticmethod
+    def _extract_strategy_hint(optimized_prompt: str | None) -> str | None:
+        """Extract a short hint from the strategy JSON or raw text."""
+        if not optimized_prompt:
+            return None
+        text = str(optimized_prompt).strip()
+        # Try parsing as strategy JSON (new format).
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                approach = str(data.get("recommended_approach") or "").strip()
+                if approach:
+                    return approach
+                # Fall back to first best_use_case.
+                cases = data.get("best_use_cases") or []
+                if cases:
+                    return str(cases[0]).strip()
+                return None
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Legacy plain-text prompt — return truncated.
+        if len(text) > 200:
+            return text[:197] + "..."
+        return text
+
+    @staticmethod
+    def _compute_context_fit(
+        context_affinity_json: str | None,
+        task_context: str | None,
+    ) -> float | None:
+        """Compute 0-1 context fit from stored affinity and current task context."""
+        if not task_context or not context_affinity_json:
+            return None
+        try:
+            affinity = json.loads(context_affinity_json)
+            if not isinstance(affinity, dict) or not affinity:
+                return None
+        except (json.JSONDecodeError, TypeError):
+            return None
+        # Exact match.
+        task_lower = task_context.lower().strip()
+        for key, score in affinity.items():
+            if task_lower in str(key).lower() or str(key).lower() in task_lower:
+                return float(score)
+        return None
+
     async def query_strategies(self, *, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search procedural skills by sqlite-vec and fall back to SQL LIKE."""
         await self.initialize()
@@ -418,6 +694,7 @@ class L4ProceduralMemoryStore:
                 count = int(row[0]) if row else 0
             await db.execute("DELETE FROM procedural_skills")
             await db.execute(f"DELETE FROM {SKILL_CHUNKS_TABLE}")
+            await db.execute(f"DELETE FROM {EXECUTION_TRACES_TABLE}")
             await db.execute("DELETE FROM l4_skills_fts")
             await db.commit()
         if self._vector_index is not None:
@@ -552,47 +829,224 @@ class L4ProceduralMemoryStore:
     def _extract_skill_identity(
         self,
         event: MemoryEvent,
-    ) -> Optional[tuple[str, str, str, bool, float, Optional[str], Optional[str]]]:
+    ) -> Optional[Dict[str, Any]]:
+        """Extract skill identity and trace data from a MemoryEvent.
+
+        Returns a dict with keys:
+            skill_name, skill_category, skill_type, success, duration_ms,
+            error_summary, optimized_prompt, input_summary, output_summary,
+            task_context
+        """
         if event.event_type == "ActionExecuted":
             skill_name = str(event.source_item_id or event.content or "").strip()
             if not skill_name:
                 return None
-            optimized_prompt = event.content if str(event.content or "").strip() and str(event.content).strip() != skill_name else None
-            return (
-                skill_name,
-                "tool",
-                "external_tool",
-                int(event.level) < 3,
-                0.0,
-                None,
-                optimized_prompt,
-            )
+            meta = event.metadata_json or {}
+            content_str = str(event.content or "").strip()
+            optimized_prompt = content_str if content_str and content_str != skill_name else None
+            success = int(event.level) < 3
+            return {
+                "skill_name": skill_name,
+                "skill_category": "tool",
+                "skill_type": "external_tool",
+                "success": success,
+                "duration_ms": float(meta.get("duration_ms", 0.0)),
+                "error_summary": _truncate(meta.get("error"), 500) if not success else None,
+                "optimized_prompt": optimized_prompt,
+                "input_summary": _truncate(meta.get("input") or meta.get("params"), 500),
+                "output_summary": _truncate(meta.get("output") or meta.get("result"), 500),
+                "task_context": meta.get("task_category") or event.task_id,
+            }
 
         if event.event_type == "TaskCompleted":
             skill_name = str(event.task_id or "task").strip()
-            return (
-                skill_name,
-                "workflow",
-                "composite",
-                True,
-                0.0,
-                None,
-                str(event.content or "").strip() or None,
-            )
+            content_str = str(event.content or "").strip() or None
+            return {
+                "skill_name": skill_name,
+                "skill_category": "workflow",
+                "skill_type": "composite",
+                "success": True,
+                "duration_ms": 0.0,
+                "error_summary": None,
+                "optimized_prompt": content_str,
+                "input_summary": None,
+                "output_summary": _truncate(content_str, 500),
+                "task_context": event.task_id,
+            }
 
         if event.event_type == "TaskFailed":
             skill_name = str(event.task_id or "task").strip()
-            return (
-                skill_name,
-                "workflow",
-                "composite",
-                False,
-                0.0,
-                None,
-                str(event.content or "").strip() or None,
-            )
+            content_str = str(event.content or "").strip() or None
+            return {
+                "skill_name": skill_name,
+                "skill_category": "workflow",
+                "skill_type": "composite",
+                "success": False,
+                "duration_ms": 0.0,
+                "error_summary": _truncate(content_str, 500),
+                "optimized_prompt": content_str,
+                "input_summary": None,
+                "output_summary": None,
+                "task_context": event.task_id,
+            }
 
         return None
+
+    async def _insert_execution_trace(
+        self,
+        *,
+        skill_id: str,
+        event: MemoryEvent,
+        identity: Dict[str, Any],
+    ) -> None:
+        """Insert a structured execution trace and prune old ones."""
+        trace_id = f"trace_{uuid.uuid4().hex}"
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                f"""
+                INSERT INTO {EXECUTION_TRACES_TABLE}(
+                    trace_id, skill_id, event_id, success, duration_ms,
+                    error_summary, input_summary, output_summary, task_context,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    trace_id,
+                    skill_id,
+                    event.event_id,
+                    1 if identity["success"] else 0,
+                    identity["duration_ms"],
+                    identity.get("error_summary"),
+                    identity.get("input_summary"),
+                    identity.get("output_summary"),
+                    identity.get("task_context"),
+                    now,
+                ),
+            )
+            await db.commit()
+        await self._prune_old_traces(skill_id)
+
+    async def _prune_old_traces(self, skill_id: str) -> None:
+        """Keep at most MAX_TRACES_PER_SKILL traces per skill."""
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                f"""
+                DELETE FROM {EXECUTION_TRACES_TABLE}
+                WHERE skill_id = ? AND trace_id NOT IN (
+                    SELECT trace_id FROM {EXECUTION_TRACES_TABLE}
+                    WHERE skill_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                )
+                """,
+                (skill_id, skill_id, MAX_TRACES_PER_SKILL),
+            )
+            await db.commit()
+
+    async def get_recent_traces(
+        self,
+        skill_id: str,
+        *,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Return the most recent execution traces for a skill."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT trace_id, skill_id, event_id, success, duration_ms,
+                       error_summary, input_summary, output_summary, task_context,
+                       created_at
+                FROM {EXECUTION_TRACES_TABLE}
+                WHERE skill_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (skill_id, int(limit)),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "trace_id": str(row["trace_id"]),
+                "skill_id": str(row["skill_id"]),
+                "event_id": str(row["event_id"]),
+                "success": bool(row["success"]),
+                "duration_ms": float(row["duration_ms"] or 0.0),
+                "error_summary": row["error_summary"],
+                "input_summary": row["input_summary"],
+                "output_summary": row["output_summary"],
+                "task_context": row["task_context"],
+                "created_at": float(row["created_at"]),
+            }
+            for row in rows
+        ]
+
+    async def _maybe_extract_strategy(
+        self,
+        *,
+        skill_id: str,
+        skill_name: str,
+        skill_category: str,
+        total_attempts: int,
+        success_rate: float,
+    ) -> None:
+        """Conditionally run LLM strategy extraction and persist the result."""
+        if self._strategy_extractor is None:
+            return
+        traces = await self.get_recent_traces(skill_id, limit=20)
+        if not traces:
+            return
+        strategy = await self._strategy_extractor.extract_strategy(
+            skill_name=skill_name,
+            skill_category=skill_category,
+            total_attempts=total_attempts,
+            success_rate=success_rate,
+            traces=traces,
+        )
+        if strategy is None:
+            return
+        await self._persist_strategy(
+            skill_id=skill_id,
+            strategy=strategy,
+        )
+
+    async def _persist_strategy(
+        self,
+        *,
+        skill_id: str,
+        strategy: ExtractedStrategy,
+    ) -> None:
+        """Write extracted strategy to the procedural_skills row and reset pending count."""
+        now = time.time()
+        strategy_json = strategy.to_json()
+        context_affinity_json = json.dumps(strategy.context_preferences, ensure_ascii=False)
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE procedural_skills
+                SET optimized_prompt = ?,
+                    context_affinity = ?,
+                    optimization_score = ?,
+                    pending_trace_count = 0,
+                    updated_at = ?
+                WHERE skill_id = ?
+                """,
+                (
+                    strategy_json,
+                    context_affinity_json,
+                    strategy.confidence,
+                    now,
+                    skill_id,
+                ),
+            )
+            await db.commit()
+        logger.info(
+            "L4 strategy persisted for skill %s (confidence=%.2f)",
+            skill_id,
+            strategy.confidence,
+        )
 
     def _rolling_average(self, current_value: Any, current_count: int, next_value: float) -> float:
         current = float(current_value or 0.0)
@@ -633,6 +1087,7 @@ class L4ProceduralMemoryStore:
             "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] else None,
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
+            "pending_trace_count": int(row["pending_trace_count"]) if row["pending_trace_count"] is not None else 0,
         }
 
     async def _maybe_upsert_skill_embedding(

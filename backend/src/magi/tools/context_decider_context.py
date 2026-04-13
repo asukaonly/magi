@@ -19,6 +19,7 @@ class ContextDeciderContext:
     current_user: str = ""
     recent_messages: list[dict[str, Any]] = field(default_factory=list)
     recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
+    tool_advisory: list[dict[str, Any]] = field(default_factory=list)
 
     def __getitem__(self, key: str) -> Any:
         return getattr(self, key)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict
 
 
@@ -280,21 +281,45 @@ def _compact_procedures(items: Any, *, max_items: int, max_text_chars: int) -> l
     for item in items[:max_items]:
         if not isinstance(item, dict):
             continue
+        strategy_hint = _extract_procedure_hint(item.get("optimized_prompt"))
         preview, truncated = _truncate_text(
-            item.get("description") or item.get("summary"),
+            strategy_hint or item.get("description") or item.get("summary"),
             max_text_chars=max_text_chars,
         )
-        compact.append(
-            {
-                "skill_id": item.get("skill_id"),
-                "skill_name": item.get("skill_name"),
-                "skill_category": item.get("skill_category"),
-                "description_preview": preview,
-                "description_truncated": truncated,
-                "success_rate": item.get("success_rate"),
-            }
-        )
+        entry: dict[str, Any] = {
+            "skill_id": item.get("skill_id"),
+            "skill_name": item.get("skill_name"),
+            "skill_category": item.get("skill_category"),
+            "description_preview": preview,
+            "description_truncated": truncated,
+            "success_rate": item.get("success_rate"),
+            "total_attempts": item.get("total_attempts"),
+        }
+        breaker = item.get("circuit_breaker_state")
+        if breaker and breaker != "closed":
+            entry["breaker_state"] = breaker
+        compact.append(entry)
     return compact
+
+
+def _extract_procedure_hint(optimized_prompt: Any) -> str | None:
+    """Try to pull a strategy hint from the optimized_prompt field."""
+    if not optimized_prompt:
+        return None
+    text = str(optimized_prompt).strip()
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            approach = str(data.get("recommended_approach") or "").strip()
+            if approach:
+                return approach
+            cases = data.get("best_use_cases") or []
+            if cases:
+                return str(cases[0]).strip()
+            return None
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
 
 
 def _compact_trace_meta(trace: Any) -> dict[str, Any]:
@@ -401,13 +426,26 @@ def _render_memory_context(compact_results: Dict[str, Any]) -> str:
 
     procedures = list(compact_results.get("l4_procedures") or [])
     if procedures:
-        lines = ["Procedures:"]
+        lines = ["Execution Experience:"]
         for item in procedures:
-            lines.append(
-                "- "
-                f"{item.get('skill_name')} ({item.get('skill_category')}): "
-                f"{item.get('description_preview')}"
-            )
+            name = item.get("skill_name") or "unknown"
+            category = item.get("skill_category") or "tool"
+            rate = item.get("success_rate")
+            attempts = item.get("total_attempts")
+            header = f"{name} ({category}"
+            if rate is not None and attempts:
+                header += f", {rate:.0%} success over {attempts} uses"
+            header += ")"
+            breaker = item.get("breaker_state")
+            if breaker == "open":
+                header += " [UNAVAILABLE - breaker open]"
+            elif breaker == "half_open":
+                header += " [recovering]"
+            preview = item.get("description_preview") or ""
+            if preview:
+                lines.append(f"- {header}: {preview}")
+            else:
+                lines.append(f"- {header}")
         sections.append("\n".join(lines))
 
     if not sections:

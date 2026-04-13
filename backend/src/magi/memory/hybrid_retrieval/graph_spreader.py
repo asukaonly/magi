@@ -160,5 +160,5 @@ def _parse_evidence_ids(raw: Any) -> List[str]:
             if isinstance(parsed, list):
                 return [str(x) for x in parsed if x]
         except (json.JSONDecodeError, TypeError):
-            pass
+            logger.warning("Malformed evidence_event_ids value: %r", raw[:200] if len(raw) > 200 else raw)
     return []

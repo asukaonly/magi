@@ -5,7 +5,7 @@ import inspect
 import os
 import platform
 from datetime import datetime
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Dict, List
 
 from ....agent.message_utils import build_recent_messages
 from ....core.logger import get_logger
@@ -32,6 +32,7 @@ from .handlers import ExecutionHandlerRegistry
 logger = get_logger(__name__)
 
 IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
+ToolAdvisoryProvider = Callable[[str | None], Awaitable[List[Dict[str, Any]]]]
 
 
 class ChatExecutionCoordinator:
@@ -56,11 +57,13 @@ class ChatExecutionCoordinator:
         fact_classifier: ChatFactClassifier,
         handler_registry: ExecutionHandlerRegistry,
         intent_trace_callback: IntentTraceCallback | None = None,
+        tool_advisory_provider: ToolAdvisoryProvider | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
         self._handler_registry = handler_registry
         self._intent_trace_callback = intent_trace_callback
+        self._tool_advisory_provider = tool_advisory_provider
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
         planner_fact_kind = (
@@ -127,6 +130,16 @@ class ChatExecutionCoordinator:
             recent_messages=recent_messages,
             recent_tool_errors=list(context.recent_tool_errors),
         )
+
+        # Inject L4 procedural-memory advisory if provider is available.
+        if self._tool_advisory_provider is not None:
+            try:
+                advisories = await self._tool_advisory_provider(context.latest_user_message)
+                if advisories:
+                    decision_context.tool_advisory = advisories
+            except Exception as exc:
+                logger.debug("Failed to fetch tool advisory: %s", exc)
+
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
         orchestration_plan = self._normalize_orchestration_plan(
             user_message=context.latest_user_message,

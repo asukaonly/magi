@@ -80,7 +80,10 @@ class ManifestSelector:
                 timeout_seconds=self._config.manifest_selector_timeout_seconds,
             )
             elapsed_ms = (time.monotonic() - t0) * 1000
-            selected_indices = self._parse_response(raw, len(candidates_for_llm))
+            selected_indices = self._parse_response(
+                raw, len(candidates_for_llm),
+                max_output=self._config.manifest_selector_max_output,
+            )
             logger.info(
                 "ManifestSelector completed: %d/%d candidates selected, elapsed=%.1fms",
                 len(selected_indices), len(candidates_for_llm), elapsed_ms,
@@ -162,19 +165,22 @@ class ManifestSelector:
         return candidates, index_map
 
     @staticmethod
-    def _parse_response(raw: Any, candidate_count: int) -> List[int]:
+    def _parse_response(raw: Any, candidate_count: int, *, max_output: int = 10) -> List[int]:
         """Parse LLM response to extract selected candidate indices."""
+        # Fallback: preserve original top-K order when LLM output is unusable.
+        fallback = list(range(min(candidate_count, max_output)))
+
         content = str(getattr(raw, "content", raw) or "{}")
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
             logger.warning("ManifestSelector: invalid JSON response: %s", content[:200])
-            return list(range(candidate_count))
+            return fallback
 
         selected = data.get("selected")
         if not isinstance(selected, list):
             logger.warning("ManifestSelector: no 'selected' array in response")
-            return list(range(candidate_count))
+            return fallback
 
         valid: List[int] = []
         seen: set[int] = set()
@@ -186,7 +192,7 @@ class ManifestSelector:
             if 0 <= idx < candidate_count and idx not in seen:
                 valid.append(idx)
                 seen.add(idx)
-        return valid if valid else list(range(candidate_count))
+        return valid if valid else fallback
 
     @staticmethod
     def _apply_selection(

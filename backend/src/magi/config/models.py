@@ -333,6 +333,10 @@ class MemoryL4Settings(BaseModel):
     enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
     skill_extraction_enabled: bool = Field(default=True)
+    strategy_extraction_threshold: int = Field(
+        default=5,
+        description="Number of new traces before triggering LLM strategy extraction.",
+    )
 
 
 class CrossEncoderSettings(BaseModel):

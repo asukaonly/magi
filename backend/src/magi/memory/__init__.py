@@ -166,6 +166,7 @@ class UnifiedMemoryStore(L3InsightsMixin, MonitoringMixin):
                 db_path=shared_memory_db,
                 embedding_service=embedding_service,
                 memory_config_getter=memory_config_getter,
+                scenario_llm_pool=scenario_llm_pool,
                 vector_enabled=enable_l4_vectors,
                 async_embeddings=async_embeddings,
             )

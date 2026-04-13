@@ -211,6 +211,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             fact_classifier=self._fact_classifier,
             handler_registry=self._handler_registry,
             intent_trace_callback=self._postprocess_service.record_intent_resolution,
+            tool_advisory_provider=self._get_tool_advisory,
         )
         self._last_batch_facts: list[FactRecord] = []
 
@@ -221,6 +222,12 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
         summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
         return summary.workspace_path if summary is not None else None
+
+    async def _get_tool_advisory(self, task_context: str | None = None) -> list[dict]:
+        """Fetch notable L4 advisories for the coordinator."""
+        if self.unified_memory is None or self.unified_memory.l4 is None:
+            return []
+        return await self.unified_memory.l4.get_notable_advisories(task_context=task_context)
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact

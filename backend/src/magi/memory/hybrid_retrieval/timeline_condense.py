@@ -110,10 +110,12 @@ def _score_event(
     content = str(event.get("content") or "")
     author_type = str(event.get("author_type") or "").strip().lower()
     lowered = content.lower()
-    content_tokens = set(extract_query_tokens(content))
+    content_token_list = extract_query_tokens(content)
+    content_tokens = set(content_token_list)
     matched_tokens = [token for token in query_tokens if token in content_tokens]
     phrase_hits = [phrase for phrase in query_phrases if phrase and phrase in lowered]
-    quoted_hits = [phrase for phrase in quoted_spans if phrase and phrase in " ".join(extract_query_tokens(content))]
+    normalized_content = " ".join(content_token_list)
+    quoted_hits = [phrase for phrase in quoted_spans if phrase and phrase in normalized_content]
 
     experiential = author_type == "user" and _FIRST_PERSON_ACTION_RE.search(content) is not None
 
@@ -228,7 +230,8 @@ def _find_salient_anchor_index(content: str, *, quoted_spans: list[str]) -> int 
     for phrase in quoted_spans:
         if not phrase:
             continue
-        collapsed = phrase.replace(" ", r"\s+")
+        escaped = re.escape(phrase)
+        collapsed = escaped.replace(r"\ ", r"\s+")
         match = re.search(collapsed, content, flags=re.IGNORECASE)
         if match:
             return match.start()

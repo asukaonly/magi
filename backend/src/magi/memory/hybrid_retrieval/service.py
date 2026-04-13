@@ -27,11 +27,17 @@ from .models import (
     TimeRange,
 )
 from .manifest_selector import ManifestSelector
-from .reranker import build_retrieval_reranker
 from .result_fusion import ResultFusion
 from .timeline_condense import build_timeline_summary
 
 logger = logging.getLogger(__name__)
+
+_TURN_NUMBER_RE = re.compile(r"turn-(\d+)$")
+
+# Over-fetch factor for session event loading in evidence bundles.
+# Loads N× the hit count per session so neighbor-turn expansion has
+# enough context without fetching the entire session.
+_SESSION_EVENTS_OVER_FETCH = 8
 
 
 def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalConfig:
@@ -132,10 +138,11 @@ class HybridRetrievalService:
         payload.trace["intent_reasoning"] = decision.reasoning
 
         # 2b. Adaptive parameter tuning based on intent signals
+        # Build a per-query L1 handler copy when config adaptation is needed
+        # so concurrent queries never interfere with each other.
+        effective_l1 = self._l1
         effective_query_mode = request.query_mode
         effective_recall_intent = request.recall_intent
-        saved_l1_config = None
-        saved_l1_reranker = None
         if effective_query_mode or effective_recall_intent:
             from .adaptive_params import adapt_config
 
@@ -145,22 +152,14 @@ class HybridRetrievalService:
                 recall_intent=effective_recall_intent,
             )
             if adapted is not self._config and self._l1 is not None:
-                # Save original config/reranker so we can restore after this query
-                saved_l1_config = self._l1._config
-                saved_l1_reranker = self._l1._reranker
-                self._l1._config = adapted
-                self._l1._reranker = build_retrieval_reranker(adapted)
+                effective_l1 = L1Handler(
+                    self._l1._store, adapted, l2_store=self._l1._l2_store,
+                )
                 payload.trace["adaptive_params_applied"] = True
                 payload.trace["adaptive_query_mode"] = effective_query_mode
                 payload.trace["adaptive_recall_intent"] = effective_recall_intent
 
-        try:
-            return await self._execute_query(request, decision, intent_input, payload)
-        finally:
-            # Restore L1 handler config so concurrent/subsequent queries are not affected
-            if saved_l1_config is not None and self._l1 is not None:
-                self._l1._config = saved_l1_config
-                self._l1._reranker = saved_l1_reranker
+        return await self._execute_query(request, decision, intent_input, payload, effective_l1=effective_l1)
 
     async def _execute_query(
         self,
@@ -168,8 +167,17 @@ class HybridRetrievalService:
         decision: Any,
         intent_input: IntentDeciderInput,
         payload: RetrievalPayload,
+        *,
+        effective_l1: Optional[L1Handler] = None,
     ) -> RetrievalPayload:
-        """Inner query execution, separated so adaptive config can be restored via try/finally."""
+        """Inner query execution.
+
+        *effective_l1* is the L1 handler to use for this query; it may
+        differ from ``self._l1`` when adaptive parameter tuning creates
+        a per-query handler copy.
+        """
+        l1 = effective_l1 if effective_l1 is not None else self._l1
+
         # 3. Execute primary plans in parallel
         primary_plans = self._augment_primary_plans(
             [p for p in decision.plans if not p.is_fallback],
@@ -181,29 +189,9 @@ class HybridRetrievalService:
             len(primary_plans),
             [(p.layer, p.is_fallback, getattr(p.conditions, "content_query", "")[:60]) for p in primary_plans],
         )
-        if primary_plans:
-            primary_results = await asyncio.gather(
-                *[
-                    execute_plan(
-                        plan,
-                        l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                        session_id=request.session_id,
-                        user_id=request.user_id,
-                    )
-                    for plan in primary_plans
-                ],
-                return_exceptions=True,
-            )
-            for plan, result in zip(primary_plans, primary_results):
-                if isinstance(result, Exception):
-                    logger.warning("Primary plan %s failed: %s", plan.layer, result)
-                    continue
-                result_len = len(result) if isinstance(result, list) else (len(result.get("entity_cards", [])) if isinstance(result, dict) else 0)
-                logger.debug(
-                    "Primary plan %s merge | result_type=%s result_len=%d",
-                    plan.layer, type(result).__name__, result_len,
-                )
-                self._merge_result(payload, plan.layer, result)
+        await self._execute_and_merge_plans(
+            primary_plans, payload, l1=l1, request=request, label="Primary plan",
+        )
 
         # 3b. Query expansion — run additional L1 plans with reformulated queries
         if self._config.query_expansion_enabled and self._llm_provider_bridge:
@@ -212,10 +200,62 @@ class HybridRetrievalService:
                 request=request,
                 payload=payload,
                 time_range=decision.time_range,
+                l1=l1,
             )
 
-        # 4. Fallback if primary results are insufficient
-        primary_count = self._count_results(payload)
+        # 4. Backstops + fallbacks
+        await self._run_backstops(
+            request, decision, intent_input, payload,
+            l1=l1, primary_plans=primary_plans,
+        )
+        await self._run_fallback_if_needed(
+            decision, payload, l1=l1, request=request,
+        )
+
+        # 5+6. Post-processing (fusion, manifest selection, evidence bundles)
+        return await self._apply_post_processing(payload, request=request)
+
+    async def _execute_and_merge_plans(
+        self,
+        plans: List[LayerQueryPlan],
+        payload: RetrievalPayload,
+        *,
+        l1: Optional[L1Handler],
+        request: RetrievalQuery,
+        label: str = "Plan",
+    ) -> None:
+        """Execute layer query plans in parallel and merge results into *payload*."""
+        if not plans:
+            return
+        results = await asyncio.gather(
+            *[
+                execute_plan(
+                    plan,
+                    l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                    session_id=request.session_id,
+                    user_id=request.user_id,
+                )
+                for plan in plans
+            ],
+            return_exceptions=True,
+        )
+        for plan, result in zip(plans, results):
+            if isinstance(result, Exception):
+                logger.warning("%s %s failed: %s", label, plan.layer, result)
+                continue
+            self._merge_result(payload, plan.layer, result)
+
+    async def _run_backstops(
+        self,
+        request: RetrievalQuery,
+        decision: Any,
+        intent_input: IntentDeciderInput,
+        payload: RetrievalPayload,
+        *,
+        l1: Optional[L1Handler],
+        primary_plans: List[LayerQueryPlan],
+    ) -> None:
+        """Run rule-based and comparison backstops when primary results are insufficient."""
         backstop_reason = self._rule_backstop_reason(
             query=request.query,
             payload=payload,
@@ -223,10 +263,11 @@ class HybridRetrievalService:
         )
         if backstop_reason is not None:
             rule_decision = self._intent_decider._rule_engine.evaluate(intent_input)
+            existing_signatures = {self._plan_signature(p) for p in primary_plans}
             rule_primary_plans = [
                 plan
                 for plan in rule_decision.plans
-                if not plan.is_fallback and self._plan_signature(plan) not in {self._plan_signature(existing) for existing in primary_plans}
+                if not plan.is_fallback and self._plan_signature(plan) not in existing_signatures
             ]
             # When L1 events are empty, also include L1 fallback plans from
             # the rule engine so the backstop does not rely solely on L2 data.
@@ -235,31 +276,16 @@ class HybridRetrievalService:
                     plan
                     for plan in rule_decision.plans
                     if plan.is_fallback and getattr(plan, "layer", "") == "L1"
-                    and self._plan_signature(plan) not in {self._plan_signature(existing) for existing in primary_plans}
+                    and self._plan_signature(plan) not in existing_signatures
                 ]
                 rule_primary_plans.extend(rule_l1_fallback_plans)
+            await self._execute_and_merge_plans(
+                rule_primary_plans, payload, l1=l1, request=request, label="Rule backstop plan",
+            )
             if rule_primary_plans:
-                rule_primary_results = await asyncio.gather(
-                    *[
-                        execute_plan(
-                            plan,
-                            l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                            session_id=request.session_id,
-                            user_id=request.user_id,
-                        )
-                        for plan in rule_primary_plans
-                    ],
-                    return_exceptions=True,
-                )
-                for plan, result in zip(rule_primary_plans, rule_primary_results):
-                    if isinstance(result, Exception):
-                        logger.warning("Rule backstop plan %s failed: %s", plan.layer, result)
-                        continue
-                    self._merge_result(payload, plan.layer, result)
-                primary_count = self._count_results(payload)
                 payload.trace["rule_backstop_triggered"] = True
                 payload.trace["rule_backstop_reason"] = backstop_reason
-                payload.trace["rule_backstop_count"] = primary_count
+                payload.trace["rule_backstop_count"] = self._count_results(payload)
 
         comparison_backstop_queries = self._comparison_backstop_queries(
             query=request.query,
@@ -280,27 +306,22 @@ class HybridRetrievalService:
                 )
                 for content_query in comparison_backstop_queries
             ]
-            comparison_results = await asyncio.gather(
-                *[
-                    execute_plan(
-                        plan,
-                        l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                        session_id=request.session_id,
-                        user_id=request.user_id,
-                    )
-                    for plan in comparison_plans
-                ],
-                return_exceptions=True,
+            await self._execute_and_merge_plans(
+                comparison_plans, payload, l1=l1, request=request, label="Comparison backstop plan",
             )
-            for plan, result in zip(comparison_plans, comparison_results):
-                if isinstance(result, Exception):
-                    logger.warning("Comparison backstop plan %s failed: %s", plan.layer, result)
-                    continue
-                self._merge_result(payload, plan.layer, result)
-            primary_count = self._count_results(payload)
             payload.trace["comparison_backstop_triggered"] = True
-            payload.trace["comparison_backstop_count"] = primary_count
+            payload.trace["comparison_backstop_count"] = self._count_results(payload)
 
+    async def _run_fallback_if_needed(
+        self,
+        decision: Any,
+        payload: RetrievalPayload,
+        *,
+        l1: Optional[L1Handler],
+        request: RetrievalQuery,
+    ) -> None:
+        """Run fallback plans when primary + backstop results are insufficient or low-confidence."""
+        primary_count = self._count_results(payload)
         payload.trace["primary_count"] = primary_count
 
         should_fallback = primary_count < self._config.fallback_trigger_threshold
@@ -323,34 +344,27 @@ class HybridRetrievalService:
 
         if should_fallback:
             fallback_plans = [p for p in decision.plans if p.is_fallback]
+            await self._execute_and_merge_plans(
+                fallback_plans, payload, l1=l1, request=request, label="Fallback plan",
+            )
             if fallback_plans:
-                fallback_results = await asyncio.gather(
-                    *[
-                        execute_plan(
-                            plan,
-                            l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                            session_id=request.session_id,
-                            user_id=request.user_id,
-                        )
-                        for plan in fallback_plans
-                    ],
-                    return_exceptions=True,
-                )
-                for plan, result in zip(fallback_plans, fallback_results):
-                    if isinstance(result, Exception):
-                        logger.warning("Fallback plan %s failed: %s", plan.layer, result)
-                        continue
-                    self._merge_result(payload, plan.layer, result)
                 payload.trace["fallback_triggered"] = True
 
+    async def _apply_post_processing(
+        self,
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+    ) -> RetrievalPayload:
+        """Apply fusion, manifest selection, evidence bundling, and timeline summary."""
         # Save pre-truncation L1 events for evidence bundling (fusion
         # truncates the list, but bundles need full session coverage).
         pre_fusion_l1_events = list(payload.l1_events)
 
-        # 5. Result fusion (dedup + token budget)
+        # Result fusion (dedup + token budget)
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
 
-        # 6. Cross-layer manifest selection (optional LLM step)
+        # Cross-layer manifest selection (optional LLM step)
         if self._config.manifest_selector_enabled:
             payload = await self._manifest_selector.select(
                 payload, query=request.query, llm_bridge=self._llm_provider_bridge,
@@ -422,12 +436,15 @@ class HybridRetrievalService:
 
             db_path = str(getattr(catalog, "db_path", ""))
             if db_path:
-                edge_vector_index = SqliteVecIndex(
-                    db_path=db_path,
-                    registry_table="l2_edge_vectors",
-                    entity_column="entity_id",
-                    vec_table_prefix="l2_edge_vec",
-                )
+                try:
+                    edge_vector_index = SqliteVecIndex(
+                        db_path=db_path,
+                        registry_table="l2_edge_vectors",
+                        entity_column="entity_id",
+                        vec_table_prefix="l2_edge_vec",
+                    )
+                except Exception:
+                    logger.warning("Failed to create L2 edge vector index", exc_info=True)
         return L2Handler(
             memory.l2,
             entity_catalog=catalog,
@@ -599,9 +616,12 @@ class HybridRetrievalService:
         request: RetrievalQuery,
         payload: RetrievalPayload,
         time_range: Optional[TimeRange] = None,
+        l1: Optional[L1Handler] = None,
     ) -> None:
         """Generate expanded query variants and run additional L1 plans."""
         from .query_expander import QueryExpander
+
+        effective_l1 = l1 if l1 is not None else self._l1
 
         expander = QueryExpander(
             self._llm_provider_bridge,
@@ -631,7 +651,7 @@ class HybridRetrievalService:
             *[
                 execute_plan(
                     plan,
-                    l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                    l1=effective_l1, l2=self._l2, l3=self._l3, l4=self._l4,
                     session_id=request.session_id,
                     user_id=request.user_id,
                 )
@@ -781,7 +801,9 @@ class HybridRetrievalService:
 
         # Load session events in parallel instead of sequentially
         session_ids = list(grouped_hits.keys())
-        session_limits = [max(len(grouped_hits[sid]) * 8, 24) for sid in session_ids]
+        # Over-fetch factor: load N× more events per session than the hit
+        # count so _select_bundle_events can expand to neighbor turns.
+        session_limits = [max(len(grouped_hits[sid]) * _SESSION_EVENTS_OVER_FETCH, 24) for sid in session_ids]
         session_events_list = await asyncio.gather(
             *(
                 self._load_session_events(sid, limit=lim)
@@ -876,7 +898,7 @@ class HybridRetrievalService:
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:
         """Extract a numeric turn suffix from session turn ids like `session:turn-3`."""
-        match = re.search(r"turn-(\d+)$", str(turn_id or ""))
+        match = _TURN_NUMBER_RE.search(str(turn_id or ""))
         if not match:
             return None
         try:

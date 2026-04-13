@@ -94,8 +94,15 @@ class CrossEncoderScorer:
             return []
         async with self._lock:
             await self._ensure_loaded()
+            session = self._session
+            tokenizer = self._tokenizer
+            max_length = self._max_length
+        if session is None or tokenizer is None:
+            return [0.0] * len(pairs)
         self._last_used = time.monotonic()
-        return await asyncio.to_thread(self._score_sync, pairs)
+        return await asyncio.to_thread(
+            self._score_sync, pairs, session, tokenizer, max_length
+        )
 
     async def shutdown(self) -> None:
         if self._unload_task and not self._unload_task.done():
@@ -195,20 +202,26 @@ class CrossEncoderScorer:
                     break
         except asyncio.CancelledError:
             pass
+        except Exception:
+            logger.warning("Cross-encoder idle unload loop failed", exc_info=True)
 
     # ── ONNX inference ──────────────────────────────────────────────────
 
-    def _score_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
+    def _score_sync(
+        self,
+        pairs: list[tuple[str, str]],
+        session: Any,
+        tokenizer: Any,
+        max_length: int,
+    ) -> list[float]:
         """Synchronous scoring — runs in a thread pool."""
         import numpy as np
 
-        session = self._session
-        tokenizer = self._tokenizer
         if session is None or tokenizer is None:
             return [0.0] * len(pairs)
 
         tokenizer.enable_padding(direction="right")
-        tokenizer.enable_truncation(max_length=self._max_length)
+        tokenizer.enable_truncation(max_length=max_length)
 
         # Encode each (query, document) as a pair
         encodings = tokenizer.encode_batch(

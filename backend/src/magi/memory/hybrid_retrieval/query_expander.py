@@ -98,18 +98,32 @@ class QueryExpander:
     def _parse(raw: str) -> list[str]:
         """Parse the LLM response into a list of query strings."""
         text = raw.strip()
-        # Try to extract JSON array from the response
+        # Try to extract JSON array from the response.
+        # LLM output may contain multiple bracket pairs (e.g. explanation
+        # text around the array).  We try progressively narrower substrings
+        # to find the first valid JSON array.
         start = text.find("[")
-        end = text.rfind("]")
-        if start == -1 or end == -1:
+        if start == -1:
             logger.warning("Query expansion response has no JSON array: %r", text[:200])
             return []
-        try:
-            parsed = json.loads(text[start:end + 1])
-        except json.JSONDecodeError:
+
+        parsed = None
+        search_from = len(text)
+        while search_from > start:
+            end = text.rfind("]", start, search_from)
+            if end == -1:
+                break
+            try:
+                candidate = json.loads(text[start:end + 1])
+                if isinstance(candidate, list):
+                    parsed = candidate
+                    break
+            except json.JSONDecodeError:
+                pass
+            search_from = end
+
+        if parsed is None:
             logger.warning("Query expansion response is not valid JSON: %r", text[:200])
-            return []
-        if not isinstance(parsed, list):
             return []
         result = []
         for item in parsed:

@@ -36,11 +36,39 @@ def build_l4_embedding_text(
     skill_category: str,
     optimized_prompt: str | None,
 ) -> str:
-    """Return the canonical L4 text used for embedding."""
+    """Return the canonical L4 text used for embedding.
+
+    When *optimized_prompt* contains a JSON strategy (from LLM extraction),
+    the embedding text includes structured strategy fields for richer
+    semantic retrieval.
+    """
+    import json
+
     parts = [str(skill_name).strip(), str(skill_category).strip()]
     prompt = str(optimized_prompt or "").strip()
     if prompt:
-        parts.append(prompt)
+        # Try to expand strategy JSON into more descriptive text.
+        try:
+            data = json.loads(prompt)
+            if isinstance(data, dict) and any(
+                k in data for k in ("recommended_approach", "best_use_cases", "avoid_patterns")
+            ):
+                approach = str(data.get("recommended_approach") or "").strip()
+                if approach:
+                    parts.append(approach)
+                for case in data.get("best_use_cases") or []:
+                    case_text = str(case).strip()
+                    if case_text:
+                        parts.append(case_text)
+                for pattern in data.get("avoid_patterns") or []:
+                    pattern_text = str(pattern).strip()
+                    if pattern_text:
+                        parts.append(f"avoid: {pattern_text}")
+            else:
+                # Non-strategy JSON or plain text — include as-is.
+                parts.append(prompt)
+        except (json.JSONDecodeError, TypeError):
+            parts.append(prompt)
     return "\n".join(part for part in parts if part)
 
 
