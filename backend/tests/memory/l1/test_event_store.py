@@ -1234,9 +1234,9 @@ async def test_l1_batch_embedding_flush_indexes_chunks_and_updates_chunk_count(t
 
     try:
         long_content = (
-            "career note section one " * 20
-            + "career note section two " * 20
-            + "career note section three " * 20
+            "I worked on the career note section one project for several weeks. " * 5
+            + "The career note section two involved complex database migrations. " * 5
+            + "Finally the career note section three required integration testing. " * 5
         )
         event = normalize_runtime_event(
             Event(
@@ -1281,8 +1281,8 @@ async def test_l1_fetch_ranked_events_folds_chunk_hits_to_parent_event(tmp_path)
     await store.initialize()
     try:
         long_content = (
-            "career planning for next quarter " * 18
-            + "calm breathing practice after work " * 18
+            "I planned my career goals for next quarter and set clear milestones. " * 5
+            + "After work I practiced calm breathing exercises for stress relief. " * 5
         )
         event = normalize_runtime_event(
             Event(

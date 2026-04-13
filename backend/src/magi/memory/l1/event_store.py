@@ -15,7 +15,7 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
-from ..embedding.chunking import ChunkedText, chunk_text
+from ..embedding.chunking import ChunkedText, chunk_sentences, chunk_text
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..embedding.embedding_text_builders import build_l1_embedding_text
@@ -1664,7 +1664,7 @@ class L1EventStore:
         )
 
     def _build_event_embedding_chunks(self, event: MemoryEvent) -> list[ChunkedText]:
-        return chunk_text(self.get_embedding_text(event))
+        return chunk_sentences(self.get_embedding_text(event))
 
     def _chunk_id_for_event(self, event_id: str, chunk_index: int) -> str:
         return f"{event_id}::chunk-{chunk_index}"
