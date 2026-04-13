@@ -1222,10 +1222,21 @@ class ChatPostProcessService:
         session_id: str,
         turn_id: str | None,
     ) -> None:
+        trace_summary: dict[str, Any] | None = None
+        if self._trace_read_service and turn_id:
+            try:
+                trace_summary = await self._trace_read_service.aget_trace_summary(
+                    user_id=user_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
+            except Exception:
+                pass
         await self._runtime_notifier.emit_trace_update(
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
+            trace_summary=trace_summary,
         )
 
     async def _emit_context_usage_notification(

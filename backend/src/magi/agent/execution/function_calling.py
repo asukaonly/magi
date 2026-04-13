@@ -1388,7 +1388,7 @@ class FunctionCallingOrchestrator:
         summaries: List[str] = []
         for call, tool_message in zip(tool_calls, block.tool_messages):
             tool_name = call.get("function", {}).get("name", "unknown")
-            summaries.append(self._build_tool_summary(tool_name, tool_message))
+            summaries.append(self._build_tool_summary(tool_name, tool_message, call))
         return summaries
 
     def _is_tool_summary_message(self, message: Dict[str, Any]) -> bool:
@@ -1404,7 +1404,7 @@ class FunctionCallingOrchestrator:
         lines = content.splitlines()[1:]
         return [line for line in lines if line.strip()]
 
-    def _build_tool_summary(self, tool_name: str, tool_message: Dict[str, Any]) -> str:
+    def _build_tool_summary(self, tool_name: str, tool_message: Dict[str, Any], call: Dict[str, Any] | None = None) -> str:
         try:
             payload = json.loads(str(tool_message.get("content", "{}")))
         except json.JSONDecodeError:
@@ -1426,9 +1426,25 @@ class FunctionCallingOrchestrator:
                 detail = f" | matches={data.get('match_count')}"
             elif data.get("return_code") is not None:
                 detail = f" | return_code={data.get('return_code')}"
+                stdout = str(data.get("stdout_preview") or data.get("stdout") or "").strip()
+                if stdout:
+                    stdout_short = stdout[:200].replace("\r\n", "\n").replace("\r", "\n")
+                    detail += f"\n  stdout: {stdout_short}"
         if error and not success:
             detail = f" | error={error}"
-        return f"- {tool_name}: {status}{detail}"
+        # Include the command/arguments for better recall
+        args_hint = ""
+        if call and isinstance(call, dict):
+            func = call.get("function", {})
+            try:
+                args = json.loads(func.get("arguments", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            cmd = args.get("command") or args.get("query") or args.get("path")
+            if cmd:
+                cmd_short = str(cmd)[:120]
+                args_hint = f" [{cmd_short}]"
+        return f"- {tool_name}{args_hint}: {status}{detail}"
 
     def _augment_system_prompt(self, system_prompt: str) -> str:
         guidance = (

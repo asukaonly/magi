@@ -433,9 +433,17 @@ class ChatRuntimeNotifier:
         user_id: str,
         session_id: str,
         turn_id: str | None,
+        trace_summary: dict[str, Any] | None = None,
     ) -> None:
         if self._runtime_trace_store is None or not turn_id:
             return
+        payload: dict[str, Any] = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+        }
+        if trace_summary is not None:
+            payload["trace_summary"] = trace_summary
         await self._runtime_trace_store.append_notification(
             RuntimeNotificationRecord(
                 notification_id=0,
@@ -443,7 +451,7 @@ class ChatRuntimeNotifier:
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=turn_id,
-                payload_json="{}",
+                payload_json=json.dumps(payload, ensure_ascii=False),
                 created_at_ms=now_wall_ms(),
             )
         )
