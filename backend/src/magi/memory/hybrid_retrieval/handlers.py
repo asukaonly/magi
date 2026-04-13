@@ -181,7 +181,41 @@ class L1Handler(RRFSearchHandler):
         cfg = self._config
         fetch_k = max(conditions.limit * cfg.rrf_over_fetch_multiplier, cfg.rrf_over_fetch_minimum)
 
-        # Phase 1: Run 3 core retrieval paths in parallel
+        # Phase 1+2: Collect ranked candidate lists from all retrieval paths
+        ranked_lists, weights = await self._collect_candidate_lists(
+            conditions, time_range, fetch_k, session_id=session_id, user_id=user_id,
+        )
+        if not any(ids for ids in ranked_lists):
+            return []
+
+        # Phase 3: N-way RRF fusion
+        fused = rrf_fuse(ranked_lists, weights, k=cfg.rrf_k)
+        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
+        if not top_ids:
+            return []
+        logger.debug(
+            "L1 RRF fusion completed | top_ids_count=%d top_ids_sample=%s",
+            len(top_ids), top_ids[:5],
+        )
+
+        # Phase 4: Hydrate, filter, rerank
+        return await self._hydrate_and_rerank(
+            top_ids, fused, conditions, time_range,
+            session_id=session_id, user_id=user_id,
+        )
+
+    async def _collect_candidate_lists(
+        self,
+        conditions: L1Conditions,
+        time_range: Optional[TimeRange],
+        fetch_k: int,
+        *,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> Tuple[List[Sequence[str]], List[float]]:
+        """Run all retrieval paths and return (ranked_lists, weights) for RRF fusion."""
+        cfg = self._config
+
         retrieval_coros = [
             self._bm25_path(conditions.content_query, fetch_k, user_id=user_id),
             self._vector_path(conditions.content_query, fetch_k, user_id=user_id),
@@ -213,7 +247,7 @@ class L1Handler(RRFSearchHandler):
             len(bm25_ids), len(vec_ids), len(kw_ids), len(temporal_bm25_ids), fetch_k,
         )
 
-        # Phase 2: Entity co-occurrence expansion using top seed IDs
+        # Entity co-occurrence expansion using top seed IDs
         seed_ids: List[str] = list(dict.fromkeys(
             bm25_ids[:10] + vec_ids[:10] + kw_ids[:10] + temporal_bm25_ids[:10]
         ))
@@ -224,12 +258,7 @@ class L1Handler(RRFSearchHandler):
             except Exception as exc:
                 logger.warning("L1 entity expansion failed: %s", exc)
 
-        if not bm25_ids and not vec_ids and not kw_ids and not entity_ids and not temporal_bm25_ids:
-            return []
-
-        cfg = self._config
-
-        # Phase 2b: Graph spreading activation (L2 knowledge graph BFS)
+        # Graph spreading activation (L2 knowledge graph BFS)
         graph_ids: List[str] = []
         if cfg.graph_spreading_enabled and self._l2_store is not None and seed_ids:
             try:
@@ -237,8 +266,8 @@ class L1Handler(RRFSearchHandler):
             except Exception as exc:
                 logger.warning("L1 graph spreading failed: %s", exc)
 
-        # Phase 3: N-way RRF fusion
-        ranked_lists: list[Sequence[str]] = [bm25_ids, vec_ids, kw_ids]
+        # Assemble ranked lists + weights for RRF
+        ranked_lists: List[Sequence[str]] = [bm25_ids, vec_ids, kw_ids]
         weights = [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword]
         if entity_ids:
             ranked_lists.append(entity_ids)
@@ -250,17 +279,19 @@ class L1Handler(RRFSearchHandler):
             ranked_lists.append(temporal_bm25_ids)
             weights.append(cfg.rrf_weight_temporal_bm25)
 
-        fused = rrf_fuse(ranked_lists, weights, k=cfg.rrf_k)
-        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
-        if not top_ids:
-            return []
+        return ranked_lists, weights
 
-        logger.debug(
-            "L1 RRF fusion completed | top_ids_count=%d top_ids_sample=%s",
-            len(top_ids), top_ids[:5],
-        )
-
-        # Phase 4: Hydrate, filter, rerank
+    async def _hydrate_and_rerank(
+        self,
+        top_ids: List[str],
+        fused: List[Tuple[str, float]],
+        conditions: L1Conditions,
+        time_range: Optional[TimeRange],
+        *,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch full event rows, apply filters, and rerank."""
         results = await self._fetch_and_filter(
             event_ids=top_ids, conditions=conditions, time_range=time_range,
             session_id=session_id, user_id=user_id,
@@ -273,9 +304,6 @@ class L1Handler(RRFSearchHandler):
             session_id, user_id, time_range,
             conditions.source_filters, conditions.domain_filters,
         )
-
-        # Time-range is already enforced inside _fetch_and_filter via SQL;
-        # no redundant Python post-filter needed here.
 
         reranked = await self._reranker.rerank(
             layer=self.layer_name,

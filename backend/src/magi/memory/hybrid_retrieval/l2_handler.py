@@ -16,6 +16,11 @@ from .models import (
     SemanticConstraint,
     TimeRange,
 )
+from .protocols import (
+    EmbeddingServiceProtocol,
+    EntityCatalogProtocol,
+    L2StoreProtocol,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +30,9 @@ class L2Handler:
 
     def __init__(
         self,
-        l2_store: Any,
-        entity_catalog: Any | None = None,
-        embedding_service: Any | None = None,
+        l2_store: L2StoreProtocol,
+        entity_catalog: EntityCatalogProtocol | None = None,
+        embedding_service: EmbeddingServiceProtocol | None = None,
         edge_vector_index: Any | None = None,
     ) -> None:
         self._store = l2_store

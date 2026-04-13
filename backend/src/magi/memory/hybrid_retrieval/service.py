@@ -177,6 +177,7 @@ class HybridRetrievalService:
         a per-query handler copy.
         """
         l1 = effective_l1 if effective_l1 is not None else self._l1
+
         # 3. Execute primary plans in parallel
         primary_plans = self._augment_primary_plans(
             [p for p in decision.plans if not p.is_fallback],
@@ -188,29 +189,9 @@ class HybridRetrievalService:
             len(primary_plans),
             [(p.layer, p.is_fallback, getattr(p.conditions, "content_query", "")[:60]) for p in primary_plans],
         )
-        if primary_plans:
-            primary_results = await asyncio.gather(
-                *[
-                    execute_plan(
-                        plan,
-                        l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                        session_id=request.session_id,
-                        user_id=request.user_id,
-                    )
-                    for plan in primary_plans
-                ],
-                return_exceptions=True,
-            )
-            for plan, result in zip(primary_plans, primary_results):
-                if isinstance(result, Exception):
-                    logger.warning("Primary plan %s failed: %s", plan.layer, result)
-                    continue
-                result_len = len(result) if isinstance(result, list) else (len(result.get("entity_cards", [])) if isinstance(result, dict) else 0)
-                logger.debug(
-                    "Primary plan %s merge | result_type=%s result_len=%d",
-                    plan.layer, type(result).__name__, result_len,
-                )
-                self._merge_result(payload, plan.layer, result)
+        await self._execute_and_merge_plans(
+            primary_plans, payload, l1=l1, request=request, label="Primary plan",
+        )
 
         # 3b. Query expansion — run additional L1 plans with reformulated queries
         if self._config.query_expansion_enabled and self._llm_provider_bridge:
@@ -222,8 +203,59 @@ class HybridRetrievalService:
                 l1=l1,
             )
 
-        # 4. Fallback if primary results are insufficient
-        primary_count = self._count_results(payload)
+        # 4. Backstops + fallbacks
+        await self._run_backstops(
+            request, decision, intent_input, payload,
+            l1=l1, primary_plans=primary_plans,
+        )
+        await self._run_fallback_if_needed(
+            decision, payload, l1=l1, request=request,
+        )
+
+        # 5+6. Post-processing (fusion, manifest selection, evidence bundles)
+        return await self._apply_post_processing(payload, request=request)
+
+    async def _execute_and_merge_plans(
+        self,
+        plans: List[LayerQueryPlan],
+        payload: RetrievalPayload,
+        *,
+        l1: Optional[L1Handler],
+        request: RetrievalQuery,
+        label: str = "Plan",
+    ) -> None:
+        """Execute layer query plans in parallel and merge results into *payload*."""
+        if not plans:
+            return
+        results = await asyncio.gather(
+            *[
+                execute_plan(
+                    plan,
+                    l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                    session_id=request.session_id,
+                    user_id=request.user_id,
+                )
+                for plan in plans
+            ],
+            return_exceptions=True,
+        )
+        for plan, result in zip(plans, results):
+            if isinstance(result, Exception):
+                logger.warning("%s %s failed: %s", label, plan.layer, result)
+                continue
+            self._merge_result(payload, plan.layer, result)
+
+    async def _run_backstops(
+        self,
+        request: RetrievalQuery,
+        decision: Any,
+        intent_input: IntentDeciderInput,
+        payload: RetrievalPayload,
+        *,
+        l1: Optional[L1Handler],
+        primary_plans: List[LayerQueryPlan],
+    ) -> None:
+        """Run rule-based and comparison backstops when primary results are insufficient."""
         backstop_reason = self._rule_backstop_reason(
             query=request.query,
             payload=payload,
@@ -231,10 +263,11 @@ class HybridRetrievalService:
         )
         if backstop_reason is not None:
             rule_decision = self._intent_decider._rule_engine.evaluate(intent_input)
+            existing_signatures = {self._plan_signature(p) for p in primary_plans}
             rule_primary_plans = [
                 plan
                 for plan in rule_decision.plans
-                if not plan.is_fallback and self._plan_signature(plan) not in {self._plan_signature(existing) for existing in primary_plans}
+                if not plan.is_fallback and self._plan_signature(plan) not in existing_signatures
             ]
             # When L1 events are empty, also include L1 fallback plans from
             # the rule engine so the backstop does not rely solely on L2 data.
@@ -243,31 +276,16 @@ class HybridRetrievalService:
                     plan
                     for plan in rule_decision.plans
                     if plan.is_fallback and getattr(plan, "layer", "") == "L1"
-                    and self._plan_signature(plan) not in {self._plan_signature(existing) for existing in primary_plans}
+                    and self._plan_signature(plan) not in existing_signatures
                 ]
                 rule_primary_plans.extend(rule_l1_fallback_plans)
+            await self._execute_and_merge_plans(
+                rule_primary_plans, payload, l1=l1, request=request, label="Rule backstop plan",
+            )
             if rule_primary_plans:
-                rule_primary_results = await asyncio.gather(
-                    *[
-                        execute_plan(
-                            plan,
-                            l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                            session_id=request.session_id,
-                            user_id=request.user_id,
-                        )
-                        for plan in rule_primary_plans
-                    ],
-                    return_exceptions=True,
-                )
-                for plan, result in zip(rule_primary_plans, rule_primary_results):
-                    if isinstance(result, Exception):
-                        logger.warning("Rule backstop plan %s failed: %s", plan.layer, result)
-                        continue
-                    self._merge_result(payload, plan.layer, result)
-                primary_count = self._count_results(payload)
                 payload.trace["rule_backstop_triggered"] = True
                 payload.trace["rule_backstop_reason"] = backstop_reason
-                payload.trace["rule_backstop_count"] = primary_count
+                payload.trace["rule_backstop_count"] = self._count_results(payload)
 
         comparison_backstop_queries = self._comparison_backstop_queries(
             query=request.query,
@@ -288,27 +306,22 @@ class HybridRetrievalService:
                 )
                 for content_query in comparison_backstop_queries
             ]
-            comparison_results = await asyncio.gather(
-                *[
-                    execute_plan(
-                        plan,
-                        l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                        session_id=request.session_id,
-                        user_id=request.user_id,
-                    )
-                    for plan in comparison_plans
-                ],
-                return_exceptions=True,
+            await self._execute_and_merge_plans(
+                comparison_plans, payload, l1=l1, request=request, label="Comparison backstop plan",
             )
-            for plan, result in zip(comparison_plans, comparison_results):
-                if isinstance(result, Exception):
-                    logger.warning("Comparison backstop plan %s failed: %s", plan.layer, result)
-                    continue
-                self._merge_result(payload, plan.layer, result)
-            primary_count = self._count_results(payload)
             payload.trace["comparison_backstop_triggered"] = True
-            payload.trace["comparison_backstop_count"] = primary_count
+            payload.trace["comparison_backstop_count"] = self._count_results(payload)
 
+    async def _run_fallback_if_needed(
+        self,
+        decision: Any,
+        payload: RetrievalPayload,
+        *,
+        l1: Optional[L1Handler],
+        request: RetrievalQuery,
+    ) -> None:
+        """Run fallback plans when primary + backstop results are insufficient or low-confidence."""
+        primary_count = self._count_results(payload)
         payload.trace["primary_count"] = primary_count
 
         should_fallback = primary_count < self._config.fallback_trigger_threshold
@@ -331,34 +344,27 @@ class HybridRetrievalService:
 
         if should_fallback:
             fallback_plans = [p for p in decision.plans if p.is_fallback]
+            await self._execute_and_merge_plans(
+                fallback_plans, payload, l1=l1, request=request, label="Fallback plan",
+            )
             if fallback_plans:
-                fallback_results = await asyncio.gather(
-                    *[
-                        execute_plan(
-                            plan,
-                            l1=l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                            session_id=request.session_id,
-                            user_id=request.user_id,
-                        )
-                        for plan in fallback_plans
-                    ],
-                    return_exceptions=True,
-                )
-                for plan, result in zip(fallback_plans, fallback_results):
-                    if isinstance(result, Exception):
-                        logger.warning("Fallback plan %s failed: %s", plan.layer, result)
-                        continue
-                    self._merge_result(payload, plan.layer, result)
                 payload.trace["fallback_triggered"] = True
 
+    async def _apply_post_processing(
+        self,
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+    ) -> RetrievalPayload:
+        """Apply fusion, manifest selection, evidence bundling, and timeline summary."""
         # Save pre-truncation L1 events for evidence bundling (fusion
         # truncates the list, but bundles need full session coverage).
         pre_fusion_l1_events = list(payload.l1_events)
 
-        # 5. Result fusion (dedup + token budget)
+        # Result fusion (dedup + token budget)
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
 
-        # 6. Cross-layer manifest selection (optional LLM step)
+        # Cross-layer manifest selection (optional LLM step)
         if self._config.manifest_selector_enabled:
             payload = await self._manifest_selector.select(
                 payload, query=request.query, llm_bridge=self._llm_provider_bridge,
