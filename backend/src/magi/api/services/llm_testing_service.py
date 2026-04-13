@@ -29,6 +29,7 @@ from ...config.models import (
     LLMCapabilitiesSettings,
     LLMProviderSettings,
 )
+from ...config import get_config
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
 from ...llm.draft import build_adapter_from_provider
@@ -180,10 +181,14 @@ async def discover_openai_compatible_models(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    proxy_url = get_config().network.proxy_url()
+    # aiohttp only supports HTTP proxies natively; skip SOCKS proxy URLs.
+    if proxy_url and proxy_url.startswith("socks"):
+        proxy_url = None
     timeout = aiohttp.ClientTimeout(total=15)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(endpoint, headers=headers) as response:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
+            async with session.get(endpoint, headers=headers, proxy=proxy_url) as response:
                 if response.status >= 400:
                     raise HTTPException(status_code=502, detail=f"Model discovery request failed with status {response.status}")
                 payload = await response.json()

@@ -2,6 +2,7 @@
 LLM Adapter - Anthropic implementation
 """
 from typing import Optional, Dict, Any, AsyncIterator
+import httpx
 from anthropic import AsyncAnthropic
 from .base import LLMAdapter
 from ..config.constants import DEFAULT_MAX_TOKENS
@@ -24,6 +25,7 @@ class AnthropicAdapter(LLMAdapter):
         base_url: Optional[str] = None,
         api_base: Optional[str] = None,
         timeout: int = 60,
+        proxy_url: Optional[str] = None,
     ):
         """
         Initialize Anthropic Adapter
@@ -34,6 +36,7 @@ class AnthropicAdapter(LLMAdapter):
             base_url: Custom API endpoint (optional, for proxy or relay services)
             api_base: Compatible with legacy configuration, equivalent to base_url
             timeout: Request timeout duration (seconds)
+            proxy_url: HTTP/SOCKS5 proxy URL (optional). When omitted, connects directly.
         """
         self._model = model
         self._timeout = timeout
@@ -42,7 +45,17 @@ class AnthropicAdapter(LLMAdapter):
         api_endpoint = base_url or api_base
         self._base_url = api_endpoint
 
-        client_kwargs = {"api_key": api_key, "timeout": timeout}
+        # Always ignore system proxy; use explicit proxy_url when configured.
+        http_client = httpx.AsyncClient(
+            proxy=proxy_url,
+            trust_env=False,
+        )
+
+        client_kwargs: Dict[str, Any] = {
+            "api_key": api_key,
+            "timeout": timeout,
+            "http_client": http_client,
+        }
         if api_endpoint:
             client_kwargs["base_url"] = api_endpoint
 

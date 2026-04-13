@@ -68,6 +68,7 @@ def test_scenario_llm_pool_returns_distinct_adapters_for_distinct_scenarios():
         base_url: str | None,
         timeout: int,
         embedding_dimension: int | None = None,
+        proxy_url: str | None = None,
     ) -> DummyAdapter:
         assert embedding_dimension is None
         created.append((provider_type, model))
@@ -118,6 +119,7 @@ def test_scenario_llm_pool_refresh_rebuilds_cached_adapter():
         base_url: str | None,
         timeout: int,
         embedding_dimension: int | None = None,
+        proxy_url: str | None = None,
     ) -> DummyAdapter:
         assert embedding_dimension is None
         created.append(model)
@@ -160,6 +162,7 @@ def test_scenario_llm_pool_passes_embedding_dimension_for_embedding_scenario():
             "base_url": "https://api.openai.com/v1",
             "timeout": 60,
             "embedding_dimension": 512,
+            "proxy_url": None,
         }
     ]
 
@@ -200,6 +203,7 @@ def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
             "base_url": "https://llm.example.com/v1",
             "timeout": 60,
             "embedding_dimension": None,
+            "proxy_url": None,
         }
     ]
 
@@ -240,6 +244,7 @@ def test_scenario_llm_pool_detects_glm_compatible_custom_provider() -> None:
             "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
             "timeout": 60,
             "embedding_dimension": None,
+            "proxy_url": None,
         }
     ]
 
@@ -280,6 +285,7 @@ def test_scenario_llm_pool_detects_dashscope_custom_provider() -> None:
             "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "timeout": 60,
             "embedding_dimension": None,
+            "proxy_url": None,
         }
     ]
 

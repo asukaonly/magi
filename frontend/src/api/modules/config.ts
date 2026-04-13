@@ -31,6 +31,15 @@ export interface UserPreferences {
   default_chat_workspace_path: string | null;
 }
 
+export type ProxyType = 'http' | 'socks5';
+
+export interface NetworkProxyConfig {
+  enabled: boolean;
+  proxy_type: ProxyType;
+  host: string;
+  port: number;
+}
+
 export interface LLMProviderConfig {
   enabled: boolean;
   provider_type: LLMProvider;
@@ -399,6 +408,7 @@ export interface SystemConfig {
   llm: LLMConfig;
   memory: MemoryConfig;
   preferences: UserPreferences;
+  network: NetworkProxyConfig;
   personality: PersonalityConfig;
   tools: ToolsConfig;
   timeline: TimelineConfig;
@@ -536,6 +546,12 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     language: 'zh',
     close_to_tray_enabled: true,
     default_chat_workspace_path: '~/.magi/chat-workspace',
+  },
+  network: {
+    enabled: false,
+    proxy_type: 'http',
+    host: '127.0.0.1',
+    port: 7890,
   },
   personality: DEFAULT_PERSONALITY_CONFIG,
   tools: {

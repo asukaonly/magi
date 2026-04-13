@@ -632,6 +632,37 @@ class PluginsSettings(BaseModel):
 
 
 # =============================================================================
+# Network Proxy
+# =============================================================================
+
+class ProxyType(str, Enum):
+    """Supported network proxy types."""
+    HTTP = "http"
+    SOCKS5 = "socks5"
+
+
+class NetworkProxySettings(BaseModel):
+    """Network proxy configuration.
+
+    When ``enabled`` is False (the default), the application ignores system
+    proxy settings and connects directly.  When enabled, all outbound LLM
+    requests are routed through the configured proxy.
+    """
+
+    enabled: bool = Field(default=False)
+    proxy_type: ProxyType = Field(default=ProxyType.HTTP)
+    host: str = Field(default="127.0.0.1")
+    port: int = Field(default=7890, ge=1, le=65535)
+
+    def proxy_url(self) -> str | None:
+        """Build proxy URL string, or ``None`` when disabled."""
+        if not self.enabled:
+            return None
+        scheme = "socks5" if self.proxy_type == ProxyType.SOCKS5 else "http"
+        return f"{scheme}://{self.host}:{self.port}"
+
+
+# =============================================================================
 # Root Configuration
 # =============================================================================
 
@@ -644,6 +675,7 @@ class AppConfig(BaseModel):
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
     timeline: TimelineSettings = Field(default_factory=TimelineSettings)
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
+    network: NetworkProxySettings = Field(default_factory=NetworkProxySettings)
     debug: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 

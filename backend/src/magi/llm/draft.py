@@ -46,6 +46,7 @@ def build_adapter_from_provider(
     timeout: int = 60,
     default_base_url: str | None = None,
     adapter_factory: AdapterFactory = create_llm_adapter,
+    proxy_url: str | None = None,
 ) -> object:
     """Build a temporary adapter from provider settings."""
     if not provider.enabled:
@@ -55,12 +56,17 @@ def build_adapter_from_provider(
     if not (model or "").strip():
         raise ValueError("LLM model is required")
 
+    if proxy_url is None:
+        config = get_config()
+        proxy_url = config.network.proxy_url() if hasattr(config, "network") else None
+
     return adapter_factory(
         provider_type=_resolve_runtime_provider_type(provider),
         api_key=(provider.api_key or "").strip(),
         model=model.strip(),
         base_url=(provider.base_url or "").strip() or _resolve_default_base_url(provider, default_base_url) or None,
         timeout=timeout,
+        proxy_url=proxy_url,
     )
 
 

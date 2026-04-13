@@ -55,6 +55,7 @@ class ScenarioLLMPool:
             )
 
         provider_type = self._resolve_runtime_provider_type(provider, selection.model)
+        proxy_url = self._config.network.proxy_url() if hasattr(self._config, "network") else None
         adapter = self._adapter_factory(
             provider_type=provider_type,
             api_key=provider.api_key,
@@ -62,6 +63,7 @@ class ScenarioLLMPool:
             base_url=provider.base_url,
             timeout=self._config.llm.timeout,
             embedding_dimension=selection.embedding_dimension if scenario == LLMScenario.EMBEDDING else None,
+            proxy_url=proxy_url,
         )
         for configurator in self._adapter_configurators:
             configurator(adapter)

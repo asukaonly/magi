@@ -21,6 +21,7 @@ def create_llm_adapter(
     base_url: str | None = None,
     timeout: int = 60,
     embedding_dimension: int | None = None,
+    proxy_url: str | None = None,
 ) -> LLMAdapter:
     """Create an adapter from explicit provider settings."""
     provider = provider_type.lower().strip()
@@ -34,6 +35,7 @@ def create_llm_adapter(
             model=model,
             base_url=base_url,
             timeout=timeout,
+            proxy_url=proxy_url,
         )
 
     if provider in {"openai", "glm", "glm_codeplan", "gemini", "deepseek", "dashscope", "kimi", "minimax", "local"}:
@@ -44,6 +46,7 @@ def create_llm_adapter(
             base_url=base_url,
             timeout=timeout,
             embedding_dimension=embedding_dimension,
+            proxy_url=proxy_url,
         )
 
     raise ValueError(f"Unsupported LLM provider: {provider}")

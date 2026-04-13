@@ -185,6 +185,13 @@ class UserPreferencesModel(BaseModel):
     default_chat_workspace_path: Optional[str] = Field(default="~/.magi/chat-workspace")
 
 
+class NetworkProxyConfigModel(BaseModel):
+    enabled: bool = Field(default=False)
+    proxy_type: str = Field(default="http")
+    host: str = Field(default="127.0.0.1")
+    port: int = Field(default=7890, ge=1, le=65535)
+
+
 # Import full PersonalityConfigModel from personality config module
 from .personality_config import PersonalityConfigModel as FullPersonalityConfigModel
 
@@ -256,6 +263,7 @@ class SystemConfigModel(BaseModel):
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
     memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)
     preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
+    network: NetworkProxyConfigModel = Field(default_factory=NetworkProxyConfigModel)
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
     tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
     timeline: TimelineConfigModel = Field(default_factory=TimelineConfigModel)
@@ -522,6 +530,7 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
     registry = _load_llm_provider_registry()
 
     preferences_data = raw.get("preferences", {})
+    network_data = raw.get("network", {})
 
     return SystemConfigModel(
         agent=AgentConfigModel(
@@ -536,6 +545,7 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
         ),
         memory=_build_memory_config(raw, runtime_config),
         preferences=UserPreferencesModel(**preferences_data),
+        network=NetworkProxyConfigModel(**network_data),
         personality=_load_full_personality(),
         tools=_build_tools(raw, runtime_config),
         timeline=TimelineConfigModel(
@@ -757,6 +767,7 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
         "agent.memory.l4.skill_extraction_enabled": config.memory.l4.skill_extraction_enabled,
         "preferences": _prune_sparse_value(config.preferences.model_dump(exclude_none=True)),
+        "network": config.network.model_dump(),
         "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",
         "agent.personality.path": "~/.magi/personalities",
         "agent.personality.enable_evolution": True,
