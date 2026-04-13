@@ -211,44 +211,43 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return (
           <SettingsSectionShell>
             <SettingsGroup title={t('settings.fields.language')}>
-              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <LabeledSelectField
-                  label=""
-                  ariaLabel={t('settings.fields.language')}
-                  value={draftConfig.preferences.language}
-                  options={[
-                    { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
-                    { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
-                  ]}
-                  onChange={handleLanguagePreviewChange}
-                />
-              </div>
+              <LabeledSelectField
+                label=""
+                ariaLabel={t('settings.fields.language')}
+                value={draftConfig.preferences.language}
+                options={[
+                  { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
+                  { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
+                ]}
+                onChange={handleLanguagePreviewChange}
+              />
             </SettingsGroup>
 
             <SettingsGroup
               title={t('settings.fields.theme')}
               description={t('settings.themeDesc')}
             >
-              <div className="border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <LabeledSelectField
-                  label=""
-                  ariaLabel={t('settings.fields.theme')}
-                  value={draftThemeMode}
-                  options={[
-                    { label: t('settings.theme.light'), value: 'light' },
-                    { label: t('settings.theme.dark'), value: 'dark' },
-                    { label: t('settings.theme.system'), value: 'system' },
-                  ]}
-                  onChange={(value) => handleThemePreviewChange(value as typeof draftThemeMode)}
-                />
-              </div>
+              <LabeledSelectField
+                label=""
+                ariaLabel={t('settings.fields.theme')}
+                value={draftThemeMode}
+                options={[
+                  { label: t('settings.theme.light'), value: 'light' },
+                  { label: t('settings.theme.dark'), value: 'dark' },
+                  { label: t('settings.theme.system'), value: 'system' },
+                ]}
+                onChange={(value) => handleThemePreviewChange(value as typeof draftThemeMode)}
+              />
             </SettingsGroup>
 
-            <section className="space-y-4 pt-4">
-              <div className="flex items-center justify-between gap-4 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
-                <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">
-                  {t('settings.fields.closeToTray')}
-                </h3>
+            <hr className="border-[hsl(var(--settings-subnav-border)/0.4)]" />
+
+            <SettingsGroup
+              title={t('settings.fields.closeToTray')}
+              description={t('settings.closeToTrayDesc')}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs text-muted-foreground">{t('settings.closeToTrayHelp')}</span>
                 <Switch
                   aria-label={t('settings.fields.closeToTray')}
                   checked={draftConfig.preferences.close_to_tray_enabled}
@@ -257,15 +256,19 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   })}
                 />
               </div>
-            </section>
+            </SettingsGroup>
+
+            <hr className="border-[hsl(var(--settings-subnav-border)/0.4)]" />
 
             <SettingsGroup
               title={t('settings.fields.networkProxy')}
               description={t('settings.networkProxyDesc')}
             >
-              <div className="space-y-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-foreground">{t('settings.fields.networkProxy')}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {draftConfig.network.enabled ? t('settings.fields.proxyType') + ': ' + draftConfig.network.proxy_type.toUpperCase() : ''}
+                  </span>
                   <Switch
                     aria-label={t('settings.fields.networkProxy')}
                     checked={draftConfig.network.enabled}
@@ -275,7 +278,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   />
                 </div>
                 {draftConfig.network.enabled && (
-                  <div className="grid gap-3 pl-0.5">
+                  <div className="grid gap-3">
                     <LabeledSelectField
                       label={t('settings.fields.proxyType')}
                       ariaLabel={t('settings.fields.proxyType')}
@@ -288,34 +291,36 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                         draft.network.proxy_type = value as 'http' | 'socks5';
                       })}
                     />
-                    <label className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">{t('settings.fields.proxyHost')}</span>
-                      <Input
-                        aria-label={t('settings.fields.proxyHost')}
-                        value={draftConfig.network.host}
-                        placeholder="127.0.0.1"
-                        onChange={(e) => patchDraftConfig((draft) => {
-                          draft.network.host = e.target.value;
-                        })}
-                      />
-                    </label>
-                    <label className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">{t('settings.fields.proxyPort')}</span>
-                      <Input
-                        type="number"
-                        aria-label={t('settings.fields.proxyPort')}
-                        value={draftConfig.network.port}
-                        min={1}
-                        max={65535}
-                        placeholder="7890"
-                        onChange={(e) => patchDraftConfig((draft) => {
-                          const port = parseInt(e.target.value, 10);
-                          if (!isNaN(port) && port >= 1 && port <= 65535) {
-                            draft.network.port = port;
-                          }
-                        })}
-                      />
-                    </label>
+                    <div className="grid grid-cols-[1fr_auto] gap-3">
+                      <label className="space-y-1.5">
+                        <span className="text-xs text-muted-foreground">{t('settings.fields.proxyHost')}</span>
+                        <Input
+                          aria-label={t('settings.fields.proxyHost')}
+                          value={draftConfig.network.host}
+                          placeholder="127.0.0.1"
+                          onChange={(e) => patchDraftConfig((draft) => {
+                            draft.network.host = e.target.value;
+                          })}
+                        />
+                      </label>
+                      <label className="space-y-1.5 w-28">
+                        <span className="text-xs text-muted-foreground">{t('settings.fields.proxyPort')}</span>
+                        <Input
+                          type="number"
+                          aria-label={t('settings.fields.proxyPort')}
+                          value={draftConfig.network.port}
+                          min={1}
+                          max={65535}
+                          placeholder="7890"
+                          onChange={(e) => patchDraftConfig((draft) => {
+                            const port = parseInt(e.target.value, 10);
+                            if (!isNaN(port) && port >= 1 && port <= 65535) {
+                              draft.network.port = port;
+                            }
+                          })}
+                        />
+                      </label>
+                    </div>
                   </div>
                 )}
               </div>
