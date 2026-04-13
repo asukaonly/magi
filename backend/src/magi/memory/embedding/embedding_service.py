@@ -239,6 +239,10 @@ class MemoryEmbeddingService:
             vector=values,
         )
 
+    # Most embedding APIs cap a single request at 25-100 inputs.
+    # DashScope (Alibaba) allows at most 25 per call.
+    _REMOTE_EMBED_BATCH_SIZE = 25
+
     async def _embed_texts_remote(self, texts: list[str]) -> list[Optional[EmbeddingResult]]:
         normalized_texts = [text.strip() for text in texts]
         adapter = self._get_adapter()
@@ -248,14 +252,23 @@ class MemoryEmbeddingService:
         if not bool(getattr(adapter, "supports_embeddings", False)):
             return [None] * len(texts)
 
-        try:
-            vectors = await self._run_with_embedding_concurrency_limit(
-                adapter=adapter,
-                operation=lambda: adapter.get_embeddings(normalized_texts),
-            )
-        except Exception as exc:
-            logger.debug("Batch embedding call failed: %s", exc)
-            return [None] * len(texts)
+        # Sub-batch to stay within provider per-request input limits.
+        all_vectors: list[Optional[list[float]]] = [None] * len(normalized_texts)
+        batch_sz = self._REMOTE_EMBED_BATCH_SIZE
+        for start in range(0, len(normalized_texts), batch_sz):
+            sub_texts = normalized_texts[start : start + batch_sz]
+            sub_start = start  # capture for lambda
+            try:
+                sub_vectors = await self._run_with_embedding_concurrency_limit(
+                    adapter=adapter,
+                    operation=lambda _st=sub_texts: adapter.get_embeddings(_st),
+                )
+            except Exception as exc:
+                logger.debug("Batch embedding sub-batch failed (offset %d): %s", start, exc)
+                continue
+            if sub_vectors:
+                for i, vec in enumerate(sub_vectors):
+                    all_vectors[sub_start + i] = vec
 
         model_name = str(getattr(adapter, "model_name", "embedding"))
         results: list[Optional[EmbeddingResult]] = []
@@ -263,7 +276,7 @@ class MemoryEmbeddingService:
             if not text:
                 results.append(None)
                 continue
-            vector = vectors[index] if index < len(vectors) else None
+            vector = all_vectors[index]
             if not vector:
                 results.append(None)
                 continue
