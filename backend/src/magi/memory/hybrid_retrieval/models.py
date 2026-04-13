@@ -222,6 +222,7 @@ class RetrievalConfig:
     graph_spreading_max_entities: int = 50
     graph_spreading_decay: float = 0.5
     rrf_weight_graph: float = 0.6
+    rrf_weight_temporal_bm25: float = 0.8
 
     # Confidence-aware fallback
     confidence_fallback_enabled: bool = False

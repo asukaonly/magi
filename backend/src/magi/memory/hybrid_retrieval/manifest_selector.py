@@ -131,6 +131,22 @@ class ManifestSelector:
             candidates.append(("L2", text))
             index_map.append(("l2_entity_cards", i))
 
+        for i, rel in enumerate(payload.l2_relationships):
+            subj = rel.get("subject_name") or rel.get("subject_id") or ""
+            pred = rel.get("predicate") or ""
+            obj = rel.get("object_name") or rel.get("object_id") or ""
+            text = _truncate(f"{subj} --{pred}--> {obj}", max_chars)
+            candidates.append(("L2", text))
+            index_map.append(("l2_relationships", i))
+
+        for i, assertion in enumerate(payload.l2_assertions):
+            entity = assertion.get("entity_name") or assertion.get("entity_id") or ""
+            trait = assertion.get("trait_family") or ""
+            value = assertion.get("value") or assertion.get("content") or ""
+            text = _truncate(f"{entity} [{trait}]: {value}", max_chars)
+            candidates.append(("L2", text))
+            index_map.append(("l2_assertions", i))
+
         for i, refl in enumerate(payload.l3_reflections):
             text = _truncate(str(refl.get("content") or refl.get("summary") or ""), max_chars)
             period = refl.get("period") or ""
@@ -189,6 +205,8 @@ class ManifestSelector:
         field_to_attr = {
             "l1_events": "l1_events",
             "l2_entity_cards": "l2_entity_cards",
+            "l2_relationships": "l2_relationships",
+            "l2_assertions": "l2_assertions",
             "l3_reflections": "l3_reflections",
             "l4_procedures": "l4_procedures",
         }

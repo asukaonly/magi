@@ -926,6 +926,7 @@ class IntentDecider:
         self._llm_enabled = llm_enabled and llm_decider is not None
         self._shadow_eval_enabled = shadow_eval_enabled
         self._eval_callback = eval_callback  # async callable(EvaluationRecord)
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def decide(self, inp: IntentDeciderInput) -> IntentDecision:
         """Produce final intent decision using LLM primary + rule shadow."""
@@ -974,7 +975,9 @@ class IntentDecider:
                 layers_match=layers_match,
                 diff_summary=diff_summary,
             )
-            asyncio.create_task(self._safe_log(record))
+            task = asyncio.create_task(self._safe_log(record))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
 
         return final_decision
 

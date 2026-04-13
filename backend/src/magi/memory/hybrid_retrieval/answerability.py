@@ -86,14 +86,24 @@ def _normalize_query_token(token: str) -> str:
 
 
 def extract_query_tokens(text: str) -> list[str]:
-    """Extract normalized ranking tokens from a query or event body."""
+    """Extract normalized ranking tokens from a query or event body.
+
+    Supports both Latin/numeric tokens and CJK characters.  CJK text is
+    split into individual characters (unigrams) because Chinese/Japanese
+    do not use space-delimited words.
+    """
     lowered = str(text or "").lower()
-    raw_tokens = re.findall(r"[a-z0-9]+", lowered)
+    # Match Latin/numeric words OR individual CJK characters
+    raw_tokens = re.findall(r"[a-z0-9]+|[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff]", lowered)
     return [
         normalized
         for token in raw_tokens
         for normalized in [_normalize_query_token(token)]
-        if len(normalized) >= 2 and normalized not in _RERANK_STOP_WORDS
+        if len(normalized) >= 1 and (
+            normalized not in _RERANK_STOP_WORDS
+            # CJK single chars are always kept (length 1 is fine for CJK unigrams)
+            or ord(normalized[0]) > 0x2fff
+        )
     ]
 
 

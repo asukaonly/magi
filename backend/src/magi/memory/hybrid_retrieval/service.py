@@ -134,6 +134,8 @@ class HybridRetrievalService:
         # 2b. Adaptive parameter tuning based on intent signals
         effective_query_mode = request.query_mode
         effective_recall_intent = request.recall_intent
+        saved_l1_config = None
+        saved_l1_reranker = None
         if effective_query_mode or effective_recall_intent:
             from .adaptive_params import adapt_config
 
@@ -142,15 +144,32 @@ class HybridRetrievalService:
                 query_mode=effective_query_mode,
                 recall_intent=effective_recall_intent,
             )
-            if adapted is not self._config:
-                # Apply adapted config to L1 handler for this query
-                if self._l1 is not None:
-                    self._l1._config = adapted
-                    self._l1._reranker = build_retrieval_reranker(adapted)
+            if adapted is not self._config and self._l1 is not None:
+                # Save original config/reranker so we can restore after this query
+                saved_l1_config = self._l1._config
+                saved_l1_reranker = self._l1._reranker
+                self._l1._config = adapted
+                self._l1._reranker = build_retrieval_reranker(adapted)
                 payload.trace["adaptive_params_applied"] = True
                 payload.trace["adaptive_query_mode"] = effective_query_mode
                 payload.trace["adaptive_recall_intent"] = effective_recall_intent
 
+        try:
+            return await self._execute_query(request, decision, intent_input, payload)
+        finally:
+            # Restore L1 handler config so concurrent/subsequent queries are not affected
+            if saved_l1_config is not None and self._l1 is not None:
+                self._l1._config = saved_l1_config
+                self._l1._reranker = saved_l1_reranker
+
+    async def _execute_query(
+        self,
+        request: RetrievalQuery,
+        decision: Any,
+        intent_input: IntentDeciderInput,
+        payload: RetrievalPayload,
+    ) -> RetrievalPayload:
+        """Inner query execution, separated so adaptive config can be restored via try/finally."""
         # 3. Execute primary plans in parallel
         primary_plans = self._augment_primary_plans(
             [p for p in decision.plans if not p.is_fallback],
@@ -755,8 +774,19 @@ class HybridRetrievalService:
 
         neighbor_window = self._bundle_neighbor_window(query)
         bundles: List[Dict[str, Any]] = []
-        for session_id, session_hits in grouped_hits.items():
-            session_events = await self._load_session_events(session_id, limit=max(len(session_hits) * 8, 24))
+
+        # Load session events in parallel instead of sequentially
+        session_ids = list(grouped_hits.keys())
+        session_limits = [max(len(grouped_hits[sid]) * 8, 24) for sid in session_ids]
+        session_events_list = await asyncio.gather(
+            *(
+                self._load_session_events(sid, limit=lim)
+                for sid, lim in zip(session_ids, session_limits)
+            ),
+        )
+
+        for session_id, session_events in zip(session_ids, session_events_list):
+            session_hits = grouped_hits[session_id]
             bundle_events, neighbor_expansion_applied = self._select_bundle_events(
                 session_events=session_events,
                 session_hits=session_hits,

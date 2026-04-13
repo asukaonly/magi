@@ -246,7 +246,7 @@ class L1Handler(RRFSearchHandler):
             weights.append(cfg.rrf_weight_graph)
         if temporal_bm25_ids:
             ranked_lists.append(temporal_bm25_ids)
-            weights.append(cfg.rrf_weight_bm25)
+            weights.append(cfg.rrf_weight_temporal_bm25)
 
         fused = rrf_fuse(ranked_lists, weights, k=cfg.rrf_k)
         top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
@@ -272,8 +272,8 @@ class L1Handler(RRFSearchHandler):
             conditions.source_filters, conditions.domain_filters,
         )
 
-        if time_range and results:
-            results = self._filter_by_time(results, time_range)
+        # Time-range is already enforced inside _fetch_and_filter via SQL;
+        # no redundant Python post-filter needed here.
 
         reranked = await self._reranker.rerank(
             layer=self.layer_name,
@@ -555,10 +555,8 @@ class L1Handler(RRFSearchHandler):
         # Preserve RRF rank ordering
         results = [events_by_id[eid] for eid in event_ids if eid in events_by_id]
 
-        # Time range post-filter
-        if time_range and results:
-            results = self._filter_by_time(results, time_range)
-
+        # Time range is already enforced via SQL WHERE clauses above;
+        # no redundant Python post-filter needed.
         return results
 
 class L2Handler:
