@@ -98,6 +98,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const [renameValue, setRenameValue] = useState('');
   const [actionPending, setActionPending] = useState(false);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
+  const sessionCreatingRef = useRef(false);
 
   const refreshSessions = useCallback(async (preferredSessionId?: string | null) => {
     const sessionStorageKey = CHAT_SESSION_KEY(USER_ID);
@@ -128,12 +129,17 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       ): Promise<void> => {
         const response = await messagesApi.listSessions(USER_ID, 50);
         const sessions = response.sessions || [];
-        if (sessions.length === 0 && allowCreate) {
-          const created = await messagesApi.createNewSession(USER_ID);
-          if (created.session_id) {
-            persistSessionId(created.session_id);
-            await loadSessions(false, created.session_id);
-            return;
+        if (sessions.length === 0 && allowCreate && !sessionCreatingRef.current) {
+          sessionCreatingRef.current = true;
+          try {
+            const created = await messagesApi.createNewSession(USER_ID);
+            if (created.session_id) {
+              persistSessionId(created.session_id);
+              await loadSessions(false, created.session_id);
+              return;
+            }
+          } finally {
+            sessionCreatingRef.current = false;
           }
         }
         const sessionIds = sessions.map((session) => session.session_id);
