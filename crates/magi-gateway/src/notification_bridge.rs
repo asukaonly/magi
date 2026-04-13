@@ -95,6 +95,7 @@ fn parse_payload(json_str: &str) -> serde_json::Value {
 fn event_name_for_channel(channel: &str) -> &str {
     match channel {
         "execution_control" => "turn_execution_control",
+        "trace_update" => "execution_trace_update",
         other => other,
     }
 }

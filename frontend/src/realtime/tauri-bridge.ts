@@ -51,7 +51,7 @@ export class TauriBridgeClient {
       const unlistenFn = await listen<BridgePayload>(eventName, (event) => {
         const payload = event.payload;
         const message: RealtimeMessage = {
-          event: payload.channel,
+          event: eventName,
           data: payload.data,
         };
         this.listeners.forEach((listener) => listener(message));
