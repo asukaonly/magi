@@ -417,7 +417,7 @@
     "startupSettings": "Startup",
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",
-    "networkProxyDesc": "Configure the network proxy for LLM requests. When disabled, system proxy is ignored and connections are made directly.",
+    "proxyOff": "Direct (proxy off)",
     "defaultChatWorkspaceDesc": "Set the default working directory mounted into new desktop chat sessions. You can still override it inside an individual conversation.",
     "defaultChatWorkspacePlaceholder": "No default directory selected",
     "defaultChatWorkspacePickFailed": "Failed to choose a default chat directory: {{message}}",

@@ -278,67 +278,56 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               </div>
             </SettingsGroup>
 
-            <SettingsGroup
-              title={t('settings.fields.networkProxy')}
-              description={t('settings.networkProxyDesc')}
-            >
+            <SettingsGroup title={t('settings.fields.networkProxy')}>
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-muted-foreground">
-                    {draftConfig.network.enabled ? t('settings.fields.proxyType') + ': ' + draftConfig.network.proxy_type.toUpperCase() : ''}
-                  </span>
-                  <Switch
-                    aria-label={t('settings.fields.networkProxy')}
-                    checked={draftConfig.network.enabled}
-                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
-                      draft.network.enabled = checked;
-                    })}
-                  />
-                </div>
+                <LabeledSelectField
+                  label=""
+                  ariaLabel={t('settings.fields.networkProxy')}
+                  value={draftConfig.network.enabled ? draftConfig.network.proxy_type : 'off'}
+                  options={[
+                    { label: t('settings.proxyOff'), value: 'off' },
+                    { label: 'HTTP', value: 'http' },
+                    { label: 'SOCKS5', value: 'socks5' },
+                  ]}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    if (value === 'off') {
+                      draft.network.enabled = false;
+                    } else {
+                      draft.network.enabled = true;
+                      draft.network.proxy_type = value as 'http' | 'socks5';
+                    }
+                  })}
+                />
                 {draftConfig.network.enabled && (
-                  <div className="grid gap-3">
-                    <LabeledSelectField
-                      label={t('settings.fields.proxyType')}
-                      ariaLabel={t('settings.fields.proxyType')}
-                      value={draftConfig.network.proxy_type}
-                      options={[
-                        { label: 'HTTP', value: 'http' },
-                        { label: 'SOCKS5', value: 'socks5' },
-                      ]}
-                      onChange={(value) => patchDraftConfig((draft) => {
-                        draft.network.proxy_type = value as 'http' | 'socks5';
-                      })}
-                    />
-                    <div className="grid grid-cols-[1fr_auto] gap-3">
-                      <label className="space-y-1.5">
-                        <span className="text-xs text-muted-foreground">{t('settings.fields.proxyHost')}</span>
-                        <Input
-                          aria-label={t('settings.fields.proxyHost')}
-                          value={draftConfig.network.host}
-                          placeholder="127.0.0.1"
-                          onChange={(e) => patchDraftConfig((draft) => {
-                            draft.network.host = e.target.value;
-                          })}
-                        />
-                      </label>
-                      <label className="space-y-1.5 w-28">
-                        <span className="text-xs text-muted-foreground">{t('settings.fields.proxyPort')}</span>
-                        <Input
-                          type="number"
-                          aria-label={t('settings.fields.proxyPort')}
-                          value={draftConfig.network.port}
-                          min={1}
-                          max={65535}
-                          placeholder="7890"
-                          onChange={(e) => patchDraftConfig((draft) => {
-                            const port = parseInt(e.target.value, 10);
-                            if (!isNaN(port) && port >= 1 && port <= 65535) {
-                              draft.network.port = port;
-                            }
-                          })}
-                        />
-                      </label>
-                    </div>
+                  <div className="grid grid-cols-[1fr_auto] gap-3">
+                    <label className="space-y-1.5">
+                      <span className="text-xs text-muted-foreground">{t('settings.fields.proxyHost')}</span>
+                      <Input
+                        aria-label={t('settings.fields.proxyHost')}
+                        value={draftConfig.network.host}
+                        placeholder="127.0.0.1"
+                        onChange={(e) => patchDraftConfig((draft) => {
+                          draft.network.host = e.target.value;
+                        })}
+                      />
+                    </label>
+                    <label className="space-y-1.5 w-28">
+                      <span className="text-xs text-muted-foreground">{t('settings.fields.proxyPort')}</span>
+                      <Input
+                        type="number"
+                        aria-label={t('settings.fields.proxyPort')}
+                        value={draftConfig.network.port}
+                        min={1}
+                        max={65535}
+                        placeholder="7890"
+                        onChange={(e) => patchDraftConfig((draft) => {
+                          const port = parseInt(e.target.value, 10);
+                          if (!isNaN(port) && port >= 1 && port <= 65535) {
+                            draft.network.port = port;
+                          }
+                        })}
+                      />
+                    </label>
                   </div>
                 )}
               </div>

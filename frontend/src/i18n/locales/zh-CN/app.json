@@ -417,7 +417,7 @@
     "startupSettings": "启动设置",
     "autoStartLabel": "开机自动启动",
     "startMinimizedLabel": "启动后最小化到托盘",
-    "networkProxyDesc": "配置 LLM 请求使用的网络代理。关闭时将忽略系统代理并直连。",
+    "proxyOff": "直连（关闭代理）",
     "defaultChatWorkspaceDesc": "设置桌面端新对话默认挂载的工作目录。进入具体会话后，仍然可以单独覆盖这个目录。",
     "defaultChatWorkspacePlaceholder": "未选择默认目录",
     "defaultChatWorkspacePickFailed": "选择默认对话目录失败：{{message}}",
