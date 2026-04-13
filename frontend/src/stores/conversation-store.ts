@@ -24,6 +24,13 @@ type AgentResponsePayload = {
   uxPlan?: NormalizedTurnUxPlan | null;
 };
 
+type StreamChunkPayload = {
+  sessionId: string;
+  turnId: string;
+  contentDelta: string;
+  isFinal: boolean;
+};
+
 type PendingTurnPayload = {
   sessionId: string;
   input: string;
@@ -58,6 +65,7 @@ type ConversationState = {
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   applyTurnUxPlan: (payload: TurnUxPlanPayload) => void;
   receiveAgentResponse: (payload: AgentResponsePayload) => void;
+  appendStreamChunk: (payload: StreamChunkPayload) => void;
   applyMessageLabel: (sessionId: string, messageId: string, label: ChatTimelineMessageLabel) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
   upsertTraceSummary: (sessionId: string, turnId: string, summary: NormalizedExecutionTraceSummary | null) => void;
@@ -144,6 +152,11 @@ const canMergeTimelineMessage = (
   const incomingTurnId = String(incoming.turnId || '').trim();
   if (!existingTurnId || !incomingTurnId || existingTurnId !== incomingTurnId || existing.role !== incoming.role) {
     return false;
+  }
+
+  // A streaming assistant message is always mergeable with later messages for the same turn.
+  if (existing.streaming && incoming.role === 'assistant') {
+    return true;
   }
 
   if (existing.role === 'user') {
@@ -394,6 +407,54 @@ export const useConversationStore = create<ConversationState>((set) => ({
         [sessionId]: shouldIncrementUnread
           ? (state.unreadBySession[sessionId] || 0) + 1
           : 0,
+      },
+    };
+  }),
+  appendStreamChunk: ({ sessionId, turnId, contentDelta, isFinal }) => set((state) => {
+    if (!sessionId || !turnId) {
+      return state;
+    }
+    const previousMessages = state.messagesBySession[sessionId] || [];
+    const existingIndex = previousMessages.findIndex(
+      (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
+    );
+
+    if (existingIndex >= 0) {
+      const existing = previousMessages[existingIndex];
+      const nextMessages = [...previousMessages];
+      nextMessages[existingIndex] = {
+        ...existing,
+        content: existing.content + contentDelta,
+        streaming: !isFinal,
+      };
+      return {
+        messagesBySession: {
+          ...state.messagesBySession,
+          [sessionId]: nextMessages,
+        },
+      };
+    }
+
+    if (isFinal) {
+      return state;
+    }
+
+    const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    const streamingMessage: ChatTimelineMessage = {
+      id: `stream_${turnId}`,
+      role: 'assistant',
+      kind: 'assistant' as ChatTimelineMessage['kind'],
+      content: contentDelta,
+      timestamp: Date.now(),
+      turnId,
+      streaming: true,
+    };
+    return {
+      sessionsById: ensured.sessionsById,
+      orderedSessionIds: ensured.orderedSessionIds,
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: [...previousMessages, streamingMessage],
       },
     };
   }),

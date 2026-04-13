@@ -628,6 +628,18 @@ class ConfigLoader:
         """Get the runtime config file path."""
         return self._config_file
 
+    def get_raw_value(self, *keys: str, default: Any = None) -> Any:
+        """Read a value from the cached raw YAML data by dotted key path."""
+        self.load()  # ensure data is loaded and fresh
+        node: Any = self._yaml_data
+        for key in keys:
+            if not isinstance(node, dict):
+                return default
+            node = node.get(key)
+            if node is None:
+                return default
+        return node
+
 
 # =============================================================================
 # Global Instance & Public API
@@ -685,6 +697,14 @@ def save_config(updates: Dict[str, Any]) -> bool:
 def get_loader() -> Optional[ConfigLoader]:
     """Get the global config loader instance."""
     return _loader
+
+
+def get_user_preference(key: str, default: Any = None) -> Any:
+    """Read a single user preference from the runtime config."""
+    loader = get_loader()
+    if loader is None:
+        return default
+    return loader.get_raw_value("preferences", key, default=default)
 
 
 def get_config_file_path() -> Path:

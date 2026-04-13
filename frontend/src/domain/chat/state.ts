@@ -35,6 +35,7 @@ export interface ChatTimelineMessage {
   allowTraceCollapse?: boolean;
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
+  streaming?: boolean;
 }
 
 export interface ChatTimelineReplyPreview {

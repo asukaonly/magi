@@ -83,6 +83,21 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
         return;
       }
 
+      if (eventName === 'agent_response_chunk' && message.data && typeof message.data === 'object') {
+        const payload = message.data as Record<string, unknown>;
+        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+        const turnId = String(payload.turn_id || '').trim();
+        if (sessionId && turnId) {
+          conversationStore.appendStreamChunk({
+            sessionId,
+            turnId,
+            contentDelta: String(payload.content_delta || ''),
+            isFinal: Boolean(payload.is_final),
+          });
+        }
+        return;
+      }
+
       if (eventName === 'chat_message_upserted' && message.data && typeof message.data === 'object') {
         const payload = message.data as Record<string, unknown>;
         const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();

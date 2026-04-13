@@ -259,18 +259,19 @@ class ChatPostProcessService:
         final_message = notification_message if notification_message and notification_message.message_kind == "assistant_final" else None
         await self._project_final_chat_message(context=context, final_message=final_message)
 
-        await self._emit_agent_response_notification(
-            user_id=context.user_id,
-            session_id=context.session_id,
-            turn_id=turn_id,
-            response_text=notification_response_text,
-            orchestration_id=result.orchestration_id,
-            trace_summary=trace_summary,
-            trace_available=trace_available,
-            ux_plan=result.ux_plan,
-            message_id=notification_message_id,
-            message_kind=notification_message_kind,
-        )
+        if not getattr(result, "streamed", False):
+            await self._emit_agent_response_notification(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=turn_id,
+                response_text=notification_response_text,
+                orchestration_id=result.orchestration_id,
+                trace_summary=trace_summary,
+                trace_available=trace_available,
+                ux_plan=result.ux_plan,
+                message_id=notification_message_id,
+                message_kind=notification_message_kind,
+            )
 
         await action_emitter.emit_chat_response_event(
             user_id=context.user_id,

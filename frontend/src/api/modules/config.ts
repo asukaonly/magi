@@ -31,6 +31,8 @@ export interface UserPreferences {
   auto_start_enabled: boolean;
   start_minimized: boolean;
   default_chat_workspace_path: string | null;
+  streaming_chat_enabled: boolean;
+  allow_interjection: boolean;
 }
 
 export type ProxyType = 'http' | 'socks5';
@@ -550,6 +552,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     auto_start_enabled: false,
     start_minimized: false,
     default_chat_workspace_path: '~/.magi/chat-workspace',
+    streaming_chat_enabled: false,
+    allow_interjection: true,
   },
   network: {
     enabled: false,

@@ -525,3 +525,35 @@ class ChatRuntimeNotifier:
                 created_at_ms=now_wall_ms(),
             )
         )
+
+    async def emit_stream_chunk(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        content_delta: str,
+        is_final: bool,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._runtime_trace_store is None or not normalized_turn_id:
+            return
+        payload = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": normalized_turn_id,
+            "content_delta": content_delta,
+            "is_final": is_final,
+            "timestamp": time.time(),
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="agent_response_chunk",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=normalized_turn_id,
+                payload_json=json.dumps(payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )

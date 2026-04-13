@@ -20,6 +20,7 @@ type RealtimeStatusListener = (status: RealtimeStatus) => void;
 /** All Tauri event names the notification bridge can emit. */
 const BRIDGE_EVENTS = [
   'agent_response',
+  'agent_response_chunk',
   'turn_ux_plan',
   'turn_execution_control',
   'execution_trace_update',

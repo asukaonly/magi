@@ -9,7 +9,7 @@ import time
 import uuid
 from functools import lru_cache
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
@@ -348,6 +348,58 @@ class LLMProviderBridge:
                 error=str(exc),
             )
             raise
+
+    async def chat_response_stream(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        max_tokens: int = DEFAULT_THINKING_TOKENS,
+        temperature: float = 0.7,
+        json_mode: bool = False,
+        timeout_seconds: Optional[float] = None,
+        thinking_depth: ThinkingDepth | None = None,
+    ) -> AsyncIterator[str]:
+        """Streaming variant of chat_response(). Yields text chunks."""
+        depth = _coerce_thinking_depth(thinking_depth, None)
+        if self.is_anthropic():
+            api_messages = self._convert_messages_to_anthropic(messages)
+            anthropic_kwargs: Dict[str, Any] = {
+                "model": self.llm.model_name,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_prompt,
+                "messages": api_messages,
+                "stream": True,
+            }
+            if timeout_seconds is not None:
+                anthropic_kwargs["timeout"] = timeout_seconds
+            anthropic_kwargs = self._apply_provider_options(anthropic_kwargs, depth)
+            stream = await self.llm._client.messages.create(**anthropic_kwargs)
+            async for event in stream:
+                if event.type == "content_block_delta" and hasattr(event.delta, "text"):
+                    yield event.delta.text
+        else:
+            full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
+            chat_kwargs: Dict[str, Any] = {
+                "messages": full_messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+            }
+            if json_mode:
+                chat_kwargs["response_format"] = {"type": "json_object"}
+            if timeout_seconds is not None:
+                chat_kwargs["timeout"] = timeout_seconds
+            chat_kwargs = self._apply_provider_options(chat_kwargs, depth)
+            if getattr(self.llm, "_client", None) is not None:
+                chat_kwargs["model"] = self.llm.model_name
+                stream = await self.llm._client.chat.completions.create(**chat_kwargs)
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        yield chunk.choices[0].delta.content
+            else:
+                content = await self.llm.chat(**chat_kwargs)
+                yield content
 
     async def chat_with_tools(
         self,

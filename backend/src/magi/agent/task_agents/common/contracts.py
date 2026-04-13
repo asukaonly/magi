@@ -381,6 +381,7 @@ class ExecutionResult:
     turn_id: Optional[str] = None
     llm_trace: dict[str, Any] = field(default_factory=dict)
     ux_plan: Optional[dict[str, Any]] = None
+    streamed: bool = False
 
 
 @dataclass(slots=True)

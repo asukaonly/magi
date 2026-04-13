@@ -78,6 +78,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     planner_payload: TaskFactPayload = field(default_factory=GenericFactPayload)
     pending_turns: list[PendingTurn] = field(default_factory=list)
     reply_context: "ChatReplyContext | None" = None
+    streaming_chat_enabled: bool = False
 
 
 @dataclass(slots=True)

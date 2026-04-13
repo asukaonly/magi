@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Awaitable, Callable
+from typing import AsyncIterator, Awaitable, Callable
 
 from ....config import get_config
 from ....config.models import LLMScenario, ThinkingDepth
@@ -99,6 +99,63 @@ class TaskAgentLLMService:
                 if hasattr(callback_result, "__await__"):
                     await callback_result
             return response
+        except Exception as exc:
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                self._llm_logger,
+                request_id=request_id,
+                response="",
+                success=False,
+                error=str(exc),
+                duration_ms=duration_ms,
+            )
+            raise
+
+    async def call_stream(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        disable_thinking: bool = True,
+        thinking_depth: ThinkingDepth | None = None,
+        temperature: float = 0.7,
+        json_mode: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> AsyncIterator[str]:
+        """Streaming variant of call(). Yields text chunks as they arrive."""
+        request_id = str(uuid.uuid4())[:8]
+        start_time = time.time()
+        llm = self._resolve_llm()
+        model_name = getattr(llm, "model_name", "unknown")
+        log_llm_request(
+            self._llm_logger,
+            request_id=request_id,
+            model=model_name,
+            system_prompt=system_prompt,
+            messages=messages,
+        )
+        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
+        collected = ""
+        try:
+            async for chunk in self._provider_bridge.chat_response_stream(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=self._llm_max_tokens(),
+                temperature=temperature,
+                thinking_depth=depth,
+                json_mode=json_mode,
+                timeout_seconds=timeout_seconds,
+            ):
+                collected += chunk
+                yield chunk
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                self._llm_logger,
+                request_id=request_id,
+                response=collected,
+                success=True,
+                duration_ms=duration_ms,
+            )
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(

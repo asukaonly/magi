@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from ....config.models import ThinkingDepth
 from ....core.logger import get_logger
@@ -75,6 +75,9 @@ def _resolve_turn_workspace_path(context: object) -> str | None:
     return workspace_path or None
 
 
+StreamChunkCallback = Callable[[str, str, str | None, str, bool], Awaitable[None]]
+
+
 @dataclass(slots=True)
 class ChatHandlerDependencies:
     """Shared dependencies passed to chat execution handlers."""
@@ -88,6 +91,7 @@ class ChatHandlerDependencies:
     agent_id: str
     get_task_agent_manager: callable
     session_run_coordinator: Any | None = None
+    stream_chunk_callback: StreamChunkCallback | None = None
 
 
 def build_common_handler_dependencies(
@@ -135,9 +139,46 @@ class DirectLLMHandler(BaseExecutionHandler):
 
     async def execute(self, request: DirectLLMRequest) -> ExecutionResult:
         llm_trace: dict[str, object] = {}
+        streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
+        stream_callback = self._deps.stream_chunk_callback
 
         async def _capture_llm_trace(payload: dict[str, object]) -> None:
             llm_trace.update(payload)
+
+        turn_id = getattr(request.context.latest_payload, "turn_id", None)
+
+        if streaming_enabled and stream_callback is not None:
+            chunks: list[str] = []
+            async for chunk in self._deps.prompt_service.call_llm_stream(
+                system_prompt=request.system_prompt,
+                messages=request.messages,
+                thinking_depth=request.thinking_depth,
+            ):
+                chunks.append(chunk)
+                await stream_callback(
+                    request.context.user_id,
+                    request.context.session_id,
+                    turn_id,
+                    chunk,
+                    False,
+                )
+            response_text = "".join(chunks)
+            await stream_callback(
+                request.context.user_id,
+                request.context.session_id,
+                turn_id,
+                "",
+                True,
+            )
+            return ExecutionResult(
+                mode=request.mode,
+                response_text=response_text,
+                root_user_message=request.context.latest_user_message,
+                turn_id=turn_id,
+                llm_trace=dict(llm_trace),
+                ux_plan=_serialize_ux_plan(request.intent),
+                streamed=True,
+            )
 
         response_text = await self._deps.prompt_service.call_llm(
             system_prompt=request.system_prompt,
@@ -149,7 +190,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             mode=request.mode,
             response_text=response_text,
             root_user_message=request.context.latest_user_message,
-            turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            turn_id=turn_id,
             llm_trace=dict(llm_trace),
             ux_plan=_serialize_ux_plan(request.intent),
         )

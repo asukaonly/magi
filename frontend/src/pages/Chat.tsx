@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, CornerUpLeft, FileText, FolderOpen, ImagePlus, Loader2, Paperclip, Sparkles, UserRound, X } from 'lucide-react';
+import { ArrowUp, CornerUpLeft, FileText, FolderOpen, ImagePlus, Loader2, Paperclip, Sparkles, Square, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -435,6 +435,9 @@ export const ChatPage: React.FC = () => {
   const [labelPopoverState, setLabelPopoverState] = useState<LabelPopoverState | null>(null);
   const [labelPopoverDraft, setLabelPopoverDraft] = useState('');
   const [messageContextMenu, setMessageContextMenu] = useState<MessageContextMenuState | null>(null);
+  const [allowInterjection, setAllowInterjection] = useState(true);
+  const [turnActive, setTurnActive] = useState(false);
+  const [pendingResponseTurnId, setPendingResponseTurnId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
@@ -471,6 +474,10 @@ export const ChatPage: React.FC = () => {
         const response = await configApi.get();
         if (!cancelled) {
           setCoreModelSupportsVision(Boolean(response.data?.llm?.selections?.core?.capabilities?.vision));
+          const prefs = response.data?.preferences;
+          if (prefs) {
+            setAllowInterjection(prefs.allow_interjection !== false);
+          }
         }
       } catch {
         if (!cancelled) {
@@ -876,9 +883,14 @@ export const ChatPage: React.FC = () => {
       if (drawerOpen && activeTurnId === turnId) {
         void loadTrace(turnId);
       }
+      if (turnActive && !allowInterjection) {
+        setTurnActive(false);
+        setPendingResponseTurnId(null);
+      }
     },
     [
       activeTurnId,
+      allowInterjection,
       applyTurnUxPlan,
       applyConversationTraceSummary,
       currentSessionId,
@@ -886,6 +898,7 @@ export const ChatPage: React.FC = () => {
       loadTrace,
       receiveAgentResponse,
       t,
+      turnActive,
       upsertSummary,
     ]
   );
@@ -931,6 +944,8 @@ export const ChatPage: React.FC = () => {
 
       if (['cancelled', 'completed', 'failed', 'interrupted', 'merged'].includes(state)) {
         setCancellingTurnIds((current) => current.filter((item) => item !== turnId));
+        setTurnActive(false);
+        setPendingResponseTurnId(null);
       }
     },
     [currentSessionId]
@@ -1059,6 +1074,10 @@ export const ChatPage: React.FC = () => {
       setInputValue('');
       clearDraftAttachments();
       setComposerReplyTarget(null);
+      if (!allowInterjection) {
+        setTurnActive(true);
+        setPendingResponseTurnId(turnId);
+      }
       const result = await messagesApi.sendMessage({
         user_id: USER_ID,
         session_id: currentSessionId,
@@ -1079,6 +1098,7 @@ export const ChatPage: React.FC = () => {
       setSendingMessage(false);
     }
   }, [
+    allowInterjection,
     appendPendingTurn,
     clearDraftAttachments,
     currentSession?.workspace_path,
@@ -1871,6 +1891,9 @@ export const ChatPage: React.FC = () => {
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                           {msg.content}
                         </ReactMarkdown>
+                        {msg.streaming && (
+                          <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current opacity-70" />
+                        )}
                       </div>
                     ) : msg.content ? (
                       <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
@@ -1975,9 +1998,10 @@ export const ChatPage: React.FC = () => {
               onCompositionEnd={() => {
                 isComposingRef.current = false;
               }}
-              placeholder={t('chat.inputPlaceholder')}
+              placeholder={(!allowInterjection && turnActive) ? t('chat.waitingForReply') : t('chat.inputPlaceholder')}
               onKeyDown={handleKeyPress}
               onPaste={handleComposerPaste}
+              disabled={!allowInterjection && turnActive}
               minHeight={88}
               className="max-h-72 resize-none border-0 bg-transparent p-0 text-sm leading-6 shadow-none placeholder:text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
             />
@@ -2025,14 +2049,24 @@ export const ChatPage: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                void handleSendMessage();
+                if (!allowInterjection && turnActive && pendingResponseTurnId) {
+                  void requestRunCancel(pendingResponseTurnId);
+                } else {
+                  void handleSendMessage();
+                }
               }}
               disabled={sendingMessage}
               className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground text-background transition-colors hover:bg-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-              aria-label={t('chat.send')}
-              title={t('chat.send')}
+              aria-label={(!allowInterjection && turnActive) ? t('chat.stop') : t('chat.send')}
+              title={(!allowInterjection && turnActive) ? t('chat.stop') : t('chat.send')}
             >
-              {sendingMessage ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+              {sendingMessage ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (!allowInterjection && turnActive) ? (
+                <Square className="h-4 w-4" />
+              ) : (
+                <ArrowUp className="h-4 w-4" />
+              )}
             </button>
           </div>
           <input

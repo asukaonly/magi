@@ -185,6 +185,8 @@ class UserPreferencesModel(BaseModel):
     auto_start_enabled: bool = Field(default=False)
     start_minimized: bool = Field(default=False)
     default_chat_workspace_path: Optional[str] = Field(default="~/.magi/chat-workspace")
+    streaming_chat_enabled: bool = Field(default=False)
+    allow_interjection: bool = Field(default=True)
 
 
 class NetworkProxyConfigModel(BaseModel):

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, AsyncIterator
 
 from ....config.models import LLMScenario, ThinkingDepth
 from ...orchestration import WorkerResult
@@ -50,6 +50,24 @@ class ChatPromptService:
             timeout_seconds=timeout_seconds,
             llm_trace_callback=llm_trace_callback,
         )
+
+    async def call_llm_stream(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        disable_thinking: bool = True,
+        thinking_depth: ThinkingDepth | None = None,
+    ) -> AsyncIterator[str]:
+        """Streaming variant of call_llm(). Yields text chunks."""
+        async for chunk in self._llm_service.call_stream(
+            system_prompt=system_prompt,
+            messages=messages,
+            disable_thinking=disable_thinking,
+            thinking_depth=thinking_depth,
+            temperature=0.7,
+        ):
+            yield chunk
 
     def filter_history_for_aggregation(self, history: list[dict[str, Any]]) -> list[dict[str, str]]:
         filtered: list[dict[str, str]] = []

@@ -380,6 +380,38 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 </div>
               </div>
             </SettingsGroup>
+
+            <SettingsGroup
+              title={t('settings.fields.streamingChat')}
+              description={t('settings.streamingChatDesc')}
+            >
+              <div className="flex items-center justify-between border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <span className="text-sm">{t('settings.streamingChatLabel')}</span>
+                <Switch
+                  aria-label={t('settings.fields.streamingChat')}
+                  checked={draftConfig.preferences.streaming_chat_enabled}
+                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                    draft.preferences.streaming_chat_enabled = checked;
+                  })}
+                />
+              </div>
+            </SettingsGroup>
+
+            <SettingsGroup
+              title={t('settings.fields.allowInterjection')}
+              description={t('settings.allowInterjectionDesc')}
+            >
+              <div className="flex items-center justify-between border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <span className="text-sm">{t('settings.allowInterjectionLabel')}</span>
+                <Switch
+                  aria-label={t('settings.fields.allowInterjection')}
+                  checked={draftConfig.preferences.allow_interjection}
+                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                    draft.preferences.allow_interjection = checked;
+                  })}
+                />
+              </div>
+            </SettingsGroup>
           </SettingsSectionShell>
         );
 

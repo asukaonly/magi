@@ -7,7 +7,7 @@ from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
 from ...chat import ChatMessageRecord, ChatProjector, ChatStore, get_chat_read_service
-from ...config import get_config
+from ...config import get_config, get_user_preference
 from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
 from ...agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
@@ -194,6 +194,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             agent_id=self.agent_id,
             get_task_agent_manager=lambda: self._task_agent_manager,
             session_run_coordinator=self._session_run_coordinator,
+            stream_chunk_callback=self._emit_stream_chunk,
         )
         self._handler_registry = ExecutionHandlerRegistry()
         common_handler_deps = build_common_handler_dependencies(handler_deps)
@@ -218,6 +219,22 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         # Keep these aliases so existing read paths and tests see the same underlying stores.
         self._conversation_history = self._history_service._conversation_history
         self._tool_interactions = self._history_service._tool_interactions
+
+    async def _emit_stream_chunk(
+        self,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        content_delta: str,
+        is_final: bool,
+    ) -> None:
+        await self._postprocess_service._runtime_notifier.emit_stream_chunk(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            content_delta=content_delta,
+            is_final=is_final,
+        )
 
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
         summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
@@ -263,6 +280,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             statuses=["running", "aggregating"],
         )
         reply_context = await self._resolve_reply_context(run_decision.latest_payload)
+        streaming_chat_enabled = bool(get_user_preference("streaming_chat_enabled", False))
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),
@@ -289,6 +307,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             planner_payload=run_decision.latest_payload,
             pending_turns=list(run_decision.checkpoint_pending_turns),
             reply_context=reply_context,
+            streaming_chat_enabled=streaming_chat_enabled,
         )
 
     async def match_intent(self, context: ChatRuntimeContext):
