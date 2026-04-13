@@ -764,6 +764,25 @@ fn set_close_to_tray_enabled(
 }
 
 #[tauri::command]
+fn set_start_minimized(
+    state: State<'_, desktop_presence::DesktopPresenceState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.set_start_minimized(enabled)
+}
+
+#[tauri::command]
+fn apply_start_minimized(
+    app: AppHandle,
+    state: State<'_, desktop_presence::DesktopPresenceState>,
+) -> Result<(), String> {
+    if state.should_start_minimized()? {
+        desktop_presence::hide_main_window(&app)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn confirm_exit_app(app: AppHandle, backend_state: State<'_, BackendState>) -> Result<(), String> {
     stop_backend_inner(&backend_state)?;
     app.exit(0);
@@ -777,6 +796,10 @@ fn cancel_exit_request() -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
@@ -815,6 +838,8 @@ fn main() {
             backend_status,
             get_backend_base_url,
             set_close_to_tray_enabled,
+            set_start_minimized,
+            apply_start_minimized,
             confirm_exit_app,
             cancel_exit_request
         ])

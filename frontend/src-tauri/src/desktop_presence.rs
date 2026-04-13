@@ -25,12 +25,14 @@ pub enum CloseAction {
 #[derive(Debug)]
 struct DesktopPresenceRuntime {
     close_to_tray_enabled: bool,
+    start_minimized: bool,
 }
 
 impl Default for DesktopPresenceRuntime {
     fn default() -> Self {
         Self {
             close_to_tray_enabled: true,
+            start_minimized: false,
         }
     }
 }
@@ -48,6 +50,23 @@ impl DesktopPresenceState {
             .map_err(|_| "Failed to acquire desktop presence lock".to_string())?;
         runtime.close_to_tray_enabled = enabled;
         Ok(())
+    }
+
+    pub fn set_start_minimized(&self, enabled: bool) -> Result<(), String> {
+        let mut runtime = self
+            .runtime
+            .lock()
+            .map_err(|_| "Failed to acquire desktop presence lock".to_string())?;
+        runtime.start_minimized = enabled;
+        Ok(())
+    }
+
+    pub fn should_start_minimized(&self) -> Result<bool, String> {
+        let runtime = self
+            .runtime
+            .lock()
+            .map_err(|_| "Failed to acquire desktop presence lock".to_string())?;
+        Ok(runtime.start_minimized)
     }
 
     pub fn close_action(&self) -> Result<CloseAction, String> {

@@ -10,7 +10,7 @@ import './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
 import { initializeRuntime, resetRuntimeInitialization } from './runtime/config';
-import { syncCloseToTrayPreference } from './runtime/desktop';
+import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, applyStartMinimized } from './runtime/desktop';
 import { initializeTheme } from './stores/theme';
 
 initializeTheme();
@@ -31,8 +31,11 @@ const RuntimeBootstrap: React.FC = () => {
       });
       try {
         const response = await configApi.get();
-        const enabled = response.data?.preferences?.close_to_tray_enabled;
-        await syncCloseToTrayPreference(enabled ?? true);
+        const prefs = response.data?.preferences;
+        await syncCloseToTrayPreference(prefs?.close_to_tray_enabled ?? true);
+        await syncAutoStartPreference(prefs?.auto_start_enabled ?? false);
+        await syncStartMinimizedPreference(prefs?.start_minimized ?? false);
+        await applyStartMinimized();
       } catch {
         await syncCloseToTrayPreference(true);
       }

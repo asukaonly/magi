@@ -51,6 +51,30 @@ export async function syncCloseToTrayPreference(enabled: boolean): Promise<void>
   await invokeDesktopCommand('set_close_to_tray_enabled', { enabled });
 }
 
+export async function syncAutoStartPreference(enabled: boolean): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  try {
+    const { enable, disable } = await import('@tauri-apps/plugin-autostart');
+    if (enabled) {
+      await enable();
+    } else {
+      await disable();
+    }
+  } catch {
+    // autostart plugin unavailable in dev mode
+  }
+}
+
+export async function syncStartMinimizedPreference(enabled: boolean): Promise<void> {
+  await invokeDesktopCommand('set_start_minimized', { enabled });
+}
+
+export async function applyStartMinimized(): Promise<void> {
+  await invokeDesktopCommand('apply_start_minimized');
+}
+
 export async function pickDirectory(defaultPath?: string | null): Promise<string | undefined> {
   if (!isTauriRuntime()) {
     return undefined;

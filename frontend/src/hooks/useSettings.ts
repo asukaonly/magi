@@ -13,7 +13,7 @@ import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
 import { useThemeStore, type ThemeMode } from '@/stores/theme';
-import { syncCloseToTrayPreference } from '@/runtime/desktop';
+import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference } from '@/runtime/desktop';
 import type {
   MemoryToggleFieldId,
   PluginDraftMap,
@@ -504,6 +504,8 @@ export function useSettings(): UseSettingsReturn {
         const response = await configApi.update(draftConfig);
         persistedConfig = structuredClone(response.data || draftConfig);
         await syncCloseToTrayPreference(persistedConfig.preferences.close_to_tray_enabled);
+        await syncAutoStartPreference(persistedConfig.preferences.auto_start_enabled);
+        await syncStartMinimizedPreference(persistedConfig.preferences.start_minimized);
         setSavedConfig(structuredClone(persistedConfig));
         setDraftConfig(structuredClone(persistedConfig));
       }
