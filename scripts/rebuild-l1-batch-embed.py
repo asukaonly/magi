@@ -39,7 +39,7 @@ if str(BACKEND_SRC_DIR) not in sys.path:
 
 EMBEDDING_MODEL = "text-embedding-v4"
 EMBEDDING_DIM = 1024
-MAX_TEXTS_PER_REQUEST = 25
+MAX_TEXTS_PER_REQUEST = 10  # DashScope Batch API limit for embeddings
 MAX_REQUESTS_PER_FILE = 50_000
 WORK_DIR_NAME = "batch_embed_work"
 

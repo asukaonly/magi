@@ -239,9 +239,8 @@ class MemoryEmbeddingService:
             vector=values,
         )
 
-    # Most embedding APIs cap a single request at 25-100 inputs.
-    # DashScope (Alibaba) allows at most 25 per call.
-    _REMOTE_EMBED_BATCH_SIZE = 25
+    # DashScope (Alibaba) embedding API caps at 10 inputs per request.
+    _REMOTE_EMBED_BATCH_SIZE = 10
 
     async def _embed_texts_remote(self, texts: list[str]) -> list[Optional[EmbeddingResult]]:
         normalized_texts = [text.strip() for text in texts]
