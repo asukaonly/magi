@@ -429,10 +429,19 @@ class L1Handler(RRFSearchHandler):
         Resolves chunk-level entity IDs returned by the vector index back to
         event IDs.  When *user_id* is provided, only events belonging to that
         user are returned (via a post-filter against ``fact_events``).
+
+        With sentence-level chunking each event produces many chunks (~10),
+        so we over-fetch chunks generously and cap by *unique event count*
+        rather than raw chunk count to maintain session diversity.
         """
         try:
-            # Over-fetch when user_id filtering will discard cross-namespace hits
-            vec_limit = limit * 10 if user_id else limit
+            # Over-fetch chunks to ensure enough unique events survive dedup.
+            # With ~10 chunks/event, we need ~10x the desired event count in
+            # raw chunk hits.  When user_id filtering is active the post-filter
+            # discards cross-namespace events, so we fetch even more.
+            chunk_density_multiplier = 10
+            user_filter_multiplier = 3 if user_id else 1
+            vec_limit = limit * chunk_density_multiplier * user_filter_multiplier
             hits = await self._store._semantic_search_event_hits(query=query, limit=vec_limit)
             if not hits:
                 return []
