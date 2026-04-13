@@ -98,6 +98,7 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
                 fused_scores=fused_scores,
             )
 
+        self._rerank_now = time.time()
         top_k = max(1, int(self._config.reranker_top_k))
         rerank_slice = list(results[:top_k])
         remainder = list(results[top_k:])
@@ -166,7 +167,7 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
         verbosity_penalty = 0.0
         if author_type == "assistant" and len(content) > 240:
             verbosity_penalty = min((len(content) - 240) / 600.0, 0.25)
-        recency_bonus = _recency_bonus(item.get("timestamp"))
+        recency_bonus = _recency_bonus(item.get("timestamp"), now=getattr(self, "_rerank_now", None))
 
         final_score = (
             base_rrf_score
@@ -291,7 +292,7 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
             generic_penalty += 0.12
 
         ts_value = _secondary_timestamp(item)
-        recency_bonus = _recency_bonus(ts_value if ts_value > 0 else None)
+        recency_bonus = _recency_bonus(ts_value if ts_value > 0 else None, now=getattr(self, "_rerank_now", None))
 
         base_rrf_score = float(fused_scores.get(item_id, 0.0))
         final_score = (
@@ -358,7 +359,7 @@ _RECENCY_ALPHA = 0.15
 _RECENCY_LAMBDA = 0.03
 
 
-def _recency_bonus(timestamp: Any) -> float:
+def _recency_bonus(timestamp: Any, *, now: float | None = None) -> float:
     """Return time-decay bonus for an item. Recent items score higher."""
     if timestamp is None:
         return 0.0
@@ -368,7 +369,9 @@ def _recency_bonus(timestamp: Any) -> float:
         return 0.0
     if ts <= 0:
         return 0.0
-    days_ago = max(0.0, (time.time() - ts) / 86400.0)
+    if now is None:
+        now = time.time()
+    days_ago = max(0.0, (now - ts) / 86400.0)
     return _RECENCY_ALPHA * math.exp(-_RECENCY_LAMBDA * days_ago)
 
 

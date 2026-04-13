@@ -33,6 +33,8 @@ from .timeline_condense import build_timeline_summary
 
 logger = logging.getLogger(__name__)
 
+_TURN_NUMBER_RE = re.compile(r"turn-(\d+)$")
+
 
 def build_retrieval_config_from_app_config(app_config: AppConfig) -> RetrievalConfig:
     """Build retrieval config from the runtime app config."""
@@ -422,12 +424,15 @@ class HybridRetrievalService:
 
             db_path = str(getattr(catalog, "db_path", ""))
             if db_path:
-                edge_vector_index = SqliteVecIndex(
-                    db_path=db_path,
-                    registry_table="l2_edge_vectors",
-                    entity_column="entity_id",
-                    vec_table_prefix="l2_edge_vec",
-                )
+                try:
+                    edge_vector_index = SqliteVecIndex(
+                        db_path=db_path,
+                        registry_table="l2_edge_vectors",
+                        entity_column="entity_id",
+                        vec_table_prefix="l2_edge_vec",
+                    )
+                except Exception:
+                    logger.warning("Failed to create L2 edge vector index", exc_info=True)
         return L2Handler(
             memory.l2,
             entity_catalog=catalog,
@@ -876,7 +881,7 @@ class HybridRetrievalService:
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:
         """Extract a numeric turn suffix from session turn ids like `session:turn-3`."""
-        match = re.search(r"turn-(\d+)$", str(turn_id or ""))
+        match = _TURN_NUMBER_RE.search(str(turn_id or ""))
         if not match:
             return None
         try:
