@@ -28,6 +28,8 @@ export interface UserPreferences {
   scenario?: string | null;
   language: LanguageCode;
   close_to_tray_enabled: boolean;
+  auto_start_enabled: boolean;
+  start_minimized: boolean;
   default_chat_workspace_path: string | null;
 }
 
@@ -545,6 +547,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     scenario: null,
     language: 'zh',
     close_to_tray_enabled: true,
+    auto_start_enabled: false,
+    start_minimized: false,
     default_chat_workspace_path: '~/.magi/chat-workspace',
   },
   network: {

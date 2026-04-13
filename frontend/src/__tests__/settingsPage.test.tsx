@@ -600,7 +600,7 @@ describe('settings page draft saving', () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    const closeToTraySwitch = await screen.findByRole('switch', { name: 'settings.fields.closeToTray' });
+    const closeToTraySwitch = await screen.findByRole('switch', { name: 'settings.closeToTrayLabel' });
     expect(closeToTraySwitch).toHaveAttribute('data-state', 'checked');
 
     await user.click(closeToTraySwitch);
@@ -626,7 +626,7 @@ describe('settings page draft saving', () => {
     expect(content).not.toHaveClass('max-w-3xl');
     expect(screen.getAllByText('settings.fields.language')).toHaveLength(1);
     expect(screen.getAllByText('settings.fields.theme')).toHaveLength(1);
-    expect(screen.getAllByText('settings.fields.closeToTray')).toHaveLength(1);
+    expect(screen.getAllByText('settings.fields.windowSettings')).toHaveLength(1);
     expect(screen.queryByText('settings.fields.defaultChatWorkspace')).not.toBeInTheDocument();
   });
 

@@ -240,16 +240,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               />
             </SettingsGroup>
 
-            <hr className="border-[hsl(var(--settings-subnav-border)/0.4)]" />
-
-            <SettingsGroup
-              title={t('settings.fields.closeToTray')}
-              description={t('settings.closeToTrayDesc')}
-            >
+            <SettingsGroup title={t('settings.fields.windowSettings')}>
               <div className="flex items-center justify-between gap-4">
-                <span className="text-xs text-muted-foreground">{t('settings.closeToTrayHelp')}</span>
+                <span className="text-sm">{t('settings.closeToTrayLabel')}</span>
                 <Switch
-                  aria-label={t('settings.fields.closeToTray')}
+                  aria-label={t('settings.closeToTrayLabel')}
                   checked={draftConfig.preferences.close_to_tray_enabled}
                   onCheckedChange={(checked) => patchDraftConfig((draft) => {
                     draft.preferences.close_to_tray_enabled = checked;
@@ -258,7 +253,30 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               </div>
             </SettingsGroup>
 
-            <hr className="border-[hsl(var(--settings-subnav-border)/0.4)]" />
+            <SettingsGroup title={t('settings.startupSettings')}>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm">{t('settings.autoStartLabel')}</span>
+                  <Switch
+                    aria-label={t('settings.autoStartLabel')}
+                    checked={draftConfig.preferences.auto_start_enabled}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.preferences.auto_start_enabled = checked;
+                    })}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm">{t('settings.startMinimizedLabel')}</span>
+                  <Switch
+                    aria-label={t('settings.startMinimizedLabel')}
+                    checked={draftConfig.preferences.start_minimized}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.preferences.start_minimized = checked;
+                    })}
+                  />
+                </div>
+              </div>
+            </SettingsGroup>
 
             <SettingsGroup
               title={t('settings.fields.networkProxy')}
