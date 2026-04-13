@@ -242,5 +242,10 @@ class RetrievalConfig:
     manifest_selector_timeout_seconds: float = 8.0
     manifest_selector_candidate_max_chars: int = 400
 
+    # Token budget ratios (layer share of remaining budget after L0)
+    l1_budget_ratio: float = 0.5
+    l2_budget_ratio: float = 0.4
+    l3_budget_ratio: float = 0.4
+
     # Token estimation
     char_per_token_ratio: float = 3.0

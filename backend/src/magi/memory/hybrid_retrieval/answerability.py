@@ -64,6 +64,11 @@ _TEMPORAL_PATTERNS = (
     ),
 )
 
+# Consonants that commonly appear doubled in base English words (call, miss, stuff)
+# and should NOT be de-duplicated when stripping -ed/-ing suffixes.
+_NATURAL_DOUBLE_CONSONANTS = frozenset("lsf")
+
+
 def _normalize_query_token(token: str) -> str:
     """Apply lightweight normalization so simple inflections still match."""
     normalized = str(token or "").strip().lower()
@@ -72,11 +77,33 @@ def _normalize_query_token(token: str) -> str:
     if normalized.endswith("ied") and len(normalized) > 4:
         return f"{normalized[:-3]}y"
     if normalized.endswith("ed") and len(normalized) > 4:
-        if normalized[:-1].endswith("e"):
+        base = normalized[:-2]
+        # Doubled consonant from suffixing: stopped → stopp → stop
+        if (
+            len(base) >= 2
+            and base[-1] == base[-2]
+            and base[-1] not in "aeiou"
+            and base[-1] not in _NATURAL_DOUBLE_CONSONANTS
+        ):
+            return base[:-1]
+        # Vowel-ending base: the 'e' is part of the stem (freed → free)
+        if base and base[-1] in "aeiou":
             return normalized[:-1]
-        return normalized[:-2]
+        # Consonants that commonly precede silent-e in English stems:
+        # serviced → service, placed → place, changed → change, loved → love
+        if base and base[-1] in "cgszv":
+            return base + "e"
+        return base
     if normalized.endswith("ing") and len(normalized) > 5:
         stem = normalized[:-3]
+        # Doubled consonant from suffixing: running → runn → run
+        if (
+            len(stem) >= 2
+            and stem[-1] == stem[-2]
+            and stem[-1] not in "aeiou"
+            and stem[-1] not in _NATURAL_DOUBLE_CONSONANTS
+        ):
+            return stem[:-1]
         if stem.endswith(("v", "c", "g")):
             return f"{stem}e"
         return stem

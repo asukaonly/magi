@@ -343,6 +343,10 @@ class HybridRetrievalService:
                     self._merge_result(payload, plan.layer, result)
                 payload.trace["fallback_triggered"] = True
 
+        # Save pre-truncation L1 events for evidence bundling (fusion
+        # truncates the list, but bundles need full session coverage).
+        pre_fusion_l1_events = list(payload.l1_events)
+
         # 5. Result fusion (dedup + token budget)
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
 
@@ -353,7 +357,7 @@ class HybridRetrievalService:
             )
 
         payload.l1_evidence_bundles = await self._build_l1_evidence_bundles(
-            payload.l1_events,
+            pre_fusion_l1_events,
             query=request.query,
         )
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)

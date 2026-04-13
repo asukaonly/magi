@@ -100,22 +100,27 @@ class AnswerPromptPayload:
     preference_instruction: str
 
 
+_TIMELINE_PRIORITY_RE = re.compile(
+    r"\b(?:"
+    r"(?:happened|occurred|came)\s+first"
+    r"|did\b(?:\s+\w+){0,3}\s+first"
+    r"|first\s+(?:time|happened|occurred)"
+    r"|before\s+(?:or\s+after|that|this|then)"
+    r"|after\s+(?:or\s+before|that|this|then)"
+    r"|(?:earlier|later)\s+than"
+    r"|most\s+recent"
+    r"|chronolog"
+    r"|in\s+(?:what\s+)?order"
+    r"|(?:happened|occurred|started)\s+(?:before|after|earlier|later)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def should_prioritize_timeline(question: str, timeline_summary: list[dict[str, Any]] | None) -> bool:
     if not timeline_summary:
         return False
-    lowered = str(question or "").lower()
-    temporal_markers = (
-        " first",
-        " before",
-        " after",
-        " earlier",
-        " later",
-        " last ",
-        " most recent",
-        " happened first",
-        " occurred first",
-    )
-    return any(marker in lowered for marker in temporal_markers)
+    return bool(_TIMELINE_PRIORITY_RE.search(question or ""))
 
 
 def build_answer_prompt_payload(

@@ -443,6 +443,7 @@ class L1Handler(RRFSearchHandler):
                 user_id=user_id,
                 event_type=conditions.event_types[0] if conditions.event_types else None,
                 source_filters=conditions.source_filters,
+                query=conditions.content_query or None,
                 limit=limit,
             )
             quoted_phrases = extract_quoted_spans(conditions.content_query)
@@ -574,6 +575,39 @@ class L2Handler:
         self._embedding_service = embedding_service
         self._edge_vector_index = edge_vector_index
 
+    @staticmethod
+    def _filter_by_time_range(
+        items: List[Dict[str, Any]],
+        time_range: "TimeRange",
+        *,
+        timestamp_keys: tuple[str, ...] = ("observed_at", "first_observed"),
+    ) -> List[Dict[str, Any]]:
+        """Keep items whose timestamp falls within *time_range*.
+
+        Items without any recognizable timestamp are always kept so
+        that un-dated knowledge-graph facts are not silently discarded.
+        """
+        result: List[Dict[str, Any]] = []
+        for item in items:
+            ts: float | None = None
+            for key in timestamp_keys:
+                raw = item.get(key)
+                if raw is not None:
+                    try:
+                        ts = float(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    break
+            if ts is None:
+                result.append(item)
+                continue
+            if time_range.start and ts < time_range.start:
+                continue
+            if time_range.end and ts > time_range.end:
+                continue
+            result.append(item)
+        return result
+
     async def execute(
         self,
         conditions: L2Conditions,
@@ -582,7 +616,6 @@ class L2Handler:
         user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Query L2 for entity cards and relationships."""
-        del time_range
         results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": [], "trace": {}}
         resolved_entities = await self._resolve_entities(conditions, user_id=user_id)
         predicate_family = conditions.predicate_family or "unknown"
@@ -675,6 +708,17 @@ class L2Handler:
                         limit=conditions.limit,
                     )
                     results["relationships"] = rels
+
+        # Post-retrieval time_range filtering for assertions/relationships
+        if time_range and (time_range.start or time_range.end):
+            results["assertions"] = self._filter_by_time_range(
+                results["assertions"], time_range,
+                timestamp_keys=("observed_at", "first_observed"),
+            )
+            results["relationships"] = self._filter_by_time_range(
+                results["relationships"], time_range,
+                timestamp_keys=("last_observed", "first_observed"),
+            )
 
         edge_vector_supplement_count = 0
         if conditions.include_relationships and conditions.content_query:
