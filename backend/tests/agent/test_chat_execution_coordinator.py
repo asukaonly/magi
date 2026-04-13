@@ -624,3 +624,114 @@ async def test_coordinator_forces_direct_llm_for_image_attachments() -> None:
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.DIRECT_LLM
+
+
+@pytest.mark.asyncio
+async def test_coordinator_injects_tool_advisory_into_decision_context() -> None:
+    """Advisory provider should populate ContextDeciderContext.tool_advisory."""
+    fake_advisories = [
+        {"tool_name": "web_search", "available": True, "breaker_state": "closed",
+         "success_rate": 0.8, "total_attempts": 5, "strategy_hint": "use quotes",
+         "context_fit": None, "risk_note": None},
+    ]
+
+    async def advisory_provider(task_context=None):
+        return fake_advisories
+
+    decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="realtime_query",
+            tools=["web_search"],
+            deep_thinking=False,
+            reasoning="search",
+            orchestration_strategy={"mode": "direct", "planner": "task_agent",
+                                    "default_leaf_type": "general-purpose",
+                                    "allow_parallel": False},
+        )
+    )
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        tool_advisory_provider=advisory_provider,
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "search weather"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="search weather",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    await coordinator.match_intent(context)
+
+    dc = decider.last_decision_context
+    assert dc is not None
+    assert hasattr(dc, "tool_advisory")
+    assert dc.tool_advisory == fake_advisories
+
+
+@pytest.mark.asyncio
+async def test_coordinator_works_without_advisory_provider() -> None:
+    """Coordinator should work fine when tool_advisory_provider is None."""
+    decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="chat",
+            tools=[],
+            deep_thinking=False,
+            reasoning="greeting",
+            orchestration_strategy={"mode": "direct", "planner": "task_agent",
+                                    "default_leaf_type": "general-purpose",
+                                    "allow_parallel": False},
+        )
+    )
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+        # no tool_advisory_provider
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "hey"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="hey",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+    dc = decider.last_decision_context
+    assert dc is not None
+    assert dc.tool_advisory == []

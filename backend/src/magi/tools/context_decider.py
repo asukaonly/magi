@@ -480,6 +480,28 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         else:
             prompt += "- No environment info\n"
 
+        # Inject L4 procedural-memory advisory when available.
+        if context and context.tool_advisory:
+            prompt += "\n## Tool Experience Notes\n\n"
+            prompt += "The following tools have notable historical observations. Use this to inform your tool selection.\n\n"
+            for adv in context.tool_advisory:
+                name = adv.get("tool_name", "unknown")
+                parts: list[str] = []
+                if not adv.get("available", True):
+                    parts.append("UNAVAILABLE (breaker open)")
+                rate = adv.get("success_rate")
+                attempts = adv.get("total_attempts", 0)
+                if rate is not None and attempts:
+                    parts.append(f"success {rate:.0%} over {attempts} uses")
+                hint = adv.get("strategy_hint")
+                if hint:
+                    parts.append(f"tip: {hint}")
+                risk = adv.get("risk_note")
+                if risk:
+                    parts.append(f"risk: {risk}")
+                if parts:
+                    prompt += f"- {name}: {' | '.join(parts)}\n"
+
         prompt += "\nRespond with ONLY the JSON object."
 
         return prompt

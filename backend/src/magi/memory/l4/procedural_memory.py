@@ -542,6 +542,82 @@ class L4ProceduralMemoryStore:
 
         return result
 
+    async def get_notable_advisories(
+        self,
+        task_context: str | None = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Return advisories for tools with actionable status.
+
+        Selects tools whose circuit breaker is not closed, that have an
+        extracted strategy, or that have a low success rate (< 0.7 with
+        at least 3 attempts).  This avoids requiring the caller to know
+        which tool names to query up-front.
+        """
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT skill_name, circuit_breaker_state, success_rate,
+                       total_attempts, optimized_prompt, context_affinity,
+                       failure_count, last_failure_at
+                FROM procedural_skills
+                WHERE skill_category = 'tool'
+                  AND (
+                      circuit_breaker_state != 'closed'
+                      OR (optimized_prompt IS NOT NULL AND optimized_prompt != '' AND optimized_prompt != '{}')
+                      OR (success_rate < 0.7 AND total_attempts >= 3)
+                  )
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (int(limit * 2),),  # fetch extra to allow post-filter
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            breaker = str(row["circuit_breaker_state"])
+            available = breaker != "open"
+            success_rate = float(row["success_rate"])
+            total_attempts = int(row["total_attempts"])
+            strategy_hint = self._extract_strategy_hint(row["optimized_prompt"])
+            context_fit = self._compute_context_fit(row["context_affinity"], task_context)
+
+            # Post-filter: only include truly notable tools.
+            is_notable = (
+                breaker != "closed"
+                or strategy_hint is not None
+                or (success_rate < 0.7 and total_attempts >= 3)
+            )
+            if not is_notable:
+                continue
+
+            risk_note = None
+            if breaker == "open":
+                risk_note = "Circuit breaker open: consecutive failures detected"
+            elif breaker == "half_open":
+                risk_note = "Circuit breaker recovering: recent failures observed"
+            elif success_rate < 0.5 and total_attempts >= 3:
+                risk_note = f"Low success rate ({success_rate:.0%} over {total_attempts} attempts)"
+
+            result.append(
+                {
+                    "tool_name": str(row["skill_name"]),
+                    "available": available,
+                    "breaker_state": breaker,
+                    "success_rate": success_rate,
+                    "total_attempts": total_attempts,
+                    "strategy_hint": strategy_hint,
+                    "context_fit": context_fit,
+                    "risk_note": risk_note,
+                }
+            )
+            if len(result) >= limit:
+                break
+        return result
+
     @staticmethod
     def _extract_strategy_hint(optimized_prompt: str | None) -> str | None:
         """Extract a short hint from the strategy JSON or raw text."""

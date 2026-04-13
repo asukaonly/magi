@@ -169,3 +169,66 @@ class TestToolAdvisory:
         assert len(advisories) == 2
         names = {a["tool_name"] for a in advisories}
         assert names == {"tool_a", "tool_b"}
+
+
+class TestNotableAdvisories:
+    """Tests for get_notable_advisories() — returns advisories without requiring
+    the caller to supply tool names."""
+
+    @pytest.mark.asyncio
+    async def test_empty_store(self, store: L4ProceduralMemoryStore):
+        result = await store.get_notable_advisories()
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_healthy_tools_excluded(self, store: L4ProceduralMemoryStore):
+        """Tools with closed breaker, no strategy, and high success rate should NOT appear."""
+        for _ in range(3):
+            await store.record_memory_event(_make_action_event("healthy_tool", success=True))
+        result = await store.get_notable_advisories()
+        assert all(a["tool_name"] != "healthy_tool" for a in result)
+
+    @pytest.mark.asyncio
+    async def test_breaker_open_included(self, store: L4ProceduralMemoryStore):
+        for _ in range(3):
+            await store.record_memory_event(_make_action_event("broken_tool", success=False))
+        result = await store.get_notable_advisories()
+        names = {a["tool_name"] for a in result}
+        assert "broken_tool" in names
+        adv = next(a for a in result if a["tool_name"] == "broken_tool")
+        assert adv["available"] is False
+
+    @pytest.mark.asyncio
+    async def test_strategy_present_included(self, store: L4ProceduralMemoryStore):
+        await store.record_memory_event(_make_action_event("smart_tool", success=True))
+        skill = await store.get_skill(skill_name="smart_tool", skill_category="tool")
+        strategy = ExtractedStrategy(
+            recommended_approach="Use with JSON input",
+            confidence=0.85,
+        )
+        await store._persist_strategy(skill_id=skill["skill_id"], strategy=strategy)
+        result = await store.get_notable_advisories()
+        names = {a["tool_name"] for a in result}
+        assert "smart_tool" in names
+        adv = next(a for a in result if a["tool_name"] == "smart_tool")
+        assert adv["strategy_hint"] == "Use with JSON input"
+
+    @pytest.mark.asyncio
+    async def test_low_success_rate_included(self, store: L4ProceduralMemoryStore):
+        await store.record_memory_event(_make_action_event("shaky_tool", success=True))
+        for _ in range(3):
+            await store.record_memory_event(_make_action_event("shaky_tool", success=False))
+        result = await store.get_notable_advisories()
+        names = {a["tool_name"] for a in result}
+        assert "shaky_tool" in names
+
+    @pytest.mark.asyncio
+    async def test_limit_respected(self, store: L4ProceduralMemoryStore):
+        # Create 5 tools with open breakers
+        for i in range(5):
+            for _ in range(3):
+                await store.record_memory_event(
+                    _make_action_event(f"tool_{i}", success=False)
+                )
+        result = await store.get_notable_advisories(limit=2)
+        assert len(result) == 2
