@@ -146,12 +146,6 @@ JSON structure:
 - Command execution
 - No specialized knowledge needed
 
-**Prefer `web-search` when:**
-- Identifying unknown processes, executables, or software (e.g., "what is xxx.exe")
-- The user asks about something they don't recognize on their system
-- Local commands alone cannot determine the identity or safety of an unknown program
-- Combine with `bash` when local verification (e.g., checking file signatures) is also useful
-
 **Use `agent` tool proactively when:**
 - The task is complex and likely needs many search/verification steps.
 - You are not confident one or two direct tool calls can finish it.
@@ -220,12 +214,6 @@ JSON: {"intent": "chat", "tools": ["memory_query"], "thinking_depth": "none", "r
 
 User: "按之前那套流程修一下这个 bug"
 JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "thinking_depth": "medium", "reasoning": "This is a workflow reuse request, not an explicit historical recall request.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
-
-User: "帮我看看我的电脑，我看进程里有Aac3572MbHal_x86.exe这么个，这是干嘛的"
-JSON: {"intent": "realtime_query", "tools": ["web-search", "bash"], "thinking_depth": "low", "reasoning": "Identifying an unknown process/executable. Use web-search first to determine what it is, then optionally bash to verify locally (file signature, publisher, location).", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
-
-User: "what is svchost.exe and why is it using so much memory"
-JSON: {"intent": "realtime_query", "tools": ["web-search", "bash"], "thinking_depth": "low", "reasoning": "User wants to identify a process and understand its resource usage. Web search for identification, bash for local resource inspection.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
 Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If not matching skill exists, use basic tools."""
 

@@ -31,6 +31,11 @@ from .handlers import ExecutionHandlerRegistry
 
 logger = get_logger(__name__)
 
+# Tools the execution LLM always has access to when tool-calling is active,
+# regardless of what the Context Decider selected.  This avoids the routing
+# LLM becoming a single point of failure for tool availability.
+_FALLBACK_TOOLS = ["web-search"]
+
 IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
 ToolAdvisoryProvider = Callable[[str | None], Awaitable[List[Dict[str, Any]]]]
 
@@ -150,6 +155,14 @@ class ChatExecutionCoordinator:
             for item in list(getattr(context.latest_payload, "attachments", []) or [])
         )
         selected_tools = [] if has_image_attachments else list(decision.tools)
+        # Ensure fallback tools are always available when tool-assisted execution
+        # is active.  The execution LLM is smarter than the routing LLM and can
+        # decide on its own whether web-search is useful for the current task.
+        if selected_tools:
+            registered = set(self._context_decider.tool_registry.list_tools())
+            for ft in _FALLBACK_TOOLS:
+                if ft not in selected_tools and ft in registered:
+                    selected_tools.append(ft)
         execution_mode = (
             ExecutionMode.DIRECT_LLM
             if has_image_attachments

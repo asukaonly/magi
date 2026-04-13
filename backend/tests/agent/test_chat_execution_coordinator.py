@@ -35,10 +35,21 @@ class _FakeContextDecision:
         self.llm_trace = llm_trace or {}
 
 
+class _FakeToolRegistry:
+    """Minimal stub so the coordinator can call ``tool_registry.list_tools()``."""
+
+    def __init__(self, tools: list[str] | None = None) -> None:
+        self._tools = tools or []
+
+    def list_tools(self) -> list[str]:
+        return list(self._tools)
+
+
 class _FakeContextDecider:
     def __init__(self, decision: _FakeContextDecision) -> None:
         self._decision = decision
         self.last_decision_context = None
+        self.tool_registry = _FakeToolRegistry()
 
     async def decide(self, user_message: str, decision_context: dict):  # type: ignore[no-untyped-def]
         _ = user_message
@@ -735,3 +746,103 @@ async def test_coordinator_works_without_advisory_provider() -> None:
     dc = decider.last_decision_context
     assert dc is not None
     assert dc.tool_advisory == []
+
+
+@pytest.mark.asyncio
+async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
+    """web-search should be appended as a fallback when tool-calling is active."""
+    decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="code_execution",
+            tools=["bash"],
+            deep_thinking=False,
+            reasoning="run command",
+            orchestration_strategy={"mode": "direct", "planner": "task_agent",
+                                    "default_leaf_type": "general-purpose",
+                                    "allow_parallel": False},
+        )
+    )
+    decider.tool_registry = _FakeToolRegistry(["bash", "web-search", "file_read"])
+
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "查一下这个进程"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="查一下这个进程",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+    assert "bash" in decision.tools
+    assert "web-search" in decision.tools
+
+
+@pytest.mark.asyncio
+async def test_coordinator_does_not_inject_fallback_tools_for_chat() -> None:
+    """Pure chat (no tools) should stay tool-free — no fallback injection."""
+    decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="chat",
+            tools=[],
+            deep_thinking=False,
+            reasoning="greeting",
+            orchestration_strategy={"mode": "direct", "planner": "task_agent",
+                                    "default_leaf_type": "general-purpose",
+                                    "allow_parallel": False},
+        )
+    )
+    decider.tool_registry = _FakeToolRegistry(["bash", "web-search"])
+
+    coordinator = ChatExecutionCoordinator(
+        context_decider=decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "你好"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="你好",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+    assert decision.tools == []
+    assert decision.execution_mode == ExecutionMode.DIRECT_LLM
