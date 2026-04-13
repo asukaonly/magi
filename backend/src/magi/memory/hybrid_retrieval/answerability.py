@@ -112,26 +112,46 @@ def _normalize_query_token(token: str) -> str:
     return normalized
 
 
+_CJK_RANGE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff]")
+# Split text into CJK segments vs Latin/numeric segments for separate tokenization.
+_SEGMENT_RE = re.compile(
+    r"([\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff]+)",
+)
+
+
+def _jieba_cut(text: str) -> list[str]:
+    """Segment CJK text with jieba; fall back to character-level split."""
+    try:
+        import jieba
+        return [w for w in jieba.cut_for_search(text) if w.strip()]
+    except ImportError:
+        return list(text)
+
+
 def extract_query_tokens(text: str) -> list[str]:
     """Extract normalized ranking tokens from a query or event body.
 
-    Supports both Latin/numeric tokens and CJK characters.  CJK text is
-    split into individual characters (unigrams) because Chinese/Japanese
-    do not use space-delimited words.
+    Latin/numeric tokens are stemmed via ``_normalize_query_token``.
+    CJK text is segmented with jieba (falls back to character unigrams).
     """
     lowered = str(text or "").lower()
-    # Match Latin/numeric words OR individual CJK characters
-    raw_tokens = re.findall(r"[a-z0-9]+|[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff]", lowered)
-    return [
-        normalized
-        for token in raw_tokens
-        for normalized in [_normalize_query_token(token)]
-        if len(normalized) >= 1 and (
-            normalized not in _RERANK_STOP_WORDS
-            # CJK single chars are always kept (length 1 is fine for CJK unigrams)
-            or ord(normalized[0]) > 0x2fff
-        )
-    ]
+    result: list[str] = []
+    for segment in _SEGMENT_RE.split(lowered):
+        if not segment:
+            continue
+        if _CJK_RANGE.search(segment):
+            # CJK segment → jieba word-level tokenization
+            for word in _jieba_cut(segment):
+                word = word.strip()
+                if word:
+                    result.append(word)
+        else:
+            # Latin/numeric segment → regex + stemmer
+            for token in re.findall(r"[a-z0-9]+", segment):
+                normalized = _normalize_query_token(token)
+                if normalized and normalized not in _RERANK_STOP_WORDS:
+                    result.append(normalized)
+    return result
 
 
 def extract_query_phrases(tokens: Sequence[str]) -> list[str]:
