@@ -328,21 +328,9 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     ux_plan=_serialize_ux_plan(request.intent),
                 )
             if step_outcome.status == "failed":
-                execution_outcome = {
-                    "status": "failed",
-                    "content": "",
-                    "failure_reason": step_outcome.failure_reason,
-                    "tool_failures": list(getattr(step_state, "tool_failures", [])),
-                    "iterations": step_outcome.iteration,
-                }
-                return FunctionCallingExecutionResult(
-                    mode=request.mode,
-                    response_text="",
-                    root_user_message=current_user_message,
-                    execution_outcome=execution_outcome,
-                    turn_id=current_turn_id,
-                    ux_plan=_serialize_ux_plan(request.intent),
-                )
+                # Instead of returning an empty response, let the LLM
+                # generate a final answer using the error context.
+                break
 
             active_run = session_run_coordinator.get_active_run(request.context.session_id)
             if active_run is not None and active_run.revision != current_revision:

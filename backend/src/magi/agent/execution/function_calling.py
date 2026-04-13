@@ -1525,6 +1525,7 @@ class FunctionCallingOrchestrator:
         tool_results: List[ToolCallResult],
         *,
         consecutive_failed_tool_iterations: int,
+        available_tools: List[Dict[str, Any]] | None = None,
     ) -> bool:
         if consecutive_failed_tool_iterations > self._FAILED_ITERATION_REPLAN_LIMIT:
             return False
@@ -1535,7 +1536,20 @@ class FunctionCallingOrchestrator:
         }
         if not error_codes:
             return True
-        return not any(code in self._NON_REPLAN_ERROR_CODES for code in error_codes)
+        has_non_replan_error = any(code in self._NON_REPLAN_ERROR_CODES for code in error_codes)
+        if not has_non_replan_error:
+            return True
+        # Non-replan errors (config/auth) block retry of the same tool, but if
+        # the LLM has other untried tools it should get a chance to pivot.
+        if available_tools:
+            failed_names = {str(r.tool_name) for r in tool_results}
+            all_names = {
+                str(t.get("function", {}).get("name", ""))
+                for t in available_tools
+            }
+            if all_names - failed_names:
+                return True
+        return False
 
     def _classify_exception_failure(self, exc: Exception) -> str:
         message = str(exc).lower()

@@ -298,3 +298,57 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
     assert second_outcome.status == "completed"
     assert second_outcome.content == "Here is the final answer."
     assert step_state.iteration == 2
+
+
+def test_replan_allowed_when_untried_tools_remain_despite_non_replan_error() -> None:
+    """Config errors should not block replan when the LLM has other tools to try."""
+    orchestrator = _build_orchestrator()
+
+    results = [
+        ToolCallResult(
+            tool_call_id="call_1",
+            tool_name="weather",
+            success=False,
+            error="API key not configured",
+            error_code="NO_PROVIDERS_CONFIGURED",
+            execution_time=0.01,
+        )
+    ]
+    available_tools = [
+        {"type": "function", "function": {"name": "weather"}},
+        {"type": "function", "function": {"name": "web-search"}},
+    ]
+
+    allowed = orchestrator._should_allow_replan_after_failed_iteration(
+        results,
+        consecutive_failed_tool_iterations=1,
+        available_tools=available_tools,
+    )
+    assert allowed is True
+
+
+def test_replan_blocked_when_all_tools_have_non_replan_errors() -> None:
+    """When there are NO untried tools, non-replan errors should block replan."""
+    orchestrator = _build_orchestrator()
+
+    results = [
+        ToolCallResult(
+            tool_call_id="call_1",
+            tool_name="weather",
+            success=False,
+            error="API key not configured",
+            error_code="NO_PROVIDERS_CONFIGURED",
+            execution_time=0.01,
+        )
+    ]
+    # Only one tool available and it's the one that failed
+    available_tools = [
+        {"type": "function", "function": {"name": "weather"}},
+    ]
+
+    allowed = orchestrator._should_allow_replan_after_failed_iteration(
+        results,
+        consecutive_failed_tool_iterations=1,
+        available_tools=available_tools,
+    )
+    assert allowed is False

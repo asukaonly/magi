@@ -209,6 +209,7 @@ class FunctionCallingStepExecutor:
                 replan_allowed = self._driver._should_allow_replan_after_failed_iteration(
                     tool_results,
                     consecutive_failed_tool_iterations=state.consecutive_failed_tool_iterations,
+                    available_tools=state.tools,
                 )
                 failed_details = [
                     {
