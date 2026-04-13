@@ -180,16 +180,25 @@ class L1Handler(RRFSearchHandler):
         fetch_k = max(conditions.limit * 5, 20)
 
         # Phase 1: Run 3 core retrieval paths in parallel
-        results_or_errors = await asyncio.gather(
+        retrieval_coros = [
             self._bm25_path(conditions.content_query, fetch_k, user_id=user_id),
             self._vector_path(conditions.content_query, fetch_k, user_id=user_id),
             self._keyword_path(conditions, fetch_k, session_id=session_id, user_id=user_id),
-            return_exceptions=True,
-        )
+        ]
+        has_temporal = time_range is not None and (time_range.start is not None or time_range.end is not None)
+        if has_temporal:
+            retrieval_coros.append(
+                self._temporal_bm25_path(conditions.content_query, fetch_k, time_range, user_id=user_id),
+            )
+
+        results_or_errors = await asyncio.gather(*retrieval_coros, return_exceptions=True)
 
         bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
         vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
         kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
+        temporal_bm25_ids: List[str] = []
+        if has_temporal:
+            temporal_bm25_ids = results_or_errors[3] if isinstance(results_or_errors[3], list) else []
 
         for i, res in enumerate(results_or_errors):
             if isinstance(res, BaseException):
@@ -197,13 +206,15 @@ class L1Handler(RRFSearchHandler):
 
         logger.info(
             "L1 retrieval paths completed | content_query=%r user_id=%s "
-            "bm25_count=%d vec_count=%d kw_count=%d fetch_k=%d",
+            "bm25_count=%d vec_count=%d kw_count=%d temporal_bm25_count=%d fetch_k=%d",
             conditions.content_query, user_id,
-            len(bm25_ids), len(vec_ids), len(kw_ids), fetch_k,
+            len(bm25_ids), len(vec_ids), len(kw_ids), len(temporal_bm25_ids), fetch_k,
         )
 
         # Phase 2: Entity co-occurrence expansion using top seed IDs
-        seed_ids: List[str] = list(dict.fromkeys(bm25_ids[:10] + vec_ids[:10] + kw_ids[:10]))
+        seed_ids: List[str] = list(dict.fromkeys(
+            bm25_ids[:10] + vec_ids[:10] + kw_ids[:10] + temporal_bm25_ids[:10]
+        ))
         entity_ids: List[str] = []
         if seed_ids:
             try:
@@ -211,7 +222,7 @@ class L1Handler(RRFSearchHandler):
             except Exception as exc:
                 logger.warning("L1 entity expansion failed: %s", exc)
 
-        if not bm25_ids and not vec_ids and not kw_ids and not entity_ids:
+        if not bm25_ids and not vec_ids and not kw_ids and not entity_ids and not temporal_bm25_ids:
             return []
 
         cfg = self._config
@@ -233,6 +244,9 @@ class L1Handler(RRFSearchHandler):
         if graph_ids:
             ranked_lists.append(graph_ids)
             weights.append(cfg.rrf_weight_graph)
+        if temporal_bm25_ids:
+            ranked_lists.append(temporal_bm25_ids)
+            weights.append(cfg.rrf_weight_temporal_bm25)
 
         fused = rrf_fuse(ranked_lists, weights, k=cfg.rrf_k)
         top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
@@ -258,8 +272,8 @@ class L1Handler(RRFSearchHandler):
             conditions.source_filters, conditions.domain_filters,
         )
 
-        if time_range and results:
-            results = self._filter_by_time(results, time_range)
+        # Time-range is already enforced inside _fetch_and_filter via SQL;
+        # no redundant Python post-filter needed here.
 
         reranked = await self._reranker.rerank(
             layer=self.layer_name,
@@ -356,6 +370,33 @@ class L1Handler(RRFSearchHandler):
             logger.warning("BM25 path failed: %s", exc)
             return []
 
+    async def _temporal_bm25_path(
+        self,
+        query: str,
+        limit: int,
+        time_range: TimeRange,
+        *,
+        user_id: Optional[str] = None,
+    ) -> List[str]:
+        """Time-constrained BM25 search to boost recall for temporal queries.
+
+        Uses strict matching (exact tokens first, no OR fallback) to avoid
+        noise from short prefix stems flooding RRF fusion.
+        """
+        try:
+            hits = await self._store.bm25_search(
+                query,
+                limit=limit,
+                user_id=user_id,
+                start_time=time_range.start,
+                end_time=time_range.end,
+                strict=True,
+            )
+            return [event_id for event_id, _score in hits]
+        except Exception as exc:
+            logger.warning("Temporal BM25 path failed: %s", exc)
+            return []
+
     async def _vector_path(self, query: str, limit: int, *, user_id: Optional[str] = None) -> List[str]:
         """Vector similarity search via sqlite-vec.
 
@@ -402,6 +443,7 @@ class L1Handler(RRFSearchHandler):
                 user_id=user_id,
                 event_type=conditions.event_types[0] if conditions.event_types else None,
                 source_filters=conditions.source_filters,
+                query=conditions.content_query or None,
                 limit=limit,
             )
             quoted_phrases = extract_quoted_spans(conditions.content_query)
@@ -514,10 +556,8 @@ class L1Handler(RRFSearchHandler):
         # Preserve RRF rank ordering
         results = [events_by_id[eid] for eid in event_ids if eid in events_by_id]
 
-        # Time range post-filter
-        if time_range and results:
-            results = self._filter_by_time(results, time_range)
-
+        # Time range is already enforced via SQL WHERE clauses above;
+        # no redundant Python post-filter needed.
         return results
 
 class L2Handler:
@@ -535,6 +575,39 @@ class L2Handler:
         self._embedding_service = embedding_service
         self._edge_vector_index = edge_vector_index
 
+    @staticmethod
+    def _filter_by_time_range(
+        items: List[Dict[str, Any]],
+        time_range: "TimeRange",
+        *,
+        timestamp_keys: tuple[str, ...] = ("observed_at", "first_observed"),
+    ) -> List[Dict[str, Any]]:
+        """Keep items whose timestamp falls within *time_range*.
+
+        Items without any recognizable timestamp are always kept so
+        that un-dated knowledge-graph facts are not silently discarded.
+        """
+        result: List[Dict[str, Any]] = []
+        for item in items:
+            ts: float | None = None
+            for key in timestamp_keys:
+                raw = item.get(key)
+                if raw is not None:
+                    try:
+                        ts = float(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    break
+            if ts is None:
+                result.append(item)
+                continue
+            if time_range.start and ts < time_range.start:
+                continue
+            if time_range.end and ts > time_range.end:
+                continue
+            result.append(item)
+        return result
+
     async def execute(
         self,
         conditions: L2Conditions,
@@ -543,7 +616,6 @@ class L2Handler:
         user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Query L2 for entity cards and relationships."""
-        del time_range
         results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": [], "trace": {}}
         resolved_entities = await self._resolve_entities(conditions, user_id=user_id)
         predicate_family = conditions.predicate_family or "unknown"
@@ -636,6 +708,17 @@ class L2Handler:
                         limit=conditions.limit,
                     )
                     results["relationships"] = rels
+
+        # Post-retrieval time_range filtering for assertions/relationships
+        if time_range and (time_range.start or time_range.end):
+            results["assertions"] = self._filter_by_time_range(
+                results["assertions"], time_range,
+                timestamp_keys=("observed_at", "first_observed"),
+            )
+            results["relationships"] = self._filter_by_time_range(
+                results["relationships"], time_range,
+                timestamp_keys=("last_observed", "first_observed"),
+            )
 
         edge_vector_supplement_count = 0
         if conditions.include_relationships and conditions.content_query:
@@ -1098,6 +1181,18 @@ class L2Handler:
                 seen.add(entity_id)
 
         if resolved or self._entity_catalog is None or not conditions.content_query:
+            return resolved
+
+        # When subject_hint is "self" with an unknown predicate family, the
+        # user entity is the subject and the answer (object) is completely
+        # unknown.  Skip content_query vector search to avoid resolving
+        # irrelevant entities that would wrongly filter outgoing edges.
+        # For known families like "preference", target resolution is still
+        # valuable (e.g. "Do I like sushi?" → resolve "sushi").
+        if conditions.subject_hint == "self" and (
+            not conditions.predicate_family
+            or conditions.predicate_family == "unknown"
+        ):
             return resolved
 
         query_matches = await self._entity_catalog.resolve_query_entities(

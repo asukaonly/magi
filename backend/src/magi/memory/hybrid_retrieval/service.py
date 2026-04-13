@@ -12,11 +12,10 @@ from .answerability import (
     extract_comparison_spans,
     extract_query_tokens,
     extract_quoted_spans,
-    extract_temporal_distance_queries,
     has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
-from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
+from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, enrich_l2_conditions
 from .models import (
     IntentDeciderInput,
     L1Conditions,
@@ -25,6 +24,7 @@ from .models import (
     RetrievalConfig,
     RetrievalPayload,
     RetrievalQuery,
+    TimeRange,
 )
 from .manifest_selector import ManifestSelector
 from .reranker import build_retrieval_reranker
@@ -125,6 +125,7 @@ class HybridRetrievalService:
             domain_filters=request.domain_filters,
             recall_intent_hint=request.recall_intent,
             query_mode_hint=request.query_mode,
+            l1_limit=request.limit,
         )
         decision = await self._intent_decider.decide(intent_input)
         payload.trace["intent_source"] = decision.source
@@ -133,13 +134,8 @@ class HybridRetrievalService:
         # 2b. Adaptive parameter tuning based on intent signals
         effective_query_mode = request.query_mode
         effective_recall_intent = request.recall_intent
-        # Also pick up hints from the LLM decision if available
-        for plan in decision.plans:
-            if not plan.is_fallback:
-                conds = plan.conditions
-                if hasattr(conds, "content_query"):
-                    if effective_query_mode is None and hasattr(conds, "subject_hint"):
-                        pass  # query_mode comes from request
+        saved_l1_config = None
+        saved_l1_reranker = None
         if effective_query_mode or effective_recall_intent:
             from .adaptive_params import adapt_config
 
@@ -148,15 +144,32 @@ class HybridRetrievalService:
                 query_mode=effective_query_mode,
                 recall_intent=effective_recall_intent,
             )
-            if adapted is not self._config:
-                # Apply adapted config to L1 handler for this query
-                if self._l1 is not None:
-                    self._l1._config = adapted
-                    self._l1._reranker = build_retrieval_reranker(adapted)
+            if adapted is not self._config and self._l1 is not None:
+                # Save original config/reranker so we can restore after this query
+                saved_l1_config = self._l1._config
+                saved_l1_reranker = self._l1._reranker
+                self._l1._config = adapted
+                self._l1._reranker = build_retrieval_reranker(adapted)
                 payload.trace["adaptive_params_applied"] = True
                 payload.trace["adaptive_query_mode"] = effective_query_mode
                 payload.trace["adaptive_recall_intent"] = effective_recall_intent
 
+        try:
+            return await self._execute_query(request, decision, intent_input, payload)
+        finally:
+            # Restore L1 handler config so concurrent/subsequent queries are not affected
+            if saved_l1_config is not None and self._l1 is not None:
+                self._l1._config = saved_l1_config
+                self._l1._reranker = saved_l1_reranker
+
+    async def _execute_query(
+        self,
+        request: RetrievalQuery,
+        decision: Any,
+        intent_input: IntentDeciderInput,
+        payload: RetrievalPayload,
+    ) -> RetrievalPayload:
+        """Inner query execution, separated so adaptive config can be restored via try/finally."""
         # 3. Execute primary plans in parallel
         primary_plans = self._augment_primary_plans(
             [p for p in decision.plans if not p.is_fallback],
@@ -198,6 +211,7 @@ class HybridRetrievalService:
                 original_query=request.query,
                 request=request,
                 payload=payload,
+                time_range=decision.time_range,
             )
 
         # 4. Fallback if primary results are insufficient
@@ -260,7 +274,7 @@ class HybridRetrievalService:
                         content_query=content_query,
                         source_filters=request.source_filters or None,
                         domain_filters=request.domain_filters or None,
-                        limit=10,
+                        limit=request.limit,
                     ),
                     is_fallback=False,
                 )
@@ -286,45 +300,6 @@ class HybridRetrievalService:
             primary_count = self._count_results(payload)
             payload.trace["comparison_backstop_triggered"] = True
             payload.trace["comparison_backstop_count"] = primary_count
-
-        temporal_distance_backstop_queries = self._temporal_distance_backstop_queries(
-            query=request.query,
-            payload=payload,
-        )
-        if temporal_distance_backstop_queries:
-            temporal_distance_plans = [
-                LayerQueryPlan(
-                    layer="L1",
-                    conditions=L1Conditions(
-                        content_query=content_query,
-                        source_filters=request.source_filters or None,
-                        domain_filters=request.domain_filters or None,
-                        limit=10,
-                    ),
-                    is_fallback=False,
-                )
-                for content_query in temporal_distance_backstop_queries
-            ]
-            temporal_distance_results = await asyncio.gather(
-                *[
-                    execute_plan(
-                        plan,
-                        l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
-                        session_id=request.session_id,
-                        user_id=request.user_id,
-                    )
-                    for plan in temporal_distance_plans
-                ],
-                return_exceptions=True,
-            )
-            for plan, result in zip(temporal_distance_plans, temporal_distance_results):
-                if isinstance(result, Exception):
-                    logger.warning("Temporal distance backstop plan %s failed: %s", plan.layer, result)
-                    continue
-                self._merge_result(payload, plan.layer, result)
-            primary_count = self._count_results(payload)
-            payload.trace["temporal_distance_backstop_triggered"] = True
-            payload.trace["temporal_distance_backstop_count"] = len(temporal_distance_backstop_queries)
 
         payload.trace["primary_count"] = primary_count
 
@@ -368,6 +343,10 @@ class HybridRetrievalService:
                     self._merge_result(payload, plan.layer, result)
                 payload.trace["fallback_triggered"] = True
 
+        # Save pre-truncation L1 events for evidence bundling (fusion
+        # truncates the list, but bundles need full session coverage).
+        pre_fusion_l1_events = list(payload.l1_events)
+
         # 5. Result fusion (dedup + token budget)
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
 
@@ -378,7 +357,7 @@ class HybridRetrievalService:
             )
 
         payload.l1_evidence_bundles = await self._build_l1_evidence_bundles(
-            payload.l1_events,
+            pre_fusion_l1_events,
             query=request.query,
         )
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
@@ -400,20 +379,37 @@ class HybridRetrievalService:
         return (str(getattr(plan, "layer", "")), str(content_query), bool(getattr(plan, "is_fallback", False)))
 
     def _refresh_handlers(self) -> None:
-        """Refresh layer handlers in case stores are initialized after service construction."""
+        """Rebuild layer handlers only when the underlying stores change.
+
+        The previous implementation unconditionally rebuilt every handler on
+        each ``query()`` call, wasting object creation and discarding any
+        per-query config overrides applied earlier.  This version checks
+        whether the store references have actually changed before rebuilding.
+        """
+        l1_store = getattr(self._memory, "l1", None)
         l2_store = getattr(self._memory, "l2", None)
-        self._l1 = (
-            L1Handler(self._memory.l1, self._config, l2_store=l2_store)
-            if getattr(self._memory, "l1", None)
-            else None
-        )
-        self._l2 = (
-            self._build_l2_handler(self._memory)
-            if getattr(self._memory, "l2", None)
-            else None
-        )
-        self._l3 = L3Handler(self._memory.l3, self._config) if getattr(self._memory, "l3", None) else None
-        self._l4 = L4Handler(self._memory.l4, self._config) if getattr(self._memory, "l4", None) else None
+        l3_store = getattr(self._memory, "l3", None)
+        l4_store = getattr(self._memory, "l4", None)
+
+        if l1_store and (self._l1 is None or self._l1._store is not l1_store):
+            self._l1 = L1Handler(l1_store, self._config, l2_store=l2_store)
+        elif not l1_store:
+            self._l1 = None
+
+        if l2_store and (self._l2 is None):
+            self._l2 = self._build_l2_handler(self._memory)
+        elif not l2_store:
+            self._l2 = None
+
+        if l3_store and (self._l3 is None or self._l3._store is not l3_store):
+            self._l3 = L3Handler(l3_store, self._config)
+        elif not l3_store:
+            self._l3 = None
+
+        if l4_store and (self._l4 is None or self._l4._store is not l4_store):
+            self._l4 = L4Handler(l4_store, self._config)
+        elif not l4_store:
+            self._l4 = None
 
     @staticmethod
     def _build_l2_handler(memory: Any) -> L2Handler:
@@ -489,12 +485,34 @@ class HybridRetrievalService:
                     content_query=request.query,
                     source_filters=request.source_filters or None,
                     domain_filters=request.domain_filters or None,
-                    limit=10,
+                    limit=request.limit,
                 ),
                 is_fallback=False,
             )
             augmented_plans.append(l1_plan)
             payload.trace["l1_always_injected"] = True
+
+        # Inject L2 plan when the query contains temporal markers but the
+        # intent decider (typically the LLM) routed to L1-only.  L2
+        # knowledge-graph edges carry timestamps and can directly answer
+        # "time + fact" questions (e.g. "What did I buy 10 days ago?").
+        has_l2 = any(p.layer == "L2" for p in augmented_plans)
+        if not has_l2 and has_temporal_anchor(request.query):
+            l2_conditions = L2Conditions(
+                content_query=request.query,
+                subject_hint="self",
+                include_tom_snapshot=True,
+                include_relationships=True,
+                include_assertions=True,
+            )
+            enrich_l2_conditions(l2_conditions, request.query)
+            l2_plan = LayerQueryPlan(
+                layer="L2",
+                conditions=l2_conditions,
+                is_fallback=False,
+            )
+            augmented_plans.append(l2_plan)
+            payload.trace["l2_temporal_injected"] = True
 
         return augmented_plans
 
@@ -559,11 +577,14 @@ class HybridRetrievalService:
 
     @staticmethod
     def _count_results(payload: RetrievalPayload) -> int:
-        """Count total non-L0 results."""
+        """Count total non-L0 retrieval results.
+
+        Only counts items populated during the retrieval phase.
+        ``l1_evidence_bundles`` and ``l1_timeline_summary`` are assembled
+        *after* retrieval and should not influence fallback decisions.
+        """
         return (
             len(payload.l1_events)
-            + len(payload.l1_evidence_bundles)
-            + len(payload.l1_timeline_summary)
             + len(payload.l2_entity_cards)
             + len(payload.l2_relationships)
             + len(payload.l2_assertions)
@@ -577,6 +598,7 @@ class HybridRetrievalService:
         original_query: str,
         request: RetrievalQuery,
         payload: RetrievalPayload,
+        time_range: Optional[TimeRange] = None,
     ) -> None:
         """Generate expanded query variants and run additional L1 plans."""
         from .query_expander import QueryExpander
@@ -598,8 +620,9 @@ class HybridRetrievalService:
                     content_query=eq,
                     source_filters=request.source_filters or None,
                     domain_filters=request.domain_filters or None,
-                    limit=10,
+                    limit=request.limit,
                 ),
+                time_range=time_range,
                 is_fallback=False,
             )
             for eq in expanded_queries
@@ -710,13 +733,18 @@ class HybridRetrievalService:
     ) -> list[str]:
         comparison_spans = extract_comparison_spans(query)
         if not comparison_spans:
+            # Fallback: extract quoted entity names (e.g. 'The Crown' or "Game of Thrones")
+            comparison_spans = extract_quoted_spans(query)
+        if not comparison_spans:
             return []
-        if HybridRetrievalService._count_results(payload) > 0 and HybridRetrievalService._rule_backstop_reason(
-            query=query,
-            payload=payload,
-            decision_source=decision_source,
-        ) != "missing_comparison_coverage":
-            return []
+        if HybridRetrievalService._count_results(payload) > 0:
+            backstop_reason = HybridRetrievalService._rule_backstop_reason(
+                query=query,
+                payload=payload,
+                decision_source=decision_source,
+            )
+            if backstop_reason not in ("missing_comparison_coverage", "missing_quoted_coverage"):
+                return []
 
         temporal_tokens = [
             token
@@ -730,30 +758,6 @@ class HybridRetrievalService:
             if candidate_query and candidate_query not in queries:
                 queries.append(candidate_query)
         return queries
-
-    @staticmethod
-    def _temporal_distance_backstop_queries(
-        *,
-        query: str,
-        payload: RetrievalPayload,
-    ) -> list[str]:
-        candidate_queries = extract_temporal_distance_queries(query)
-        if not candidate_queries:
-            return []
-
-        normalized_events = [
-            set(extract_query_tokens(str(event.get("content") or "")))
-            for event in payload.l1_events
-        ]
-        missing_queries: list[str] = []
-        for candidate_query in candidate_queries:
-            candidate_tokens = set(extract_query_tokens(candidate_query))
-            if not candidate_tokens:
-                continue
-            if any(candidate_tokens.issubset(event_tokens) for event_tokens in normalized_events):
-                continue
-            missing_queries.append(candidate_query)
-        return missing_queries
 
     async def _build_l1_evidence_bundles(
         self,
@@ -774,8 +778,19 @@ class HybridRetrievalService:
 
         neighbor_window = self._bundle_neighbor_window(query)
         bundles: List[Dict[str, Any]] = []
-        for session_id, session_hits in grouped_hits.items():
-            session_events = await self._load_session_events(session_id, limit=max(len(session_hits) * 6, 12))
+
+        # Load session events in parallel instead of sequentially
+        session_ids = list(grouped_hits.keys())
+        session_limits = [max(len(grouped_hits[sid]) * 8, 24) for sid in session_ids]
+        session_events_list = await asyncio.gather(
+            *(
+                self._load_session_events(sid, limit=lim)
+                for sid, lim in zip(session_ids, session_limits)
+            ),
+        )
+
+        for session_id, session_events in zip(session_ids, session_events_list):
+            session_hits = grouped_hits[session_id]
             bundle_events, neighbor_expansion_applied = self._select_bundle_events(
                 session_events=session_events,
                 session_hits=session_hits,
@@ -854,21 +869,9 @@ class HybridRetrievalService:
         return unique_events or list(session_hits), neighbor_expansion_applied
 
     @staticmethod
-    def _bundle_neighbor_window(query: str) -> int:
-        """Use a slightly wider local window for temporal comparisons that need anchors."""
-        lowered = str(query or "").lower()
-        temporal_markers = (
-            " first",
-            " before",
-            " after",
-            " earlier",
-            " later",
-            " last ",
-            " most recent",
-            " happened first",
-            " occurred first",
-        )
-        return 2 if any(marker in lowered for marker in temporal_markers) else 1
+    def _bundle_neighbor_window(_query: str) -> int:
+        """Return the neighbor turn window for evidence bundle assembly."""
+        return 5
 
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:

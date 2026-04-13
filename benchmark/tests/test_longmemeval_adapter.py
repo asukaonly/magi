@@ -95,3 +95,52 @@ def test_adapter_parses_session_dates_into_real_timestamps() -> None:
     assert adapted.replay_records[0].timestamp == expected_base
     assert adapted.replay_records[1].timestamp > adapted.replay_records[0].timestamp
     assert adapted.replay_records[1].timestamp < expected_base + 60.0
+
+
+def test_adapter_query_timestamp_uses_question_date_when_available() -> None:
+    entry = {
+        "question_id": "q-4",
+        "question_type": "temporal-reasoning",
+        "question": "How many days ago did X happen?",
+        "answer": "4 days",
+        "question_date": "2023/04/10 (Mon) 10:28",
+        "answer_session_ids": ["sess-1"],
+        "haystack_session_ids": ["sess-1"],
+        "haystack_dates": ["2023/04/06 (Thu) 23:42"],
+        "haystack_sessions": [
+            [{"role": "user", "content": "X happened today."}],
+        ],
+    }
+
+    adapted = adapt_longmemeval_entry(
+        entry,
+        namespace="benchmark/longmemeval/run-1/q-4",
+    )
+
+    expected_ts = datetime.strptime("2023/04/10 (Mon) 10:28", "%Y/%m/%d (%a) %H:%M").replace(
+        tzinfo=timezone.utc
+    ).timestamp()
+    assert adapted.query.query_timestamp == expected_ts
+
+
+def test_adapter_query_timestamp_falls_back_to_replay_max_when_no_question_date() -> None:
+    entry = {
+        "question_id": "q-5",
+        "question_type": "single-session-user",
+        "question": "What did I say?",
+        "answer": "Hello",
+        "answer_session_ids": ["sess-1"],
+        "haystack_session_ids": ["sess-1"],
+        "haystack_dates": ["2024-01-05"],
+        "haystack_sessions": [
+            [{"role": "user", "content": "Hello."}],
+        ],
+    }
+
+    adapted = adapt_longmemeval_entry(
+        entry,
+        namespace="benchmark/longmemeval/run-1/q-5",
+    )
+
+    max_replay_ts = max(r.timestamp for r in adapted.replay_records)
+    assert adapted.query.query_timestamp == max_replay_ts + 1.0

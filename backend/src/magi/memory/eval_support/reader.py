@@ -2,12 +2,71 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from .contracts import EvalMemoryHit, EvalMemoryQuery, EvalMemoryQueryResult
 from .trace import build_eval_query_result
 from ..hybrid_retrieval import build_query
+
+logger = logging.getLogger(__name__)
+
+# Padding (seconds) added before the earliest resolved temporal anchor
+# so the hard time-range filter does not accidentally exclude nearby events.
+_TEMPORAL_PADDING_SECS = 7 * 86_400  # 7 days
+
+# Regex matching month-level temporal expressions (e.g. "in January",
+# "last month", "during February 2023").  When the dateparser match text
+# corresponds to an entire month the padding is expanded to cover the
+# full calendar month instead of the default 7-day window.
+_MONTH_LEVEL_RE = re.compile(
+    r"(?:in|during)\s+"
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+    r"(?:\s+\d{4})?"
+    r"|last\s+month",
+    re.IGNORECASE,
+)
+
+# Regex to strip a leading preposition that `search_dates` may have
+# greedily absorbed into the matched span, e.g. "in a week ago" where
+# "in" belongs to the verb phrase ("participated in") not the temporal
+# expression ("a week ago").
+_LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
+
+
+def _reparse_with_stripped_preposition(
+    results: list[tuple[str, Any]],
+    settings: dict,
+    query_timestamp: float,
+) -> list[float]:
+    """Re-parse matched texts after stripping a leading preposition.
+
+    ``dateparser.search.search_dates`` sometimes captures a preceding
+    preposition as part of the temporal span (e.g. *"in a week ago"*
+    instead of *"a week ago"*), causing a future-directed parse.  This
+    helper strips the preposition and retries ``dateparser.parse``.
+    """
+    import dateparser
+
+    resolved: list[float] = []
+    for matched_text, _ in results:
+        stripped = _LEADING_PREP_RE.sub("", matched_text)
+        if stripped == matched_text:
+            continue
+        retry_dt = dateparser.parse(stripped, settings=settings)
+        if retry_dt is None:
+            continue
+        ts = retry_dt.replace(tzinfo=timezone.utc).timestamp()
+        if ts <= query_timestamp:
+            resolved.append(ts)
+            logger.debug(
+                "Temporal reparse succeeded: %r → %r → %s",
+                matched_text, stripped, retry_dt,
+            )
+    return resolved
+
 
 _STOP_WORDS = {
     "a",
@@ -61,14 +120,14 @@ class EvalMemoryReader:
         if query.mode == "l1_only":
             return await self._query_l1_only(query)
 
-        # Benchmark data uses fictional timestamps that don't align with the
-        # current wall-clock time.  Supply an explicit wide time_range so the
-        # intent-decider's rule engine does NOT parse temporal keywords like
-        # "last month" relative to *now*.  Temporal reasoning is left to the
-        # LLM working on retrieved evidence.
+        # Resolve relative time phrases (e.g. "last Friday", "two weeks ago")
+        # against query_timestamp so the retrieval layer can narrow its search
+        # window instead of scanning all events.
         time_range: dict = {}
         if query.query_timestamp:
-            time_range = {"start": 0, "end": query.query_timestamp}
+            time_range = self._resolve_temporal_range(
+                query.query, query.query_timestamp,
+            )
 
         request = build_query(
             query=query.query,
@@ -82,6 +141,92 @@ class EvalMemoryReader:
         )
         payload = await self._retrieval_service.query(request)
         return build_eval_query_result(payload)
+
+    # ------------------------------------------------------------------
+    # Temporal range resolution
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_temporal_range(query: str, query_timestamp: float) -> dict:
+        """Resolve relative time phrases in *query* against *query_timestamp*.
+
+        Uses ``dateparser.search`` to detect temporal expressions (e.g.
+        "last Friday", "two weeks ago") and anchors them to the
+        *query_timestamp* instead of wall-clock *now*.
+
+        When a temporal expression is found the returned range is narrowed to
+        ``[earliest_resolved - padding, ∞)``.  The end is left open so
+        that events whose replay-assigned timestamps slightly exceed
+        *query_timestamp* are not inadvertently excluded (the BM25 /
+        vector paths already handle relevance scoring).
+        Otherwise falls back to a start-only range so events whose
+        replay-assigned timestamps slightly exceed ``query_timestamp``
+        are not inadvertently excluded.
+        """
+        wide: dict = {"start": 0}
+
+        try:
+            from dateparser.search import search_dates
+        except ImportError:
+            return wide
+
+        reference_dt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
+        settings = {
+            "RELATIVE_BASE": reference_dt.replace(tzinfo=None),
+            "PREFER_DATES_FROM": "past",
+        }
+
+        try:
+            results = search_dates(query, settings=settings, languages=["en"])
+        except Exception:
+            logger.debug("dateparser.search_dates failed for query=%r", query)
+            return wide
+
+        if not results:
+            return wide
+
+        # Keep only resolved dates in the past relative to the question.
+        resolved: list[float] = []
+        for _matched_text, resolved_dt in results:
+            ts = resolved_dt.replace(tzinfo=timezone.utc).timestamp()
+            if ts <= query_timestamp:
+                resolved.append(ts)
+
+        if not resolved:
+            # Fallback: search_dates may mismatch spans (e.g. "in a week
+            # ago" parsed as "in a week" → future).  Re-parse each matched
+            # text after stripping a leading preposition.
+            resolved = _reparse_with_stripped_preposition(
+                results, settings, query_timestamp,
+            )
+
+        if not resolved:
+            return wide
+
+        earliest = min(resolved)
+
+        # When all matched expressions are month-level references
+        # (e.g. "in January", "last month"), expand padding to cover
+        # the full calendar month instead of the default 7-day window.
+        matched_texts = [mt for mt, _ in results]
+        is_month_level = all(
+            _MONTH_LEVEL_RE.search(mt) for mt in matched_texts
+        )
+        if is_month_level:
+            earliest_dt = datetime.fromtimestamp(earliest, tz=timezone.utc)
+            month_start = earliest_dt.replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0,
+            )
+            start = max(0, month_start.timestamp())
+        else:
+            start = max(0, earliest - _TEMPORAL_PADDING_SECS)
+
+        logger.debug(
+            "Temporal range narrowed query=%r earliest=%s start=%s"
+            " month_level=%s",
+            query, earliest, start, is_month_level,
+        )
+        return {"start": start}
 
     async def _query_l1_only(self, query: EvalMemoryQuery) -> EvalMemoryQueryResult:
         if self._l1_store is None:

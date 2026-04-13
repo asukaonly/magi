@@ -165,7 +165,7 @@ class TestRetrievalQueryBackwardCompat:
 class TestRetrievalConfig:
     def test_defaults(self):
         cfg = RetrievalConfig()
-        assert cfg.default_max_tokens == 8192
+        assert cfg.default_max_tokens == 16384
         assert cfg.fallback_trigger_threshold == 1
         assert cfg.rrf_k == 60
         assert cfg.intent_decider_llm_enabled is True

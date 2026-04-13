@@ -57,6 +57,13 @@ dependencies = [
     "python-socketio>=5.11.0",
     "aiohttp>=3.9.0",
 
+    # 认证
+    "pyjwt>=2.8.0",
+    "passlib[bcrypt]>=1.7.4",
+
+    # 自然语言时间解析
+    "dateparser>=1.2.0",
+
     # 工具
     "httpx>=0.26.0",
     "socksio>=1.0.0",

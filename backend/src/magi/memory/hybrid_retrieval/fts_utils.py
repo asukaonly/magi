@@ -91,6 +91,25 @@ def build_stemmed_fts_query(escaped_query: str) -> str:
     return " ".join(parts)
 
 
+def build_exact_fts_query(escaped_query: str) -> str:
+    """Build an FTS5 AND query with exact tokens (no prefix stemming).
+
+    Stop words are removed.  Remaining tokens are kept as-is without
+    prefix truncation or stem expansion.  Stricter than
+    ``build_stemmed_fts_query`` — useful when prefix wildcards would
+    introduce too much noise (e.g. ``crown`` stays ``crown`` instead of
+    becoming ``crow*``).
+    """
+    tokens = escaped_query.split()
+    parts: list[str] = []
+    for token in tokens:
+        lowered = token.lower()
+        if lowered in _FTS_STOP_WORDS:
+            continue
+        parts.append(lowered)
+    return " ".join(parts)
+
+
 def build_or_fts_query(escaped_query: str) -> str:
     """Build an OR-mode FTS5 fallback query with stop words removed and stems added."""
     tokens = escaped_query.split()

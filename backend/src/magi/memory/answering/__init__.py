@@ -2,14 +2,12 @@
 
 from .prompt_builder import (
     build_answer_prompt_payload,
+    is_preference_question,
     should_prioritize_timeline,
-    should_request_short_issue_answer,
 )
-from .reducers import resolve_temporal_distance_answer
 
 __all__ = [
     "build_answer_prompt_payload",
-    "resolve_temporal_distance_answer",
+    "is_preference_question",
     "should_prioritize_timeline",
-    "should_request_short_issue_answer",
 ]

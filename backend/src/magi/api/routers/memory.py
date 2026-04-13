@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict
-from datetime import date, datetime, time as datetime_time
+from datetime import date, datetime, time as datetime_time, timezone
 import re
 import time
 from typing import Any, Dict, List, Literal, Optional
@@ -13,8 +13,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
 from ...chat import get_chat_read_service
-from ...config.models import LLMScenario
+from ...config.models import LLMScenario, ThinkingDepth
 from ...core.logger import get_logger
+from ...llm import LLMProviderBridge
 from ...core.runtime_bindings import (
     require_hybrid_retrieval_service,
     require_memory_integration,
@@ -22,7 +23,6 @@ from ...core.runtime_bindings import (
     require_unified_memory,
 )
 from ...memory.eval_support.answer_normalization import (
-    canonicalize_issue_component_answer,
     normalize_eval_answer,
 )
 from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
@@ -32,8 +32,6 @@ from ...memory.event_contracts import MemoryEvent
 from ...memory.hybrid_retrieval import build_query
 from ...memory.answering import (
     build_answer_prompt_payload,
-    resolve_temporal_distance_answer,
-    should_request_short_issue_answer,
 )
 from ...memory.l2.models import ManualL2EventRequest
 from ...runtime_defaults import DEFAULT_USER_ID
@@ -263,6 +261,32 @@ def _format_l2_context(
     return "\n".join(blocks) if blocks else "(no knowledge graph context)"
 
 
+def _is_counting_or_aggregation_question(question: str) -> bool:
+    """Detect questions that require multi-step counting, aggregation, or temporal math."""
+    lowered = str(question or "").lower()
+    return bool(re.search(
+        r"\bhow many\b|\btotal\b|\bcombined\b|\ball together\b|\bsum\b|\baverage\b|\bhow old\b|\bhow long\b|\bhow much faster\b|\bhow much older\b",
+        lowered,
+    ))
+
+
+def _is_temporal_reasoning_question(question: str) -> bool:
+    """Detect questions that benefit from step-by-step temporal reasoning."""
+    lowered = str(question or "").lower()
+    return bool(re.search(
+        r"\bhow many days\b|\bhow many weeks\b|\bhow many months\b|\bhow long ago\b|"
+        r"\bdays? ago\b|\bweeks? ago\b|\bmonths? ago\b|\byears? ago\b|"
+        r"\bmost recent\b|\bhappened first\b|\bwhich came first\b|"
+        r"\bwhat day\b|\bwhat date\b|\bbefore or after\b|"
+        r"\bfirst\b.{1,30}\bor\b.{1,30}\b(?:last|later|second)\b|"
+        r"\blast\b.{1,30}\btime\b.{1,30}\b(?:did|was|were)\b",
+        lowered,
+    ))
+
+
+_EVAL_ANSWER_TIMEOUT = 300  # 5 minutes — generous for thinking-enabled models
+
+
 async def _synthesize_eval_answer(
     *,
     question: str,
@@ -275,20 +299,6 @@ async def _synthesize_eval_answer(
     query_timestamp: float | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    deterministic_temporal_distance = resolve_temporal_distance_answer(
-        question=question,
-        timeline_summary=timeline_summary,
-        query_timestamp=query_timestamp,
-    )
-    if deterministic_temporal_distance is not None:
-        answer_trace = {
-            "answer_source": "deterministic_temporal_distance",
-            "evidence_hit_count": len(hits),
-            "evidence_bundle_count": len(evidence_bundles or []),
-            "evidence_timeline_count": len(timeline_summary or []),
-        }
-        return deterministic_temporal_distance, answer_trace
-
     llm_pool = _resolve_scenario_llm_pool()
     if llm_pool is None:
         raise HTTPException(
@@ -297,6 +307,7 @@ async def _synthesize_eval_answer(
         )
 
     adapter = llm_pool.get(LLMScenario.CORE)
+    bridge = LLMProviderBridge(adapter)
     prompt_payload = build_answer_prompt_payload(
         question=question,
         hits=hits,
@@ -304,34 +315,80 @@ async def _synthesize_eval_answer(
         timeline_summary=timeline_summary,
     )
     system_prompt = (
-        "You are answering a benchmark question using retrieved memory evidence only.\n"
+        "You are answering a question using retrieved memory evidence only.\n"
         "Return a concise final answer to the question.\n"
         "Return only the final answer span with no explanation.\n"
         "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
         "When asked about order, count, duration, or time difference, reason over timestamps and content to derive the answer.\n"
-        "When asked 'how many' or 'total', scan ALL bundles and timeline entries, enumerate each item, then sum them up.\n"
+        "For recency or ordering questions, rely on the Timeline Summary chronological order — "
+        "do NOT judge recency by how much a topic is discussed in the evidence bundles.\n"
+        "When asked 'how many' or 'total', enumerate EVERY relevant item from ALL bundles, timeline entries, and evidence, then sum to get the final count. "
+        "Only count items that EXACTLY match the question criteria; do NOT count similar but different items. "
+        "Ignore items mentioned in unrelated topics or different contexts. If an item is mentioned multiple times across bundles, count it only ONCE.\n"
         "When asked about 'X ago' or relative dates ('last Tuesday'), compute the delta between the event timestamp and the question date.\n"
+        "IMPORTANT: If the question specifies a different reference point (e.g. 'when I did Y', 'at the time of Y', 'since I started X'), "
+        "compute the delta relative to THAT event's date, NOT the question date. "
+        "Example: 'How many days ago did I launch my website when I signed a contract?' — find the website-launch date and "
+        "the contract-signing date, then compute (contract date minus launch date).\n"
         "When evidence spans multiple bundles, cross-reference and aggregate information across all of them.\n"
-        "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete.\n"
-        "Answer exactly 'unknown' only when the evidence contains nothing relevant at all."
+        "Look for answers in BOTH user messages AND assistant responses within the evidence.\n"
+        "If the question asks about a specific detail (name, place, date, amount), check assistant replies — they often restate or confirm the user's information.\n"
+        "\n"
+        "ENTITY VERIFICATION:\n"
+        "If the question asks about a SPECIFIC named entity and NO evidence mentions that entity "
+        "or a clearly equivalent variant, answer 'unknown'. "
+        "Do NOT substitute a genuinely DIFFERENT entity (e.g. do not answer about 'Dr. Smith' when asked about 'Dr. Johnson'). "
+        "However, treat minor wording differences as matches (e.g. 'University of Melbourne' matches 'University of Melbourne in Australia'; "
+        "'Spotify' matches 'a Spotify subscription'). When in doubt, prefer giving an answer over returning 'unknown'.\n"
+        "\n"
+        "CURRENT STATE (knowledge-update) questions:\n"
+        "When the question asks about a current/present state ('where do I currently keep', 'how long have I been', "
+        "'how many do I have now', 'what is my current'), use the value from the MOST RECENT evidence only. "
+        "Do NOT sum or accumulate values across multiple time periods. "
+        "If something was updated or changed over time, report only the latest value.\n"
+        "\n"
+        "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete or indirect.\n"
+        "Scan ALL evidence sections thoroughly — answers may appear in any bundle, timeline entry, or assistant reply.\n"
+        "Answer exactly 'unknown' only as a last resort when no piece of evidence mentions anything related to the question topic."
     )
     l2_context_text = _format_l2_context(
         entity_cards=l2_entity_cards,
         relationships=l2_relationships,
         assertions=l2_assertions,
     )
-    user_prompt = (
-        "Use relative time expressions in the evidence when comparing event order.\n"
-        "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
-        f"{prompt_payload.timeline_instruction}"
-        f"{prompt_payload.short_answer_instruction}"
-        f"{prompt_payload.preference_instruction}"
-        f"Question:\n{question}\n\n"
-        f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
-        f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
-        f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
-        f"Knowledge Graph Context:\n{l2_context_text}\n"
-    )
+    question_date_line = ""
+    if query_timestamp is not None:
+        qdt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
+        question_date_line = f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} UTC (timestamp={query_timestamp})\n"
+
+    # For temporal questions, place Timeline Summary AFTER bundles so the LLM
+    # reads it last (mitigates lost-in-the-middle attention decay).
+    if prompt_payload.prioritize_timeline:
+        user_prompt = (
+            "Use relative time expressions in the evidence when comparing event order.\n"
+            "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
+            f"{prompt_payload.timeline_instruction}"
+            f"{prompt_payload.preference_instruction}"
+            f"{question_date_line}"
+            f"Question:\n{question}\n\n"
+            f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
+            f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
+            f"Knowledge Graph Context:\n{l2_context_text}\n\n"
+            f"Timeline Summary (use this for temporal/ordering questions):\n{prompt_payload.timeline_text}\n"
+        )
+    else:
+        user_prompt = (
+            "Use relative time expressions in the evidence when comparing event order.\n"
+            "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
+            f"{prompt_payload.timeline_instruction}"
+            f"{prompt_payload.preference_instruction}"
+            f"{question_date_line}"
+            f"Question:\n{question}\n\n"
+            f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
+            f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
+            f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
+            f"Knowledge Graph Context:\n{l2_context_text}\n"
+        )
     llm_messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -350,20 +407,16 @@ async def _synthesize_eval_answer(
             "==== END ANSWER LLM INPUT ===="
         ),
     )
-    answer = await adapter.chat(
-        llm_messages,
-        max_tokens=256,
+    raw_answer = await bridge.chat(
+        system_prompt=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+        max_tokens=4096,
         temperature=0.0,
-        disable_thinking=True,
+        thinking_depth=ThinkingDepth.MEDIUM,
+        timeout_seconds=_EVAL_ANSWER_TIMEOUT,
     )
-    raw_answer = str(answer or "")
+    raw_answer = str(raw_answer or "")
     normalized_answer = normalize_eval_answer(raw_answer)
-    normalized_answer = canonicalize_issue_component_answer(
-        question=question,
-        answer=normalized_answer,
-        timeline_summary=timeline_summary,
-        hits=hits,
-    )
     logger.info(
         "Eval query answer synthesis completed",
         question=question,

@@ -62,6 +62,9 @@ class ResultFusion:
             cpt,
             self._config.l0_max_tokens,
             self._config.l0_budget_ratio,
+            self._config.l1_budget_ratio,
+            self._config.l2_budget_ratio,
+            self._config.l3_budget_ratio,
         )
 
         return payload
@@ -109,6 +112,9 @@ class ResultFusion:
         char_per_token: float,
         l0_max_tokens: int,
         l0_budget_ratio: float,
+        l1_budget_ratio: float = 0.5,
+        l2_budget_ratio: float = 0.4,
+        l3_budget_ratio: float = 0.4,
     ) -> RetrievalPayload:
         """Apply token budget in priority order: L0 > L1 > L2 > L3 > L4.
 
@@ -123,8 +129,8 @@ class ResultFusion:
         payload.l0_workbench = truncate_to_budget(payload.l0_workbench, l0_budget, char_per_token)
         remaining -= estimate_tokens(payload.l0_workbench, char_per_token)
 
-        # L1: primary layer — up to 50% of remaining budget.
-        l1_budget = remaining * 0.5
+        # L1: primary layer — configurable share of remaining budget.
+        l1_budget = remaining * l1_budget_ratio
         payload.l1_events = ResultFusion._truncate_l1_with_session_coverage(
             payload.l1_events,
             l1_budget,
@@ -132,8 +138,8 @@ class ResultFusion:
         )
         remaining -= estimate_tokens(payload.l1_events, char_per_token)
 
-        # L2: up to 40% of remaining (entity cards, relationships, assertions)
-        l2_budget = remaining * 0.4
+        # L2: configurable share of remaining (entity cards, relationships, assertions)
+        l2_budget = remaining * l2_budget_ratio
         l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
         l2_tokens = estimate_tokens(l2_all, char_per_token)
         if l2_tokens > l2_budget:
@@ -145,8 +151,8 @@ class ResultFusion:
             l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
         remaining -= estimate_tokens(l2_all, char_per_token)
 
-        # L3: up to 40% of remaining
-        l3_budget = remaining * 0.4
+        # L3: configurable share of remaining
+        l3_budget = remaining * l3_budget_ratio
         payload.l3_reflections = truncate_to_budget(
             payload.l3_reflections, l3_budget, char_per_token,
         )

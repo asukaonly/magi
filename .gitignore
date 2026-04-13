@@ -93,3 +93,6 @@ frontend/src-tauri/gen/
 
 # Local-only docs workspace
 docs/dev/
+
+# Benchmark outputs
+outputs/

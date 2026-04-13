@@ -6,11 +6,22 @@ import re
 from typing import Any
 
 from .answerability import (
-    extract_temporal_distance_queries,
+    extract_event_dates,
     extract_query_phrases,
     extract_query_tokens,
     extract_quoted_spans,
     has_temporal_anchor,
+)
+
+# First-person completed-action patterns: the user describing a personal
+# experience rather than discussing a topic.  Used as a scoring signal to
+# prefer "I took a train" over "I have been tracking travel expenses".
+_FIRST_PERSON_ACTION_RE = re.compile(
+    r"\bI\s+(?:(?:just|also|recently|actually|finally)\s+)?"
+    r"(?:took|rode|drove|flew|walked|ran|went|visited|attended|"
+    r"bought|ordered|booked|used|tried|started|finished|completed|"
+    r"saw|watched|played|ate|drank|moved|switched|picked|got)\b",
+    re.IGNORECASE,
 )
 
 
@@ -27,7 +38,6 @@ def build_timeline_summary(
     query_tokens = extract_query_tokens(question)
     query_phrases = extract_query_phrases(query_tokens)
     quoted_spans = extract_quoted_spans(question)
-    temporal_anchor_queries = extract_temporal_distance_queries(question)
 
     selected: list[dict[str, Any]] = []
     seen_event_ids: set[str] = set()
@@ -51,34 +61,6 @@ def build_timeline_summary(
                     best_score = score
                     best_match = event
         if best_match is not None:
-            selected.append(best_match)
-            seen_event_ids.add(str(best_match.get("event_id") or ""))
-            represented_sessions.add(str(best_match.get("session_id") or "").strip())
-
-    # Preserve one best event per temporal-distance anchor so "when X happened"
-    # questions keep both sides of the time comparison instead of duplicate hits.
-    for anchor_query in temporal_anchor_queries:
-        anchor_tokens = extract_query_tokens(anchor_query)
-        anchor_phrases = extract_query_phrases(anchor_tokens)
-        if not anchor_tokens:
-            continue
-        best_match = None
-        best_score = float("-inf")
-        for bundle in evidence_bundles:
-            for event in bundle.get("events") or []:
-                event_id = str(event.get("event_id") or "")
-                if not event_id or event_id in seen_event_ids:
-                    continue
-                score = _score_event(
-                    event,
-                    query_tokens=anchor_tokens,
-                    query_phrases=anchor_phrases,
-                    quoted_spans=[],
-                )
-                if score > best_score:
-                    best_score = score
-                    best_match = event
-        if best_match is not None and best_score > 0:
             selected.append(best_match)
             seen_event_ids.add(str(best_match.get("event_id") or ""))
             represented_sessions.add(str(best_match.get("session_id") or "").strip())
@@ -133,11 +115,21 @@ def _score_event(
     phrase_hits = [phrase for phrase in query_phrases if phrase and phrase in lowered]
     quoted_hits = [phrase for phrase in quoted_spans if phrase and phrase in " ".join(extract_query_tokens(content))]
 
+    experiential = author_type == "user" and _FIRST_PERSON_ACTION_RE.search(content) is not None
+
+    token_ratio = len(matched_tokens) / len(query_tokens) if query_tokens else 0.0
+    # Assistant messages tend to be longer and discuss the topic extensively,
+    # inflating token overlap.  Dampen their contribution so that shorter user
+    # statements describing actual events are preferred in the timeline.
+    if author_type != "user":
+        token_ratio *= 0.5
+
     return (
         (0.35 if author_type == "user" else 0.0)
-        + (len(matched_tokens) / len(query_tokens) if query_tokens else 0.0)
+        + token_ratio
         + min(len(phrase_hits), 4) * 0.15
         + min(len(quoted_hits), 2) * (0.45 if author_type == "user" else 0.1)
+        + (0.20 if experiential else 0.0)
     )
 
 
@@ -169,12 +161,15 @@ def _summarize_event(
     if has_temporal_anchor(content):
         reason_codes.append("temporal_anchor")
 
+    event_dates = extract_event_dates(content)
+
     return {
         "timestamp": float(event.get("timestamp") or 0.0),
         "session_id": str(event.get("session_id") or "").strip(),
         "turn_id": str(event.get("turn_id") or "").strip(),
         "author_type": str(event.get("author_type") or "").strip() or "unknown",
         "summary": truncated,
+        "event_date": event_dates[0] if event_dates else None,
         "supporting_event_ids": [str(event.get("event_id") or "")],
         "reason_codes": reason_codes,
     }

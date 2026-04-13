@@ -73,6 +73,7 @@ class IntentDeciderInput:
     domain_filters: List[str] = field(default_factory=list)
     recall_intent_hint: Optional[str] = None
     query_mode_hint: Optional[str] = None  # from RetrievalQuery.query_mode
+    l1_limit: int = 10  # per-plan L1 event limit, forwarded from request
 
 
 @dataclass
@@ -221,6 +222,7 @@ class RetrievalConfig:
     graph_spreading_max_entities: int = 50
     graph_spreading_decay: float = 0.5
     rrf_weight_graph: float = 0.6
+    rrf_weight_temporal_bm25: float = 0.8
 
     # Confidence-aware fallback
     confidence_fallback_enabled: bool = False
@@ -228,7 +230,7 @@ class RetrievalConfig:
     confidence_fallback_top_k: int = 5
 
     # ResultFusion
-    default_max_tokens: int = 8192
+    default_max_tokens: int = 16384
     fallback_trigger_threshold: int = 1
     l0_max_tokens: int = 512
     l0_budget_ratio: float = 0.5
@@ -239,6 +241,11 @@ class RetrievalConfig:
     manifest_selector_max_output: int = 10
     manifest_selector_timeout_seconds: float = 8.0
     manifest_selector_candidate_max_chars: int = 400
+
+    # Token budget ratios (layer share of remaining budget after L0)
+    l1_budget_ratio: float = 0.5
+    l2_budget_ratio: float = 0.4
+    l3_budget_ratio: float = 0.4
 
     # Token estimation
     char_per_token_ratio: float = 3.0

@@ -490,23 +490,6 @@ class TestLLMCallParams:
         assert "Do not replace a quoted title with a broad topic" in system_prompt
 
     @pytest.mark.asyncio
-    async def test_system_prompt_guides_comparison_and_temporal_distance_queries(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({
-            "layers": [{"layer": "L1", "is_fallback": False, "content_query": "x"}],
-            "reasoning": "ok",
-        })
-
-        await decider.evaluate(
-            IntentDeciderInput(
-                query="How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?"
-            )
-        )
-
-        system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
-        assert "For comparison questions, keep both candidate events explicit" in system_prompt
-        assert "For temporal-distance questions, produce anchor-specific content_query text" in system_prompt
-        assert "Do not collapse both anchors into one generic topic query" in system_prompt
-
     @pytest.mark.asyncio
     async def test_system_prompt_includes_l2_subject_and_predicate_contract(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({

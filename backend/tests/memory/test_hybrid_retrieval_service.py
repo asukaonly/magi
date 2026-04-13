@@ -1170,18 +1170,20 @@ class TestServiceFallback:
         assert result.trace["comparison_backstop_triggered"] is True
 
     @pytest.mark.asyncio
-    async def test_temporal_distance_backstop_runs_anchor_queries_when_primary_is_empty(self):
+    async def test_comparison_backstop_uses_quoted_spans_for_single_quoted_entities(self):
+        """When entities are single-quoted ('The Crown' or 'Game of Thrones'),
+        extract_comparison_spans returns [] but extract_quoted_spans succeeds."""
         mem = _make_memory()
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
             layer="L1",
-            conditions=L1Conditions(content_query="communication workshop before meeting", limit=10),
+            conditions=L1Conditions(content_query="The Crown vs Game of Thrones watch order", limit=10),
             is_fallback=False,
         )
         rule_plan = LayerQueryPlan(
             layer="L1",
             conditions=L1Conditions(
-                content_query="How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?",
+                content_query="Which show did I start watching first, 'The Crown' or 'Game of Thrones'?",
                 limit=10,
             ),
             is_fallback=False,
@@ -1190,7 +1192,7 @@ class TestServiceFallback:
             return_value=IntentDecision(
                 plans=[llm_plan],
                 source="llm",
-                reasoning="llm compressed the question into one generic temporal query",
+                reasoning="llm found comparison question",
             )
         )
         svc._intent_decider._rule_engine.evaluate = MagicMock(
@@ -1201,36 +1203,33 @@ class TestServiceFallback:
             )
         )
 
-        workshop_event = {
-            "event_id": "evt-workshop",
-            "session_id": "answer_e936197f_1",
-            "turn_id": "answer_e936197f_1:turn-1",
-            "timestamp": 1.0,
-            "content": (
-                'I recently attended a workshop on "Effective Communication in the Workplace" '
-                "on January 10th."
-            ),
+        got_event = {
+            "event_id": "evt-got",
+            "session_id": "answer_fb793c87_2",
+            "turn_id": "answer_fb793c87_2:turn-1",
+            "timestamp": 10.0,
+            "content": "I've been meaning to check out Game of Thrones for a while, and I finally started it about a month ago.",
             "author_type": "user",
         }
-        meeting_event = {
-            "event_id": "evt-meeting",
-            "session_id": "answer_e936197f_2",
-            "turn_id": "answer_e936197f_2:turn-1",
-            "timestamp": 1.0,
-            "content": "I'm preparing for an upcoming team meeting on January 17th.",
+        crown_event = {
+            "event_id": "evt-crown",
+            "session_id": "answer_abc12345_1",
+            "turn_id": "answer_abc12345_1:turn-3",
+            "timestamp": 5.0,
+            "content": "I started watching The Crown last week and I'm really enjoying it so far.",
             "author_type": "user",
         }
 
         async def _execute_plan_side_effect(plan, **kwargs):
             query = plan.conditions.content_query
             if query == llm_plan.conditions.content_query:
-                return []
+                return [got_event]
             if query == rule_plan.conditions.content_query:
-                return []
-            if query == "effective communication in the workplace workshop":
-                return [workshop_event]
-            if query == "team meeting preparing":
-                return [meeting_event]
+                return [got_event]
+            if query == "crown":
+                return [crown_event]
+            if query == "game throne":
+                return [got_event]
             raise AssertionError(f"Unexpected query plan: {query}")
 
         with patch(
@@ -1239,16 +1238,14 @@ class TestServiceFallback:
         ):
             result = await svc.query(
                 _make_request(
-                    query="How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?"
+                    query="Which show did I start watching first, 'The Crown' or 'Game of Thrones'?"
                 )
             )
 
-        assert {event["event_id"] for event in result.l1_events} == {"evt-workshop", "evt-meeting"}
-        assert result.trace["temporal_distance_backstop_triggered"] is True
-        assert result.trace["temporal_distance_backstop_count"] == 2
+        assert {event["event_id"] for event in result.l1_events} == {"evt-got", "evt-crown"}
+        assert result.trace["comparison_backstop_triggered"] is True
 
-
-class TestServiceTrace:
+    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_trace_contains_intent_info(self):
         mem = _make_memory()
@@ -1436,6 +1433,72 @@ class TestServiceEvidencePackaging:
             result = await svc.query(_make_request(query="What was the first issue I had with my new car after its first service?"))
 
         assert [item["supporting_event_ids"] for item in result.l1_timeline_summary] == [["e1"], ["e5"]]
+
+
+class TestL2TemporalInjection:
+    """Verify that L2 plan is injected when query has temporal anchors but LLM routed to L1-only."""
+
+    @pytest.mark.asyncio
+    async def test_temporal_query_injects_l2_plan(self):
+        """When the LLM routes a temporal query to L1 only, _augment_primary_plans should add an L2 plan."""
+        l1 = _make_l1_store([{"event_id": "e1", "content": "I got a smoker today", "timestamp": 1000.0}])
+        l2 = AsyncMock()
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_list_tom_assertions.return_value = {}
+        l2.batch_get_relationships.return_value = {}
+        l2.get_relationships.return_value = []
+        l2.list_tom_assertions.return_value = []
+        mem = _make_memory(l1=l1, l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        # Temporal query: "What did I buy 10 days ago?" contains date anchor
+        result = await svc.query(_make_request(query="What did I buy 10 days ago?"))
+
+        assert result.trace.get("l2_temporal_injected") is True
+
+    @pytest.mark.asyncio
+    async def test_temporal_injection_uses_self_anchor(self):
+        """The injected L2 plan should set subject_hint='self' so L2Handler queries from the user entity."""
+        l1 = _make_l1_store([])
+        l2 = AsyncMock()
+        mem = _make_memory(l1=l1, l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        payload = RetrievalPayload(trace={})
+        request = _make_request(query="What did I buy 10 days ago?")
+
+        # Simulate LLM routing to L1 only (no L2 plan)
+        l1_only_plans = [
+            LayerQueryPlan(
+                layer="L1",
+                conditions=L1Conditions(content_query=request.query, limit=10),
+                is_fallback=False,
+            )
+        ]
+        augmented = svc._augment_primary_plans(l1_only_plans, request=request, payload=payload)
+
+        l2_plans = [p for p in augmented if p.layer == "L2"]
+        assert len(l2_plans) == 1
+        assert l2_plans[0].conditions.subject_hint == "self"
+        assert payload.trace.get("l2_temporal_injected") is True
+
+    @pytest.mark.asyncio
+    async def test_non_temporal_query_does_not_inject_l2_when_l2_already_present(self):
+        """When L2 already participates, no extra injection happens even for temporal queries."""
+        l1 = _make_l1_store([])
+        l2 = AsyncMock()
+        l2.batch_get_tom_snapshots.return_value = []
+        l2.batch_list_tom_assertions.return_value = {}
+        l2.batch_get_relationships.return_value = {}
+        l2.get_relationships.return_value = []
+        l2.list_tom_assertions.return_value = []
+        mem = _make_memory(l1=l1, l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        # Default rule engine routes L1 primary + L2 fallback, so L2 is already present
+        # when primaryCount < threshold triggers fallback. Use a query without temporal marker.
+        result = await svc.query(_make_request(query="What is my favorite food?"))
+
+        assert result.trace.get("l2_temporal_injected") is None
 
 
 class TestServiceErrorHandling:

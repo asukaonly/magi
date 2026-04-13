@@ -240,8 +240,30 @@ class LocalEmbeddingManager:
 
     # ── Internal helpers ────────────────────────────────────────────────
 
+    # Maximum texts in a single ONNX inference pass.  Keeps peak memory
+    # bounded — e.g. 64 × 200 tokens × 1024 dim × 4 bytes ≈ 50 MB
+    # instead of 1800 × 200 × 1024 × 4 ≈ 1.4 GB for a 200-event batch.
+    _MAX_ENCODE_BATCH = 64
+
     def _encode_sync(self, texts: list[str]) -> list[list[float]]:
-        """Synchronous batch encode — expected to run in a thread pool."""
+        """Synchronous batch encode — expected to run in a thread pool.
+
+        Large inputs are split into sub-batches of ``_MAX_ENCODE_BATCH``
+        to prevent OOM from huge hidden-state tensors.
+        """
+        if not texts:
+            return []
+        if len(texts) <= self._MAX_ENCODE_BATCH:
+            return self._encode_sub_batch(texts)
+
+        all_vectors: list[list[float]] = []
+        for start in range(0, len(texts), self._MAX_ENCODE_BATCH):
+            sub = texts[start : start + self._MAX_ENCODE_BATCH]
+            all_vectors.extend(self._encode_sub_batch(sub))
+        return all_vectors
+
+    def _encode_sub_batch(self, texts: list[str]) -> list[list[float]]:
+        """Encode a single sub-batch of texts through ONNX."""
         import numpy as np
 
         session = self._session

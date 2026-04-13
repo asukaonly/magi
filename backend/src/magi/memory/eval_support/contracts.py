@@ -26,7 +26,7 @@ class EvalMemoryQuery:
     namespace: str
     query: str
     query_timestamp: float | None = None
-    top_k: int = 10
+    top_k: int = 20
     mode: str = "auto"
     answer_with_llm: bool = False
     show_prompt: bool = False

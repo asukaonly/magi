@@ -64,90 +64,9 @@ _TEMPORAL_PATTERNS = (
     ),
 )
 
-_TEMPORAL_DISTANCE_PATTERNS = (
-    re.compile(
-        r"how many\s+(?:day|week|month|year)s?\s+before\s+(?P<anchor_b>.+?)\s+did\s+i\s+(?P<anchor_a>.+?)\??$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"how many\s+(?:day|week|month|year)s?\s+after\s+(?P<anchor_b>.+?)\s+did\s+i\s+(?P<anchor_a>.+?)\??$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"how long\s+had\s+i\s+been\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"how many\s+(?:day|week|month|year)s?\s+have\s+i\s+been\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"how many\s+(?:day|week|month|year)s?\s+had\s+i\s+been\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"how many\s+(?:day|week|month|year)s?\s+ago\s+did\s+i\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"how many\s+(?:day|week|month|year)s?\s+ago\s+did\s+i\s+(?P<anchor_a>.+?)\??$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"how many\s+(?:day|week|month|year)s?\s+(?:passed|have\s+passed)\s+(?:between|since)\s+(?:the\s+)?(?:day\s+)?(?:i\s+)?(?P<anchor_a>.+?)\s+and\s+(?:the\s+)?(?:day\s+)?(?:i\s+)?(?P<anchor_b>.+?)\??$",
-        re.IGNORECASE,
-    ),
-)
-
-_TEMPORAL_ANCHOR_NOISE = {
-    "a",
-    "an",
-    "and",
-    "after",
-    "ago",
-    "am",
-    "at",
-    "before",
-    "been",
-    "did",
-    "do",
-    "for",
-    "had",
-    "have",
-    "how",
-    "i",
-    "in",
-    "many",
-    "my",
-    "of",
-    "on",
-    "that",
-    "the",
-    "to",
-    "was",
-    "were",
-    "when",
-}
-
-_EVENT_TYPE_HINTS = (
-    "appointment",
-    "birthday",
-    "class",
-    "conference",
-    "course",
-    "gift",
-    "job",
-    "meeting",
-    "meetup",
-    "orientation",
-    "party",
-    "presentation",
-    "repair",
-    "service",
-    "trip",
-    "webinar",
-    "workshop",
-)
+# Consonants that commonly appear doubled in base English words (call, miss, stuff)
+# and should NOT be de-duplicated when stripping -ed/-ing suffixes.
+_NATURAL_DOUBLE_CONSONANTS = frozenset("lsf")
 
 
 def _normalize_query_token(token: str) -> str:
@@ -158,11 +77,33 @@ def _normalize_query_token(token: str) -> str:
     if normalized.endswith("ied") and len(normalized) > 4:
         return f"{normalized[:-3]}y"
     if normalized.endswith("ed") and len(normalized) > 4:
-        if normalized[:-1].endswith("e"):
+        base = normalized[:-2]
+        # Doubled consonant from suffixing: stopped → stopp → stop
+        if (
+            len(base) >= 2
+            and base[-1] == base[-2]
+            and base[-1] not in "aeiou"
+            and base[-1] not in _NATURAL_DOUBLE_CONSONANTS
+        ):
+            return base[:-1]
+        # Vowel-ending base: the 'e' is part of the stem (freed → free)
+        if base and base[-1] in "aeiou":
             return normalized[:-1]
-        return normalized[:-2]
+        # Consonants that commonly precede silent-e in English stems:
+        # serviced → service, placed → place, changed → change, loved → love
+        if base and base[-1] in "cgszv":
+            return base + "e"
+        return base
     if normalized.endswith("ing") and len(normalized) > 5:
         stem = normalized[:-3]
+        # Doubled consonant from suffixing: running → runn → run
+        if (
+            len(stem) >= 2
+            and stem[-1] == stem[-2]
+            and stem[-1] not in "aeiou"
+            and stem[-1] not in _NATURAL_DOUBLE_CONSONANTS
+        ):
+            return stem[:-1]
         if stem.endswith(("v", "c", "g")):
             return f"{stem}e"
         return stem
@@ -171,16 +112,46 @@ def _normalize_query_token(token: str) -> str:
     return normalized
 
 
+_CJK_RANGE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff]")
+# Split text into CJK segments vs Latin/numeric segments for separate tokenization.
+_SEGMENT_RE = re.compile(
+    r"([\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff]+)",
+)
+
+
+def _jieba_cut(text: str) -> list[str]:
+    """Segment CJK text with jieba; fall back to character-level split."""
+    try:
+        import jieba
+        return [w for w in jieba.cut_for_search(text) if w.strip()]
+    except ImportError:
+        return list(text)
+
+
 def extract_query_tokens(text: str) -> list[str]:
-    """Extract normalized ranking tokens from a query or event body."""
+    """Extract normalized ranking tokens from a query or event body.
+
+    Latin/numeric tokens are stemmed via ``_normalize_query_token``.
+    CJK text is segmented with jieba (falls back to character unigrams).
+    """
     lowered = str(text or "").lower()
-    raw_tokens = re.findall(r"[a-z0-9]+", lowered)
-    return [
-        normalized
-        for token in raw_tokens
-        for normalized in [_normalize_query_token(token)]
-        if len(normalized) >= 2 and normalized not in _RERANK_STOP_WORDS
-    ]
+    result: list[str] = []
+    for segment in _SEGMENT_RE.split(lowered):
+        if not segment:
+            continue
+        if _CJK_RANGE.search(segment):
+            # CJK segment → jieba word-level tokenization
+            for word in _jieba_cut(segment):
+                word = word.strip()
+                if word:
+                    result.append(word)
+        else:
+            # Latin/numeric segment → regex + stemmer
+            for token in re.findall(r"[a-z0-9]+", segment):
+                normalized = _normalize_query_token(token)
+                if normalized and normalized not in _RERANK_STOP_WORDS:
+                    result.append(normalized)
+    return result
 
 
 def extract_query_phrases(tokens: Sequence[str]) -> list[str]:
@@ -221,58 +192,35 @@ def extract_comparison_spans(text: str) -> list[str]:
     return spans
 
 
-def _extract_surface_tokens(text: str) -> list[str]:
-    """Extract lower-cased tokens while preserving readable surface forms."""
-    return [token for token in re.findall(r"[a-z0-9]+", str(text or "").lower()) if token]
-
-
-def _build_temporal_anchor_query(anchor_text: str) -> str:
-    """Build a compact retrieval query for a temporal anchor phrase."""
-    raw_anchor = str(anchor_text or "").strip()
-    if not raw_anchor:
-        return ""
-
-    quoted_matches = re.findall(r"""["']([^"']{3,})["']""", raw_anchor)
-    event_type = next((hint for hint in _EVENT_TYPE_HINTS if re.search(rf"\b{re.escape(hint)}\b", raw_anchor, re.IGNORECASE)), "")
-    if quoted_matches:
-        base = " ".join(_extract_surface_tokens(quoted_matches[0]))
-        suffixes: list[str] = []
-        if re.search(r"\b(member|join|joined)\b", raw_anchor, re.IGNORECASE):
-            suffixes.append("join")
-        if event_type and event_type not in base.split():
-            suffixes.append(event_type)
-        return " ".join([base, *suffixes]).strip()
-
-    tokens = [token for token in _extract_surface_tokens(raw_anchor) if token not in _TEMPORAL_ANCHOR_NOISE]
-    deduped_tokens = list(dict.fromkeys(tokens))
-    return " ".join(deduped_tokens[:4]).strip()
-
-
-def extract_temporal_distance_queries(text: str) -> list[str]:
-    """Extract anchor-specific backstop queries for temporal distance questions."""
-    query = str(text or "").strip()
-    if not query:
-        return []
-
-    for pattern in _TEMPORAL_DISTANCE_PATTERNS:
-        match = pattern.search(query)
-        if not match:
-            continue
-        candidate_queries: list[str] = []
-        for key in ("anchor_a", "anchor_b"):
-            try:
-                raw = match.group(key)
-            except IndexError:
-                continue
-            if raw is None:
-                continue
-            anchor_query = _build_temporal_anchor_query(raw)
-            if anchor_query and anchor_query not in candidate_queries:
-                candidate_queries.append(anchor_query)
-        return candidate_queries
-    return []
-
-
 def has_temporal_anchor(content: str) -> bool:
     """Check whether content contains concrete time anchors."""
     return any(pattern.search(content) for pattern in _TEMPORAL_PATTERNS)
+
+
+# Richer regex for extracting human-readable event-date mentions from content.
+_EVENT_DATE_RE = re.compile(
+    r"(?:on\s+)?"
+    r"(?:"
+    # "March 3rd" / "January 15, 2024"
+    r"(?:january|february|march|april|may|june|july|august|september|october|november|december)"
+    r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?"
+    r")"
+    r"|"
+    # "3/15" / "03-15-2024"
+    r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
+    r"|"
+    # "last Monday" / "this Friday"
+    r"(?:last|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    r"|"
+    # "3 days ago" / "two weeks ago"
+    r"(?:\d+\s+(?:days?|weeks?|months?|years?)\s+ago)"
+    r"|"
+    # "yesterday" / "last week" / "last night"
+    r"(?:yesterday|today|last\s+(?:week|month|year|night))",
+    re.IGNORECASE,
+)
+
+
+def extract_event_dates(content: str) -> list[str]:
+    """Extract human-readable date mentions from content text."""
+    return [m.group(0).strip() for m in _EVENT_DATE_RE.finditer(str(content or ""))]

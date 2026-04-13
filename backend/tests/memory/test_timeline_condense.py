@@ -213,6 +213,73 @@ def test_prefers_first_service_anchor_over_generic_new_car_activity():
     assert [item["supporting_event_ids"] for item in summary] == [["evt-service"], ["evt-issue"]]
 
 
+def test_prefers_experiential_events_over_topic_discussion():
+    """First-person action statements should beat generic discussion events
+    with higher token overlap when building the timeline summary."""
+    bundles = [
+        {
+            "session_id": "session-train",
+            "events": [
+                {
+                    "event_id": "evt-train-action",
+                    "session_id": "session-train",
+                    "turn_id": "session-train:turn-1",
+                    "timestamp": 30.0,
+                    "author_type": "user",
+                    "content": "I took a train ride to visit my family in the countryside today.",
+                },
+                {
+                    "event_id": "evt-transport-discussion",
+                    "session_id": "session-train",
+                    "turn_id": "session-train:turn-5",
+                    "timestamp": 50.0,
+                    "author_type": "user",
+                    "content": (
+                        "I have been tracking my travel expenses and modes of transport, "
+                        "and I've noticed that I've reduced my carbon emissions by around 20%."
+                    ),
+                },
+            ],
+        },
+        {
+            "session_id": "session-bus",
+            "events": [
+                {
+                    "event_id": "evt-bus-action",
+                    "session_id": "session-bus",
+                    "turn_id": "session-bus:turn-1",
+                    "timestamp": 20.0,
+                    "author_type": "user",
+                    "content": "I just got back from a bus ride to attend a friend's wedding today!",
+                },
+                {
+                    "event_id": "evt-train-topic",
+                    "session_id": "session-bus",
+                    "turn_id": "session-bus:turn-6",
+                    "timestamp": 27.0,
+                    "author_type": "assistant",
+                    "content": (
+                        "Japan is known for its extensive rail network, and trains are a popular "
+                        "mode of transportation for both locals and tourists."
+                    ),
+                },
+            ],
+        },
+    ]
+
+    summary = build_timeline_summary(
+        question="Which mode of transport did I use most recently, a bus or a train?",
+        evidence_bundles=bundles,
+    )
+
+    selected_ids = [item["supporting_event_ids"][0] for item in summary]
+    assert "evt-bus-action" in selected_ids
+    assert "evt-train-action" in selected_ids
+    # Discussion events should not be selected
+    assert "evt-transport-discussion" not in selected_ids
+    assert "evt-train-topic" not in selected_ids
+
+
 def test_prefers_sentence_with_month_date_in_service_summary():
     bundles = [
         {
@@ -244,54 +311,3 @@ def test_prefers_sentence_with_month_date_in_service_summary():
     assert "serviced for the first time" in summary[0]["summary"]
 
 
-def test_preserves_distinct_temporal_distance_anchors_in_timeline():
-    bundles = [
-        {
-            "session_id": "session-lessons",
-            "events": [
-                {
-                    "event_id": "evt-lessons",
-                    "session_id": "session-lessons",
-                    "turn_id": "session-lessons:turn-1",
-                    "timestamp": 1.0,
-                    "author_type": "user",
-                    "content": (
-                        "I'm trying to learn more about music theory. By the way, I've been taking weekly guitar lessons "
-                        "with a new instructor, Alex, for six weeks now and it's really helped me understand music theory better."
-                    ),
-                },
-                {
-                    "event_id": "evt-amp-a",
-                    "session_id": "session-lessons",
-                    "turn_id": "session-lessons:turn-7",
-                    "timestamp": 7.0,
-                    "author_type": "user",
-                    "content": (
-                        "I've been using a metronome to help with my timing. By the way, I recently bought a new guitar amp "
-                        "two weeks ago, which has made a huge difference in the sound quality."
-                    ),
-                },
-            ],
-        },
-        {
-            "session_id": "session-amp",
-            "events": [
-                {
-                    "event_id": "evt-amp-b",
-                    "session_id": "session-amp",
-                    "turn_id": "session-amp:turn-1",
-                    "timestamp": 13.0,
-                    "author_type": "user",
-                    "content": "I just got a new amp two weeks ago and I want to make sure I'm getting the most out of it.",
-                }
-            ],
-        },
-    ]
-
-    summary = build_timeline_summary(
-        question="How long had I been taking guitar lessons when I bought the new guitar amp?",
-        evidence_bundles=bundles,
-    )
-
-    summary_event_ids = [item["supporting_event_ids"][0] for item in summary]
-    assert summary_event_ids[:2] == ["evt-lessons", "evt-amp-a"]

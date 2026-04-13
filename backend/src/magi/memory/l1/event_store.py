@@ -15,12 +15,12 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
-from ..embedding.chunking import ChunkedText, chunk_text
+from ..embedding.chunking import ChunkedText, chunk_sentences, chunk_text
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ..embedding.embedding_text_builders import build_l1_embedding_text
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
-from ..hybrid_retrieval.fts_utils import build_or_fts_query, build_stemmed_fts_query, escape_fts_query, tokenize_for_fts
+from ..hybrid_retrieval.fts_utils import build_exact_fts_query, build_or_fts_query, build_stemmed_fts_query, escape_fts_query, tokenize_for_fts
 from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
 from ..embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
@@ -71,6 +71,7 @@ class L1EventStore:
                 registry_table="l1_event_chunk_vectors",
                 entity_column="chunk_id",
                 vec_table_prefix="l1_event_vec",
+                partition_key_column="user_id",
             )
             if embedding_service is not None or vector_enabled
             else None
@@ -898,6 +899,9 @@ class L1EventStore:
         *,
         limit: int = 20,
         user_id: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        strict: bool = False,
     ) -> List[Tuple[str, float]]:
         """Search L1 events via FTS5 BM25 ranking.
 
@@ -906,6 +910,11 @@ class L1EventStore:
 
         When *user_id* is provided the results are scoped to events owned by
         that user via a JOIN with the fact_events table.
+
+        When *strict* is True the search uses exact token matching first
+        (no prefix stemming) and skips the OR / relaxed fallback phases.
+        This avoids noise from short prefix stems such as ``crow*`` matching
+        unrelated words like *crowd* or *crowded*.
         """
         await self.initialize()
         tokenized = tokenize_for_fts(query)
@@ -917,33 +926,46 @@ class L1EventStore:
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             try:
                 phase = "none"
+                _time_kw = {"start_time": start_time, "end_time": end_time}
+                rows: list = []
+                stemmed = ""
+                # Phase 0 (strict-first): Exact AND query — no prefix truncation
+                if strict:
+                    exact = build_exact_fts_query(escaped)
+                    if exact:
+                        rows = await self._run_bm25_query(db, exact, limit=limit, user_id=user_id, **_time_kw)
+                        if rows:
+                            phase = "exact_and"
                 # Phase 1: Stemmed AND query (stop words removed, inflections expanded)
-                stemmed = build_stemmed_fts_query(escaped)
-                if stemmed:
-                    rows = await self._run_bm25_query(db, stemmed, limit=limit, user_id=user_id)
-                    if rows:
-                        phase = "stemmed_and"
-                else:
-                    rows = []
+                if not rows:
+                    stemmed = build_stemmed_fts_query(escaped)
+                    if stemmed:
+                        rows = await self._run_bm25_query(db, stemmed, limit=limit, user_id=user_id, **_time_kw)
+                        if rows:
+                            phase = "stemmed_and"
+                    else:
+                        stemmed = ""
                 # Phase 2: Original escaped query (for CJK / non-English text)
                 if not rows:
-                    rows = await self._run_bm25_query(db, escaped, limit=limit, user_id=user_id)
+                    rows = await self._run_bm25_query(db, escaped, limit=limit, user_id=user_id, **_time_kw)
                     if rows:
                         phase = "original_and"
-                # Phase 3: Relaxed phrase queries (quoted spans)
-                if not rows:
-                    for fallback_query in self._build_relaxed_fts_queries(query):
-                        rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id)
-                        if rows:
-                            phase = "relaxed_phrase"
-                            break
-                # Phase 4: OR fallback with stop words removed and stems added
-                if not rows:
-                    or_query = build_or_fts_query(escaped)
-                    if or_query and or_query != escaped:
-                        rows = await self._run_bm25_query(db, or_query, limit=limit, user_id=user_id)
-                        if rows:
-                            phase = "or_fallback"
+                # Phase 3 & 4: Relaxed / OR fallback — skipped in strict mode
+                if not strict:
+                    # Phase 3: Relaxed phrase queries (quoted spans)
+                    if not rows:
+                        for fallback_query in self._build_relaxed_fts_queries(query):
+                            rows = await self._run_bm25_query(db, fallback_query, limit=limit, user_id=user_id, **_time_kw)
+                            if rows:
+                                phase = "relaxed_phrase"
+                                break
+                    # Phase 4: OR fallback with stop words removed and stems added
+                    if not rows:
+                        or_query = build_or_fts_query(escaped)
+                        if or_query and or_query != escaped:
+                            rows = await self._run_bm25_query(db, or_query, limit=limit, user_id=user_id, **_time_kw)
+                            if rows:
+                                phase = "or_fallback"
                 logger.info(
                     "BM25 search completed | phase=%s escaped=%r stemmed=%r "
                     "result_count=%d user_id=%s",
@@ -961,25 +983,41 @@ class L1EventStore:
         *,
         limit: int,
         user_id: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> list[tuple[Any, Any]]:
         """Execute a single FTS5 BM25 query.
 
         When *user_id* is provided the FTS5 results are joined with
         ``fact_events`` so only events belonging to that user are ranked.
+        When *start_time* / *end_time* are given, results are constrained
+        to the timestamp range via ``fact_events.timestamp``.
         """
         if user_id:
+            clauses = [
+                "l1_events_fts MATCH ?",
+                "fe.user_id = ?",
+                "fe.deleted_at IS NULL",
+            ]
+            params: list[Any] = [match_query, user_id]
+            if start_time is not None:
+                clauses.append("fe.timestamp >= ?")
+                params.append(start_time)
+            if end_time is not None:
+                clauses.append("fe.timestamp <= ?")
+                params.append(end_time)
+            params.append(limit)
+            where = " AND ".join(clauses)
             async with db.execute(
-                """
+                f"""
                 SELECT fts.event_id, bm25(l1_events_fts) AS score
                 FROM l1_events_fts fts
                 JOIN fact_events fe ON fe.event_id = fts.event_id
-                WHERE l1_events_fts MATCH ?
-                  AND fe.user_id = ?
-                  AND fe.deleted_at IS NULL
+                WHERE {where}
                 ORDER BY score
                 LIMIT ?
                 """,
-                (match_query, user_id, limit),
+                tuple(params),
             ) as cursor:
                 return await cursor.fetchall()
         async with db.execute(
@@ -1070,6 +1108,7 @@ class L1EventStore:
                         "event_id": event.event_id,
                         "event_type": event.event_type,
                         "source": event.source,
+                        "partition_value": event.user_id,
                     },
                     payload=event,
                 )
@@ -1115,14 +1154,14 @@ class L1EventStore:
             vector_index=self._vector_index,
         )
 
-    async def _semantic_search_event_hits(self, *, query: str, limit: int) -> list[VectorSearchHit]:
+    async def _semantic_search_event_hits(self, *, query: str, limit: int, user_id: str | None = None) -> list[VectorSearchHit]:
         if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
             return []
         try:
-            return await self._vector_index.search(embedding=embedding, limit=limit)
+            return await self._vector_index.search(embedding=embedding, limit=limit, partition_value=user_id)
         except Exception as exc:
             logger.warning("Failed semantic search over L1 events: %s", exc)
             return []
@@ -1625,7 +1664,7 @@ class L1EventStore:
         )
 
     def _build_event_embedding_chunks(self, event: MemoryEvent) -> list[ChunkedText]:
-        return chunk_text(self.get_embedding_text(event))
+        return chunk_sentences(self.get_embedding_text(event))
 
     def _chunk_id_for_event(self, event_id: str, chunk_index: int) -> str:
         return f"{event_id}::chunk-{chunk_index}"
