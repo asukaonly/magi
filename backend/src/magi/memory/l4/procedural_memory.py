@@ -467,6 +467,127 @@ class L4ProceduralMemoryStore:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    async def get_tool_advisory(
+        self,
+        tool_names: List[str],
+        task_context: str | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Return lightweight advisory for each requested tool.
+
+        Each advisory dict contains:
+            tool_name, available (bool), breaker_state, success_rate,
+            total_attempts, strategy_hint, context_fit, risk_note
+        """
+        if not tool_names:
+            return []
+        await self.initialize()
+        placeholders = ", ".join("?" for _ in tool_names)
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT skill_name, circuit_breaker_state, success_rate,
+                       total_attempts, optimized_prompt, context_affinity,
+                       failure_count, last_failure_at
+                FROM procedural_skills
+                WHERE skill_category = 'tool' AND skill_name IN ({placeholders})
+                """,
+                tuple(tool_names),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        known = {str(row["skill_name"]): row for row in rows}
+        result: List[Dict[str, Any]] = []
+
+        for name in tool_names:
+            row = known.get(name)
+            if row is None:
+                # Tool has no execution history — no advisory.
+                continue
+
+            breaker = str(row["circuit_breaker_state"])
+            available = breaker != "open"
+            success_rate = float(row["success_rate"])
+            total_attempts = int(row["total_attempts"])
+
+            # Extract strategy hint from optimized_prompt (may be JSON or plain text).
+            strategy_hint = self._extract_strategy_hint(row["optimized_prompt"])
+
+            # Compute context fit if task_context provided.
+            context_fit = self._compute_context_fit(
+                row["context_affinity"], task_context
+            )
+
+            # Build risk note.
+            risk_note = None
+            if breaker == "open":
+                risk_note = "Circuit breaker open: consecutive failures detected"
+            elif breaker == "half_open":
+                risk_note = "Circuit breaker recovering: recent failures observed"
+            elif success_rate < 0.5 and total_attempts >= 3:
+                risk_note = f"Low success rate ({success_rate:.0%} over {total_attempts} attempts)"
+
+            result.append(
+                {
+                    "tool_name": name,
+                    "available": available,
+                    "breaker_state": breaker,
+                    "success_rate": success_rate,
+                    "total_attempts": total_attempts,
+                    "strategy_hint": strategy_hint,
+                    "context_fit": context_fit,
+                    "risk_note": risk_note,
+                }
+            )
+
+        return result
+
+    @staticmethod
+    def _extract_strategy_hint(optimized_prompt: str | None) -> str | None:
+        """Extract a short hint from the strategy JSON or raw text."""
+        if not optimized_prompt:
+            return None
+        text = str(optimized_prompt).strip()
+        # Try parsing as strategy JSON (new format).
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                approach = str(data.get("recommended_approach") or "").strip()
+                if approach:
+                    return approach
+                # Fall back to first best_use_case.
+                cases = data.get("best_use_cases") or []
+                if cases:
+                    return str(cases[0]).strip()
+                return None
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Legacy plain-text prompt — return truncated.
+        if len(text) > 200:
+            return text[:197] + "..."
+        return text
+
+    @staticmethod
+    def _compute_context_fit(
+        context_affinity_json: str | None,
+        task_context: str | None,
+    ) -> float | None:
+        """Compute 0-1 context fit from stored affinity and current task context."""
+        if not task_context or not context_affinity_json:
+            return None
+        try:
+            affinity = json.loads(context_affinity_json)
+            if not isinstance(affinity, dict) or not affinity:
+                return None
+        except (json.JSONDecodeError, TypeError):
+            return None
+        # Exact match.
+        task_lower = task_context.lower().strip()
+        for key, score in affinity.items():
+            if task_lower in str(key).lower() or str(key).lower() in task_lower:
+                return float(score)
+        return None
+
     async def query_strategies(self, *, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search procedural skills by sqlite-vec and fall back to SQL LIKE."""
         await self.initialize()
