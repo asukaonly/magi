@@ -1,0 +1,11 @@
+[plugin]
+id = "system-media"
+name = "System Media"
+version = "0.1.0"
+description = "Cross-platform media playback tracking via OS transport controls."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "SystemMediaPlugin"
+official = true
+contribution_types = ["sensor"]
+platforms = ["windows", "macos"]

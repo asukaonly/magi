@@ -251,6 +251,7 @@ class ConfigLoader:
                 "calendar": {"enabled": True, "trusted": True, "source": "builtin"},
                 "git-activity": {"enabled": True, "trusted": True, "source": "builtin"},
                 "screen-time": {"enabled": True, "trusted": True, "source": "builtin"},
+                "system-media": {"enabled": True, "trusted": True, "source": "builtin"},
                 "terminal-history": {"enabled": True, "trusted": True, "source": "builtin"},
             }
         }
@@ -336,6 +337,16 @@ class ConfigLoader:
                     "screen_time": {
                         "enabled": False,
                         "sync_interval_minutes": 5,
+                    }
+                }
+            },
+            "system-media": {
+                "sensors": {
+                    "system_media": {
+                        "enabled": False,
+                        "sync_interval_minutes": 1,
+                        "min_session_seconds": 30,
+                        "pause_timeout_seconds": 300,
                     }
                 }
             },

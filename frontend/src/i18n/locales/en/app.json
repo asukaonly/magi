@@ -87,6 +87,7 @@
       "chat": "Chat",
       "photo_library": "Photo library",
       "screen_time": "App Usage",
+      "system_media": "System Media",
       "terminal_history": "Terminal History",
       "git_activity": "Git Activity"
     },
@@ -1084,6 +1085,7 @@
         "manual_journal": "Let the user add notes and image references that are saved to memory and shown on the timeline.",
         "photo_library": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline.",
         "screen_time": "Track frontmost-app activation events and roll them up into hourly local usage events.",
+        "system_media": "Track media playback from any player via OS transport controls.",
         "terminal_history": "Monitor terminal command history from zsh and bash shells.",
         "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations."
       },
@@ -1386,6 +1388,36 @@
             "5": "Every 5 minutes",
             "15": "Every 15 minutes",
             "60": "Every 60 minutes"
+          }
+        },
+        "sections": { "general": "General", "sync": "Sync" }
+      },
+      "system-media": {
+        "name": "System Media",
+        "description": "Cross-platform media playback tracking via OS transport controls",
+        "fields": {
+          "enabled": {
+            "label": "Enable System Media Sync",
+            "description": "Track media playback from any player via OS transport controls."
+          },
+          "sync_interval_minutes": {
+            "label": "Sync Interval",
+            "description": "How often completed listening sessions are flushed into memory."
+          },
+          "min_session_seconds": {
+            "label": "Minimum Session Duration (seconds)",
+            "description": "Listening sessions shorter than this are discarded as noise."
+          },
+          "pause_timeout_seconds": {
+            "label": "Pause Timeout (seconds)",
+            "description": "A pause longer than this closes the current listening session."
+          }
+        },
+        "options": {
+          "sync_interval_minutes": {
+            "1": "Every 1 minute",
+            "5": "Every 5 minutes",
+            "15": "Every 15 minutes"
           }
         },
         "sections": { "general": "General", "sync": "Sync" }

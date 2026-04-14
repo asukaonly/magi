@@ -87,6 +87,7 @@
       "chat": "对话",
       "photo_library": "照片库",
       "screen_time": "应用使用情况",
+      "system_media": "系统媒体",
       "terminal_history": "终端历史",
       "git_activity": "Git 活动"
     },
@@ -1083,6 +1084,7 @@
         "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。",
         "photo_library": "扫描本地照片目录，提取 EXIF 元数据并接入时间线。",
         "screen_time": "基于前台应用激活事件记录使用情况，并按小时汇总成本地使用事件。",
+        "system_media": "通过操作系统传输控制跟踪任意播放器的媒体播放信息。",
         "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
         "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
       },
@@ -1446,6 +1448,39 @@
             "5": "每 5 分钟",
             "15": "每 15 分钟",
             "60": "每 60 分钟"
+          }
+        },
+        "sections": {
+          "general": "常规",
+          "sync": "同步"
+        }
+      },
+      "system-media": {
+        "name": "系统媒体",
+        "description": "通过操作系统传输控制跨平台追踪媒体播放信息",
+        "fields": {
+          "enabled": {
+            "label": "启用系统媒体同步",
+            "description": "通过操作系统传输控制追踪任意播放器的媒体播放信息。"
+          },
+          "sync_interval_minutes": {
+            "label": "同步间隔",
+            "description": "已完成的收听会话多久刷新一次并写入记忆。"
+          },
+          "min_session_seconds": {
+            "label": "最短会话时长（秒）",
+            "description": "短于此时长的收听会话将被视为噪音并丢弃。"
+          },
+          "pause_timeout_seconds": {
+            "label": "暂停超时（秒）",
+            "description": "暂停超过此时长将关闭当前收听会话。"
+          }
+        },
+        "options": {
+          "sync_interval_minutes": {
+            "1": "每 1 分钟",
+            "5": "每 5 分钟",
+            "15": "每 15 分钟"
           }
         },
         "sections": {
