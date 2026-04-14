@@ -90,7 +90,7 @@ class _FakeReader:
         self._items = items or []
         self._errors = errors
 
-    def scan_directory(self, source_path, *, limit=500, min_modified_at=0.0):
+    def scan_directory(self, source_path, *, limit=500, min_modified_at=0.0, exclude_patterns=None):
         filtered = [
             it for it in self._items
             if float(it.get("modified_at", 0)) > min_modified_at
@@ -108,17 +108,17 @@ class _FakeReader:
 
 class TestSensorIdentity:
     def test_source_item_identity_uses_asset_local_id(self):
-        sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+        sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
         item = _photo_item()
         assert sensor.source_item_identity(item) == "abc123"
 
     def test_source_item_identity_falls_back_to_hash(self):
-        sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+        sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
         item = _photo_item(asset_local_id="")
         assert sensor.source_item_identity(item) == "deadbeef12345678"
 
     def test_version_fingerprint_changes_with_hash(self):
-        sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+        sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
         item_a = _photo_item(file_hash="aaa")
         item_b = _photo_item(file_hash="bbb")
         assert sensor.source_item_version_fingerprint(item_a) != \
@@ -136,7 +136,7 @@ async def test_fetch_item_rejects_paths_outside_scope(tmp_path: Path):
     allowed_photo = allowed_dir / "img-1.jpg"
     allowed_photo.write_bytes(b"img")
 
-    sensor = PhotoLibraryTimelineSensor(source_path=str(allowed_dir))
+    sensor = PhotoLibraryTimelineSensor(source_paths=[str(allowed_dir)])
 
     # Allowed path succeeds
     fetched = await sensor.fetch_item({
@@ -174,7 +174,7 @@ async def test_fetch_item_requires_source_path():
 
 @pytest.mark.asyncio
 async def test_build_output_full_exif():
-    sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+    sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
     item = _photo_item()
     output = await sensor.build_output(item)
     assert output.source_type == "photo_library"
@@ -189,7 +189,7 @@ async def test_build_output_full_exif():
 
 @pytest.mark.asyncio
 async def test_build_output_no_exif():
-    sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+    sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
     item = _photo_item(
         camera_make="", camera_model="",
         focal_length="", aperture="", exposure_time="", iso="",
@@ -203,7 +203,7 @@ async def test_build_output_no_exif():
 
 @pytest.mark.asyncio
 async def test_build_output_gps_content_block():
-    sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+    sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
     item = _photo_item(latitude=35.6586, longitude=139.7454)
     output = await sensor.build_output(item)
     gps_blocks = [b for b in output.content_blocks if b.kind == "text" and "GPS" in b.value]
@@ -213,7 +213,7 @@ async def test_build_output_gps_content_block():
 
 @pytest.mark.asyncio
 async def test_build_output_screenshot_item():
-    sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+    sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
     item = _photo_item(
         filename="Screenshot 2024-03-09.png",
         extension=".png",
@@ -238,7 +238,7 @@ async def test_build_output_screenshot_item():
 
 @pytest.mark.asyncio
 async def test_extract_metadata_entities():
-    sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+    sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
     item = _photo_item()
     meta = await sensor.extract_metadata(item)
     entity_types = {e["entity_type"] for e in meta.entities}
@@ -253,7 +253,7 @@ async def test_extract_metadata_entities():
 
 @pytest.mark.asyncio
 async def test_extract_metadata_minimal():
-    sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+    sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
     item = _photo_item(
         camera_make="", camera_model="",
         latitude=None, longitude=None,
@@ -270,7 +270,7 @@ async def test_extract_metadata_minimal():
 
 @pytest.mark.asyncio
 async def test_l2_batch_policy_shards_by_camera():
-    sensor = PhotoLibraryTimelineSensor(source_path="/photos")
+    sensor = PhotoLibraryTimelineSensor(source_paths=["/photos"])
     item_a = _photo_item(camera_make="Canon", camera_model="EOS R5")
     item_b = _photo_item(camera_make="Sony", camera_model="A7R V")
 
@@ -325,7 +325,7 @@ async def test_collect_items_returns_scanned_photos(tmp_path: Path):
 
     reader = _FakeReader(items=fake_items)
     sensor = PhotoLibraryTimelineSensor(
-        source_path=str(photos_dir),
+        source_paths=[str(photos_dir)],
         reader=reader,
     )
 
@@ -337,7 +337,7 @@ async def test_collect_items_returns_scanned_photos(tmp_path: Path):
         limit=100,
         runtime_paths=MagicMock(),
         plugin_settings={
-            "sensors": {"photo_library": {"source_path": str(photos_dir)}}
+            "sensors": {"photo_library": {"source_paths": [str(photos_dir)]}}
         },
     )
     result = await sensor.collect_items(ctx)
@@ -389,7 +389,7 @@ async def test_collect_items_uses_cursor_for_incremental_sync(tmp_path: Path):
 
     reader = _FakeReader(items=[old_item, new_item])
     sensor = PhotoLibraryTimelineSensor(
-        source_path=str(photos_dir),
+        source_paths=[str(photos_dir)],
         reader=reader,
     )
 
@@ -401,7 +401,7 @@ async def test_collect_items_uses_cursor_for_incremental_sync(tmp_path: Path):
         limit=100,
         runtime_paths=MagicMock(),
         plugin_settings={
-            "sensors": {"photo_library": {"source_path": str(photos_dir)}}
+            "sensors": {"photo_library": {"source_paths": [str(photos_dir)]}}
         },
     )
     result = await sensor.collect_items(ctx)
@@ -416,7 +416,7 @@ async def test_collect_items_uses_cursor_for_incremental_sync(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_insight_pipeline_enforces_source_edge_whitelist():
-    sensor = PhotoLibraryTimelineSensor(source_path="/tmp/photos")
+    sensor = PhotoLibraryTimelineSensor(source_paths=["/tmp/photos"])
     item = _photo_item(
         path="/tmp/photos/asuka.jpg",
         filename="asuka.jpg",
@@ -459,3 +459,143 @@ async def test_insight_pipeline_enforces_source_edge_whitelist():
     assert persisted[0]["predicate"] == "LIKES"
     assert memory.edges[0]["predicate"] == "LIKES"
     assert memory.edges[0]["evidence_event_ids"] == ["evt_photo_whitelist_1"]
+
+
+# ---------------------------------------------------------------------------
+# Multi-path support tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_collect_items_multi_path(tmp_path: Path):
+    dir_a = tmp_path / "photos_a"
+    dir_b = tmp_path / "photos_b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    (dir_a / "a.jpg").write_bytes(b"\xff" * 50)
+    (dir_b / "b.jpg").write_bytes(b"\xff" * 50)
+
+    items_a = [{"asset_local_id": "ha", "path": str(dir_a / "a.jpg"), "filename": "a.jpg",
+                "file_hash": "ha", "modified_at": 2000.0}]
+    items_b = [{"asset_local_id": "hb", "path": str(dir_b / "b.jpg"), "filename": "b.jpg",
+                "file_hash": "hb", "modified_at": 2001.0}]
+
+    class _MultiPathReader:
+        def scan_directory(self, source_path, *, limit=500, min_modified_at=0.0, exclude_patterns=None):
+            if source_path == str(dir_a):
+                return ScanResult(items=items_a, total_scanned=1)
+            elif source_path == str(dir_b):
+                return ScanResult(items=items_b, total_scanned=1)
+            return ScanResult()
+
+    sensor = PhotoLibraryTimelineSensor(
+        source_paths=[str(dir_a), str(dir_b)],
+        reader=_MultiPathReader(),
+    )
+    ctx = SensorSyncContext(
+        source_type="photo_library",
+        manual=False,
+        last_cursor=None,
+        last_success_at=0.0,
+        limit=100,
+        runtime_paths=MagicMock(),
+        plugin_settings={
+            "sensors": {"photo_library": {"source_paths": [str(dir_a), str(dir_b)]}}
+        },
+    )
+    result = await sensor.collect_items(ctx)
+    assert len(result.items) == 2
+    ids = {it["asset_local_id"] for it in result.items}
+    assert ids == {"ha", "hb"}
+
+
+@pytest.mark.asyncio
+async def test_collect_items_legacy_source_path_fallback(tmp_path: Path):
+    """Settings with legacy source_path (string) should still work."""
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    (photos / "img.jpg").write_bytes(b"\xff" * 50)
+
+    items = [{"asset_local_id": "h1", "path": str(photos / "img.jpg"),
+              "filename": "img.jpg", "file_hash": "h1", "modified_at": 3000.0}]
+
+    reader = _FakeReader(items=items)
+    sensor = PhotoLibraryTimelineSensor(
+        source_paths=[str(photos)],
+        reader=reader,
+    )
+    ctx = SensorSyncContext(
+        source_type="photo_library",
+        manual=False,
+        last_cursor=None,
+        last_success_at=0.0,
+        limit=100,
+        runtime_paths=MagicMock(),
+        plugin_settings={
+            "sensors": {"photo_library": {"source_path": str(photos)}}
+        },
+    )
+    result = await sensor.collect_items(ctx)
+    assert len(result.items) == 1
+
+
+@pytest.mark.asyncio
+async def test_collect_items_exclude_patterns_passed_to_reader(tmp_path: Path):
+    """Exclude patterns from settings should be forwarded to the reader."""
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    (photos / "img.jpg").write_bytes(b"\xff" * 50)
+
+    captured_kwargs = {}
+
+    class _CapturingReader:
+        def scan_directory(self, source_path, **kwargs):
+            captured_kwargs.update(kwargs)
+            return ScanResult(items=[], total_scanned=0)
+
+    sensor = PhotoLibraryTimelineSensor(
+        source_paths=[str(photos)],
+        reader=_CapturingReader(),
+    )
+    ctx = SensorSyncContext(
+        source_type="photo_library",
+        manual=False,
+        last_cursor=None,
+        last_success_at=0.0,
+        limit=100,
+        runtime_paths=MagicMock(),
+        plugin_settings={
+            "sensors": {"photo_library": {
+                "source_paths": [str(photos)],
+                "exclude_patterns": ["thumbnails", ".cache"],
+            }}
+        },
+    )
+    await sensor.collect_items(ctx)
+    assert captured_kwargs.get("exclude_patterns") == ["thumbnails", ".cache"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_item_multi_path_scope(tmp_path: Path):
+    """fetch_item should accept paths within any of the configured source_paths."""
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    photo_a = dir_a / "p.jpg"
+    photo_b = dir_b / "q.jpg"
+    photo_a.write_bytes(b"img")
+    photo_b.write_bytes(b"img")
+
+    sensor = PhotoLibraryTimelineSensor(source_paths=[str(dir_a), str(dir_b)])
+
+    # Both paths should be accepted
+    result_a = await sensor.fetch_item({"asset_local_id": "1", "path": str(photo_a)})
+    assert result_a["path"] == str(photo_a)
+    result_b = await sensor.fetch_item({"asset_local_id": "2", "path": str(photo_b)})
+    assert result_b["path"] == str(photo_b)
+
+    # Path outside both should be rejected
+    outside = tmp_path / "outside.jpg"
+    outside.write_bytes(b"bad")
+    with pytest.raises(ValueError, match="outside"):
+        await sensor.fetch_item({"asset_local_id": "3", "path": str(outside)})

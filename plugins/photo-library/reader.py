@@ -305,6 +305,115 @@ def _read_long(data: bytes, offset: int, byte_order: str) -> int:
     return struct.unpack_from(f"{byte_order}I", data, offset)[0]
 
 
+# ---------------------------------------------------------------------------
+# HEIC / HEIF ISOBMFF EXIF extraction
+# ---------------------------------------------------------------------------
+
+def _extract_heic_exif(f, file_size: int) -> bytes | None:
+    """Extract TIFF-format EXIF bytes from an ISOBMFF container (HEIC/HEIF).
+
+    The function parses the box hierarchy looking for Exif data in two
+    common locations:
+      1. ``meta > iprp > ipco > Exif`` — stored as an item property.
+      2. ``meta > iloc`` + ``meta > iinf`` — locate an 'Exif' item type
+         and use iloc extents to read its payload.
+
+    Returns raw TIFF EXIF bytes (starting with ``II`` or ``MM``) or *None*.
+    """
+    f.seek(0)
+
+    def _read_box_header(pos: int) -> tuple[int, bytes, int, int] | None:
+        """Read an ISOBMFF box header at *pos*.
+
+        Returns ``(box_size, box_type, header_size, data_start)`` or
+        *None* if the header cannot be read.
+        """
+        f.seek(pos)
+        hdr = f.read(8)
+        if len(hdr) < 8:
+            return None
+        size = struct.unpack(">I", hdr[:4])[0]
+        box_type = hdr[4:8]
+        header_size = 8
+        if size == 1:
+            ext = f.read(8)
+            if len(ext) < 8:
+                return None
+            size = struct.unpack(">Q", ext)[0]
+            header_size = 16
+        elif size == 0:
+            size = file_size - pos
+        return size, box_type, header_size, pos + header_size
+
+    def _iter_boxes(start: int, end: int):
+        """Yield ``(box_type, data_start, data_end)`` for top-level boxes in ``[start, end)``."""
+        pos = start
+        while pos < end:
+            info = _read_box_header(pos)
+            if info is None or info[0] <= 0:
+                break
+            box_size, box_type, hdr_size, data_start = info
+            box_end = pos + box_size
+            yield box_type, data_start, min(box_end, end)
+            pos = box_end
+
+    def _find_box(start: int, end: int, target: bytes) -> tuple[int, int] | None:
+        for btype, dstart, dend in _iter_boxes(start, end):
+            if btype == target:
+                return dstart, dend
+        return None
+
+    def _find_exif_in_ipco(ipco_start: int, ipco_end: int) -> bytes | None:
+        """Look for an 'Exif' property box inside ipco."""
+        for btype, dstart, dend in _iter_boxes(ipco_start, ipco_end):
+            if btype == b"Exif":
+                f.seek(dstart)
+                payload = f.read(dend - dstart)
+                if len(payload) < 4:
+                    continue
+                # First 4 bytes: TIFF header offset (usually 0 or 6)
+                tiff_offset = struct.unpack(">I", payload[:4])[0]
+                raw = payload[4 + tiff_offset:]
+                if len(raw) >= 8 and raw[:2] in (b"II", b"MM"):
+                    return raw
+        return None
+
+    try:
+        # Step 1: find the 'meta' box at top level
+        meta = _find_box(0, file_size, b"meta")
+        if meta is None:
+            return None
+        meta_start, meta_end = meta
+        # meta is a FullBox — skip version(1) + flags(3)
+        meta_inner = meta_start + 4
+
+        # Step 2: look for iprp > ipco > Exif
+        iprp = _find_box(meta_inner, meta_end, b"iprp")
+        if iprp is not None:
+            iprp_start, iprp_end = iprp
+            ipco = _find_box(iprp_start, iprp_end, b"ipco")
+            if ipco is not None:
+                result = _find_exif_in_ipco(*ipco)
+                if result is not None:
+                    return result
+
+        # Step 3: fallback — scan all boxes inside meta for an inlined Exif box
+        for btype, dstart, dend in _iter_boxes(meta_inner, meta_end):
+            if btype == b"Exif":
+                f.seek(dstart)
+                payload = f.read(dend - dstart)
+                if len(payload) < 4:
+                    continue
+                tiff_offset = struct.unpack(">I", payload[:4])[0]
+                raw = payload[4 + tiff_offset:]
+                if len(raw) >= 8 and raw[:2] in (b"II", b"MM"):
+                    return raw
+
+    except (OSError, struct.error):
+        pass
+    return None
+
+
 def extract_exif(path: Path) -> dict[str, Any]:
     """Extract EXIF metadata from a JPEG/TIFF file using pure Python.
 
@@ -342,6 +451,10 @@ def extract_exif(path: Path) -> dict[str, Any]:
             elif header[:2] in (b"II", b"MM"):
                 f.seek(0)
                 exif_data = f.read(min(path.stat().st_size, 256 * 1024))
+
+            # HEIC / HEIF: ISOBMFF container with embedded EXIF
+            elif len(header) >= 8 and header[4:8] == b"ftyp":
+                exif_data = _extract_heic_exif(f, path.stat().st_size)
 
             if not exif_data or len(exif_data) < 8:
                 return result
