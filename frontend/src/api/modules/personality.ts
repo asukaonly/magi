@@ -167,6 +167,17 @@ export const personalityApi = {
   getCurrent: () => api.get<PersonalityResponse>('/personality/current'),
   setCurrent: (name: string) => api.put<PersonalityResponse>('/personality/current', { name }),
   getGreeting: () => api.get<PersonalityResponse>('/personality/greeting'),
+  bootstrapInit: (sessionId: string, userId: string = 'default_user') =>
+    api.post<PersonalityResponse>('/personality/bootstrap/init', {
+      session_id: sessionId,
+      user_id: userId,
+    }),
+  bootstrapMessage: (request: {
+    user_message: string;
+    history: Array<{ role: string; content: string }>;
+    user_id?: string;
+    session_id: string;
+  }) => api.post<PersonalityResponse>('/personality/bootstrap/message', request),
   compare: (fromName: string, toName: string) =>
     api.get<PersonalityCompareResponse>(`/personality/compare/${fromName}/${toName}`),
 };
