@@ -100,20 +100,32 @@ def _build_extraction_prompt(
     total_attempts: int,
     success_rate: float,
     traces: List[Dict[str, Any]],
+    duration_baseline: Optional[Dict[str, float]] = None,
 ) -> str:
     """Build the user prompt for strategy extraction."""
     lines = [
         f"## Tool/Workflow: {skill_name} (category: {skill_category})",
         f"Total attempts: {total_attempts}, Success rate: {success_rate:.0%}",
-        "",
-        "## Recent Execution Traces (newest first):",
     ]
+    if duration_baseline:
+        avg = duration_baseline.get("avg_ms", 0.0)
+        p95 = duration_baseline.get("p95_ms", 0.0)
+        if avg > 0:
+            lines.append(f"Average duration: {avg:.0f}ms, P95 duration: {p95:.0f}ms")
+    lines.append("")
+    lines.append("## Recent Execution Traces (newest first):")
+
     for i, t in enumerate(traces, 1):
         status = "SUCCESS" if t.get("success") else "FAILURE"
         duration = t.get("duration_ms") or 0.0
         parts = [f"#{i} [{status}]"]
         if duration > 0:
             parts.append(f"duration={duration:.0f}ms")
+            # Flag notably slow executions.
+            if duration_baseline:
+                p95 = duration_baseline.get("p95_ms", 0.0)
+                if p95 > 0 and duration > p95:
+                    parts.append("(SLOW)")
         if t.get("task_context"):
             parts.append(f"context={t['task_context']}")
         lines.append(" ".join(parts))
@@ -123,6 +135,11 @@ def _build_extraction_prompt(
             lines.append(f"  Output: {t['output_summary']}")
         if t.get("error_summary"):
             lines.append(f"  Error: {t['error_summary']}")
+        if t.get("recovery_tool"):
+            recovery_line = f"  → Recovery: {t['recovery_tool']} succeeded"
+            if t.get("recovery_output"):
+                recovery_line += f" with: {t['recovery_output']}"
+            lines.append(recovery_line)
         lines.append("")
 
     lines.append("Based on these execution traces, extract actionable strategy recommendations.")
@@ -146,6 +163,7 @@ class L4StrategyExtractor:
         total_attempts: int,
         success_rate: float,
         traces: List[Dict[str, Any]],
+        duration_baseline: Optional[Dict[str, float]] = None,
     ) -> Optional[ExtractedStrategy]:
         """Call LLM to distill execution traces into an actionable strategy.
 
@@ -165,6 +183,7 @@ class L4StrategyExtractor:
             total_attempts=total_attempts,
             success_rate=success_rate,
             traces=traces,
+            duration_baseline=duration_baseline,
         )
 
         try:

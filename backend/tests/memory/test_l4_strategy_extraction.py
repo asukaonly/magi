@@ -119,6 +119,82 @@ class TestBuildExtractionPrompt:
         assert "FAILURE" in prompt
         assert "timeout" in prompt
 
+    def test_duration_baseline_rendered(self):
+        prompt = _build_extraction_prompt(
+            skill_name="slow_tool",
+            skill_category="tool",
+            total_attempts=5,
+            success_rate=1.0,
+            traces=[
+                {"success": True, "duration_ms": 300.0},
+            ],
+            duration_baseline={"avg_ms": 200.0, "p95_ms": 400.0},
+        )
+        assert "Average duration: 200ms" in prompt
+        assert "P95 duration: 400ms" in prompt
+
+    def test_slow_flag_when_exceeds_p95(self):
+        prompt = _build_extraction_prompt(
+            skill_name="slow_tool",
+            skill_category="tool",
+            total_attempts=5,
+            success_rate=0.5,
+            traces=[
+                {"success": True, "duration_ms": 500.0},   # > p95
+                {"success": True, "duration_ms": 100.0},   # < p95
+            ],
+            duration_baseline={"avg_ms": 200.0, "p95_ms": 400.0},
+        )
+        assert "(SLOW)" in prompt
+        # Only the first trace should be slow
+        lines = prompt.split("\n")
+        slow_lines = [l for l in lines if "(SLOW)" in l]
+        assert len(slow_lines) == 1
+        assert "500ms" in slow_lines[0]
+
+    def test_no_slow_flag_without_baseline(self):
+        prompt = _build_extraction_prompt(
+            skill_name="tool",
+            skill_category="tool",
+            total_attempts=1,
+            success_rate=1.0,
+            traces=[
+                {"success": True, "duration_ms": 9999.0},
+            ],
+        )
+        assert "(SLOW)" not in prompt
+
+    def test_recovery_rendered(self):
+        prompt = _build_extraction_prompt(
+            skill_name="flaky_tool",
+            skill_category="tool",
+            total_attempts=3,
+            success_rate=0.5,
+            traces=[
+                {
+                    "success": False,
+                    "duration_ms": 100.0,
+                    "error_summary": "connection reset",
+                    "recovery_tool": "backup_tool",
+                    "recovery_output": "fallback result OK",
+                },
+            ],
+        )
+        assert "→ Recovery: backup_tool succeeded" in prompt
+        assert "fallback result OK" in prompt
+
+    def test_no_recovery_line_for_success(self):
+        prompt = _build_extraction_prompt(
+            skill_name="ok_tool",
+            skill_category="tool",
+            total_attempts=1,
+            success_rate=1.0,
+            traces=[
+                {"success": True, "duration_ms": 50.0},
+            ],
+        )
+        assert "Recovery" not in prompt
+
 
 class TestParseStrategyResponse:
     def test_valid_response(self):

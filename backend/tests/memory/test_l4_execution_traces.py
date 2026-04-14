@@ -26,6 +26,7 @@ def _make_action_event(
     success: bool = True,
     *,
     metadata: dict | None = None,
+    turn_id: str | None = None,
 ) -> MemoryEvent:
     now = time.time()
     # EventLevel: 0=DEBUG, 1=INFO, 2=WARNING, 3=ERROR, 4=CRITICAL
@@ -46,7 +47,7 @@ def _make_action_event(
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.COMPRESSIBLE,
         session_id=None,
-        turn_id=None,
+        turn_id=turn_id,
         user_id=None,
         task_id=None,
         content=json.dumps(
@@ -240,3 +241,176 @@ class TestStratifiedTraces:
         traces = await store._stratified_traces(skill["skill_id"], limit=10)
         ids = [t["trace_id"] for t in traces]
         assert len(ids) == len(set(ids)), "found duplicate trace_ids"
+
+
+# ---------------------------------------------------------------------------
+# Turn-ID storage
+# ---------------------------------------------------------------------------
+
+class TestTurnIdStorage:
+    @pytest.fixture()
+    async def store(self, tmp_path) -> L4ProceduralMemoryStore:
+        s = L4ProceduralMemoryStore(
+            db_path=str(tmp_path / "memory.db"),
+            vector_enabled=False,
+        )
+        await s.initialize()
+        return s
+
+    @pytest.mark.asyncio
+    async def test_turn_id_persisted_in_trace(self, store: L4ProceduralMemoryStore):
+        """Events with turn_id should have it stored in the trace row."""
+        evt = _make_action_event("tid_tool", success=True, turn_id="turn-abc-123")
+        await store.record_memory_event(evt)
+        skill = await store.get_skill(skill_name="tid_tool", skill_category="tool")
+        traces = await store.get_recent_traces(skill["skill_id"])
+        assert len(traces) == 1
+        assert traces[0]["turn_id"] == "turn-abc-123"
+
+    @pytest.mark.asyncio
+    async def test_turn_id_none_when_absent(self, store: L4ProceduralMemoryStore):
+        """Events without turn_id produce traces with turn_id=None."""
+        evt = _make_action_event("no_tid_tool", success=True)
+        await store.record_memory_event(evt)
+        skill = await store.get_skill(skill_name="no_tid_tool", skill_category="tool")
+        traces = await store.get_recent_traces(skill["skill_id"])
+        assert traces[0]["turn_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_turn_id_in_stratified_traces(self, store: L4ProceduralMemoryStore):
+        """Stratified trace output includes turn_id."""
+        for i in range(5):
+            evt = _make_action_event("strat_tid", success=True, turn_id=f"turn-{i}")
+            await store.record_memory_event(evt)
+        skill = await store.get_skill(skill_name="strat_tid", skill_category="tool")
+        traces = await store._stratified_traces(skill["skill_id"], limit=5)
+        for t in traces:
+            assert "turn_id" in t
+            assert t["turn_id"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Duration baseline
+# ---------------------------------------------------------------------------
+
+class TestDurationBaseline:
+    @pytest.fixture()
+    async def store(self, tmp_path) -> L4ProceduralMemoryStore:
+        s = L4ProceduralMemoryStore(
+            db_path=str(tmp_path / "memory.db"),
+            vector_enabled=False,
+        )
+        await s.initialize()
+        return s
+
+    @pytest.mark.asyncio
+    async def test_returns_avg_and_p95(self, store: L4ProceduralMemoryStore):
+        """After recording events, baseline should reflect stored stats."""
+        meta = {"duration_ms": 100.0, "input_summary": "x"}
+        for _ in range(3):
+            await store.record_memory_event(
+                _make_action_event("dur_tool", success=True, metadata=meta),
+            )
+        skill = await store.get_skill(skill_name="dur_tool", skill_category="tool")
+        baseline = await store._get_duration_baseline(skill["skill_id"])
+        assert "avg_ms" in baseline
+        assert "p95_ms" in baseline
+        assert baseline["avg_ms"] > 0
+
+    @pytest.mark.asyncio
+    async def test_missing_skill_returns_empty(self, store: L4ProceduralMemoryStore):
+        """Non-existent skill_id returns empty dict."""
+        baseline = await store._get_duration_baseline("nonexistent-skill-id")
+        assert baseline == {}
+
+
+# ---------------------------------------------------------------------------
+# Recovery enrichment
+# ---------------------------------------------------------------------------
+
+class TestRecoveryEnrichment:
+    @pytest.fixture()
+    async def store(self, tmp_path) -> L4ProceduralMemoryStore:
+        s = L4ProceduralMemoryStore(
+            db_path=str(tmp_path / "memory.db"),
+            vector_enabled=False,
+        )
+        await s.initialize()
+        return s
+
+    @pytest.mark.asyncio
+    async def test_failure_annotated_with_recovery(self, store: L4ProceduralMemoryStore):
+        """A failure in tool-A with same turn_id as success in tool-B gets annotated."""
+        shared_turn = "turn-recovery-1"
+        # Tool A fails
+        await store.record_memory_event(
+            _make_action_event("tool_a", success=False, turn_id=shared_turn),
+        )
+        # Tool B succeeds in same turn
+        await store.record_memory_event(
+            _make_action_event(
+                "tool_b",
+                success=True,
+                turn_id=shared_turn,
+                metadata={"output_summary": "fallback result"},
+            ),
+        )
+
+        skill_a = await store.get_skill(skill_name="tool_a", skill_category="tool")
+        traces = await store.get_recent_traces(skill_a["skill_id"])
+        assert len(traces) == 1
+
+        await store._enrich_with_recovery(traces, skill_a["skill_id"])
+        assert traces[0].get("recovery_tool") == "tool_b"
+
+    @pytest.mark.asyncio
+    async def test_no_recovery_without_turn_id(self, store: L4ProceduralMemoryStore):
+        """Failures without turn_id are not annotated."""
+        await store.record_memory_event(
+            _make_action_event("tool_c", success=False),
+        )
+        await store.record_memory_event(
+            _make_action_event("tool_d", success=True),
+        )
+
+        skill_c = await store.get_skill(skill_name="tool_c", skill_category="tool")
+        traces = await store.get_recent_traces(skill_c["skill_id"])
+        await store._enrich_with_recovery(traces, skill_c["skill_id"])
+        assert "recovery_tool" not in traces[0]
+
+    @pytest.mark.asyncio
+    async def test_no_self_recovery(self, store: L4ProceduralMemoryStore):
+        """Recovery must come from a different skill."""
+        shared_turn = "turn-self"
+        await store.record_memory_event(
+            _make_action_event("tool_e", success=False, turn_id=shared_turn),
+        )
+        # Same tool succeeds in same turn — should NOT be recovery
+        await store.record_memory_event(
+            _make_action_event("tool_e", success=True, turn_id=shared_turn),
+        )
+
+        skill_e = await store.get_skill(skill_name="tool_e", skill_category="tool")
+        traces_fail = [
+            t for t in await store.get_recent_traces(skill_e["skill_id"])
+            if not t["success"]
+        ]
+        assert len(traces_fail) == 1
+        await store._enrich_with_recovery(traces_fail, skill_e["skill_id"])
+        assert "recovery_tool" not in traces_fail[0]
+
+    @pytest.mark.asyncio
+    async def test_success_traces_not_annotated(self, store: L4ProceduralMemoryStore):
+        """Only failure traces should get recovery annotations."""
+        shared_turn = "turn-ok"
+        await store.record_memory_event(
+            _make_action_event("tool_f", success=True, turn_id=shared_turn),
+        )
+        await store.record_memory_event(
+            _make_action_event("tool_g", success=True, turn_id=shared_turn),
+        )
+
+        skill_f = await store.get_skill(skill_name="tool_f", skill_category="tool")
+        traces = await store.get_recent_traces(skill_f["skill_id"])
+        await store._enrich_with_recovery(traces, skill_f["skill_id"])
+        assert "recovery_tool" not in traces[0]

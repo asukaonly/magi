@@ -165,6 +165,7 @@ class L4ProceduralMemoryStore:
                     trace_id TEXT PRIMARY KEY,
                     skill_id TEXT NOT NULL,
                     event_id TEXT NOT NULL,
+                    turn_id TEXT,
                     success INTEGER NOT NULL,
                     duration_ms REAL,
                     error_summary TEXT,
@@ -175,6 +176,8 @@ class L4ProceduralMemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_l4_traces_skill
                     ON l4_execution_traces(skill_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_l4_traces_turn
+                    ON l4_execution_traces(turn_id, created_at ASC);
                 """
             )
             # Add pending_trace_count column if missing (migration-safe).
@@ -184,6 +187,17 @@ class L4ProceduralMemoryStore:
                 )
             except Exception:
                 pass  # Column already exists
+            # Add turn_id column to execution traces if missing (migration-safe).
+            try:
+                await db.execute(
+                    f"ALTER TABLE {EXECUTION_TRACES_TABLE} ADD COLUMN turn_id TEXT"
+                )
+            except Exception:
+                pass  # Column already exists
+            # Ensure turn-based index exists (safe if already present).
+            await db.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_l4_traces_turn ON {EXECUTION_TRACES_TABLE}(turn_id, created_at ASC)"
+            )
             if self._vector_index is not None:
                 await self._vector_index.initialize()
             await db.commit()
@@ -919,6 +933,7 @@ class L4ProceduralMemoryStore:
                 "trace_id": tid,
                 "skill_id": str(row["skill_id"]),
                 "event_id": str(row["event_id"]),
+                "turn_id": row["turn_id"],
                 "success": bool(row["success"]),
                 "duration_ms": float(row["duration_ms"] or 0.0),
                 "error_summary": row["error_summary"],
@@ -1014,15 +1029,16 @@ class L4ProceduralMemoryStore:
             await db.execute(
                 f"""
                 INSERT INTO {EXECUTION_TRACES_TABLE}(
-                    trace_id, skill_id, event_id, success, duration_ms,
+                    trace_id, skill_id, event_id, turn_id, success, duration_ms,
                     error_summary, input_summary, output_summary, task_context,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     trace_id,
                     skill_id,
                     event.event_id,
+                    event.turn_id,
                     1 if identity["success"] else 0,
                     identity["duration_ms"],
                     identity.get("error_summary"),
@@ -1064,7 +1080,7 @@ class L4ProceduralMemoryStore:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"""
-                SELECT trace_id, skill_id, event_id, success, duration_ms,
+                SELECT trace_id, skill_id, event_id, turn_id, success, duration_ms,
                        error_summary, input_summary, output_summary, task_context,
                        created_at
                 FROM {EXECUTION_TRACES_TABLE}
@@ -1080,6 +1096,7 @@ class L4ProceduralMemoryStore:
                 "trace_id": str(row["trace_id"]),
                 "skill_id": str(row["skill_id"]),
                 "event_id": str(row["event_id"]),
+                "turn_id": row["turn_id"],
                 "success": bool(row["success"]),
                 "duration_ms": float(row["duration_ms"] or 0.0),
                 "error_summary": row["error_summary"],
@@ -1106,12 +1123,20 @@ class L4ProceduralMemoryStore:
         traces = await self._stratified_traces(skill_id, limit=20)
         if not traces:
             return
+
+        # Fetch skill-level duration baselines for context.
+        duration_baseline = await self._get_duration_baseline(skill_id)
+
+        # Enrich failure traces with same-turn recovery information.
+        await self._enrich_with_recovery(traces, skill_id)
+
         strategy = await self._strategy_extractor.extract_strategy(
             skill_name=skill_name,
             skill_category=skill_category,
             total_attempts=total_attempts,
             success_rate=success_rate,
             traces=traces,
+            duration_baseline=duration_baseline,
         )
         if strategy is None:
             return
@@ -1119,6 +1144,77 @@ class L4ProceduralMemoryStore:
             skill_id=skill_id,
             strategy=strategy,
         )
+
+    async def _get_duration_baseline(self, skill_id: str) -> Dict[str, float]:
+        """Return avg and p95 execution times for a skill."""
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT avg_execution_time_ms, p95_execution_time_ms FROM procedural_skills WHERE skill_id = ?",
+                (skill_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return {}
+        return {
+            "avg_ms": float(row["avg_execution_time_ms"] or 0.0),
+            "p95_ms": float(row["p95_execution_time_ms"] or 0.0),
+        }
+
+    async def _enrich_with_recovery(
+        self,
+        traces: List[Dict[str, Any]],
+        current_skill_id: str,
+    ) -> None:
+        """Annotate failure traces with same-turn successful recovery by other tools.
+
+        For each failure trace that has a ``turn_id``, look for a subsequent
+        success from a *different* skill in the same turn.  If found, add
+        ``recovery_tool`` and ``recovery_output`` keys to the trace dict.
+        """
+        failure_turn_ids = [
+            t["turn_id"]
+            for t in traces
+            if not t["success"] and t.get("turn_id")
+        ]
+        if not failure_turn_ids:
+            return
+
+        unique_turn_ids = list(set(failure_turn_ids))
+        placeholders = ", ".join("?" for _ in unique_turn_ids)
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT t.turn_id, t.created_at, t.output_summary,
+                       s.skill_name
+                FROM {EXECUTION_TRACES_TABLE} t
+                JOIN procedural_skills s ON t.skill_id = s.skill_id
+                WHERE t.turn_id IN ({placeholders})
+                  AND t.skill_id != ?
+                  AND t.success = 1
+                ORDER BY t.turn_id, t.created_at ASC
+                """,
+                (*unique_turn_ids, current_skill_id),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        # Build turn_id → first recovery info.
+        recovery_map: Dict[str, Dict[str, str]] = {}
+        for row in rows:
+            tid = str(row["turn_id"])
+            if tid not in recovery_map:
+                recovery_map[tid] = {
+                    "recovery_tool": str(row["skill_name"]),
+                    "recovery_output": _truncate(row["output_summary"], 200) or "",
+                }
+
+        # Annotate matching failure traces.
+        for t in traces:
+            if not t["success"] and t.get("turn_id") in recovery_map:
+                info = recovery_map[t["turn_id"]]
+                t["recovery_tool"] = info["recovery_tool"]
+                t["recovery_output"] = info["recovery_output"]
 
     async def _persist_strategy(
         self,
