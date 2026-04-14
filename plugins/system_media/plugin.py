@@ -22,8 +22,8 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
         ExtensionFieldSpec(
             key=f"{prefix}.enabled",
             type="switch",
-            label="Enable System Media Sync",
-            description="Track media playback from any player via OS transport controls.",
+            label="Enable Media Recording",
+            description="Automatically detect and record music and videos playing on your device.",
             default=False,
             section="general",
             surface="timeline",
@@ -32,8 +32,8 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
         ExtensionFieldSpec(
             key=f"{prefix}.sync_interval_minutes",
             type="select",
-            label="Sync Interval",
-            description="How often completed listening sessions are flushed into memory.",
+            label="Recording Frequency",
+            description="How often completed playback records are saved to memory.",
             default=1,
             options=[
                 ExtensionFieldOption(label="Every 1 minute", value="1"),
@@ -47,8 +47,8 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
         ExtensionFieldSpec(
             key=f"{prefix}.min_session_seconds",
             type="number",
-            label="Minimum Session Duration (seconds)",
-            description="Listening sessions shorter than this are discarded as noise.",
+            label="Minimum Play Duration (seconds)",
+            description="Tracks played shorter than this are ignored (skipped songs won't be recorded).",
             default=30,
             min=5,
             section="sync",
@@ -58,8 +58,8 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
         ExtensionFieldSpec(
             key=f"{prefix}.pause_timeout_seconds",
             type="number",
-            label="Pause Timeout (seconds)",
-            description="A pause longer than this closes the current listening session.",
+            label="Pause Before Ending Record (seconds)",
+            description="When paused for longer than this, the current record is saved. 300 = 5 minutes.",
             default=300,
             min=30,
             section="sync",

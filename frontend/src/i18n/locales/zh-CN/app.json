@@ -87,7 +87,7 @@
       "chat": "对话",
       "photo_library": "照片库",
       "screen_time": "应用使用情况",
-      "system_media": "系统媒体",
+      "system_media": "听歌/视频记录",
       "terminal_history": "终端历史",
       "git_activity": "Git 活动"
     },
@@ -1084,7 +1084,7 @@
         "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。",
         "photo_library": "扫描本地照片目录，提取 EXIF 元数据并接入时间线。",
         "screen_time": "基于前台应用激活事件记录使用情况，并按小时汇总成本地使用事件。",
-        "system_media": "通过操作系统传输控制跟踪任意播放器的媒体播放信息。",
+        "system_media": "自动记录你在听什么歌、看什么视频，支持 Spotify、网易云、QQ 音乐、浏览器等所有播放器。",
         "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
         "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
       },
@@ -1456,24 +1456,24 @@
         }
       },
       "system-media": {
-        "name": "系统媒体",
-        "description": "通过操作系统传输控制跨平台追踪媒体播放信息",
+        "name": "听歌/视频记录",
+        "description": "自动记录你在听什么歌、看什么视频，支持所有播放器",
         "fields": {
           "enabled": {
-            "label": "启用系统媒体同步",
-            "description": "通过操作系统传输控制追踪任意播放器的媒体播放信息。"
+            "label": "启用听歌记录",
+            "description": "自动检测并记录你正在播放的音乐和视频，支持 Spotify、网易云、QQ 音乐、浏览器等。"
           },
           "sync_interval_minutes": {
-            "label": "同步间隔",
-            "description": "已完成的收听会话多久刷新一次并写入记忆。"
+            "label": "记录频率",
+            "description": "多久把已完成的播放记录写入记忆。"
           },
           "min_session_seconds": {
-            "label": "最短会话时长（秒）",
-            "description": "短于此时长的收听会话将被视为噪音并丢弃。"
+            "label": "最短播放时长（秒）",
+            "description": "播放少于这个时长的会被忽略（跳过的歌不记录）。"
           },
           "pause_timeout_seconds": {
-            "label": "暂停超时（秒）",
-            "description": "暂停超过此时长将关闭当前收听会话。"
+            "label": "暂停多久算听完（秒）",
+            "description": "暂停播放超过这个时间后，会自动结束当前这条记录。比如设为 300 就是暂停 5 分钟后算听完。"
           }
         },
         "options": {

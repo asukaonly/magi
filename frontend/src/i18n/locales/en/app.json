@@ -87,7 +87,7 @@
       "chat": "Chat",
       "photo_library": "Photo library",
       "screen_time": "App Usage",
-      "system_media": "System Media",
+      "system_media": "Media Playback",
       "terminal_history": "Terminal History",
       "git_activity": "Git Activity"
     },
@@ -1085,7 +1085,7 @@
         "manual_journal": "Let the user add notes and image references that are saved to memory and shown on the timeline.",
         "photo_library": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline.",
         "screen_time": "Track frontmost-app activation events and roll them up into hourly local usage events.",
-        "system_media": "Track media playback from any player via OS transport controls.",
+        "system_media": "Automatically record what music and videos you play across all players.",
         "terminal_history": "Monitor terminal command history from zsh and bash shells.",
         "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations."
       },
@@ -1393,24 +1393,24 @@
         "sections": { "general": "General", "sync": "Sync" }
       },
       "system-media": {
-        "name": "System Media",
-        "description": "Cross-platform media playback tracking via OS transport controls",
+        "name": "Media Playback",
+        "description": "Automatically record what music and videos you play across all players",
         "fields": {
           "enabled": {
-            "label": "Enable System Media Sync",
-            "description": "Track media playback from any player via OS transport controls."
+            "label": "Enable Media Recording",
+            "description": "Automatically detect and record music and videos playing on your device, including Spotify, browsers, and other players."
           },
           "sync_interval_minutes": {
-            "label": "Sync Interval",
-            "description": "How often completed listening sessions are flushed into memory."
+            "label": "Recording Frequency",
+            "description": "How often completed playback records are saved to memory."
           },
           "min_session_seconds": {
-            "label": "Minimum Session Duration (seconds)",
-            "description": "Listening sessions shorter than this are discarded as noise."
+            "label": "Minimum Play Duration (seconds)",
+            "description": "Tracks played shorter than this are ignored (skipped songs won't be recorded)."
           },
           "pause_timeout_seconds": {
-            "label": "Pause Timeout (seconds)",
-            "description": "A pause longer than this closes the current listening session."
+            "label": "Pause Before Ending Record (seconds)",
+            "description": "When playback is paused for longer than this, the current record is saved. For example, 300 means a 5-minute pause ends the record."
           }
         },
         "options": {
