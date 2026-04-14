@@ -44,7 +44,7 @@ _MODE_OVERRIDES: dict[str, dict[str, float | int]] = {
         "rrf_weight_keyword": 0.3,
         "rrf_weight_entity": 1.2,
         "rrf_weight_graph": 1.0,
-        "reranker_top_k": 15,
+        "reranker_top_k": 20,
     },
     # Experience / strategy — favor L4, moderate L1
     "experience": {
@@ -79,7 +79,7 @@ _INTENT_OVERRIDES: dict[str, dict[str, float | int]] = {
         "rrf_weight_keyword": 0.4,
         "rrf_weight_entity": 1.0,
         "rrf_weight_graph": 0.9,
-        "reranker_top_k": 15,
+        "reranker_top_k": 20,
     },
     "relationship_recall": {
         "rrf_weight_bm25": 0.5,
@@ -87,7 +87,7 @@ _INTENT_OVERRIDES: dict[str, dict[str, float | int]] = {
         "rrf_weight_keyword": 0.3,
         "rrf_weight_entity": 1.2,
         "rrf_weight_graph": 1.0,
-        "reranker_top_k": 15,
+        "reranker_top_k": 20,
     },
     "profile_fact_recall": {
         "rrf_weight_bm25": 0.8,

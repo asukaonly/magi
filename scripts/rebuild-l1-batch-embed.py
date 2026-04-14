@@ -256,7 +256,9 @@ def cmd_status(args) -> int:
     def refresh() -> bool:
         all_done = True
         for job in jobs:
-            if job.get("status") in ("completed", "failed", "expired", "cancelled"):
+            terminal = job.get("status") in ("completed", "failed", "expired", "cancelled")
+            has_output = job.get("output_file_id") or job.get("error_file_id")
+            if terminal and has_output:
                 continue
             b = client.batches.retrieve(job["batch_id"])
             job["status"] = b.status

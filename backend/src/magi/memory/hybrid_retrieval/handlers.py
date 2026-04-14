@@ -427,13 +427,22 @@ class L1Handler(RRFSearchHandler):
         """Vector similarity search via sqlite-vec.
 
         Resolves chunk-level entity IDs returned by the vector index back to
-        event IDs.  When *user_id* is provided, only events belonging to that
-        user are returned (via a post-filter against ``fact_events``).
+        event IDs.  When *user_id* is provided the sqlite-vec partition key
+        filters results at the index level so all returned chunks belong to
+        the target user namespace.
+
+        With sentence-level chunking each event produces many chunks (~10),
+        so we over-fetch raw chunks and deduplicate by event to maintain
+        session diversity.
         """
         try:
-            # Over-fetch when user_id filtering will discard cross-namespace hits
-            vec_limit = limit * 10 if user_id else limit
-            hits = await self._store._semantic_search_event_hits(query=query, limit=vec_limit)
+            # Over-fetch chunks to ensure enough unique events survive dedup.
+            # With ~10 chunks/event, we need ~10x the desired event count.
+            chunk_density_multiplier = 10
+            vec_limit = limit * chunk_density_multiplier
+            hits = await self._store._semantic_search_event_hits(
+                query=query, limit=vec_limit, user_id=user_id,
+            )
             if not hits:
                 return []
 
@@ -445,9 +454,6 @@ class L1Handler(RRFSearchHandler):
                 if eid not in seen:
                     seen.add(eid)
                     event_ids.append(eid)
-
-            if user_id and event_ids:
-                event_ids = await self._filter_ids_by_user(event_ids, user_id)
 
             return event_ids
         except Exception as exc:

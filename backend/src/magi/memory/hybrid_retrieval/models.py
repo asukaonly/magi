@@ -205,7 +205,7 @@ class RetrievalConfig:
     rrf_weight_vector: float = 1.0
     rrf_weight_keyword: float = 0.5
     rrf_weight_entity: float = 0.7
-    reranker_top_k: int = 15
+    reranker_top_k: int = 20
     reranker_layers: tuple[str, ...] = ("L1", "L3", "L4")
     reranker_candidate_max_chars: int = 500
 
@@ -214,7 +214,7 @@ class RetrievalConfig:
     cross_encoder_model_id: str | None = None
 
     # Query expansion (LLM-based alternative query generation)
-    query_expansion_enabled: bool = False
+    query_expansion_enabled: bool = True
     query_expansion_timeout_seconds: float = 3.0
 
     # Graph spreading activation (L2 knowledge graph BFS)

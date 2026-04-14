@@ -349,6 +349,12 @@ async def _synthesize_eval_answer(
         "\n"
         "Attempt an answer whenever the evidence provides any relevant clues, even if incomplete or indirect.\n"
         "Scan ALL evidence sections thoroughly — answers may appear in any bundle, timeline entry, or assistant reply.\n"
+        "For recommendation or suggestion questions, ANY evidence about the user's interests, tools, past choices, "
+        "or stated preferences is sufficient to generate a personalized answer. "
+        "Do NOT answer 'unknown' for recommendation questions when you have any user context.\n"
+        "BEFORE answering 'unknown', re-read EVERY bundle and timeline entry once more. "
+        "Check if any user message or assistant reply contains words related to the question topic. "
+        "If you find ANY mention — even indirect — attempt an answer based on that evidence.\n"
         "Answer exactly 'unknown' only as a last resort when no piece of evidence mentions anything related to the question topic."
     )
     l2_context_text = _format_l2_context(
