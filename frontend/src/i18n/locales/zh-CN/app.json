@@ -465,6 +465,8 @@
       "botTokenHint": "从 @BotFather 获取的 Bot API Token。",
       "mode": "接入模式",
       "webhookUrl": "Webhook URL",
+      "proxy": "代理地址",
+      "proxyHint": "访问 Telegram API 的代理，留空则使用全局网络代理设置。",
       "allowedUserIds": "允许的用户 ID",
       "allowedUserIdsHint": "用逗号分隔的 Telegram 用户 ID，留空则不限制。",
       "groupTriggerKeyword": "群聊触发关键词",

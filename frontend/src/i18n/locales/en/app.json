@@ -465,6 +465,8 @@
       "botTokenHint": "The Bot API token obtained from @BotFather.",
       "mode": "Connection Mode",
       "webhookUrl": "Webhook URL",
+      "proxy": "Proxy",
+      "proxyHint": "Proxy for Telegram API access. Leave empty to use the global network proxy.",
       "allowedUserIds": "Allowed User IDs",
       "allowedUserIdsHint": "Comma-separated Telegram user IDs. Leave empty for no restriction.",
       "groupTriggerKeyword": "Group Trigger Keyword",

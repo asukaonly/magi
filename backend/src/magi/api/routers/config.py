@@ -267,6 +267,7 @@ class TelegramChannelConfigModel(BaseModel):
     bot_token: str = Field(default="")
     mode: str = Field(default="polling")
     webhook_url: str = Field(default="")
+    proxy: str = Field(default="")
     allowed_user_ids: List[str] = Field(default_factory=list)
     group_trigger_keyword: str = Field(default="")
     magi_user_id: str = Field(default="default")
@@ -564,6 +565,7 @@ def _build_channels_config(raw: Dict[str, Any], runtime_config: Any, mask_api_ke
             bot_token=bot_token,
             mode=tg_cfg.mode,
             webhook_url=tg_cfg.webhook_url,
+            proxy=tg_cfg.proxy,
             allowed_user_ids=list(tg_cfg.allowed_user_ids or []),
             group_trigger_keyword=tg_cfg.group_trigger_keyword,
             magi_user_id=tg_cfg.magi_user_id,

@@ -73,11 +73,17 @@ class ChannelsModule(LifecycleModule):
         if tg_config.enabled and tg_config.bot_token:
             from .telegram.adapter import TelegramChannel, TelegramChannelConfig
 
+            # Resolve proxy: channel-specific > global network proxy
+            proxy = tg_config.proxy
+            if not proxy:
+                proxy = config.network.proxy_url() or ""
+
             adapter_config = TelegramChannelConfig(
                 bot_token=tg_config.bot_token,
                 mode=tg_config.mode,
                 webhook_url=tg_config.webhook_url,
                 webhook_secret=tg_config.webhook_secret,
+                proxy=proxy,
                 allowed_user_ids=list(tg_config.allowed_user_ids),
                 group_trigger_keyword=tg_config.group_trigger_keyword,
                 magi_user_id=tg_config.magi_user_id,

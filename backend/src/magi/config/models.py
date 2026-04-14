@@ -677,6 +677,7 @@ class TelegramChannelSettings(BaseModel):
     mode: str = Field(default="polling")  # "polling" | "webhook"
     webhook_url: str = Field(default="")
     webhook_secret: str = Field(default="")
+    proxy: str = Field(default="")
     allowed_user_ids: List[str] = Field(default_factory=list)
     group_trigger_keyword: str = Field(default="")
     magi_user_id: str = Field(default="default")

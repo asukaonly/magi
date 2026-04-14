@@ -23,6 +23,7 @@ class TelegramChannelConfig:
     mode: str = "polling"  # "polling" | "webhook"
     webhook_url: str = ""
     webhook_secret: str = ""
+    proxy: str = ""
     allowed_user_ids: list[str] = field(default_factory=list)
     group_trigger_keyword: str = ""
     magi_user_id: str = "default"
@@ -65,9 +66,11 @@ class TelegramChannel(Channel):
         if not self._config.bot_token:
             raise ValueError("Telegram bot token is required")
 
-        self._application = (
-            Application.builder().token(self._config.bot_token).build()
-        )
+        builder = Application.builder().token(self._config.bot_token)
+        if self._config.proxy:
+            builder = builder.proxy(self._config.proxy).get_updates_proxy(self._config.proxy)
+
+        self._application = builder.build()
 
         self._application.add_handler(CommandHandler("start", self._on_start_command))
         self._application.add_handler(CommandHandler("reset", self._on_reset_command))

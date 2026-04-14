@@ -394,6 +394,7 @@ export interface TelegramChannelConfig {
   bot_token: string;
   mode: string;
   webhook_url: string;
+  proxy: string;
   allowed_user_ids: string[];
   group_trigger_keyword: string;
   magi_user_id: string;
@@ -605,6 +606,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       bot_token: '',
       mode: 'polling',
       webhook_url: '',
+      proxy: '',
       allowed_user_ids: [],
       group_trigger_keyword: '',
       magi_user_id: 'default',

@@ -129,6 +129,23 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
               </div>
             )}
 
+            {/* Proxy */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('settings.channels.proxy')}
+              </label>
+              <Input
+                aria-label={t('settings.channels.proxy')}
+                value={tg.proxy}
+                placeholder="http://127.0.0.1:7890"
+                onChange={(e) => patchTelegram((cfg) => { cfg.proxy = e.target.value; })}
+                className="font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {t('settings.channels.proxyHint')}
+              </p>
+            </div>
+
             {/* Allowed User IDs */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
