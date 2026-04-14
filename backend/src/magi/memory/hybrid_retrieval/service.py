@@ -375,6 +375,9 @@ class HybridRetrievalService:
             query=request.query,
         )
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
+        payload.trace["l1_evidence_bundle_sessions_total"] = len(
+            {str(h.get("session_id") or "").strip() for h in pre_fusion_l1_events if h.get("session_id")}
+        )
         payload.l1_timeline_summary = build_timeline_summary(
             question=request.query,
             evidence_bundles=payload.l1_evidence_bundles,
@@ -796,11 +799,32 @@ class HybridRetrievalService:
                 continue
             grouped_hits.setdefault(session_id, []).append(hit)
 
+        # Compute per-session best score and filter low-relevance sessions.
+        min_score = self._config.evidence_bundle_min_score
+        max_bundles = self._config.evidence_bundle_max_count
+        session_best_score: Dict[str, float] = {}
+        for sid, session_hits in grouped_hits.items():
+            best = max(
+                (self._hit_score(h) for h in session_hits),
+                default=0.0,
+            )
+            session_best_score[sid] = best
+
+        # Keep only sessions above the minimum relevance threshold.
+        qualified_ids = [sid for sid, score in session_best_score.items() if score >= min_score]
+        # Sort by relevance (descending) and cap at max_bundles.
+        qualified_ids.sort(key=lambda sid: session_best_score[sid], reverse=True)
+        if max_bundles > 0:
+            qualified_ids = qualified_ids[:max_bundles]
+
+        if not qualified_ids:
+            return []
+
         neighbor_window = self._bundle_neighbor_window(query)
         bundles: List[Dict[str, Any]] = []
 
         # Load session events in parallel instead of sequentially
-        session_ids = list(grouped_hits.keys())
+        session_ids = qualified_ids
         # Over-fetch factor: load N× more events per session than the hit
         # count so _select_bundle_events can expand to neighbor turns.
         session_limits = [max(len(grouped_hits[sid]) * _SESSION_EVENTS_OVER_FETCH, 24) for sid in session_ids]
@@ -821,6 +845,7 @@ class HybridRetrievalService:
             bundles.append(
                 {
                     "session_id": session_id,
+                    "session_best_score": session_best_score[session_id],
                     "hit_event_ids": [str(hit.get("event_id") or "") for hit in session_hits if hit.get("event_id")],
                     "hit_turn_ids": [str(hit.get("turn_id") or "") for hit in session_hits if hit.get("turn_id")],
                     "events": bundle_events,
@@ -828,10 +853,8 @@ class HybridRetrievalService:
                 }
             )
 
-        bundles.sort(
-            key=lambda item: max((float(event.get("timestamp") or 0.0) for event in item["events"]), default=0.0),
-            reverse=True,
-        )
+        # Sort by relevance score (highest first).
+        bundles.sort(key=lambda b: b.get("session_best_score", 0.0), reverse=True)
         return bundles
 
     async def _load_session_events(self, session_id: str, *, limit: int) -> List[Dict[str, Any]]:
@@ -894,6 +917,20 @@ class HybridRetrievalService:
     def _bundle_neighbor_window(_query: str) -> int:
         """Return the neighbor turn window for evidence bundle assembly."""
         return 5
+
+    @staticmethod
+    def _hit_score(hit: Dict[str, Any]) -> float:
+        """Extract the best available relevance score from a retrieval hit."""
+        for key in ("reranker_score", "retrieval_score"):
+            val = hit.get(key)
+            if val is not None:
+                return float(val)
+        trace = hit.get("retrieval_trace")
+        if isinstance(trace, dict):
+            val = trace.get("base_rrf_score")
+            if val is not None:
+                return float(val)
+        return 0.0
 
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:

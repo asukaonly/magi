@@ -1313,7 +1313,8 @@ class TestServiceEvidencePackaging:
             )
         )
 
-        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=AsyncMock(return_value=[session_events[2]])):
+        hit = dict(session_events[2], reranker_score=0.9)
+        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=AsyncMock(return_value=[hit])):
             result = await svc.query(_make_request(query="What was the first issue after the first service?"))
 
         assert len(result.l1_evidence_bundles) == 1
@@ -1356,7 +1357,8 @@ class TestServiceEvidencePackaging:
             )
         )
 
-        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=AsyncMock(return_value=session_events)):
+        scored_events = [dict(e, reranker_score=0.8) for e in session_events]
+        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=AsyncMock(return_value=scored_events)):
             result = await svc.query(
                 _make_request(
                     query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
