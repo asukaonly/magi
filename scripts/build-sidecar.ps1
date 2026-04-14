@@ -25,6 +25,7 @@ python -m PyInstaller `
   --clean `
   --onefile `
   --name magi-backend `
+  --hidden-import winrt.windows.media.control `
   run_server.py
 Pop-Location
 

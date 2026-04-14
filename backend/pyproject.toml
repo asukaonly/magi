@@ -72,6 +72,8 @@ dependencies = [
     "psutil>=5.9.8",
     "pyobjc-framework-EventKit>=10.0; platform_system == 'Darwin'",
     "pyobjc-framework-Cocoa>=10.0; platform_system == 'Darwin'",
+    "winrt-runtime>=2.0; platform_system == 'Windows'",
+    "winrt-Windows.Media.Control>=2.0; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]
