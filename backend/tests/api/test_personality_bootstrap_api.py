@@ -28,9 +28,15 @@ def _mock_config(*, with_bootstrap: bool = True):
     config.name = "TestBot"
     config.avatar = ""
     config.cached_phrases.on_init = ["Hello."]
+    config.persona_entity.basic_profile.name = "TestBot"
+    config.persona_entity.basic_profile.core_background = "A test persona."
+    config.persona_entity.psychological_traits.communication_tone = "Neutral"
     if with_bootstrap:
         config.bootstrap = MagicMock()
-        config.bootstrap.opening_line = "What should I call you?"
+        config.bootstrap.opening_line = "Hey, first time here."
+        config.bootstrap.style_instruction = "Speak naturally."
+        config.bootstrap.extract_targets = ["name"]
+        config.bootstrap.max_rounds = 3
     else:
         config.bootstrap = None
     return config
@@ -61,7 +67,7 @@ class TestGreetingBootstrapStatus:
             resp = await api_get_greeting()
 
         assert resp.data["needs_bootstrap"] is True
-        assert resp.data["bootstrap_opening"] == "What should I call you?"
+        assert resp.data["bootstrap_opening"] == "Hey, first time here."
 
     @pytest.mark.asyncio
     async def test_greeting_bootstrap_false_when_completed(self):

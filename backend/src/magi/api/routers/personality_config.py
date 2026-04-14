@@ -88,11 +88,19 @@ class StateTransitionProtocolItemModel(BaseModel):
     behavior_shift: str = Field(default="")
 
 
+class BootstrapConfigModel(BaseModel):
+    style_instruction: str = Field(default="")
+    opening_line: str = Field(default="")
+    extract_targets: List[str] = Field(default_factory=lambda: ["name", "interests"])
+    max_rounds: int = Field(default=3)
+
+
 class PersonalityConfigModel(BaseModel):
     persona_entity: PersonaEntityModel = Field(default_factory=PersonaEntityModel)
     cached_phrases: CachedPhrasesModel = Field(default_factory=CachedPhrasesModel)
     appearance_prompt: str = Field(default="")
     state_transition_protocol: List[StateTransitionProtocolItemModel] = Field(default_factory=list)
+    bootstrap: Optional[BootstrapConfigModel] = Field(default=None)
 
 
 class AIGenerateRequest(BaseModel):
@@ -378,7 +386,13 @@ You must output ONLY valid JSON. Do not include markdown formatting like ```json
       "target_state_name": "Tsukkomi (Straight Man)",
       "behavior_shift": "..."
     }
-  ]
+  ],
+  "bootstrap": {
+    "style_instruction": "Brief instruction on how this persona speaks in a first meeting — tone, pacing, warmth level",
+    "opening_line": "A short, natural, in-character fallback greeting for the first encounter (1-2 sentences, do NOT ask 'what should I call you')",
+    "extract_targets": ["name", "interests"],
+    "max_rounds": 3
+  }
 }
 """
 

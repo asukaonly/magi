@@ -43,10 +43,6 @@ class BootstrapDialogueService:
 
     async def needs_bootstrap(self, persona_name: str) -> bool:
         """Check whether this persona needs a bootstrap dialogue."""
-        config = self._personality_loader.load(persona_name)
-        if config.bootstrap is None:
-            return False
-
         milestones = await self._growth_engine.get_milestones(
             milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
         )
@@ -55,12 +51,73 @@ class BootstrapDialogueService:
                 return False
         return True
 
+    def _ensure_bootstrap_config(self, config: PersonalityConfig) -> BootstrapConfig:
+        """Return the bootstrap config, synthesizing one from persona traits if absent."""
+        if config.bootstrap is not None:
+            return config.bootstrap
+        persona = config.persona_entity.basic_profile
+        return BootstrapConfig(
+            style_instruction=(
+                f"Speak as {persona.name} would — match the personality's tone and background. "
+                f"Keep it brief and natural for a first meeting."
+            ),
+            opening_line="",
+            extract_targets=["name", "interests"],
+            max_rounds=3,
+        )
+
     async def get_opening(self, persona_name: str) -> Optional[str]:
-        """Return the bootstrap opening line for a persona, or None if no bootstrap config."""
+        """Generate a bootstrap opening line via LLM, falling back to static config."""
         config = self._personality_loader.load(persona_name)
-        if config.bootstrap is None:
-            return None
-        return config.bootstrap.opening_line or None
+        bootstrap = self._ensure_bootstrap_config(config)
+
+        generated = await self._generate_opening_via_llm(config, bootstrap)
+        if generated:
+            return generated
+
+        # Fallback to static opening_line
+        return bootstrap.opening_line or None
+
+    async def _generate_opening_via_llm(
+        self, config: PersonalityConfig, bootstrap: BootstrapConfig
+    ) -> Optional[str]:
+        """Use LLM to generate a natural in-character first greeting."""
+        persona = config.persona_entity.basic_profile
+        psych = config.persona_entity.psychological_traits
+
+        system_prompt = (
+            f"You are {persona.name}. {persona.core_background}\n\n"
+            f"Tone: {psych.communication_tone}\n"
+        )
+        if bootstrap.style_instruction:
+            system_prompt += f"Style: {bootstrap.style_instruction}\n"
+        system_prompt += (
+            "\nGenerate a single opening line for your FIRST meeting with a new user. "
+            "Requirements:\n"
+            "- Stay fully in character\n"
+            "- 1-2 sentences max, natural and conversational\n"
+            "- Do NOT ask 'what should I call you' — that's a cliché\n"
+            "- Instead, open with something characteristic: a remark, a mood, a question that fits your personality\n"
+            "- Never mention you are an AI or assistant\n"
+            "- Output ONLY the greeting text, nothing else"
+        )
+
+        try:
+            pool = require_scenario_llm_pool()
+            bridge = pool.get(LLMScenario.CORE)
+            result = await bridge.chat(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": "Generate your opening line."}],
+                max_tokens=150,
+                temperature=0.9,
+            )
+            text = result.strip().strip('"').strip("'")
+            if text:
+                return text
+        except Exception as exc:
+            logger.debug("Bootstrap opening LLM generation failed, using fallback: %s", exc)
+
+        return None
 
     async def reply(
         self,
@@ -84,9 +141,7 @@ class BootstrapDialogueService:
             The assistant reply text.
         """
         config = self._personality_loader.load(persona_name)
-        bootstrap = config.bootstrap
-        if bootstrap is None:
-            return ""
+        bootstrap = self._ensure_bootstrap_config(config)
 
         max_rounds = bootstrap.max_rounds or 3
         current_round = sum(1 for m in history if m.get("role") == "user") + 1

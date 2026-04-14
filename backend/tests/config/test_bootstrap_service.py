@@ -55,17 +55,19 @@ class TestBootstrapConfig:
 
 class TestBootstrapNeedsCheck:
     @pytest.mark.asyncio
-    async def test_needs_bootstrap_when_no_config(self):
+    async def test_needs_bootstrap_when_no_milestone(self):
         loader = MagicMock(spec=PersonalityLoader)
         loader.load.return_value = _make_config(with_bootstrap=False)
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
+        growth.get_milestones.return_value = []
         service = BootstrapDialogueService(
             personality_loader=loader,
             growth_engine=growth,
         )
 
-        assert await service.needs_bootstrap("test") is False
+        # All personas need bootstrap now (even without explicit config)
+        assert await service.needs_bootstrap("test") is True
 
     @pytest.mark.asyncio
     async def test_needs_bootstrap_when_not_completed(self):
@@ -108,7 +110,25 @@ class TestBootstrapNeedsCheck:
 
 class TestBootstrapOpening:
     @pytest.mark.asyncio
-    async def test_get_opening(self):
+    async def test_get_opening_llm_success(self):
+        loader = MagicMock(spec=PersonalityLoader)
+        loader.load.return_value = _make_config(with_bootstrap=True)
+
+        mock_bridge = AsyncMock()
+        mock_bridge.chat.return_value = "Hey there, welcome!"
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = mock_bridge
+
+        service = BootstrapDialogueService(
+            personality_loader=loader,
+            growth_engine=AsyncMock(),
+        )
+        with patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool):
+            opening = await service.get_opening("test")
+        assert opening == "Hey there, welcome!"
+
+    @pytest.mark.asyncio
+    async def test_get_opening_llm_fails_uses_static_fallback(self):
         loader = MagicMock(spec=PersonalityLoader)
         loader.load.return_value = _make_config(with_bootstrap=True)
 
@@ -116,11 +136,12 @@ class TestBootstrapOpening:
             personality_loader=loader,
             growth_engine=AsyncMock(),
         )
+        # No LLM pool available → falls back to static opening_line
         opening = await service.get_opening("test")
         assert opening == "Hey! What should I call you?"
 
     @pytest.mark.asyncio
-    async def test_get_opening_no_config(self):
+    async def test_get_opening_no_config_synthesizes_and_falls_back(self):
         loader = MagicMock(spec=PersonalityLoader)
         loader.load.return_value = _make_config(with_bootstrap=False)
 
@@ -128,7 +149,9 @@ class TestBootstrapOpening:
             personality_loader=loader,
             growth_engine=AsyncMock(),
         )
-        assert await service.get_opening("test") is None
+        # No bootstrap config → synthesized config has empty opening_line → returns None
+        opening = await service.get_opening("test")
+        assert opening is None
 
 
 class TestBootstrapReply:
