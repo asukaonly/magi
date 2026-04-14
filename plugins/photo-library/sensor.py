@@ -18,6 +18,8 @@ from magi.awareness import (
 )
 
 from .geocoder import batch_lookup as _geo_batch_lookup, format_location
+from .file_index import FileIndexCache
+from .locale_data import get_locale_map
 from .normalizers import (
     build_entity_hints,
     build_relation_candidates,
@@ -150,6 +152,22 @@ class PhotoLibraryTimelineSensor(SensorBase):
         total_scanned = 0
         total_errors = 0
 
+        # Resolve analysis features
+        analysis_features = list(
+            sensor_settings.get("analysis_features", self.analysis_features)
+        )
+
+        # Use file index cache when EXIF extraction is enabled
+        file_index: FileIndexCache | None = None
+        if "exif" in analysis_features:
+            try:
+                cache_dir = context.runtime_paths.plugin_cache_dir("photo-library")
+                file_index = FileIndexCache(cache_dir)
+            except Exception:
+                file_index = None
+        if file_index is not None:
+            self._reader._file_index = file_index
+
         remaining = limit
         for src in source_paths:
             if remaining <= 0:
@@ -161,6 +179,7 @@ class PhotoLibraryTimelineSensor(SensorBase):
                 limit=remaining,
                 min_modified_at=min_modified_at,
                 exclude_patterns=exclude_patterns,
+                analysis_features=analysis_features,
             )
             total_scanned += result.total_scanned
             total_errors += result.errors
@@ -174,11 +193,11 @@ class PhotoLibraryTimelineSensor(SensorBase):
             remaining = limit - len(safe_items)
 
         # Batch reverse geocode if enabled
-        analysis_features = list(
-            sensor_settings.get("analysis_features", self.analysis_features)
-        )
         if "geocode" in analysis_features and safe_items:
             cache_dir = context.runtime_paths.plugin_cache_dir("photo-library")
+            locale_map = get_locale_map(
+                str(context.plugin_settings.get("locale", ""))
+            )
             coords = [
                 (float(it["latitude"]), float(it["longitude"]))
                 for it in safe_items
@@ -192,7 +211,7 @@ class PhotoLibraryTimelineSensor(SensorBase):
                 results = await asyncio.to_thread(_geo_batch_lookup, coords, cache_dir)
                 for idx, geo in zip(coord_indices, results):
                     if geo is not None:
-                        safe_items[idx]["location_name"] = format_location(geo)
+                        safe_items[idx]["location_name"] = format_location(geo, locale_map=locale_map)
                         safe_items[idx]["location_country"] = geo.country_code
 
         # Advance cursor to the max modified_at seen

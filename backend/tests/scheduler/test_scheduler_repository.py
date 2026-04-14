@@ -204,3 +204,71 @@ async def test_complete_sensor_sync_job_success_persists_result_fields(tmp_path)
     assert job["next_cursor"] == "cursor-2"
     assert job["watermark_ts"] == 123.0
     assert job["stats"] == {"items": 2}
+
+
+@pytest.mark.asyncio
+async def test_update_target_cursor_persists_partial_cursor(tmp_path):
+    """update_target_cursor saves cursor without clearing the running flag."""
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    await repository.upsert_schedule(schedule)
+
+    # Mark target as running
+    acquired = await repository.acquire_target_lock(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    assert acquired is True
+
+    # Save mid-batch cursor
+    await repository.update_target_cursor(
+        schedule.target_type,
+        schedule.target_key,
+        cursor="partial-cursor-42",
+        watermark_ts=5000.0,
+    )
+
+    state = await repository.get_target_state(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    assert state.last_cursor == "partial-cursor-42"
+    assert state.watermark_ts == 5000.0
+    # Should still be running
+    assert state.running is True
+
+
+@pytest.mark.asyncio
+async def test_update_target_cursor_preserves_watermark_when_none(tmp_path):
+    """update_target_cursor keeps existing watermark_ts when new value is None."""
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    await repository.upsert_schedule(schedule)
+    await repository.acquire_target_lock(
+        schedule.target_type,
+        schedule.target_key,
+    )
+
+    # Set initial cursor with watermark
+    await repository.update_target_cursor(
+        schedule.target_type,
+        schedule.target_key,
+        cursor="cursor-1",
+        watermark_ts=3000.0,
+    )
+    # Update cursor without watermark
+    await repository.update_target_cursor(
+        schedule.target_type,
+        schedule.target_key,
+        cursor="cursor-2",
+        watermark_ts=None,
+    )
+
+    state = await repository.get_target_state(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    assert state.last_cursor == "cursor-2"
+    assert state.watermark_ts == 3000.0  # preserved

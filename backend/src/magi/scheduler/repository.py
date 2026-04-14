@@ -423,6 +423,39 @@ class ScheduleRepository:
             )
             await db.commit()
 
+    async def update_target_cursor(
+        self,
+        target_type: ScheduledTargetType,
+        target_key: str,
+        *,
+        cursor: str,
+        watermark_ts: float | None = None,
+    ) -> None:
+        """Persist a partial cursor without marking the target as completed.
+
+        Used for mid-batch checkpoint saves so that a crash during
+        ingestion can resume from the last saved cursor position.
+        """
+        now = time.time()
+        async with self._connect() as db:
+            await db.execute(
+                """
+                UPDATE target_state
+                SET last_cursor = ?,
+                    watermark_ts = COALESCE(?, watermark_ts),
+                    updated_at = ?
+                WHERE target_type = ? AND target_key = ?
+                """,
+                (
+                    cursor,
+                    watermark_ts,
+                    now,
+                    target_type.value,
+                    target_key,
+                ),
+            )
+            await db.commit()
+
     async def record_target_failure(
         self,
         target_type: ScheduledTargetType,

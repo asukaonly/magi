@@ -8,7 +8,10 @@ import struct
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .file_index import FileIndexCache
 
 IMAGE_EXTENSIONS = frozenset({
     ".jpg", ".jpeg", ".png", ".heic", ".heif",
@@ -592,8 +595,14 @@ def _matches_any_pattern(rel_path: str, patterns: list[str]) -> bool:
 class PhotoLibraryReader:
     """Scan a local directory for image files and extract EXIF metadata."""
 
-    def __init__(self, *, extensions: frozenset[str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        extensions: frozenset[str] | None = None,
+        file_index: "FileIndexCache | None" = None,
+    ) -> None:
         self.extensions = extensions or IMAGE_EXTENSIONS
+        self._file_index = file_index
 
     def scan_directory(
         self,
@@ -602,6 +611,7 @@ class PhotoLibraryReader:
         limit: int = 500,
         min_modified_at: float = 0.0,
         exclude_patterns: list[str] | None = None,
+        analysis_features: list[str] | None = None,
     ) -> ScanResult:
         """Scan *source_path* for image files modified after *min_modified_at*.
 
@@ -618,8 +628,11 @@ class PhotoLibraryReader:
             return ScanResult()
 
         compiled_excludes = exclude_patterns or []
+        do_exif = analysis_features is None or "exif" in analysis_features
 
         items: list[dict[str, Any]] = []
+        cache_entries: list[tuple[str, float, int, str, dict[str, Any], float]] = []
+        now = time.time()
         total = 0
         errors = 0
 
@@ -646,14 +659,31 @@ class PhotoLibraryReader:
                     mtime = stat.st_mtime
                     if mtime <= min_modified_at:
                         continue
+                    fpath_str = str(filepath)
+
+                    # Try file index cache first
+                    cached_exif: dict[str, Any] | None = None
+                    if do_exif and self._file_index is not None:
+                        cached_exif = self._file_index.get(fpath_str, mtime, stat.st_size)
+
                     fhash = _file_hash_quick(filepath)
-                    exif = extract_exif(filepath)
+
+                    if cached_exif is not None:
+                        exif = cached_exif
+                    elif do_exif:
+                        exif = extract_exif(filepath)
+                        # Write-through to cache
+                        if self._file_index is not None:
+                            cache_entries.append((fpath_str, mtime, stat.st_size, fhash, exif, now))
+                    else:
+                        exif = {}
+
                     capture_ts = _parse_exif_datetime(
                         exif.get("datetime_original") or exif.get("datetime") or ""
                     )
                     item: dict[str, Any] = {
                         "asset_local_id": fhash or f"file:{name}",
-                        "path": str(filepath),
+                        "path": fpath_str,
                         "filename": name,
                         "extension": ext,
                         "file_size": stat.st_size,
@@ -679,8 +709,19 @@ class PhotoLibraryReader:
                     item["image_type"] = classify_image_type(item)
                     items.append(item)
                     if len(items) >= limit:
-                        return ScanResult(items=items, total_scanned=total, errors=errors)
+                        break
                 except OSError:
                     errors += 1
+            else:
+                # Inner loop completed without break — continue to next directory
+                continue
+            # Inner loop was broken (limit reached) — flush cache and return
+            if cache_entries and self._file_index is not None:
+                self._file_index.put_batch(cache_entries)
+            return ScanResult(items=items, total_scanned=total, errors=errors)
+
+        # Flush any remaining cache entries
+        if cache_entries and self._file_index is not None:
+            self._file_index.put_batch(cache_entries)
 
         return ScanResult(items=items, total_scanned=total, errors=errors)

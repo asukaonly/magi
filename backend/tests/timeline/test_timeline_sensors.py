@@ -90,7 +90,7 @@ class _FakeReader:
         self._items = items or []
         self._errors = errors
 
-    def scan_directory(self, source_path, *, limit=500, min_modified_at=0.0, exclude_patterns=None):
+    def scan_directory(self, source_path, *, limit=500, min_modified_at=0.0, exclude_patterns=None, analysis_features=None):
         filtered = [
             it for it in self._items
             if float(it.get("modified_at", 0)) > min_modified_at
@@ -480,7 +480,7 @@ async def test_collect_items_multi_path(tmp_path: Path):
                 "file_hash": "hb", "modified_at": 2001.0}]
 
     class _MultiPathReader:
-        def scan_directory(self, source_path, *, limit=500, min_modified_at=0.0, exclude_patterns=None):
+        def scan_directory(self, source_path, *, limit=500, min_modified_at=0.0, exclude_patterns=None, analysis_features=None):
             if source_path == str(dir_a):
                 return ScanResult(items=items_a, total_scanned=1)
             elif source_path == str(dir_b):

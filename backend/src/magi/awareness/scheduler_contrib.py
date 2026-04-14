@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Callable
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from ..core.logger import get_logger
 from ..core.runtime_bindings import require_sensor_scheduler_contrib
 from ..plugins.sensors import SensorRegistry
+from ..runtime_trace import RuntimeNotificationRecord
 from ..scheduler.contracts import (
     ScheduleDefinition,
     ScheduledExecutionContext,
@@ -226,7 +228,26 @@ class SensorSchedulerContrib:
                 spec.metadata.get("default_settings", {}).get("edge_whitelist", []),
             )
         ]
-        for item in result.items:
+
+        # Sort items by modified_at so mid-batch cursor saves are monotonic
+        sorted_items = sorted(
+            result.items,
+            key=lambda it: float(it.get("modified_at") or 0.0),
+        )
+
+        total_items = len(sorted_items)
+        checkpoint_interval = 50
+        target_type_enum = ScheduledTargetType.SENSOR_SYNC
+
+        # Emit initial progress notification
+        await self._emit_sync_progress(
+            source_type=source_type,
+            processed=0,
+            total=total_items,
+            schedule_id=schedule_id,
+        )
+
+        for idx, item in enumerate(sorted_items):
             fetched = await sensor.fetch_item(item)
 
             if self._ingestion_gateway is None:
@@ -245,6 +266,38 @@ class SensorSchedulerContrib:
                 sensor, output, metadata,
                 allowed_edge_whitelist=allowed_edge_whitelist,
             )
+
+            # Mid-batch cursor checkpoint + progress report
+            if (idx + 1) % checkpoint_interval == 0:
+                # Progress notification
+                await self._emit_sync_progress(
+                    source_type=source_type,
+                    processed=idx + 1,
+                    total=total_items,
+                    schedule_id=schedule_id,
+                )
+
+                # Mid-batch cursor save (skip on last item — final cursor is set below)
+                if idx + 1 < total_items:
+                    item_mtime = float(item.get("modified_at") or 0.0)
+                    if item_mtime > 0:
+                        try:
+                            await self._scheduler_service.update_target_cursor(
+                                target_type_enum, target_key,
+                                cursor=str(item_mtime), watermark_ts=item_mtime,
+                            )
+                        except Exception:
+                            logger.debug("Mid-batch cursor save failed", target_key=target_key)
+
+        # Emit completion progress notification
+        await self._emit_sync_progress(
+            source_type=source_type,
+            processed=total_items,
+            total=total_items,
+            schedule_id=schedule_id,
+            completed=True,
+        )
+
         return ScheduledExecutionResult(
             success=True,
             message="sensor_sync_completed",
@@ -252,3 +305,40 @@ class SensorSchedulerContrib:
             watermark_ts=result.watermark_ts,
             stats=result.stats,
         )
+
+    async def _emit_sync_progress(
+        self,
+        *,
+        source_type: str,
+        processed: int,
+        total: int,
+        schedule_id: str,
+        completed: bool = False,
+    ) -> None:
+        """Write a sensor_sync_progress notification for the Tauri event bridge."""
+        try:
+            from ..core.runtime_bindings import require_runtime_trace_store
+
+            store = require_runtime_trace_store()
+            payload = {
+                "source_type": source_type,
+                "processed": processed,
+                "total": total,
+                "completed": completed,
+                "schedule_id": schedule_id,
+            }
+            await store.append_notification(
+                RuntimeNotificationRecord(
+                    notification_id=0,
+                    channel="sensor_sync_progress",
+                    user_id="system",
+                    session_id="",
+                    payload_json=json.dumps(payload, ensure_ascii=False),
+                )
+            )
+        except Exception:
+            logger.debug(
+                "Sync progress notification failed",
+                source_type=source_type,
+                processed=processed,
+            )

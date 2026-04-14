@@ -317,6 +317,19 @@ class SchedulerService:
     ):
         return await self._repository.get_target_state(target_type, target_key)
 
+    async def update_target_cursor(
+        self,
+        target_type: ScheduledTargetType,
+        target_key: str,
+        *,
+        cursor: str,
+        watermark_ts: float | None = None,
+    ) -> None:
+        """Persist a partial cursor checkpoint during batch ingestion."""
+        await self._repository.update_target_cursor(
+            target_type, target_key, cursor=cursor, watermark_ts=watermark_ts,
+        )
+
     async def _restore_persisted_jobs(self) -> None:
         async with self._schedule_lock:
             for schedule in await self._repository.list_schedules(enabled_only=True):

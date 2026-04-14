@@ -30,6 +30,19 @@ _parse_exif_datetime = _mod._parse_exif_datetime
 _matches_any_pattern = _mod._matches_any_pattern
 IMAGE_EXTENSIONS = _mod.IMAGE_EXTENSIONS
 
+# Load file_index module for cache tests
+_fi_path = Path(__file__).resolve().parents[3] / "plugins" / "photo-library" / "file_index.py"
+_fi_spec = importlib.util.spec_from_file_location(
+    "photo_library_file_index",
+    _fi_path,
+    submodule_search_locations=[str(_fi_path.parent)],
+)
+assert _fi_spec is not None and _fi_spec.loader is not None
+_fi_mod = importlib.util.module_from_spec(_fi_spec)
+sys.modules[_fi_spec.name] = _fi_mod
+_fi_spec.loader.exec_module(_fi_mod)
+FileIndexCache = _fi_mod.FileIndexCache
+
 
 # ---------------------------------------------------------------------------
 # _parse_exif_datetime
@@ -519,3 +532,42 @@ class TestScanDirectory:
         assert item["path"].endswith("test.jpg")
         assert "asset_local_id" in item
         assert "image_type" in item
+
+    def test_analysis_features_skips_exif_when_not_listed(self, tmp_path: Path):
+        """When analysis_features does not include 'exif', EXIF extraction is skipped."""
+        (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8" + b"\x00" * 100)
+
+        reader = PhotoLibraryReader()
+        # With EXIF gating disabled — only geocode
+        result = reader.scan_directory(str(tmp_path), analysis_features=["geocode"])
+        assert len(result.items) == 1
+        # EXIF fields should be empty since extraction was skipped
+        assert result.items[0]["camera_make"] == ""
+
+    def test_analysis_features_none_defaults_to_exif(self, tmp_path: Path):
+        """When analysis_features is None, EXIF extraction should still run."""
+        (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8" + b"\x00" * 100)
+
+        reader = PhotoLibraryReader()
+        result = reader.scan_directory(str(tmp_path), analysis_features=None)
+        assert len(result.items) == 1
+
+    def test_file_index_cache_integration(self, tmp_path: Path):
+        """File index cache should be used when provided."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        cache = FileIndexCache(cache_dir)
+
+        (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8" + b"\x00" * 100)
+
+        reader = PhotoLibraryReader(file_index=cache)
+        # First scan: populates cache
+        result1 = reader.scan_directory(str(tmp_path), analysis_features=["exif"])
+        assert len(result1.items) == 1
+
+        # Second scan: should use cache (file hasn't changed)
+        result2 = reader.scan_directory(str(tmp_path), analysis_features=["exif"])
+        assert len(result2.items) == 1
+        assert result1.items[0]["file_hash"] == result2.items[0]["file_hash"]
+
+        cache.close()
