@@ -176,8 +176,6 @@ class L4ProceduralMemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_l4_traces_skill
                     ON l4_execution_traces(skill_id, created_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_l4_traces_turn
-                    ON l4_execution_traces(turn_id, created_at ASC);
                 """
             )
             # Add pending_trace_count column if missing (migration-safe).
