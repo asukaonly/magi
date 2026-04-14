@@ -380,6 +380,14 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                             {!!selectedMetadata.intent_label && <DetailBlock label={t('chat.trace.intentLabel')} value={String(selectedMetadata.intent_label)} />}
                             {!!selectedMetadata.execution_mode && <DetailBlock label={t('chat.trace.executionMode')} value={String(selectedMetadata.execution_mode)} />}
                           </div>
+                          {(Number(selectedMetrics.input_tokens) > 0 || Number(selectedMetrics.output_tokens) > 0) && (
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                              <DetailBlock label={t('chat.trace.model')} value={String(selectedMetrics.model || selectedMetadata.model || '--')} />
+                              <DetailBlock label={t('chat.trace.provider')} value={String(selectedMetrics.provider || selectedMetadata.provider || '--')} />
+                              <DetailBlock label={t('chat.trace.inputTokens')} value={formatCount(selectedMetrics.input_tokens)} />
+                              <DetailBlock label={t('chat.trace.outputTokens')} value={formatCount(selectedMetrics.output_tokens)} />
+                            </div>
+                          )}
                           {selectedMetadata.route_reason && (
                             <ContentSection label={t('chat.trace.routeReason')}>
                               <PreBlock>{String(selectedMetadata.route_reason)}</PreBlock>

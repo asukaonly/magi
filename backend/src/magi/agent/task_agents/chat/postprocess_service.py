@@ -494,6 +494,25 @@ class ChatPostProcessService:
                 ),
             )
         )
+        llm_trace = getattr(decision, "llm_trace", None)
+        if isinstance(llm_trace, dict) and llm_trace:
+            await self._runtime_trace_store.upsert_llm_call(
+                TraceLlmCallRecord(
+                    span_id=span_id,
+                    trace_id=trace_id,
+                    turn_id=turn_id,
+                    provider=str(llm_trace.get("provider") or "unknown"),
+                    model=str(llm_trace.get("model") or "unknown"),
+                    input_tokens=int(llm_trace.get("input_tokens") or 0),
+                    output_tokens=int(llm_trace.get("output_tokens") or 0),
+                    reasoning_tokens=int(llm_trace.get("reasoning_tokens") or 0),
+                    cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
+                    cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
+                    thinking_enabled=bool(llm_trace.get("thinking_enabled")),
+                    request_preview=(context.latest_user_message or "")[:240] or None,
+                    response_preview=str(getattr(decision, "intent", "") or "")[:240] or None,
+                )
+            )
         ux_plan = self._serialize_ux_plan(decision)
         await self._persist_turn_ux_plan(
             turn_id=turn_id,

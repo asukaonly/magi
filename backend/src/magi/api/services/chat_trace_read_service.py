@@ -198,6 +198,7 @@ class ChatTraceReadService:
         spans = self._load_trace_spans(trace_id=str(turn.get("trace_id") or ""))
         llm_calls = self._load_detail_rows(table="trace_llm_calls", trace_id=str(turn.get("trace_id") or ""))
         tool_calls = self._load_detail_rows(table="trace_tools", trace_id=str(turn.get("trace_id") or ""))
+        intent_resolutions = self._load_detail_rows(table="trace_intent_resolutions", trace_id=str(turn.get("trace_id") or ""))
         snapshot = self._build_snapshot_from_trace_rows(
             user_id=user_id,
             session_id=session_id,
@@ -205,6 +206,7 @@ class ChatTraceReadService:
             spans=spans,
             llm_calls=llm_calls,
             tool_calls=tool_calls,
+            intent_resolutions=intent_resolutions,
             orchestration_state=orchestration_state,
         )
         return snapshot.to_dict() if snapshot is not None else None
@@ -288,6 +290,7 @@ class ChatTraceReadService:
         spans: list[dict[str, Any]],
         llm_calls: list[dict[str, Any]],
         tool_calls: list[dict[str, Any]],
+        intent_resolutions: list[dict[str, Any]],
         orchestration_state: Optional[dict[str, Any]],
     ) -> Optional[ExecutionTraceSnapshot]:
         turn_id = str(turn.get("turn_id") or "").strip()
@@ -298,6 +301,7 @@ class ChatTraceReadService:
             spans=spans,
             llm_calls=llm_calls,
             tool_calls=tool_calls,
+            intent_resolutions=intent_resolutions,
         )
         started_at = self._ms_to_seconds(turn.get("started_at_ms"))
         ended_at = self._ms_to_seconds(turn.get("ended_at_ms"))
@@ -363,10 +367,12 @@ class ChatTraceReadService:
         spans: list[dict[str, Any]],
         llm_calls: list[dict[str, Any]],
         tool_calls: list[dict[str, Any]],
+        intent_resolutions: list[dict[str, Any]],
     ) -> ExecutionTraceNode:
         turn_id = str(turn.get("turn_id") or "")
         llm_by_span = {str(item.get("span_id") or ""): item for item in llm_calls}
         tool_by_span = {str(item.get("span_id") or ""): item for item in tool_calls}
+        intent_by_span = {str(item.get("span_id") or ""): item for item in intent_resolutions}
         node_by_span_id: dict[str, ExecutionTraceNode] = {}
         children_by_parent: dict[str | None, list[str]] = {}
         for span in spans:
@@ -377,6 +383,7 @@ class ChatTraceReadService:
                 span=span,
                 llm_call=llm_by_span.get(span_id),
                 tool_call=tool_by_span.get(span_id),
+                intent_resolution=intent_by_span.get(span_id),
             )
             parent_span_id = str(span.get("parent_span_id") or "").strip() or None
             children_by_parent.setdefault(parent_span_id, []).append(span_id)
@@ -423,7 +430,22 @@ class ChatTraceReadService:
         if turn_node is not None:
             root.children.extend(turn_node.children)
         root.children.extend(top_level_nodes)
+        self._deduplicate_response_emit(root)
         return root
+
+    @staticmethod
+    def _deduplicate_response_emit(root: ExecutionTraceNode) -> None:
+        """Remove the response_emit node when its content duplicates the last iteration."""
+        if len(root.children) < 2:
+            return
+        last = root.children[-1]
+        if last.kind != "response":
+            return
+        prev = root.children[-2]
+        last_preview = (last.result_preview or "").strip()[:200]
+        prev_preview = (prev.result_preview or "").strip()[:200]
+        if last_preview and prev_preview and last_preview == prev_preview:
+            root.children.pop()
 
     def _build_trace_row_node(
         self,
@@ -431,6 +453,7 @@ class ChatTraceReadService:
         span: dict[str, Any],
         llm_call: dict[str, Any] | None,
         tool_call: dict[str, Any] | None,
+        intent_resolution: dict[str, Any] | None = None,
     ) -> ExecutionTraceNode:
         node_type = str(span.get("node_type") or "step")
         metadata = {
@@ -468,6 +491,17 @@ class ChatTraceReadService:
                     "arguments": self._parse_json_object(tool_call.get("arguments_json")),
                     "execution_time": tool_call.get("execution_time_ms"),
                     "result_json": self._parse_json_value(tool_call.get("result_json")),
+                }
+            )
+        if intent_resolution is not None:
+            selected_tools = self._parse_json_value(intent_resolution.get("selected_tools_json"))
+            metadata.update(
+                {
+                    "intent_label": intent_resolution.get("intent") or None,
+                    "execution_mode": intent_resolution.get("execution_mode") or None,
+                    "route_reason": intent_resolution.get("route_reason") or None,
+                    "selected_tools": selected_tools if isinstance(selected_tools, list) else None,
+                    "selected_worker_type": intent_resolution.get("selected_worker_type") or None,
                 }
             )
 

@@ -129,6 +129,8 @@ class FunctionCallingStepExecutor:
                 stage="llm_requested_tools",
                 execution_agent_id=execution_agent_id,
                 llm_trace=response.get("llm_trace"),
+                response_preview=f"Requested tools: {', '.join(tc.name for tc in tool_calls)}",
+                request_preview=(user_message or "")[:240],
             )
 
             tool_results = []
