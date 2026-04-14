@@ -9,6 +9,8 @@ import pytest
 from magi.memory.l4.procedural_memory import (
     L4ProceduralMemoryStore,
     MAX_TRACES_PER_SKILL,
+    DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
+    _ADAPTIVE_MAX_THRESHOLD,
 )
 from magi.memory.event_contracts import (
     IngestTarget,
@@ -147,3 +149,94 @@ class TestClearIncludesTraces:
         assert cleared >= 1
         traces = await store.get_recent_traces(skill["skill_id"])
         assert len(traces) == 0
+
+
+class TestAdaptiveExtractionThreshold:
+    def test_low_usage_keeps_base(self):
+        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(
+            DEFAULT_STRATEGY_EXTRACTION_THRESHOLD, 3,
+        )
+        assert result == DEFAULT_STRATEGY_EXTRACTION_THRESHOLD
+
+    def test_at_base_returns_base(self):
+        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, 5)
+        assert result == 5
+
+    def test_high_usage_scales_up(self):
+        # 500 attempts with base 5: 5 * sqrt(500/5) = 5 * 10 = 50
+        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, 500)
+        assert result == 50
+
+    def test_very_high_usage_capped(self):
+        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, 100_000)
+        assert result == _ADAPTIVE_MAX_THRESHOLD
+
+    def test_never_below_base(self):
+        # Even with tiny base, the returned value is at least the base.
+        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(3, 10)
+        assert result >= 3
+
+    def test_monotonically_increases(self):
+        prev = 0
+        for attempts in [5, 20, 50, 100, 500, 2000]:
+            t = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, attempts)
+            assert t >= prev, f"threshold decreased at {attempts} attempts"
+            prev = t
+
+
+class TestStratifiedTraces:
+    @pytest.mark.asyncio
+    async def test_includes_both_successes_and_failures(self, store: L4ProceduralMemoryStore):
+        """Even if mostly successes, stratified sampling includes failures."""
+        # 18 successes + 2 failures
+        for i in range(20):
+            event = _make_action_event("bash", success=(i >= 2))
+            await store.record_memory_event(event)
+        skill = await store.get_skill(skill_name="bash", skill_category="tool")
+
+        traces = await store._stratified_traces(skill["skill_id"], limit=10)
+        assert len(traces) == 10
+        failures = [t for t in traces if not t["success"]]
+        successes = [t for t in traces if t["success"]]
+        assert len(failures) >= 1, "should include at least one failure"
+        assert len(successes) >= 1, "should include at least one success"
+
+    @pytest.mark.asyncio
+    async def test_all_same_outcome_still_works(self, store: L4ProceduralMemoryStore):
+        """When all traces are successes, should still return traces."""
+        for _ in range(10):
+            await store.record_memory_event(_make_action_event("safe_tool", success=True))
+        skill = await store.get_skill(skill_name="safe_tool", skill_category="tool")
+
+        traces = await store._stratified_traces(skill["skill_id"], limit=8)
+        assert len(traces) == 8
+        assert all(t["success"] for t in traces)
+
+    @pytest.mark.asyncio
+    async def test_sorted_newest_first(self, store: L4ProceduralMemoryStore):
+        for _ in range(5):
+            await store.record_memory_event(_make_action_event("ordered_tool"))
+        skill = await store.get_skill(skill_name="ordered_tool", skill_category="tool")
+
+        traces = await store._stratified_traces(skill["skill_id"], limit=5)
+        timestamps = [t["created_at"] for t in traces]
+        assert timestamps == sorted(timestamps, reverse=True)
+
+    @pytest.mark.asyncio
+    async def test_respects_limit(self, store: L4ProceduralMemoryStore):
+        for _ in range(20):
+            await store.record_memory_event(_make_action_event("many_tool"))
+        skill = await store.get_skill(skill_name="many_tool", skill_category="tool")
+
+        traces = await store._stratified_traces(skill["skill_id"], limit=7)
+        assert len(traces) == 7
+
+    @pytest.mark.asyncio
+    async def test_no_duplicates(self, store: L4ProceduralMemoryStore):
+        for i in range(10):
+            await store.record_memory_event(_make_action_event("dup_tool", success=(i % 3 == 0)))
+        skill = await store.get_skill(skill_name="dup_tool", skill_category="tool")
+
+        traces = await store._stratified_traces(skill["skill_id"], limit=10)
+        ids = [t["trace_id"] for t in traces]
+        assert len(ids) == len(set(ids)), "found duplicate trace_ids"
