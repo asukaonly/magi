@@ -240,10 +240,25 @@ class FunctionCallingHandler(BaseExecutionHandler):
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
 
         fc_stream_callback = None
-        stream_state = {"chunks_emitted": 0, "retracted": False}
+        stream_state = {"chunks_emitted": 0, "retracted": False, "any_streamed": False}
         if streaming_enabled and stream_callback is not None:
-            async def _fc_chunk_callback(text: str) -> None:
+            async def _fc_chunk_callback(text: str, is_step_final: bool = False) -> None:
+                if is_step_final:
+                    # Flush accumulated intermediate chunks so channels
+                    # can deliver partial responses before tool execution.
+                    if stream_state["chunks_emitted"] > 0:
+                        await stream_callback(
+                            request.context.user_id,
+                            request.context.session_id,
+                            turn_id,
+                            "",
+                            True,
+                            False,
+                        )
+                        stream_state["chunks_emitted"] = 0
+                    return
                 stream_state["chunks_emitted"] += 1
+                stream_state["any_streamed"] = True
                 await stream_callback(
                     request.context.user_id,
                     request.context.session_id,
@@ -261,11 +276,13 @@ class FunctionCallingHandler(BaseExecutionHandler):
             and hasattr(self._deps.function_calling_orchestrator, "step_executor")
             and hasattr(self._deps.function_calling_orchestrator, "build_step_state")
         ):
-            return await self._execute_with_session_checkpoints(
+            result = await self._execute_with_session_checkpoints(
                 request,
                 execution_workspace=execution_workspace,
                 stream_chunk_callback=fc_stream_callback,
             )
+            result.streamed = stream_state.get("any_streamed", False)
+            return result
 
         execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
             user_message=request.context.latest_user_message,
@@ -351,6 +368,9 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 stream_chunk_callback=stream_chunk_callback,
             )
             if step_outcome.status == "completed":
+                # Flush any remaining intermediate streamed chunks.
+                if stream_chunk_callback is not None:
+                    await stream_chunk_callback("", True)
                 execution_outcome = {
                     "status": "completed",
                     "content": step_outcome.content,
@@ -370,6 +390,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 # Instead of returning an empty response, let the LLM
                 # generate a final answer using the error context.
                 break
+
+            # Flush intermediate streamed text before continuing.
+            if stream_chunk_callback is not None:
+                await stream_chunk_callback("", True)
 
             active_run = session_run_coordinator.get_active_run(request.context.session_id)
             if active_run is not None and active_run.revision != current_revision:

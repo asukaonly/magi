@@ -262,6 +262,10 @@ class FunctionCallingOrchestrator:
                 stream_chunk_callback=stream_chunk_callback,
             )
             if step_outcome.status == "continue":
+                # Flush any intermediate streamed text so external channels
+                # can deliver partial responses before tool execution continues.
+                if stream_chunk_callback is not None:
+                    await stream_chunk_callback("", True)
                 # --- context compaction check after each tool-use round ---
                 await self._try_compact(state, system_prompt)
                 continue
