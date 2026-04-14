@@ -57,15 +57,17 @@ def build_entity_hints(item: dict[str, Any]) -> list[dict[str, Any]]:
             "canonical_name_hint": camera,
         })
 
-    # GPS location as entity
+    # GPS location as entity — prefer reverse-geocoded name
     lat = item.get("latitude")
     lon = item.get("longitude")
+    location_name = str(item.get("location_name") or "")
     if lat is not None and lon is not None:
         coord_label = f"{lat:.4f}, {lon:.4f}"
+        canonical = location_name or coord_label
         hints.append({
-            "mention_text": coord_label,
+            "mention_text": canonical,
             "entity_type": "location",
-            "canonical_name_hint": coord_label,
+            "canonical_name_hint": canonical,
             "attributes": {"latitude": lat, "longitude": lon},
         })
 
@@ -99,18 +101,21 @@ def build_relation_candidates(item: dict[str, Any]) -> list[dict[str, Any]]:
     # RELATED_TO location if GPS available
     lat = item.get("latitude")
     lon = item.get("longitude")
+    location_name = str(item.get("location_name") or "")
     if lat is not None and lon is not None:
+        loc_id = location_name or f"{lat:.4f},{lon:.4f}"
         candidates.append({
             "subject_id": f"photo:{item.get('asset_local_id', '')}",
             "subject_type": "photo",
             "predicate": "RELATED_TO",
-            "object_id": f"location:{lat:.4f},{lon:.4f}",
+            "object_id": f"location:{loc_id}",
             "object_type": "location",
             "confidence": 0.9,
             "observed_at": capture_ts,
             "object_attributes": {
                 "latitude": lat,
                 "longitude": lon,
+                "location_name": location_name,
                 "source_kind": "gps",
             },
         })

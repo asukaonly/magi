@@ -17,6 +17,7 @@ from magi.awareness import (
     SensorSyncResult,
 )
 
+from .geocoder import batch_lookup as _geo_batch_lookup, format_location
 from .normalizers import (
     build_entity_hints,
     build_relation_candidates,
@@ -172,6 +173,28 @@ class PhotoLibraryTimelineSensor(SensorBase):
                     safe_items.append(item)
             remaining = limit - len(safe_items)
 
+        # Batch reverse geocode if enabled
+        analysis_features = list(
+            sensor_settings.get("analysis_features", self.analysis_features)
+        )
+        if "geocode" in analysis_features and safe_items:
+            cache_dir = context.runtime_paths.plugin_cache_dir("photo-library")
+            coords = [
+                (float(it["latitude"]), float(it["longitude"]))
+                for it in safe_items
+                if it.get("latitude") is not None and it.get("longitude") is not None
+            ]
+            coord_indices = [
+                i for i, it in enumerate(safe_items)
+                if it.get("latitude") is not None and it.get("longitude") is not None
+            ]
+            if coords:
+                results = await asyncio.to_thread(_geo_batch_lookup, coords, cache_dir)
+                for idx, geo in zip(coord_indices, results):
+                    if geo is not None:
+                        safe_items[idx]["location_name"] = format_location(geo)
+                        safe_items[idx]["location_country"] = geo.country_code
+
         # Advance cursor to the max modified_at seen
         next_cursor = context.last_cursor
         watermark_ts = context.last_success_at
@@ -227,16 +250,26 @@ class PhotoLibraryTimelineSensor(SensorBase):
 
         # Build i18n summary
         image_type = str(item.get("image_type", "photo"))
+        location_name = str(item.get("location_name") or "")
         if image_type == "screenshot":
             device = camera or str(item.get("camera_model", ""))
             if device:
                 summary = self.t("summary.screenshot_with_device", filename=filename, device=device)
             else:
                 summary = self.t("summary.screenshot", filename=filename)
+        elif camera and params and location_name:
+            summary = self.t(
+                "summary.with_camera_params_location",
+                filename=filename, camera=camera, params=params, location=location_name,
+            )
         elif camera and params:
             summary = self.t("summary.with_camera_params", filename=filename, camera=camera, params=params)
+        elif camera and location_name:
+            summary = self.t("summary.with_camera_location", filename=filename, camera=camera, location=location_name)
         elif camera:
             summary = self.t("summary.with_camera", filename=filename, camera=camera)
+        elif location_name:
+            summary = self.t("summary.with_location", filename=filename, location=location_name)
         else:
             summary = self.t("summary.basic", filename=filename)
 
@@ -250,6 +283,9 @@ class PhotoLibraryTimelineSensor(SensorBase):
 
         lat = item.get("latitude")
         lon = item.get("longitude")
+        location_name = str(item.get("location_name") or "")
+        if location_name:
+            content_blocks.append(ContentBlock(kind="text", value=location_name))
         if lat is not None and lon is not None:
             content_blocks.append(ContentBlock(kind="text", value=f"GPS: {lat:.6f}, {lon:.6f}"))
 
@@ -277,6 +313,7 @@ class PhotoLibraryTimelineSensor(SensorBase):
                 "image_height": int(item.get("image_height") or 0),
                 "latitude": lat,
                 "longitude": lon,
+                "location_name": location_name,
                 "file_hash": str(item.get("file_hash", "")),
                 "filename": filename,
                 "image_type": image_type,

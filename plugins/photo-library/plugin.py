@@ -94,7 +94,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             key=f"{prefix}.analysis_features",
             type="tags",
             label="Analysis Features",
-            description="Metadata extraction capabilities to apply. Currently supported: exif.",
+            description="Metadata extraction capabilities to apply. Supported: exif, geocode.",
             default=["exif"],
             section="general",
             surface="timeline",
