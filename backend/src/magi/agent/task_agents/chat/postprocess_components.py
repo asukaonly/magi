@@ -534,6 +534,7 @@ class ChatRuntimeNotifier:
         turn_id: str | None,
         content_delta: str,
         is_final: bool,
+        retract: bool = False,
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._runtime_trace_store is None or not normalized_turn_id:
@@ -546,6 +547,8 @@ class ChatRuntimeNotifier:
             "is_final": is_final,
             "timestamp": time.time(),
         }
+        if retract:
+            payload["retract"] = True
         await self._runtime_trace_store.append_notification(
             RuntimeNotificationRecord(
                 notification_id=0,

@@ -20,6 +20,9 @@ class _FakeContextService:
 
 
 class _FakePromptService:
+    def augment_system_prompt_with_reply_context(self, *, system_prompt, reply_context=None):
+        return system_prompt
+
     async def call_llm(  # type: ignore[no-untyped-def]
         self,
         *,

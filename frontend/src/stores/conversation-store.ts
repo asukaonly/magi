@@ -29,6 +29,7 @@ type StreamChunkPayload = {
   turnId: string;
   contentDelta: string;
   isFinal: boolean;
+  retract?: boolean;
 };
 
 type PendingTurnPayload = {
@@ -410,11 +411,28 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendStreamChunk: ({ sessionId, turnId, contentDelta, isFinal }) => set((state) => {
+  appendStreamChunk: ({ sessionId, turnId, contentDelta, isFinal, retract }) => set((state) => {
     if (!sessionId || !turnId) {
       return state;
     }
     const previousMessages = state.messagesBySession[sessionId] || [];
+
+    // Retract: remove any streaming message for this turn
+    if (retract) {
+      const filtered = previousMessages.filter(
+        (m) => !(m.role === 'assistant' && m.turnId === turnId && m.streaming),
+      );
+      if (filtered.length === previousMessages.length) {
+        return state;
+      }
+      return {
+        messagesBySession: {
+          ...state.messagesBySession,
+          [sessionId]: filtered,
+        },
+      };
+    }
+
     const existingIndex = previousMessages.findIndex(
       (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
     );

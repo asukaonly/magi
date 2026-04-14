@@ -93,6 +93,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
             turnId,
             contentDelta: String(payload.content_delta || ''),
             isFinal: Boolean(payload.is_final),
+            retract: Boolean(payload.retract),
           });
         }
         return;

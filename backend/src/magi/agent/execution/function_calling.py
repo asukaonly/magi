@@ -15,10 +15,10 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, TYPE_CHECKING
+from typing import Awaitable, Callable, Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
-from ...llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
+from ...llm.provider_bridge import LLMProviderBridge, ToolStreamResult, _coerce_thinking_depth
 from ...chat.workspace import get_default_chat_workspace_path
 from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
@@ -220,6 +220,7 @@ class FunctionCallingOrchestrator:
         llm_timeout_seconds: Optional[float] = None,
         final_response_json_mode: bool = False,
         thinking_depth: ThinkingDepth | None = None,
+        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> ExecutionOutcome:
         """
         Execute with continuous tool calling
@@ -258,6 +259,7 @@ class FunctionCallingOrchestrator:
                 execution_workspace=execution_workspace,
                 orchestration_strategy=orchestration_strategy,
                 llm_timeout_seconds=llm_timeout_seconds,
+                stream_chunk_callback=stream_chunk_callback,
             )
             if step_outcome.status == "continue":
                 # --- context compaction check after each tool-use round ---
@@ -292,6 +294,7 @@ class FunctionCallingOrchestrator:
             orchestration_strategy=orchestration_strategy,
             llm_timeout_seconds=llm_timeout_seconds,
             final_response_json_mode=final_response_json_mode,
+            stream_chunk_callback=stream_chunk_callback,
         )
 
     async def _try_compact(
@@ -322,6 +325,7 @@ class FunctionCallingOrchestrator:
         orchestration_strategy: Optional[Dict[str, Any]],
         llm_timeout_seconds: Optional[float],
         final_response_json_mode: bool,
+        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> ExecutionOutcome:
         """Run the legacy no-tools fallback once the bounded step loop stops."""
         logger.info("[FunctionCalling] Reached max iterations, getting final response")
@@ -348,6 +352,7 @@ class FunctionCallingOrchestrator:
                 turn_id=turn_id,
                 intent=intent,
                 execution_agent_id=execution_agent_id,
+                stream_chunk_callback=stream_chunk_callback,
             )
         except Exception as exc:
             await self._complete_iteration_trace(
@@ -484,8 +489,8 @@ class FunctionCallingOrchestrator:
                     status="failed",
                     content="",
                     failure_reason=self._classify_exception_failure(exc),
-                    tool_failures=tool_failures,
-                    iterations=iteration,
+                    tool_failures=list(state.tool_failures),
+                    iterations=state.iteration,
                 )
 
         await self._emit_loop_event(
@@ -890,6 +895,7 @@ class FunctionCallingOrchestrator:
         turn_id: Optional[str] = None,
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
+        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> Dict[str, Any]:
         """
         Call LLM with tools parameter
@@ -916,24 +922,48 @@ class FunctionCallingOrchestrator:
         )
 
         try:
-            provider_response = await self.provider_bridge.chat_with_tools(
-                system_prompt=system_prompt,
-                messages=messages,
-                tools=tools,
-                max_tokens=DEFAULT_MAX_TOKENS,
-                temperature=0.7,
-                thinking_depth=thinking_depth,
-                timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
-                event_context={
-                    "request_id": request_id,
-                    "request_kind": "function_calling:tools",
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "agent_id": execution_agent_id,
-                    "correlation_id": turn_id,
-                    "intent": intent,
-                },
-            )
+            streamed = False
+            if stream_chunk_callback is not None:
+                stream_result: ToolStreamResult = await self.provider_bridge.chat_with_tools_stream(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=DEFAULT_MAX_TOKENS,
+                    temperature=0.7,
+                    thinking_depth=thinking_depth,
+                    timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
+                    event_context={
+                        "request_id": request_id,
+                        "request_kind": "function_calling:tools",
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "agent_id": execution_agent_id,
+                        "correlation_id": turn_id,
+                        "intent": intent,
+                    },
+                    chunk_callback=stream_chunk_callback,
+                )
+                provider_response = stream_result.provider_response
+                streamed = not stream_result.has_tool_calls and stream_result.text_chunks_emitted > 0
+            else:
+                provider_response = await self.provider_bridge.chat_with_tools(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=DEFAULT_MAX_TOKENS,
+                    temperature=0.7,
+                    thinking_depth=thinking_depth,
+                    timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
+                    event_context={
+                        "request_id": request_id,
+                        "request_kind": "function_calling:tools",
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "agent_id": execution_agent_id,
+                        "correlation_id": turn_id,
+                        "intent": intent,
+                    },
+                )
 
             duration_ms = int((time.time() - start_time) * 1000)
             result: Dict[str, Any] = {"content": provider_response.content}
@@ -961,6 +991,8 @@ class FunctionCallingOrchestrator:
                     )
                     for tc in provider_response.tool_calls
                 ]
+            if streamed:
+                result["streamed"] = True
 
             log_llm_response(
                 llm_logger,
@@ -995,6 +1027,7 @@ class FunctionCallingOrchestrator:
         turn_id: Optional[str] = None,
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
+        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> Dict[str, Any]:
         """Call LLM without tools for final response"""
         import time
@@ -1014,28 +1047,45 @@ class FunctionCallingOrchestrator:
         )
 
         try:
-            provider_response = await self.provider_bridge.chat_response(
-                system_prompt=system_prompt,
-                messages=messages,
-                max_tokens=DEFAULT_MAX_TOKENS,
-                temperature=0.7,
-                thinking_depth=thinking_depth,
-                json_mode=json_mode,
-                timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
-                event_context={
-                    "request_id": request_id,
-                    "request_kind": "function_calling:final_response",
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "agent_id": execution_agent_id,
-                    "correlation_id": turn_id,
-                    "intent": intent,
-                },
-            )
-            content = provider_response.content
+            streamed = False
+            if stream_chunk_callback is not None and not json_mode:
+                chunks: List[str] = []
+                async for chunk in self.provider_bridge.chat_response_stream(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    max_tokens=DEFAULT_MAX_TOKENS,
+                    temperature=0.7,
+                    thinking_depth=thinking_depth,
+                    timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
+                ):
+                    chunks.append(chunk)
+                    await stream_chunk_callback(chunk)
+                content = "".join(chunks)
+                streamed = True
+                provider_response = None
+            else:
+                provider_response = await self.provider_bridge.chat_response(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    max_tokens=DEFAULT_MAX_TOKENS,
+                    temperature=0.7,
+                    thinking_depth=thinking_depth,
+                    json_mode=json_mode,
+                    timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
+                    event_context={
+                        "request_id": request_id,
+                        "request_kind": "function_calling:final_response",
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "agent_id": execution_agent_id,
+                        "correlation_id": turn_id,
+                        "intent": intent,
+                    },
+                )
+                content = provider_response.content
 
             duration_ms = int((time.time() - start_time) * 1000)
-            response_metadata = dict(provider_response.metadata or {})
+            metadata = dict((provider_response.metadata if provider_response else None) or {})
             log_llm_response(
                 llm_logger,
                 request_id=request_id,
@@ -1043,11 +1093,11 @@ class FunctionCallingOrchestrator:
                 success=True,
                 duration_ms=duration_ms,
                 fallback_reason="function_calling_final_response_without_tools",
-                **response_metadata,
+                **metadata,
             )
             result: Dict[str, Any] = {"content": content}
             result["llm_trace"] = self._build_llm_trace(
-                metadata=provider_response.metadata,
+                metadata=provider_response.metadata if provider_response else None,
                 thinking_depth=thinking_depth,
                 duration_ms=duration_ms,
                 model_name=model_name,
@@ -1059,9 +1109,9 @@ class FunctionCallingOrchestrator:
             context_usage = self._context_compactor.get_usage()
             if context_usage is not None:
                 result["context_usage"] = context_usage
-            if provider_response.assistant_message:
+            if provider_response is not None and provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message
-            if provider_response.tool_calls:
+            if provider_response is not None and provider_response.tool_calls:
                 result["tool_calls"] = [
                     ToolCall(
                         id=tc.id,
@@ -1070,6 +1120,8 @@ class FunctionCallingOrchestrator:
                     )
                     for tc in provider_response.tool_calls
                 ]
+            if streamed:
+                result["streamed"] = True
             return result
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)

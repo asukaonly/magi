@@ -8,7 +8,7 @@ import json
 import time
 import uuid
 from functools import lru_cache
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
 from .base import LLMAdapter
@@ -78,6 +78,21 @@ class ProviderUsage:
     reasoning_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+
+
+@dataclass
+class ToolStreamResult:
+    """Result of a streaming tool-call LLM invocation.
+
+    Collects text chunks emitted so far and any tool_calls detected.
+    The caller inspects ``has_tool_calls`` after iteration to decide
+    whether to proceed with tool execution or treat the streamed text
+    as the final response.
+    """
+
+    provider_response: ProviderResponse
+    text_chunks_emitted: int = 0
+    has_tool_calls: bool = False
 
 
 DEFAULT_CHAT_CONCURRENCY_FALLBACK = 4
@@ -469,6 +484,69 @@ class LLMProviderBridge:
             )
             raise
 
+    async def chat_with_tools_stream(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = 0.7,
+        timeout_seconds: Optional[float] = None,
+        event_context: Optional[Dict[str, Any]] = None,
+        thinking_depth: ThinkingDepth | None = None,
+        chunk_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> ToolStreamResult:
+        """Streaming variant of chat_with_tools().
+
+        Streams text chunks via *chunk_callback* while the LLM generates.
+        If the LLM decides to call tools instead, streaming stops and
+        tool_calls are collected into the returned ``ToolStreamResult``.
+
+        When tool_calls are detected *after* some text chunks were already
+        emitted, the caller is responsible for retracting the partial text.
+        """
+        depth = _coerce_thinking_depth(thinking_depth, None)
+        started_at = time.time()
+        try:
+            result = await self._run_with_concurrency_limit(
+                request_family="chat",
+                limit=self._resolve_chat_concurrency_limit(),
+                operation=lambda: self._chat_with_tools_stream_impl(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    thinking_depth=depth,
+                    timeout_seconds=timeout_seconds,
+                    chunk_callback=chunk_callback,
+                ),
+            )
+
+            latency_ms = int((time.time() - started_at) * 1000)
+            self._attach_trace_metrics(
+                provider_response=result.provider_response,
+                usage=result.provider_response.usage,
+                latency_ms=latency_ms,
+                thinking_depth=depth,
+            )
+            await self._emit_usage_event(
+                success=True,
+                latency_ms=latency_ms,
+                usage=result.provider_response.usage,
+                event_context=event_context,
+            )
+            return result
+        except Exception as exc:
+            await self._emit_usage_event(
+                success=False,
+                latency_ms=int((time.time() - started_at) * 1000),
+                usage=None,
+                event_context=event_context,
+                error=str(exc),
+            )
+            raise
+
     async def _chat_response_impl(
         self,
         *,
@@ -558,6 +636,303 @@ class LLMProviderBridge:
 
         response = await self.llm._client.chat.completions.create(**kwargs)
         return self._parse_openai_response(response)
+
+    async def _chat_with_tools_stream_impl(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        thinking_depth: ThinkingDepth,
+        timeout_seconds: Optional[float],
+        chunk_callback: Optional[Callable[[str], Awaitable[None]]],
+    ) -> ToolStreamResult:
+        """Stream an LLM call with tools.
+
+        Text deltas are forwarded via *chunk_callback* until tool_calls
+        are detected, at which point text forwarding stops.  The full
+        ``ProviderResponse`` (including any tool_calls) is assembled from
+        the accumulated stream events and returned inside ``ToolStreamResult``.
+        """
+        if self.is_anthropic():
+            return await self._stream_anthropic_with_tools(
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                thinking_depth=thinking_depth,
+                timeout_seconds=timeout_seconds,
+                chunk_callback=chunk_callback,
+            )
+        return await self._stream_openai_with_tools(
+            system_prompt=system_prompt,
+            messages=messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            thinking_depth=thinking_depth,
+            timeout_seconds=timeout_seconds,
+            chunk_callback=chunk_callback,
+        )
+
+    async def _stream_anthropic_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        thinking_depth: ThinkingDepth,
+        timeout_seconds: Optional[float],
+        chunk_callback: Optional[Callable[[str], Awaitable[None]]],
+    ) -> ToolStreamResult:
+        api_messages = self._convert_messages_to_anthropic(messages)
+        anthropic_kwargs: Dict[str, Any] = {
+            "model": self.llm.model_name,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": system_prompt,
+            "messages": api_messages,
+            "tools": tools if tools else None,
+            "timeout": timeout_seconds,
+            "stream": True,
+        }
+        anthropic_kwargs = self._apply_provider_options(anthropic_kwargs, thinking_depth)
+        stream = await self.llm._client.messages.create(**anthropic_kwargs)
+
+        tool_calls: List[ProviderToolCall] = []
+        content_parts: List[str] = []
+        assistant_blocks: List[Dict[str, Any]] = []
+        has_tool_calls = False
+        chunks_emitted = 0
+        # Track current tool_use block being streamed
+        current_tool_id: str | None = None
+        current_tool_name: str | None = None
+        current_tool_json_parts: List[str] = []
+        usage_data: Any = None
+
+        async for event in stream:
+            if event.type == "content_block_start":
+                block = getattr(event, "content_block", None)
+                if block is not None and getattr(block, "type", None) == "tool_use":
+                    has_tool_calls = True
+                    current_tool_id = block.id
+                    current_tool_name = block.name
+                    current_tool_json_parts = []
+            elif event.type == "content_block_delta":
+                delta = event.delta
+                if hasattr(delta, "text") and not has_tool_calls:
+                    text = delta.text
+                    content_parts.append(text)
+                    if chunk_callback is not None:
+                        await chunk_callback(text)
+                        chunks_emitted += 1
+                elif hasattr(delta, "text") and has_tool_calls:
+                    # Text arriving after tool_use detected — collect but don't emit
+                    content_parts.append(delta.text)
+                elif getattr(delta, "type", None) == "input_json_delta":
+                    current_tool_json_parts.append(delta.partial_json)
+            elif event.type == "content_block_stop":
+                if current_tool_id is not None:
+                    raw_json = "".join(current_tool_json_parts)
+                    try:
+                        arguments = json.loads(raw_json) if raw_json else {}
+                    except json.JSONDecodeError:
+                        arguments = {"raw": raw_json}
+                    tool_calls.append(ProviderToolCall(
+                        id=current_tool_id,
+                        name=current_tool_name or "",
+                        arguments=arguments,
+                    ))
+                    assistant_blocks.append({
+                        "type": "tool_use",
+                        "id": current_tool_id,
+                        "name": current_tool_name,
+                        "input": arguments,
+                    })
+                    current_tool_id = None
+                    current_tool_name = None
+                    current_tool_json_parts = []
+            elif event.type == "message_delta":
+                usage_data = getattr(event, "usage", usage_data)
+            elif event.type == "message_start":
+                msg = getattr(event, "message", None)
+                if msg is not None:
+                    usage_data = getattr(msg, "usage", usage_data)
+
+        content_text = "".join(content_parts)
+        if content_text:
+            assistant_blocks.insert(0, {"type": "text", "text": content_text})
+
+        usage = self._extract_anthropic_stream_usage(stream, usage_data)
+
+        if tool_calls:
+            provider_response = ProviderResponse(
+                content=content_text,
+                tool_calls=tool_calls,
+                assistant_message={"role": "assistant", "content": assistant_blocks},
+                usage=usage,
+            )
+        else:
+            provider_response = ProviderResponse(content=content_text, usage=usage)
+
+        return ToolStreamResult(
+            provider_response=provider_response,
+            text_chunks_emitted=chunks_emitted,
+            has_tool_calls=has_tool_calls,
+        )
+
+    def _extract_anthropic_stream_usage(self, stream: Any, usage_data: Any) -> ProviderUsage | None:
+        """Extract usage from Anthropic streaming events."""
+        final_message = getattr(stream, "final_message", None) if hasattr(stream, "final_message") else None
+        if final_message is not None:
+            return self._extract_anthropic_usage(final_message)
+        if usage_data is None:
+            return None
+        prompt_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
+        return ProviderUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        )
+
+    async def _stream_openai_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        thinking_depth: ThinkingDepth,
+        timeout_seconds: Optional[float],
+        chunk_callback: Optional[Callable[[str], Awaitable[None]]],
+    ) -> ToolStreamResult:
+        full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
+        kwargs: Dict[str, Any] = {
+            "model": self.llm.model_name,
+            "messages": full_messages,
+            "tools": tools if tools else None,
+            "tool_choice": "auto" if tools else None,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if timeout_seconds is not None:
+            kwargs["timeout"] = timeout_seconds
+        kwargs = self._apply_provider_options(kwargs, thinking_depth)
+
+        stream = await self.llm._client.chat.completions.create(**kwargs)
+
+        tool_calls_by_index: Dict[int, Dict[str, Any]] = {}
+        content_parts: List[str] = []
+        has_tool_calls = False
+        chunks_emitted = 0
+        usage_data: Any = None
+
+        async for chunk in stream:
+            if not chunk.choices:
+                # usage-only final chunk
+                if hasattr(chunk, "usage") and chunk.usage is not None:
+                    usage_data = chunk.usage
+                continue
+            delta = chunk.choices[0].delta
+
+            # Detect tool_calls
+            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                has_tool_calls = True
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tool_calls_by_index:
+                        tool_calls_by_index[idx] = {
+                            "id": getattr(tc_delta, "id", None) or "",
+                            "name": "",
+                            "arguments_parts": [],
+                        }
+                    entry = tool_calls_by_index[idx]
+                    if tc_delta.id:
+                        entry["id"] = tc_delta.id
+                    if hasattr(tc_delta, "function") and tc_delta.function:
+                        if tc_delta.function.name:
+                            entry["name"] = tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            entry["arguments_parts"].append(tc_delta.function.arguments)
+
+            # Collect and emit text content
+            if hasattr(delta, "content") and delta.content:
+                content_parts.append(delta.content)
+                if not has_tool_calls and chunk_callback is not None:
+                    await chunk_callback(delta.content)
+                    chunks_emitted += 1
+
+            if hasattr(chunk, "usage") and chunk.usage is not None:
+                usage_data = chunk.usage
+
+        content_text = "".join(content_parts)
+
+        # Build tool_calls
+        tool_calls: List[ProviderToolCall] = []
+        raw_tool_calls: List[Dict[str, Any]] = []
+        for idx in sorted(tool_calls_by_index.keys()):
+            entry = tool_calls_by_index[idx]
+            raw_args = "".join(entry["arguments_parts"])
+            try:
+                arguments = json.loads(raw_args) if raw_args else {}
+            except json.JSONDecodeError:
+                arguments = {"raw": raw_args}
+            tool_calls.append(ProviderToolCall(
+                id=entry["id"],
+                name=entry["name"],
+                arguments=arguments,
+            ))
+            raw_tool_calls.append({
+                "id": entry["id"],
+                "type": "function",
+                "function": {
+                    "name": entry["name"],
+                    "arguments": raw_args or "{}",
+                },
+            })
+
+        usage = self._extract_openai_stream_usage(usage_data)
+
+        if tool_calls:
+            provider_response = ProviderResponse(
+                content=content_text,
+                tool_calls=tool_calls,
+                assistant_message={
+                    "role": "assistant",
+                    "content": content_text or "",
+                    "tool_calls": raw_tool_calls,
+                },
+                usage=usage,
+            )
+        else:
+            provider_response = ProviderResponse(content=content_text, usage=usage)
+
+        return ToolStreamResult(
+            provider_response=provider_response,
+            text_chunks_emitted=chunks_emitted,
+            has_tool_calls=has_tool_calls,
+        )
+
+    @staticmethod
+    def _extract_openai_stream_usage(usage_data: Any) -> ProviderUsage | None:
+        if usage_data is None:
+            return None
+        return ProviderUsage(
+            prompt_tokens=int(getattr(usage_data, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage_data, "completion_tokens", 0) or 0),
+            total_tokens=int(getattr(usage_data, "total_tokens", 0) or 0),
+            reasoning_tokens=int(getattr(usage_data, "reasoning_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(usage_data, "cache_read_tokens", 0) or 0),
+            cache_write_tokens=int(getattr(usage_data, "cache_write_tokens", 0) or 0),
+        )
 
     def _convert_messages_to_anthropic(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         converted = []

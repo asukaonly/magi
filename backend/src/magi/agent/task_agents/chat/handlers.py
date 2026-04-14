@@ -75,7 +75,7 @@ def _resolve_turn_workspace_path(context: object) -> str | None:
     return workspace_path or None
 
 
-StreamChunkCallback = Callable[[str, str, str | None, str, bool], Awaitable[None]]
+StreamChunkCallback = Callable[[str, str, str | None, str, bool, bool], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -161,6 +161,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                     turn_id,
                     chunk,
                     False,
+                    False,
                 )
             response_text = "".join(chunks)
             await stream_callback(
@@ -169,6 +170,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                 turn_id,
                 "",
                 True,
+                False,
             )
             return ExecutionResult(
                 mode=request.mode,
@@ -233,6 +235,26 @@ class FunctionCallingHandler(BaseExecutionHandler):
 
     async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
         execution_workspace = _resolve_execution_workspace(request)
+        streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
+        stream_callback = self._deps.stream_chunk_callback
+        turn_id = getattr(request.context.latest_payload, "turn_id", None)
+
+        fc_stream_callback = None
+        stream_state = {"chunks_emitted": 0, "retracted": False}
+        if streaming_enabled and stream_callback is not None:
+            async def _fc_chunk_callback(text: str) -> None:
+                stream_state["chunks_emitted"] += 1
+                await stream_callback(
+                    request.context.user_id,
+                    request.context.session_id,
+                    turn_id,
+                    text,
+                    False,
+                    False,
+                )
+
+            fc_stream_callback = _fc_chunk_callback
+
         if (
             self._deps.session_run_coordinator is not None
             and request.context.session_run_id
@@ -242,6 +264,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             return await self._execute_with_session_checkpoints(
                 request,
                 execution_workspace=execution_workspace,
+                stream_chunk_callback=fc_stream_callback,
             )
 
         execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
@@ -252,7 +275,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             session_id=request.context.session_id,
             session_run_id=request.context.session_run_id,
             session_run_revision=request.context.session_run_revision,
-            turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            turn_id=turn_id,
             conversation_history=request.context.history,
             thinking_depth=request.thinking_depth,
             intent=request.intent.intent,
@@ -263,14 +286,28 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 if request.intent.orchestration_plan is not None
                 else None
             ),
+            stream_chunk_callback=fc_stream_callback,
         )
+
+        streamed = stream_state["chunks_emitted"] > 0 and execution_outcome.status == "completed"
+        if streamed and stream_callback is not None:
+            await stream_callback(
+                request.context.user_id,
+                request.context.session_id,
+                turn_id,
+                "",
+                True,
+                False,
+            )
+
         return FunctionCallingExecutionResult(
             mode=request.mode,
             response_text=execution_outcome.content,
             root_user_message=request.context.latest_user_message,
             execution_outcome=execution_outcome.to_dict(),
-            turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            turn_id=turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
+            streamed=streamed,
         )
 
     async def _execute_with_session_checkpoints(
@@ -278,6 +315,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         request: FunctionCallingRequest,
         *,
         execution_workspace: str | None,
+        stream_chunk_callback: Any | None = None,
     ) -> ExecutionResult:
         orchestrator = self._deps.function_calling_orchestrator
         session_run_coordinator = self._deps.session_run_coordinator
@@ -310,6 +348,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     if request.intent.orchestration_plan is not None
                     else None
                 ),
+                stream_chunk_callback=stream_chunk_callback,
             )
             if step_outcome.status == "completed":
                 execution_outcome = {
@@ -375,6 +414,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             ),
             llm_timeout_seconds=None,
             final_response_json_mode=False,
+            stream_chunk_callback=stream_chunk_callback,
         )
         return FunctionCallingExecutionResult(
             mode=request.mode,

@@ -227,6 +227,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         turn_id: str | None,
         content_delta: str,
         is_final: bool,
+        retract: bool = False,
     ) -> None:
         await self._postprocess_service._runtime_notifier.emit_stream_chunk(
             user_id=user_id,
@@ -234,6 +235,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             turn_id=turn_id,
             content_delta=content_delta,
             is_final=is_final,
+            retract=retract,
         )
 
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
