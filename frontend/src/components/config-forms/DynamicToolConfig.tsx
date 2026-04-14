@@ -12,6 +12,9 @@ import {
   CheckCircle,
   Eye,
   EyeOff,
+  FolderOpen,
+  X,
+  Plus,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,7 +28,7 @@ import type { ExtensionFieldSpec } from '@/api/modules/plugins';
 export type DynamicConfigSpec = ToolConfigSpec | ExtensionFieldSpec;
 
 type NormalizedDynamicConfigSpec = {
-  inputKind: 'boolean' | 'select' | 'secret' | 'number' | 'string' | 'array' | 'json';
+  inputKind: 'boolean' | 'select' | 'secret' | 'number' | 'string' | 'array' | 'json' | 'path_list' | 'checkbox_group';
   label: string;
   description?: string;
   required: boolean;
@@ -43,7 +46,11 @@ const normalizeDynamicSpec = (
   providerName?: string
 ): NormalizedDynamicConfigSpec => {
   if (isExtensionFieldSpec(spec)) {
-    const enumValues = spec.type === 'select' ? spec.options.map((option) => option.value) : undefined;
+    const enumValues = spec.type === 'select'
+      ? spec.options.map((option) => option.value)
+      : spec.type === 'tags' && spec.options.length > 0
+        ? spec.options.map((option) => option.value)
+        : undefined;
     const inputKind = (() => {
       switch (spec.type) {
         case 'switch':
@@ -55,8 +62,11 @@ const normalizeDynamicSpec = (
         case 'number':
           return 'number';
         case 'tags':
-          return 'array';
+          // tags with predefined options → render as checkboxes
+          return spec.options.length > 0 ? 'checkbox_group' : 'array';
         case 'path':
+          // path with array default → folder list picker
+          return Array.isArray(spec.default) ? 'path_list' : 'string';
         case 'input':
           return 'string';
         default:
@@ -132,6 +142,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 }) => {
   const { t } = useTranslation('app');
   const [showPassword, setShowPassword] = useState(false);
+  const [tagInput, setTagInput] = useState('');
   const normalized = normalizeDynamicSpec(spec, providerName);
 
   const handleChange = useCallback(
@@ -242,23 +253,154 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       );
     }
 
-    if (normalized.inputKind === 'array') {
-      const arrayValue = Array.isArray(value) ? value.join(', ') : '';
+    if (normalized.inputKind === 'path_list') {
+      const paths: string[] = Array.isArray(value) ? value : [];
+      const handleBrowse = async () => {
+        try {
+          const { pickDirectory } = await import('@/runtime/desktop');
+          const selected = await pickDirectory(paths[paths.length - 1] ?? undefined);
+          if (selected && !paths.includes(selected)) {
+            handleChange([...paths, selected]);
+          }
+        } catch {
+          // Not in Tauri runtime — ignore
+        }
+      };
+      const handleRemove = (index: number) => {
+        handleChange(paths.filter((_, i) => i !== index));
+      };
       return (
-        <label className="space-y-2">
+        <div className="space-y-2">
           {renderLabel()}
-          <textarea
-            value={arrayValue}
-            onChange={(e) => {
-              const arr = e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean);
-              handleChange(arr);
-            }}
-            placeholder={normalized.placeholder || t('settings.arrayPlaceholder')}
-            disabled={disabled || normalized.readOnly}
-            rows={2}
-            className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-          />
-        </label>
+          {paths.length > 0 && (
+            <div className="space-y-1.5">
+              {paths.map((p, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm">
+                  <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate" title={p}>{p}</span>
+                  {!disabled && !normalized.readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(i)}
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {!disabled && !normalized.readOnly && (
+            <button
+              type="button"
+              onClick={handleBrowse}
+              className="flex items-center gap-1.5 rounded-md border border-dashed border-input px-3 py-1.5 text-sm text-muted-foreground hover:border-primary hover:text-foreground transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {normalized.placeholder || t('settings.browseFolder')}
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    if (normalized.inputKind === 'checkbox_group') {
+      const selected: string[] = Array.isArray(value) ? value : [];
+      const options = selectOptions ?? (normalized.enumValues || []).map((v) => ({
+        label: String(v),
+        value: String(v),
+      }));
+      const handleToggle = (optionValue: string) => {
+        if (selected.includes(optionValue)) {
+          handleChange(selected.filter((v) => v !== optionValue));
+        } else {
+          handleChange([...selected, optionValue]);
+        }
+      };
+      return (
+        <div className="space-y-2">
+          {renderLabel()}
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {options.map((opt) => (
+              <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selected.includes(opt.value)}
+                  onChange={() => handleToggle(opt.value)}
+                  disabled={disabled || normalized.readOnly}
+                  className="h-4 w-4 rounded border-input accent-primary"
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (normalized.inputKind === 'array') {
+      const tags: string[] = Array.isArray(value) ? value : [];
+      const handleAdd = () => {
+        const trimmed = tagInput.trim();
+        if (trimmed && !tags.includes(trimmed)) {
+          handleChange([...tags, trimmed]);
+        }
+        setTagInput('');
+      };
+      const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleAdd();
+        }
+      };
+      const handleRemoveTag = (index: number) => {
+        handleChange(tags.filter((_, i) => i !== index));
+      };
+      return (
+        <div className="space-y-2">
+          {renderLabel()}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((tag, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground"
+                >
+                  {tag}
+                  {!disabled && !normalized.readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTag(i)}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+          {!disabled && !normalized.readOnly && (
+            <div className="flex gap-2">
+              <Input
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={normalized.placeholder || t('settings.arrayPlaceholder')}
+                className="flex-1"
+              />
+              <button
+                type="button"
+                onClick={handleAdd}
+                disabled={!tagInput.trim()}
+                className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
       );
     }
 

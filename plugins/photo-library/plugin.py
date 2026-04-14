@@ -13,7 +13,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sync_mode": "manual",
     "sync_interval_minutes": 60,
     "source_paths": [],
-    "exclude_patterns": [],
+    "exclude_patterns": ["**/thumbnails", "**/.cache", "**/Thumbs.db", "**/@eaDir"],
     "max_items_per_sync": 200,
     "analysis_features": ["exif"],
 }
@@ -33,7 +33,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.source_paths",
-            type="tags",
+            type="path",
             label="Photo Directories",
             description="Local directories containing photos to scan. Add one or more paths.",
             default=[],
@@ -48,7 +48,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             type="tags",
             label="Exclude Patterns",
             description="Glob patterns for directories or files to skip (e.g. thumbnails, .cache).",
-            default=[],
+            default=["**/thumbnails", "**/.cache", "**/Thumbs.db", "**/@eaDir"],
             section="general",
             surface="timeline",
             order=16,
@@ -94,12 +94,15 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             key=f"{prefix}.analysis_features",
             type="tags",
             label="Analysis Features",
-            description="Metadata extraction capabilities to apply. Supported: exif, geocode.",
+            description="Metadata extraction capabilities to apply.",
             default=["exif"],
+            options=[
+                ExtensionFieldOption(label="EXIF Metadata", value="exif"),
+                ExtensionFieldOption(label="GPS Geocoding", value="geocode"),
+            ],
             section="general",
             surface="timeline",
             order=45,
-            placeholder="exif",
         ),
     ]
 

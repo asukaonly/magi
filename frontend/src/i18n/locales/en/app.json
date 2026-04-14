@@ -865,6 +865,7 @@
     },
     "toolProviders": "Providers",
     "selectPlaceholder": "Please select",
+    "browseFolder": "Browse folder",
     "loadingTools": "Loading tools...",
     "loadToolsFailed": "Failed to load tools: {{message}}",
     "toolConfigSaved": "Tool configuration saved",
@@ -1189,7 +1190,8 @@
         "description": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline",
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval" }
+          "sync_mode": { "manual": "Manual", "interval": "Interval" },
+          "analysis_features": { "exif": "EXIF Metadata", "geocode": "GPS Geocoding" }
         },
         "fields": {
           "enabled": {
@@ -1198,8 +1200,7 @@
           },
           "source_paths": {
             "label": "Photo Directories",
-            "description": "Local directories containing photos to scan. Add one or more paths.",
-            "placeholder": "/path/to/photos"
+            "description": "Local directories containing photos to scan. Add one or more paths."
           },
           "exclude_patterns": {
             "label": "Exclude Patterns",
@@ -1220,8 +1221,7 @@
           },
           "analysis_features": {
             "label": "Analysis Features",
-            "description": "Metadata extraction capabilities to apply. Currently supported: exif.",
-            "placeholder": "exif"
+            "description": "Metadata extraction capabilities to apply."
           }
         },
         "sections": { "general": "General" }

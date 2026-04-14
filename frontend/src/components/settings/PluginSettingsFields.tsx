@@ -159,7 +159,7 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
                     ? getTranslatedFieldValue(t, pluginId, field.key, 'placeholder', field.placeholder)
                     : field.placeholder,
                 }}
-                value={values[field.key] ?? field.default ?? (field.type === 'tags' ? [] : '')}
+                value={values[field.key] ?? field.default ?? (field.type === 'tags' || (field.type === 'path' && Array.isArray(field.default)) ? [] : '')}
                 onChange={(value) => onChange(field.key, value)}
                 disabled={disabled}
                 selectOptions={field.options.map((option) => ({
