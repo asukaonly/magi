@@ -58,6 +58,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/": {"GET", "PUT"},
         "/template": {"GET"},
         "/test": {"POST"},
+        "/channels/telegram/test": {"POST"},
         "/onboarding-template": {"GET"},
         "/onboarding-complete": {"POST"},
     },
