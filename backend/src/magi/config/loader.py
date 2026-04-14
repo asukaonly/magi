@@ -280,6 +280,7 @@ class ConfigLoader:
                         "default_retention_mode": "analyze_only",
                         "storage_mode": "external_reference",
                         "source_paths": [],
+                        "exclude_patterns": [],
                         "analysis_features": ["exif"],
                         "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
                     },

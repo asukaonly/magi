@@ -1199,6 +1199,11 @@
             "description": "Local directories containing photos to scan. Add one or more paths.",
             "placeholder": "/path/to/photos"
           },
+          "exclude_patterns": {
+            "label": "Exclude Patterns",
+            "description": "Glob patterns for directories or files to skip (e.g. thumbnails, .cache).",
+            "placeholder": "**/thumbnails"
+          },
           "sync_mode": {
             "label": "Sync Mode",
             "description": "How photo library should be synchronized."

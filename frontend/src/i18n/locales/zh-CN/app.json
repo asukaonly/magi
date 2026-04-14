@@ -1204,6 +1204,11 @@
             "description": "要扫描的本地照片目录列表，可添加多个路径。",
             "placeholder": "/path/to/photos"
           },
+          "exclude_patterns": {
+            "label": "排除规则",
+            "description": "要跳过的目录或文件的 glob 模式（如 thumbnails、.cache）。",
+            "placeholder": "**/thumbnails"
+          },
           "sync_mode": {
             "label": "同步方式",
             "description": "选择手动触发还是定时自动同步。"

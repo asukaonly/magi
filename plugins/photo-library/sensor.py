@@ -1,6 +1,7 @@
 """Timeline sensor for local photo libraries."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -52,12 +53,14 @@ class PhotoLibraryTimelineSensor(SensorBase):
         source_paths: list[str] | None = None,
         max_items_per_sync: int = 200,
         analysis_features: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
         reader: PhotoLibraryReader | None = None,
     ) -> None:
         super().__init__()
         self.source_paths = source_paths or []
         self.max_items_per_sync = max_items_per_sync
         self.analysis_features = analysis_features or ["exif"]
+        self.exclude_patterns = exclude_patterns or []
         self._reader = reader or PhotoLibraryReader()
 
     # ------------------------------------------------------------------
@@ -125,6 +128,14 @@ class PhotoLibraryTimelineSensor(SensorBase):
                 stats={"count": 0, "error": "source_paths not configured"},
             )
 
+        # Resolve exclude patterns
+        raw_excludes = sensor_settings.get("exclude_patterns")
+        exclude_patterns = (
+            [str(p) for p in raw_excludes if p]
+            if isinstance(raw_excludes, list)
+            else list(self.exclude_patterns)
+        )
+
         # Use cursor as minimum modified-at watermark for incremental sync
         min_modified_at = 0.0
         if context.last_cursor:
@@ -142,10 +153,13 @@ class PhotoLibraryTimelineSensor(SensorBase):
         for src in source_paths:
             if remaining <= 0:
                 break
-            result = self._reader.scan_directory(
+            # Run synchronous I/O-heavy scan in a thread to avoid blocking the event loop
+            result = await asyncio.to_thread(
+                self._reader.scan_directory,
                 src,
                 limit=remaining,
                 min_modified_at=min_modified_at,
+                exclude_patterns=exclude_patterns,
             )
             total_scanned += result.total_scanned
             total_errors += result.errors

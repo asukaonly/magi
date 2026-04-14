@@ -1,6 +1,7 @@
 """Read and enumerate local photo files with EXIF metadata extraction."""
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import os
 import struct
@@ -466,6 +467,15 @@ def extract_exif(path: Path) -> dict[str, Any]:
     return result
 
 
+def _matches_any_pattern(rel_path: str, patterns: list[str]) -> bool:
+    """Check whether *rel_path* matches any of the glob *patterns*."""
+    normalized = rel_path.replace(os.sep, "/")
+    for pat in patterns:
+        if fnmatch.fnmatch(normalized, pat):
+            return True
+    return False
+
+
 class PhotoLibraryReader:
     """Scan a local directory for image files and extract EXIF metadata."""
 
@@ -478,8 +488,14 @@ class PhotoLibraryReader:
         *,
         limit: int = 500,
         min_modified_at: float = 0.0,
+        exclude_patterns: list[str] | None = None,
     ) -> ScanResult:
         """Scan *source_path* for image files modified after *min_modified_at*.
+
+        *exclude_patterns* is a list of glob patterns (matched against the
+        path relative to *source_path*).  Directories whose relative path
+        matches any pattern are pruned in-place so their subtree is skipped
+        entirely.
 
         Returns a :class:`ScanResult` with normalized item dicts suitable for
         the sensor's ``collect_items`` pipeline.
@@ -488,11 +504,24 @@ class PhotoLibraryReader:
         if not root.is_dir():
             return ScanResult()
 
+        compiled_excludes = exclude_patterns or []
+
         items: list[dict[str, Any]] = []
         total = 0
         errors = 0
 
-        for dirpath, _dirnames, filenames in os.walk(root):
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Prune excluded directories in-place so os.walk skips them
+            if compiled_excludes:
+                rel_dir = os.path.relpath(dirpath, root)
+                dirnames[:] = [
+                    d for d in dirnames
+                    if not _matches_any_pattern(
+                        os.path.join(rel_dir, d) if rel_dir != "." else d,
+                        compiled_excludes,
+                    )
+                ]
+
             for name in filenames:
                 ext = Path(name).suffix.lower()
                 if ext not in self.extensions:

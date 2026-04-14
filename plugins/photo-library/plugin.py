@@ -13,6 +13,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sync_mode": "manual",
     "sync_interval_minutes": 60,
     "source_paths": [],
+    "exclude_patterns": [],
     "max_items_per_sync": 200,
     "analysis_features": ["exif"],
 }
@@ -41,6 +42,17 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             surface="timeline",
             order=15,
             placeholder="/path/to/photos",
+        ),
+        ExtensionFieldSpec(
+            key=f"{prefix}.exclude_patterns",
+            type="tags",
+            label="Exclude Patterns",
+            description="Glob patterns for directories or files to skip (e.g. thumbnails, .cache).",
+            default=[],
+            section="general",
+            surface="timeline",
+            order=16,
+            placeholder="**/thumbnails",
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.sync_mode",
@@ -111,10 +123,17 @@ class PhotoLibraryPlugin(Plugin):
             if legacy:
                 source_paths = [str(legacy)]
 
+        # Resolve exclude patterns
+        raw_excludes = settings.get("exclude_patterns")
+        exclude_patterns: list[str] = []
+        if isinstance(raw_excludes, list):
+            exclude_patterns = [str(p) for p in raw_excludes if p]
+
         sensor = PhotoLibraryTimelineSensor(
             source_paths=source_paths,
             max_items_per_sync=int(settings.get("max_items_per_sync", DEFAULT_SETTINGS["max_items_per_sync"])),
             analysis_features=list(settings.get("analysis_features", DEFAULT_SETTINGS["analysis_features"])),
+            exclude_patterns=exclude_patterns,
         )
         return [
             (
