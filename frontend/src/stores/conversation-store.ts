@@ -160,6 +160,12 @@ const canMergeTimelineMessage = (
     return true;
   }
 
+  // A completed-streaming placeholder (no persisted messageId) is mergeable with
+  // the persisted message for the same turn so the duplicate is replaced.
+  if (!existingMessageId && incomingMessageId && incoming.role === 'assistant') {
+    return true;
+  }
+
   if (existing.role === 'user') {
     return existing.kind === 'user' && incoming.kind === 'user';
   }
