@@ -1355,7 +1355,7 @@
       },
       "netease-music": {
         "name": "NetEase Cloud Music",
-        "description": "Local NetEase Cloud Music play history ingestion for the timeline",
+        "description": "Sync NetEase Cloud Music play history to timeline (Windows & macOS)",
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
           "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },

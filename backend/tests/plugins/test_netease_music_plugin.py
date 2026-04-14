@@ -16,6 +16,7 @@ from netease_music.normalizers import (
     parse_track_json,
 )
 from netease_music.reader import NeteaseMusicReader, DEFAULT_DB_PATH
+from unittest.mock import patch
 
 
 def test_parse_track_json_valid_json() -> None:
@@ -632,3 +633,56 @@ def test_plugin_get_sensors_with_settings():
 
     # The sensor instance should have been created with custom settings
     assert sensor_instance.min_play_duration == 30
+
+
+def test_plugin_get_sensors_on_windows():
+    """Test that NeteaseMusicPlugin returns sensors on Windows."""
+    plugin = NeteaseMusicPlugin()
+
+    with patch('sys.platform', 'win32'):
+        sensors = plugin.get_sensors()
+
+    assert len(sensors) == 1
+    sensor_id, _, _ = sensors[0]
+    assert sensor_id == "timeline.netease_music"
+
+
+def test_plugin_get_sensors_unsupported_platform():
+    """Test that NeteaseMusicPlugin returns no sensors on unsupported platforms."""
+    plugin = NeteaseMusicPlugin()
+
+    with patch('sys.platform', 'linux'):
+        sensors = plugin.get_sensors()
+
+    assert sensors == []
+
+
+async def test_build_output_normalizes_millis_timestamp():
+    """Timestamps in milliseconds should be normalized to seconds in occurred_at."""
+    sensor = NeteaseMusicTimelineSensor()
+    item = {
+        "track_id": "100",
+        "update_time": 1744628757192,  # milliseconds
+        "track_name": "Test",
+        "artist_name": "Artist",
+        "album_name": "Album",
+        "play_duration_sec": 180,
+    }
+    output = await sensor.build_output(item)
+    # Should be in seconds, not millis
+    assert output.occurred_at == pytest.approx(1744628757.192, abs=0.001)
+
+
+async def test_build_output_preserves_seconds_timestamp():
+    """Timestamps already in seconds should not be altered."""
+    sensor = NeteaseMusicTimelineSensor()
+    item = {
+        "track_id": "200",
+        "update_time": 1744628757,  # already seconds
+        "track_name": "Test",
+        "artist_name": "Artist",
+        "album_name": "Album",
+        "play_duration_sec": 200,
+    }
+    output = await sensor.build_output(item)
+    assert output.occurred_at == 1744628757.0

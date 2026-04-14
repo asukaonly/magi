@@ -127,7 +127,7 @@ class NeteaseMusicPlugin(Plugin):
     """Registers the NetEase Music timeline source."""
 
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
-        if sys.platform != "darwin":
+        if sys.platform not in ("darwin", "win32"):
             return []
 
         settings = {}

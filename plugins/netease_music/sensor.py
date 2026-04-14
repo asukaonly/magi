@@ -146,11 +146,16 @@ class NeteaseMusicTimelineSensor(SensorBase):
             "is_liked": bool(item.get("is_liked", False)),
         }
 
+        # Normalize timestamp: Windows stores millis, macOS may use seconds
+        occurred_at = float(item.get("update_time", 0.0))
+        if occurred_at > 1e12:
+            occurred_at = occurred_at / 1000
+
         return self._build_output(
             source_item_id=self.source_item_identity(item),
             title=title,
             summary=summary,
-            occurred_at=float(item.get("update_time", 0.0)),
+            occurred_at=occurred_at,
             content_blocks=content_blocks,
             tags=tags,
             provenance=provenance,

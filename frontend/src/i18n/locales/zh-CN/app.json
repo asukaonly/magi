@@ -1399,7 +1399,7 @@
       },
       "netease-music": {
         "name": "网易云音乐",
-        "description": "本地网易云音乐播放历史接入时间线",
+        "description": "自动同步网易云音乐的播放历史到时间线（支持 Windows 和 macOS）",
         "options": {
           "enabled": {
             "true": "启用",

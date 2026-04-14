@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -10,7 +12,12 @@ from typing import Any
 
 from .normalizers import extract_track_info
 
-DEFAULT_DB_PATH = "~/Library/Containers/com.netease.163music/Data/Documents/storage/sqlite_storage.sqlite3"
+_MACOS_DB_PATH = "~/Library/Containers/com.netease.163music/Data/Documents/storage/sqlite_storage.sqlite3"
+_WINDOWS_DB_PATH = os.path.join(
+    os.environ.get("LOCALAPPDATA", ""), "NetEase", "CloudMusic", "Library", "webdb.dat"
+)
+
+DEFAULT_DB_PATH = _WINDOWS_DB_PATH if sys.platform == "win32" else _MACOS_DB_PATH
 
 
 class NeteaseMusicReader:
