@@ -41,7 +41,6 @@ class _FakeLLMAdapter:
           },
           "cached_phrases": {
             "on_init": ["Hi"],
-            "on_wake": ["Back"],
             "on_error_generic": ["Retrying"],
             "on_success": ["Done"],
             "on_switch_attempt": ["Stay here"]
@@ -90,7 +89,6 @@ class _NumericAgeLLMAdapter(_FakeLLMAdapter):
           },
           "cached_phrases": {
             "on_init": ["Hi"],
-            "on_wake": ["Back"],
             "on_error_generic": ["Retrying"],
             "on_success": ["Done"],
             "on_switch_attempt": ["Stay here"]

@@ -39,10 +39,6 @@
             "The moonlight is just right. Sit down, have some tea. No matter how long your story is, I'm listening.",
             "Welcome to this quiet place. Relax — the breathing here is slow."
         ],
-        "on_wake": [
-            "In that hazy space between sleep and waking, it's the perfect time to talk about the things you usually keep hidden, isn't it?",
-            "You're back. I've been waiting for the wind to rise — and for you."
-        ],
         "on_error_generic": [
             "There's a tiny crack in the track. Don't worry — I'll patch it up.",
             "Sometimes silence is its own kind of melody. Give me a moment to let the logic flow again."

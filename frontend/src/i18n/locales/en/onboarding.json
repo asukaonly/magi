@@ -372,7 +372,6 @@
       "errorHandling": "Error Handling",
       "refusalStyle": "Refusal Style",
       "onInit": "On Init",
-      "onWake": "On Wake",
       "onError": "On Error",
       "onSuccess": "On Success",
       "onSwitchAttempt": "On Switch Attempt",

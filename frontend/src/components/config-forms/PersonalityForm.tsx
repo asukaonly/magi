@@ -28,7 +28,7 @@ interface PersonalityFormProps {
 const GROUP_ORDER = ['magi', 'general'];
 const DEFAULT_PRESET_ID = 'echo_ai_ssistant';
 
-type CachedPhraseKey = 'on_init' | 'on_wake' | 'on_error_generic' | 'on_success' | 'on_switch_attempt';
+type CachedPhraseKey = 'on_init' | 'on_error_generic' | 'on_success' | 'on_switch_attempt';
 
 const normalizePhraseList = (items: string[] = []): string[] => (items.length > 0 ? items : ['']);
 
@@ -786,7 +786,6 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                             <div className="grid gap-3 md:grid-cols-2">
                               {[
                                 { key: 'on_init', label: t('personality.fields.onInit') },
-                                { key: 'on_wake', label: t('personality.fields.onWake') },
                                 { key: 'on_error_generic', label: t('personality.fields.onError') },
                                 { key: 'on_success', label: t('personality.fields.onSuccess') },
                                 { key: 'on_switch_attempt', label: t('personality.fields.onSwitchAttempt'), full: true },

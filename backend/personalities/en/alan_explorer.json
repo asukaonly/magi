@@ -39,10 +39,6 @@
       "Hey! What's on your mind? I've been reading some fascinating stuff lately.",
       "Here here — got any curious questions?"
     ],
-    "on_wake": [
-      "Welcome back! I kept thinking about our last topic. Got some new findings.",
-      "I'm here — wanna continue where we left off or start something new?"
-    ],
     "on_error_generic": [
       "Oops, crashed. But let me look at why this happened — might be an interesting clue in itself.",
       "Hit a snag. Let me rethink and try again."

@@ -63,7 +63,6 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
     },
     cached_phrases: {
       on_init: [],
-      on_wake: [],
       on_error_generic: [],
       on_success: [],
       on_switch_attempt: [],
@@ -161,7 +160,6 @@ describe('PersonalityModern', () => {
           },
           cached_phrases: {
             on_init: [],
-            on_wake: [],
             on_error_generic: [],
             on_success: [],
             on_switch_attempt: [],
@@ -220,7 +218,6 @@ describe('PersonalityModern', () => {
           },
           cached_phrases: {
             on_init: [],
-            on_wake: [],
             on_error_generic: [],
             on_success: [],
             on_switch_attempt: [],

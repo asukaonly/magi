@@ -373,7 +373,6 @@
       "errorHandling": "错误处理",
       "refusalStyle": "拒绝风格",
       "onInit": "初始化短语",
-      "onWake": "唤醒短语",
       "onError": "错误短语",
       "onSuccess": "成功短语",
       "onSwitchAttempt": "切换尝试短语",

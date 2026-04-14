@@ -1826,7 +1826,6 @@
       "errorHandling": "Error Handling",
       "refusalStyle": "Refusal Style",
       "onInit": "On Init (one per line)",
-      "onWake": "On Wake (one per line)",
       "onError": "On Error (one per line)",
       "onSuccess": "On Success (one per line)",
       "onSwitchAttempt": "On Switch Attempt (one per line)",

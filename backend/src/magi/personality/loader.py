@@ -58,7 +58,6 @@ class PersonaEntity:
 @dataclass
 class CachedPhrases:
     on_init: List[str] = field(default_factory=lambda: ["Hi, I'm online.", "Ready when you are."])
-    on_wake: List[str] = field(default_factory=lambda: ["Back again?", "I'm here."])
     on_error_generic: List[str] = field(default_factory=lambda: ["That failed. Let me retry.", "Oops, tool hiccup."])
     on_success: List[str] = field(default_factory=lambda: ["Done.", "Handled."])
     on_switch_attempt: List[str] = field(default_factory=lambda: ["Stay with me, I know your style.", "Give me one more chance."])
@@ -237,7 +236,7 @@ class PersonalityLoader:
         if "severe" in empathy or "crisis" in empathy:
             traits.append("protective")
 
-        greetings = (config.cached_phrases.on_init + config.cached_phrases.on_wake)[:4]
+        greetings = config.cached_phrases.on_init[:4]
         return CorePersonality(
             name=config.persona_entity.basic_profile.name,
             role=config.persona_entity.basic_profile.occupation,

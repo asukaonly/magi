@@ -27,7 +27,6 @@ def _mock_config(*, with_bootstrap: bool = True):
     config = MagicMock()
     config.name = "TestBot"
     config.avatar = ""
-    config.cached_phrases.on_wake = ["Hey there."]
     config.cached_phrases.on_init = ["Hello."]
     if with_bootstrap:
         config.bootstrap = MagicMock()

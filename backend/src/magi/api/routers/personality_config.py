@@ -76,7 +76,6 @@ class PersonaEntityModel(BaseModel):
 
 class CachedPhrasesModel(BaseModel):
     on_init: List[str] = Field(default_factory=lambda: ["Hi, I'm online.", "Ready when you are."])
-    on_wake: List[str] = Field(default_factory=lambda: ["Back again?", "I'm here."])
     on_error_generic: List[str] = Field(default_factory=lambda: ["That failed. Let me retry.", "Oops, tool hiccup."])
     on_success: List[str] = Field(default_factory=lambda: ["Done.", "Handled."])
     on_switch_attempt: List[str] = Field(default_factory=lambda: ["Stay with me, I know your style.", "Give me one more chance."])
@@ -161,7 +160,6 @@ FIELD_LABELS: Dict[str, str] = {
     "persona_entity.behavioral_strategies.error_handling": "Error Handling",
     "persona_entity.behavioral_strategies.refusal_style": "Refusal Style",
     "cached_phrases.on_init": "On Init",
-    "cached_phrases.on_wake": "On Wake",
     "cached_phrases.on_error_generic": "On Error",
     "cached_phrases.on_success": "On Success",
     "cached_phrases.on_switch_attempt": "On Switch Attempt",
@@ -341,10 +339,6 @@ You must output ONLY valid JSON. Do not include markdown formatting like ```json
       "Short, character-driven welcome phrase 1",
       "Short, character-driven welcome phrase 2"
     ],
-    "on_wake": [
-      "Casual daily reconnect greeting 1",
-      "Casual daily reconnect greeting 2"
-    ],
     "on_error_generic": [
       "Fallback error phrase 1 (e.g., 'Tch, this garbage server.')",
       "Fallback error phrase 2"
@@ -513,7 +507,7 @@ async def api_get_greeting():
     try:
         current_name = get_current_personality_name()
         config = get_personality_loader().load(current_name)
-        greetings = config.cached_phrases.on_wake or config.cached_phrases.on_init
+        greetings = config.cached_phrases.on_init
         greeting = random.choice(greetings) if greetings else f"Hello, I am {config.name}."
 
         # Best-effort bootstrap status

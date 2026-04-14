@@ -720,21 +720,12 @@ export const ChatPage: React.FC = () => {
         if (data) {
           setAiName(data.name || 'AI');
           setAiAvatar(data.avatar || '');
-          const sid = useConversationStore.getState().currentSessionId;
-          const msgs = sid ? (useConversationStore.getState().messagesBySession[sid] || []) : [];
-          if (sid && msgs.length === 0 && data.greeting) {
-            receiveAgentResponse({
-              sessionId: sid,
-              content: String(data.greeting),
-              timestamp: Date.now(),
-            });
-          }
         }
       } catch {
         // Non-critical — keep default AI name
       }
     },
-    [receiveAgentResponse]
+    []
   );
 
   const handleExecutionTraceUpdate = useCallback(

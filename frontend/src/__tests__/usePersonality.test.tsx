@@ -79,7 +79,6 @@ const buildConfig = (name: string, onSwitchAttempt: string[] = []) => ({
   },
   cached_phrases: {
     on_init: [],
-    on_wake: [],
     on_error_generic: [],
     on_success: [],
     on_switch_attempt: onSwitchAttempt,

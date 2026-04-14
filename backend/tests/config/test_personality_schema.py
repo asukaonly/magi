@@ -34,7 +34,6 @@ def test_personality_model_accepts_new_schema():
         },
         "cached_phrases": {
             "on_init": ["I'm online.", "Let's move."],
-            "on_wake": ["You're back.", "What now?"],
             "on_error_generic": ["Tool failed.", "Retrying."],
             "on_success": ["Done.", "Handled."],
             "on_switch_attempt": ["Stay.", "Don't swap me out."],
@@ -82,7 +81,6 @@ def test_json_loader_reads_personality_file(tmp_path):
         },
         "cached_phrases": {
             "on_init": ["Ready."],
-            "on_wake": ["Back?"],
             "on_error_generic": ["Retrying."],
             "on_success": ["Done."],
             "on_switch_attempt": ["Stay."],

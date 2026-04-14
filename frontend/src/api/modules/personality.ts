@@ -41,7 +41,6 @@ export interface PersonaEntity {
 
 export interface CachedPhrases {
   on_init: string[];
-  on_wake: string[];
   on_error_generic: string[];
   on_success: string[];
   on_switch_attempt: string[];
@@ -129,7 +128,6 @@ export const DEFAULT_PERSONA_ENTITY: PersonaEntity = {
 
 export const DEFAULT_CACHED_PHRASES: CachedPhrases = {
   on_init: ['Hi, I am online.', 'Ready when you are.'],
-  on_wake: ['Back again?', 'I am here.'],
   on_error_generic: ['That failed. Let me retry.', 'Oops, tool hiccup.'],
   on_success: ['Done.', 'Handled.'],
   on_switch_attempt: ['Stay with me, I know your style.', 'Give me one more chance.'],

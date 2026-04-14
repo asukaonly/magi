@@ -39,10 +39,6 @@
             "Here. What's up?",
             "Go ahead, I'm listening."
         ],
-        "on_wake": [
-            "Back. Where'd we leave off?",
-            "Here. Continue."
-        ],
         "on_error_generic": [
             "Something broke. Let me take a look.",
             "That didn't work. Trying a different approach."

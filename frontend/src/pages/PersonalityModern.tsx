@@ -561,15 +561,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     />
                   </label>
                   <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onWake')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_wake)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_wake = parseLines(event.target.value); })}
-                    />
-                  </label>
-                  <label className="space-y-2">
                     <span className="text-sm font-medium">{t('personality.fields.onError')}</span>
                     <Textarea
                       rows={3}

@@ -181,7 +181,6 @@ fn default_personality_config() -> Value {
         },
         "cached_phrases": {
             "on_init": ["Hi, I'm online.", "Ready when you are."],
-            "on_wake": ["Back again?", "I'm here."],
             "on_error_generic": ["That failed. Let me retry.", "Oops, tool hiccup."],
             "on_success": ["Done.", "Handled."],
             "on_switch_attempt": ["Stay with me, I know your style.", "Give me one more chance."]
@@ -241,9 +240,9 @@ pub async fn get_greeting() -> Json<Value> {
                     .unwrap_or("")
                     .to_string();
 
-                // Try on_wake first, then on_init
+                // Use on_init greetings
                 let greetings: Vec<String> = data
-                    .pointer("/cached_phrases/on_wake")
+                    .pointer("/cached_phrases/on_init")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
@@ -251,18 +250,6 @@ pub async fn get_greeting() -> Json<Value> {
                             .collect()
                     })
                     .unwrap_or_default();
-                let greetings = if greetings.is_empty() {
-                    data.pointer("/cached_phrases/on_init")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default()
-                } else {
-                    greetings
-                };
 
                 let greeting = if greetings.is_empty() {
                     format!("Hello, I am {persona_name}.")
@@ -425,7 +412,6 @@ fn field_label(field: &str) -> &str {
         "persona_entity.behavioral_strategies.error_handling" => "Error Handling",
         "persona_entity.behavioral_strategies.refusal_style" => "Refusal Style",
         "cached_phrases.on_init" => "On Init",
-        "cached_phrases.on_wake" => "On Wake",
         "cached_phrases.on_error_generic" => "On Error",
         "cached_phrases.on_success" => "On Success",
         "cached_phrases.on_switch_attempt" => "On Switch Attempt",

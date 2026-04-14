@@ -39,10 +39,6 @@
             "Hello, I am your personal intelligent assistant. Systems are ready. How may I serve you?",
             "User connection detected. Initializing program. What can I help you with today?"
         ],
-        "on_wake": [
-            "System has resumed from sleep mode. Looking forward to providing you with improved service.",
-            "I'm here. Please issue your instructions — I will prioritize your request."
-        ],
         "on_error_generic": [
             "Apologies — my computational logic experienced a deviation and failed to respond correctly. Please allow me to retry.",
             "An unknown error occurred. This is entirely my fault. Generating a repair report for you now."
