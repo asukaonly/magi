@@ -292,7 +292,7 @@ def test_timeline_defaults_include_source_retention_and_edge_whitelists():
     assert "browser_history" not in config.timeline.sources.model_dump(mode="json")
     assert "chat" not in config.timeline.sources.model_dump(mode="json")
     assert "manual_journal" not in config.timeline.sources.model_dump(mode="json")
-    assert config.timeline.sources.photo_library.default_retention_mode == "retain_raw"
+    assert config.timeline.sources.photo_library.default_retention_mode == "analyze_only"
     assert "CAPTURED" in config.timeline.sources.photo_library.edge_whitelist
     assert "DISLIKES" not in config.timeline.sources.photo_library.edge_whitelist
 

@@ -1082,7 +1082,7 @@
       "sourceDesc": {
         "chat": "Use chat turns as direct evidence for preferences, relationships, and recurring concerns.",
         "manual_journal": "Let the user add notes and image references that are saved to memory and shown on the timeline.",
-        "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained.",
+        "photo_library": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline.",
         "screen_time": "Track frontmost-app activation events and roll them up into hourly local usage events.",
         "terminal_history": "Monitor terminal command history from zsh and bash shells.",
         "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations."
@@ -1184,20 +1184,20 @@
     "plugins": {
       "photo-library": {
         "name": "Photo Library",
-        "description": "Scan a local photo directory, extract EXIF metadata, and ingest into the timeline",
+        "description": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline",
         "options": {
           "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" }
+          "sync_mode": { "manual": "Manual", "interval": "Interval" }
         },
         "fields": {
           "enabled": {
             "label": "Enable",
             "description": "Turn on photo library sync for the timeline."
           },
-          "source_path": {
-            "label": "Photo Directory",
-            "description": "Local directory containing photos to scan."
+          "source_paths": {
+            "label": "Photo Directories",
+            "description": "Local directories containing photos to scan. Add one or more paths.",
+            "placeholder": "/path/to/photos"
           },
           "sync_mode": {
             "label": "Sync Mode",
@@ -1211,12 +1211,13 @@
             "label": "Max Items Per Sync",
             "description": "Maximum number of photos to process per sync run."
           },
-          "default_retention_mode": {
-            "label": "Retention Mode",
-            "description": "How raw photo data should be handled."
+          "analysis_features": {
+            "label": "Analysis Features",
+            "description": "Metadata extraction capabilities to apply. Currently supported: exif.",
+            "placeholder": "exif"
           }
         },
-        "sections": { "general": "General", "storage": "Storage" }
+        "sections": { "general": "General" }
       },
       "core-tools": {
         "name": "Core Tools",

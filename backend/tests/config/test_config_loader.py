@@ -80,7 +80,7 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
 
     loader = ConfigLoader()
     config = loader.load()
-    assert config.plugins.packages["photo-library"].enabled is True
+    assert config.plugins.packages["photo-library"].enabled is False
 
     saved = loader.save(
         {

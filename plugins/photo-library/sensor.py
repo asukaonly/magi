@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import time
 from pathlib import Path
 from typing import Any
 
@@ -50,15 +49,15 @@ class PhotoLibraryTimelineSensor(SensorBase):
     def __init__(
         self,
         *,
-        retention_mode: str | None = None,
-        source_path: str | None = None,
+        source_paths: list[str] | None = None,
         max_items_per_sync: int = 200,
+        analysis_features: list[str] | None = None,
         reader: PhotoLibraryReader | None = None,
     ) -> None:
         super().__init__()
-        self.retention_mode = retention_mode or "retain_raw"
-        self.source_path = source_path
+        self.source_paths = source_paths or []
         self.max_items_per_sync = max_items_per_sync
+        self.analysis_features = analysis_features or ["exif"]
         self._reader = reader or PhotoLibraryReader()
 
     # ------------------------------------------------------------------
@@ -107,13 +106,23 @@ class PhotoLibraryTimelineSensor(SensorBase):
             if isinstance(context.plugin_settings.get("sensors", {}), dict)
             else {}
         )
-        source_path = str(
-            sensor_settings.get("source_path") or self.source_path or ""
-        )
-        if not source_path:
+
+        # Resolve source paths: prefer settings list, fall back to legacy string, then instance
+        source_paths: list[str] = []
+        raw_paths = sensor_settings.get("source_paths")
+        if isinstance(raw_paths, list):
+            source_paths = [str(p) for p in raw_paths if p]
+        if not source_paths:
+            legacy = str(sensor_settings.get("source_path") or "")
+            if legacy:
+                source_paths = [legacy]
+        if not source_paths:
+            source_paths = list(self.source_paths)
+
+        if not source_paths:
             return SensorSyncResult(
                 items=[],
-                stats={"count": 0, "error": "source_path not configured"},
+                stats={"count": 0, "error": "source_paths not configured"},
             )
 
         # Use cursor as minimum modified-at watermark for incremental sync
@@ -125,19 +134,29 @@ class PhotoLibraryTimelineSensor(SensorBase):
                 pass
 
         limit = min(max(1, context.limit), self.max_items_per_sync)
-        result = self._reader.scan_directory(
-            source_path,
-            limit=limit,
-            min_modified_at=min_modified_at,
-        )
-
-        # Validate all paths are within configured scope
-        allowed_root = Path(source_path).expanduser().resolve()
         safe_items: list[dict[str, Any]] = []
-        for item in result.items:
-            item_path = Path(str(item.get("path", ""))).resolve()
-            if allowed_root in {item_path, *item_path.parents}:
-                safe_items.append(item)
+        total_scanned = 0
+        total_errors = 0
+
+        remaining = limit
+        for src in source_paths:
+            if remaining <= 0:
+                break
+            result = self._reader.scan_directory(
+                src,
+                limit=remaining,
+                min_modified_at=min_modified_at,
+            )
+            total_scanned += result.total_scanned
+            total_errors += result.errors
+
+            # Validate all paths are within configured scope
+            allowed_root = Path(src).expanduser().resolve()
+            for item in result.items:
+                item_path = Path(str(item.get("path", ""))).resolve()
+                if allowed_root in {item_path, *item_path.parents}:
+                    safe_items.append(item)
+            remaining = limit - len(safe_items)
 
         # Advance cursor to the max modified_at seen
         next_cursor = context.last_cursor
@@ -153,8 +172,8 @@ class PhotoLibraryTimelineSensor(SensorBase):
             watermark_ts=watermark_ts,
             stats={
                 "count": len(safe_items),
-                "total_scanned": result.total_scanned,
-                "errors": result.errors,
+                "total_scanned": total_scanned,
+                "errors": total_errors,
             },
         )
 
@@ -165,12 +184,17 @@ class PhotoLibraryTimelineSensor(SensorBase):
     async def fetch_item(self, item: dict[str, Any]) -> dict[str, Any]:
         """Validate path scope. Items are already enriched by the reader."""
         path = Path(str(item.get("path", ""))).resolve()
-        if not self.source_path:
-            raise ValueError("Photo library source_path is required")
-        allowed_root = Path(self.source_path).expanduser().resolve()
-        if allowed_root not in {path, *path.parents}:
+        if not self.source_paths:
+            raise ValueError("Photo library source_paths is required")
+        in_scope = False
+        for src in self.source_paths:
+            allowed_root = Path(src).expanduser().resolve()
+            if allowed_root in {path, *path.parents}:
+                in_scope = True
+                break
+        if not in_scope:
             raise ValueError(
-                f"Photo path {path} is outside configured library scope {allowed_root}"
+                f"Photo path {path} is outside configured library scopes"
             )
         return dict(item)
 
@@ -243,7 +267,7 @@ class PhotoLibraryTimelineSensor(SensorBase):
                 "filename": filename,
                 "image_type": image_type,
             },
-            domain_payload={"retention_mode": self.retention_mode},
+            domain_payload={"analysis_features": self.analysis_features},
         )
 
     async def extract_metadata(self, item: dict[str, Any]) -> SensorOutputMetadata:

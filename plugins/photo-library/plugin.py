@@ -12,9 +12,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "enabled": False,
     "sync_mode": "manual",
     "sync_interval_minutes": 60,
-    "default_retention_mode": "retain_raw",
-    "source_path": "",
+    "source_paths": [],
     "max_items_per_sync": 200,
+    "analysis_features": ["exif"],
 }
 
 
@@ -31,15 +31,16 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             order=10,
         ),
         ExtensionFieldSpec(
-            key=f"{prefix}.source_path",
-            type="path",
-            label="Photo Directory",
-            description="Local directory containing photos to scan.",
-            default="",
+            key=f"{prefix}.source_paths",
+            type="tags",
+            label="Photo Directories",
+            description="Local directories containing photos to scan. Add one or more paths.",
+            default=[],
             required=True,
             section="general",
             surface="timeline",
             order=15,
+            placeholder="/path/to/photos",
         ),
         ExtensionFieldSpec(
             key=f"{prefix}.sync_mode",
@@ -78,18 +79,15 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             order=40,
         ),
         ExtensionFieldSpec(
-            key=f"{prefix}.default_retention_mode",
-            type="select",
-            label="Retention Mode",
-            description="How raw photo data should be handled.",
-            default="retain_raw",
-            options=[
-                ExtensionFieldOption(label="Analyze Only", value="analyze_only"),
-                ExtensionFieldOption(label="Retain Raw", value="retain_raw"),
-            ],
-            section="storage",
+            key=f"{prefix}.analysis_features",
+            type="tags",
+            label="Analysis Features",
+            description="Metadata extraction capabilities to apply. Currently supported: exif.",
+            default=["exif"],
+            section="general",
             surface="timeline",
-            order=50,
+            order=45,
+            placeholder="exif",
         ),
     ]
 
@@ -102,10 +100,21 @@ class PhotoLibraryPlugin(Plugin):
         sensors_settings = self.settings.get("sensors", {})
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("photo_library", {}))
+
+        # Support both legacy source_path (string) and new source_paths (list)
+        source_paths: list[str] = []
+        raw_paths = settings.get("source_paths")
+        if isinstance(raw_paths, list):
+            source_paths = [str(p) for p in raw_paths if p]
+        elif not raw_paths:
+            legacy = settings.get("source_path")
+            if legacy:
+                source_paths = [str(legacy)]
+
         sensor = PhotoLibraryTimelineSensor(
-            retention_mode=str(settings.get("default_retention_mode") or DEFAULT_SETTINGS["default_retention_mode"]),
-            source_path=(str(settings.get("source_path")) if settings.get("source_path") else None),
+            source_paths=source_paths,
             max_items_per_sync=int(settings.get("max_items_per_sync", DEFAULT_SETTINGS["max_items_per_sync"])),
+            analysis_features=list(settings.get("analysis_features", DEFAULT_SETTINGS["analysis_features"])),
         )
         return [
             (

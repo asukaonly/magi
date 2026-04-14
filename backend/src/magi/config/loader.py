@@ -245,7 +245,7 @@ class ConfigLoader:
         return {
             "packages": {
                 "core-tools": {"enabled": True, "trusted": True, "source": "builtin"},
-                "photo-library": {"enabled": True, "trusted": True, "source": "builtin"},
+                "photo-library": {"enabled": False, "trusted": True, "source": "builtin"},
                 "core-actions": {"enabled": True, "trusted": True, "source": "builtin"},
                 "chrome-history": {"enabled": True, "trusted": True, "source": "builtin"},
                 "calendar": {"enabled": True, "trusted": True, "source": "builtin"},
@@ -274,12 +274,13 @@ class ConfigLoader:
             "photo-library": {
                 "sensors": {
                     "photo_library": {
-                        "enabled": True,
-                        "sync_mode": "interval",
+                        "enabled": False,
+                        "sync_mode": "manual",
                         "sync_interval_minutes": 60,
-                        "default_retention_mode": "retain_raw",
+                        "default_retention_mode": "analyze_only",
                         "storage_mode": "external_reference",
-                        "source_path": "",
+                        "source_paths": [],
+                        "analysis_features": ["exif"],
                         "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
                     },
                 }

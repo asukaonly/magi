@@ -590,10 +590,10 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   timeline: {
     sources: {
       photo_library: {
-        enabled: true,
-        sync_mode: 'interval',
+        enabled: false,
+        sync_mode: 'manual',
         sync_interval_minutes: 60,
-        default_retention_mode: 'retain_raw',
+        default_retention_mode: 'analyze_only',
         storage_mode: 'external_reference',
         fetch_page_content: false,
         edge_whitelist: ['CAPTURED', 'RELATED_TO', 'INTERACTED_WITH', 'CREATED'],

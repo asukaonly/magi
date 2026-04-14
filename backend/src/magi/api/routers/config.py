@@ -243,9 +243,10 @@ class TimelineSourceConfigModel(BaseModel):
 class TimelineSourcesConfigModel(BaseModel):
     photo_library: TimelineSourceConfigModel = Field(
         default_factory=lambda: TimelineSourceConfigModel(
-            sync_mode="interval",
+            enabled=False,
+            sync_mode="manual",
             sync_interval_minutes=60,
-            default_retention_mode="retain_raw",
+            default_retention_mode="analyze_only",
             storage_mode="external_reference",
             edge_whitelist=["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
         )

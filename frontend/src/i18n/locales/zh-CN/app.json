@@ -1081,7 +1081,7 @@
       "sourceDesc": {
         "chat": "把对话轮次作为偏好、关系和持续关注点的直接证据。",
         "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。",
-        "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。",
+        "photo_library": "扫描本地照片目录，提取 EXIF 元数据并接入时间线。",
         "screen_time": "基于前台应用激活事件记录使用情况，并按小时汇总成本地使用事件。",
         "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
         "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
@@ -1192,10 +1192,6 @@
           "sync_mode": {
             "manual": "手动",
             "interval": "定时"
-          },
-          "default_retention_mode": {
-            "analyze_only": "仅分析",
-            "retain_raw": "保留原始"
           }
         },
         "fields": {
@@ -1203,9 +1199,10 @@
             "label": "启用",
             "description": "开启照片库同步。"
           },
-          "source_path": {
+          "source_paths": {
             "label": "照片目录",
-            "description": "要扫描的本地照片所在目录。"
+            "description": "要扫描的本地照片目录列表，可添加多个路径。",
+            "placeholder": "/path/to/photos"
           },
           "sync_mode": {
             "label": "同步方式",
@@ -1219,14 +1216,14 @@
             "label": "单次最大数量",
             "description": "每次同步最多处理的照片数量。"
           },
-          "default_retention_mode": {
-            "label": "保留模式",
-            "description": "照片原始数据的处理方式。"
+          "analysis_features": {
+            "label": "分析能力",
+            "description": "照片元数据提取能力。当前支持: exif。",
+            "placeholder": "exif"
           }
         },
         "sections": {
-          "general": "常规",
-          "storage": "存储"
+          "general": "常规"
         }
       },
       "core-tools": {

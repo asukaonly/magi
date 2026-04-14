@@ -1,7 +1,7 @@
 {
   "photo_library": {
     "name": "Photo Library",
-    "description": "Scan a local photo directory, extract EXIF metadata, and ingest into the timeline"
+    "description": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline"
   },
   "summary": {
     "basic": "{filename}",
