@@ -1129,7 +1129,7 @@ async def test_telegram_connection(payload: TestTelegramConnectionRequest):
             pass
 
     try:
-        request = HTTPXRequest(proxy_url=proxy_url, connect_timeout=10, read_timeout=10)
+        request = HTTPXRequest(proxy=proxy_url, connect_timeout=10, read_timeout=10)
         bot = Bot(token=payload.bot_token, request=request)
         async with bot:
             me = await bot.get_me()
