@@ -29,6 +29,8 @@ export type {
   ToolsConfig,
   MemoryConfig,
   TimelineConfig,
+  ChannelsConfig,
+  TelegramChannelConfig,
   OnboardingStep,
   OnboardingState,
 } from './modules/config';

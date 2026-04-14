@@ -425,6 +425,7 @@
       "extensions": "Extensions",
       "tools": "Tools",
       "actions": "Actions",
+      "channels": "Channels",
       "system": "System"
     },
     "preferencesDesc": "Configure interface language, theme, and desktop behavior",
@@ -454,6 +455,24 @@
     "extensionsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
     "toolsDesc": "Configure built-in tools and skills",
     "actionsDesc": "Configure outbound action capabilities and their declarative settings.",
+    "channelsDesc": "Connect external messaging platforms (e.g. Telegram) to chat with AI via the existing pipeline.",
+    "channels": {
+      "statusOn": "Enabled",
+      "statusOff": "Disabled",
+      "enableTelegram": "Enable Telegram channel",
+      "telegramDesc": "Chat with Magi via a Telegram Bot, supporting both DM and group chat.",
+      "botToken": "Bot Token",
+      "botTokenHint": "The Bot API token obtained from @BotFather.",
+      "mode": "Connection Mode",
+      "webhookUrl": "Webhook URL",
+      "allowedUserIds": "Allowed User IDs",
+      "allowedUserIdsHint": "Comma-separated Telegram user IDs. Leave empty for no restriction.",
+      "groupTriggerKeyword": "Group Trigger Keyword",
+      "groupTriggerKeywordHint": "Keyword to trigger a reply in group chat (besides @mention and /ask).",
+      "magiUserId": "Magi User ID",
+      "maxMessageLength": "Max Message Length",
+      "moreComingSoon": "Discord, WeChat, and more channels coming soon…"
+    },
     "systemDesc": "Advanced system configuration parameters",
     "updates": {
       "title": "Desktop updates",

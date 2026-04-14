@@ -389,6 +389,21 @@ export interface TimelineConfig {
   };
 }
 
+export interface TelegramChannelConfig {
+  enabled: boolean;
+  bot_token: string;
+  mode: string;
+  webhook_url: string;
+  allowed_user_ids: string[];
+  group_trigger_keyword: string;
+  magi_user_id: string;
+  max_message_length: number;
+}
+
+export interface ChannelsConfig {
+  telegram: TelegramChannelConfig;
+}
+
 export type OnboardingStep =
   | 'mode-selection'
   | 'language'
@@ -416,6 +431,7 @@ export interface SystemConfig {
   personality: PersonalityConfig;
   tools: ToolsConfig;
   timeline: TimelineConfig;
+  channels: ChannelsConfig;
 }
 
 export const DEFAULT_LLM_CAPABILITIES: LLMCapabilities = {
@@ -581,6 +597,18 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         fetch_page_content: false,
         edge_whitelist: ['CAPTURED', 'RELATED_TO', 'INTERACTED_WITH', 'CREATED'],
       },
+    },
+  },
+  channels: {
+    telegram: {
+      enabled: false,
+      bot_token: '',
+      mode: 'polling',
+      webhook_url: '',
+      allowed_user_ids: [],
+      group_trigger_keyword: '',
+      magi_user_id: 'default',
+      max_message_length: 4096,
     },
   },
 };

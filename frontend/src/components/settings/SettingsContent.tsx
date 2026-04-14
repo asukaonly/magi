@@ -26,6 +26,7 @@ import {
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
 import ActionsSection from '@/components/settings/ActionsSection';
+import { ChannelsSection } from '@/components/settings/ChannelsSection';
 import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
@@ -650,6 +651,14 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onFieldChange={handlePluginDraftChange}
             onReloadPlugin={handleReloadActionPlugin}
             reloading={reloadingActionPlugins}
+          />
+        );
+
+      case 'channels':
+        return (
+          <ChannelsSection
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
           />
         );
 

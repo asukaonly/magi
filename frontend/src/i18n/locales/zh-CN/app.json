@@ -425,6 +425,7 @@
       "extensions": "扩展",
       "tools": "工具",
       "actions": "执行器",
+      "channels": "接入渠道",
       "system": "系统"
     },
     "preferencesDesc": "配置界面语言、主题和桌面行为",
@@ -454,6 +455,24 @@
     "extensionsDesc": "统一查看、启停和重载插件包，并检查它们贡献的能力。",
     "toolsDesc": "配置内置工具和技能",
     "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
+    "channelsDesc": "接入外部消息平台（如 Telegram），通过现有聊天链路与 AI 交互。",
+    "channels": {
+      "statusOn": "已启用",
+      "statusOff": "未启用",
+      "enableTelegram": "启用 Telegram 渠道",
+      "telegramDesc": "通过 Telegram Bot 与 Magi 对话，支持私聊和群聊。",
+      "botToken": "Bot Token",
+      "botTokenHint": "从 @BotFather 获取的 Bot API Token。",
+      "mode": "接入模式",
+      "webhookUrl": "Webhook URL",
+      "allowedUserIds": "允许的用户 ID",
+      "allowedUserIdsHint": "用逗号分隔的 Telegram 用户 ID，留空则不限制。",
+      "groupTriggerKeyword": "群聊触发关键词",
+      "groupTriggerKeywordHint": "在群聊中触发回复的关键词（除 @机器人 和 /ask 外）。",
+      "magiUserId": "Magi 用户 ID",
+      "maxMessageLength": "最大消息长度",
+      "moreComingSoon": "Discord、WeChat 等更多渠道即将到来…"
+    },
     "systemDesc": "高级系统配置参数",
     "updates": {
       "title": "桌面更新",
