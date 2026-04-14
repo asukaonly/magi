@@ -467,6 +467,7 @@
       "webhookUrl": "Webhook URL",
       "proxy": "代理地址",
       "proxyHint": "访问 Telegram API 的代理，留空则使用全局网络代理设置。",
+      "testConnection": "测试连接",
       "allowedUserIds": "允许的用户 ID",
       "allowedUserIdsHint": "用逗号分隔的 Telegram 用户 ID，留空则不限制。",
       "groupTriggerKeyword": "群聊触发关键词",

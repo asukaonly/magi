@@ -1,8 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Send as TelegramIcon, Eye, EyeOff } from 'lucide-react';
+import { Send as TelegramIcon, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 
 import type { SystemConfig } from '@/api/modules/config';
+import { configApi } from '@/api/modules/config';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +21,25 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
 }) => {
   const { t } = useTranslation('app');
   const [showToken, setShowToken] = useState(false);
+  const [testState, setTestState] = useState<{
+    loading: boolean;
+    result?: { success: boolean; message: string };
+  }>({ loading: false });
   const tg = draftConfig.channels.telegram;
+
+  const handleTestConnection = useCallback(async () => {
+    setTestState({ loading: true });
+    try {
+      const res = await configApi.testTelegramConnection({
+        bot_token: tg.bot_token,
+        proxy: tg.proxy,
+      });
+      setTestState({ loading: false, result: { success: res.success, message: res.message } });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTestState({ loading: false, result: { success: false, message: msg } });
+    }
+  }, [tg.bot_token, tg.proxy]);
 
   const patchTelegram = useCallback(
     (updater: (tg: SystemConfig['channels']['telegram']) => void) => {
@@ -144,6 +163,29 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
               <p className="text-[11px] text-muted-foreground">
                 {t('settings.channels.proxyHint')}
               </p>
+            </div>
+
+            {/* Test Connection */}
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!tg.bot_token || tg.bot_token.endsWith('****') || testState.loading}
+                onClick={handleTestConnection}
+                className="text-xs"
+              >
+                {testState.loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                {t('settings.channels.testConnection')}
+              </Button>
+              {testState.result && (
+                <span className={`flex items-center gap-1 text-xs ${testState.result.success ? 'text-green-600' : 'text-destructive'}`}>
+                  {testState.result.success
+                    ? <CheckCircle2 className="h-3.5 w-3.5" />
+                    : <XCircle className="h-3.5 w-3.5" />}
+                  {testState.result.message}
+                </span>
+              )}
             </div>
 
             {/* Allowed User IDs */}

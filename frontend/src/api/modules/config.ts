@@ -615,11 +615,25 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
 };
 
+export interface TestTelegramConnectionRequest {
+  bot_token: string;
+  proxy: string;
+}
+
+export interface TestTelegramConnectionResponse {
+  success: boolean;
+  message: string;
+  bot_username: string;
+  bot_id: number;
+}
+
 export const configApi = {
   get: () => api.get<SystemConfig>('/config'),
   update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
   getTemplate: () => api.get<SystemConfig>('/config/template'),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
+  testTelegramConnection: (payload: TestTelegramConnectionRequest) =>
+    api.post<TestTelegramConnectionResponse>('/config/channels/telegram/test', payload),
   getLLMProviderCatalog: () => api.get<LLMProviderCatalog>('/llm/providers/catalog'),
   resolveLLMProviderCatalog: (payload: LLMProviderCatalogResolveRequest) =>
     api.post<LLMProviderCatalog>('/llm/providers/catalog', payload),
