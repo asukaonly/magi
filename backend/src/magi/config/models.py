@@ -667,6 +667,28 @@ class NetworkProxySettings(BaseModel):
 
 
 # =============================================================================
+# Channel Configuration
+# =============================================================================
+
+class TelegramChannelSettings(BaseModel):
+    """Telegram channel configuration."""
+    enabled: bool = Field(default=False)
+    bot_token: str = Field(default="")
+    mode: str = Field(default="polling")  # "polling" | "webhook"
+    webhook_url: str = Field(default="")
+    webhook_secret: str = Field(default="")
+    allowed_user_ids: List[str] = Field(default_factory=list)
+    group_trigger_keyword: str = Field(default="")
+    magi_user_id: str = Field(default="default")
+    max_message_length: int = Field(default=4096)
+
+
+class ChannelsSettings(BaseModel):
+    """External messaging channel configuration."""
+    telegram: TelegramChannelSettings = Field(default_factory=TelegramChannelSettings)
+
+
+# =============================================================================
 # Root Configuration
 # =============================================================================
 
@@ -679,6 +701,7 @@ class AppConfig(BaseModel):
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
     timeline: TimelineSettings = Field(default_factory=TimelineSettings)
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
+    channels: ChannelsSettings = Field(default_factory=ChannelsSettings)
     network: NetworkProxySettings = Field(default_factory=NetworkProxySettings)
     debug: bool = Field(default=False)
     log_level: str = Field(default="INFO")

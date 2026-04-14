@@ -1,0 +1,251 @@
+"""Session mapper — resolves external chat identifiers to Magi sessions."""
+
+from __future__ import annotations
+
+import json
+import time
+import uuid
+from pathlib import Path
+
+import aiosqlite
+
+from ..chat import ChatSessionRecord, ChatStore
+from ..core.logger import get_logger
+from .contracts import ChannelSessionMapping
+
+logger = get_logger(__name__)
+
+_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS channel_session_mappings (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_type      TEXT    NOT NULL,
+    external_chat_id  TEXT    NOT NULL,
+    magi_session_id   TEXT    NOT NULL,
+    magi_user_id      TEXT    NOT NULL,
+    is_group          INTEGER NOT NULL DEFAULT 0,
+    created_at_ms     INTEGER NOT NULL,
+    last_active_at_ms INTEGER NOT NULL,
+    metadata_json     TEXT    NOT NULL DEFAULT '{}',
+    UNIQUE(channel_type, external_chat_id)
+);
+CREATE INDEX IF NOT EXISTS idx_csm_session
+    ON channel_session_mappings(magi_session_id);
+
+CREATE TABLE IF NOT EXISTS channel_notification_cursors (
+    channel_type      TEXT    NOT NULL,
+    external_chat_id  TEXT    NOT NULL,
+    last_notification_id INTEGER NOT NULL DEFAULT 0,
+    updated_at_ms     INTEGER NOT NULL,
+    PRIMARY KEY (channel_type, external_chat_id)
+);
+"""
+
+
+class ChannelSessionMapper:
+    """Maps (channel_type, external_chat_id) ↔ Magi session_id."""
+
+    def __init__(self, *, db_path: str, chat_store: ChatStore) -> None:
+        self._db_path = str(Path(db_path).expanduser())
+        self._chat_store = chat_store
+        self._initialized = False
+
+    async def initialize(self) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.executescript(_SCHEMA_SQL)
+            await db.commit()
+        self._initialized = True
+
+    async def resolve_or_create(
+        self,
+        *,
+        channel_type: str,
+        external_chat_id: str,
+        external_user_id: str,
+        is_group: bool = False,
+        display_name: str | None = None,
+    ) -> ChannelSessionMapping:
+        """Look up existing mapping; if none, create a new Magi session."""
+        existing = await self.lookup(channel_type, external_chat_id)
+        if existing is not None:
+            now_ms = int(time.time() * 1000)
+            await self._touch(channel_type, external_chat_id, now_ms)
+            return ChannelSessionMapping(
+                channel_type=existing.channel_type,
+                external_chat_id=existing.external_chat_id,
+                magi_session_id=existing.magi_session_id,
+                magi_user_id=existing.magi_user_id,
+                is_group=existing.is_group,
+                created_at_ms=existing.created_at_ms,
+                last_active_at_ms=now_ms,
+                metadata_json=existing.metadata_json,
+            )
+
+        magi_user_id = f"channel_{channel_type}_{external_user_id}"
+        session_id = f"chsess_{uuid.uuid4().hex[:12]}"
+        now_ms = int(time.time() * 1000)
+        title = display_name or f"{channel_type.capitalize()}: {external_chat_id}"
+
+        await self._chat_store.upsert_session(
+            ChatSessionRecord(
+                session_id=session_id,
+                user_id=magi_user_id,
+                title=title,
+                title_overridden=False,
+                summary="",
+                created_at_ms=now_ms,
+                updated_at_ms=now_ms,
+                last_message_at_ms=None,
+                last_user_message_at_ms=None,
+                last_message_preview="",
+                last_user_message_preview="",
+                message_count=0,
+                archived_at_ms=None,
+                deleted_at_ms=None,
+                workspace_path=None,
+                history_version=0,
+            )
+        )
+
+        meta = {
+            "external_user_id": external_user_id,
+            "display_name": display_name,
+        }
+
+        mapping = ChannelSessionMapping(
+            channel_type=channel_type,
+            external_chat_id=external_chat_id,
+            magi_session_id=session_id,
+            magi_user_id=magi_user_id,
+            is_group=is_group,
+            created_at_ms=now_ms,
+            last_active_at_ms=now_ms,
+            metadata_json=json.dumps(meta, ensure_ascii=False),
+        )
+        await self._insert(mapping)
+        logger.info(
+            "Channel session created",
+            channel_type=channel_type,
+            external_chat_id=external_chat_id,
+            session_id=session_id,
+        )
+        return mapping
+
+    async def lookup(
+        self,
+        channel_type: str,
+        external_chat_id: str,
+    ) -> ChannelSessionMapping | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM channel_session_mappings WHERE channel_type = ? AND external_chat_id = ?",
+                (channel_type, external_chat_id),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            return self._row_to_mapping(row)
+
+    async def lookup_by_session(
+        self,
+        magi_session_id: str,
+    ) -> ChannelSessionMapping | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM channel_session_mappings WHERE magi_session_id = ?",
+                (magi_session_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            return self._row_to_mapping(row)
+
+    async def delete_mapping(
+        self,
+        channel_type: str,
+        external_chat_id: str,
+    ) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "DELETE FROM channel_session_mappings WHERE channel_type = ? AND external_chat_id = ?",
+                (channel_type, external_chat_id),
+            )
+            await db.commit()
+
+    # -- notification cursor --------------------------------------------------
+
+    async def get_notification_cursor(
+        self,
+        channel_type: str,
+        external_chat_id: str,
+    ) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT last_notification_id FROM channel_notification_cursors WHERE channel_type = ? AND external_chat_id = ?",
+                (channel_type, external_chat_id),
+            )
+            row = await cursor.fetchone()
+            return int(row[0]) if row else 0
+
+    async def update_notification_cursor(
+        self,
+        channel_type: str,
+        external_chat_id: str,
+        notification_id: int,
+    ) -> None:
+        now_ms = int(time.time() * 1000)
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                """INSERT INTO channel_notification_cursors
+                       (channel_type, external_chat_id, last_notification_id, updated_at_ms)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(channel_type, external_chat_id)
+                   DO UPDATE SET last_notification_id = excluded.last_notification_id,
+                                 updated_at_ms = excluded.updated_at_ms""",
+                (channel_type, external_chat_id, notification_id, now_ms),
+            )
+            await db.commit()
+
+    # -- internals ------------------------------------------------------------
+
+    async def _insert(self, mapping: ChannelSessionMapping) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                """INSERT INTO channel_session_mappings
+                       (channel_type, external_chat_id, magi_session_id, magi_user_id,
+                        is_group, created_at_ms, last_active_at_ms, metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    mapping.channel_type,
+                    mapping.external_chat_id,
+                    mapping.magi_session_id,
+                    mapping.magi_user_id,
+                    1 if mapping.is_group else 0,
+                    mapping.created_at_ms,
+                    mapping.last_active_at_ms,
+                    mapping.metadata_json,
+                ),
+            )
+            await db.commit()
+
+    async def _touch(self, channel_type: str, external_chat_id: str, now_ms: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE channel_session_mappings SET last_active_at_ms = ? WHERE channel_type = ? AND external_chat_id = ?",
+                (now_ms, channel_type, external_chat_id),
+            )
+            await db.commit()
+
+    @staticmethod
+    def _row_to_mapping(row: aiosqlite.Row) -> ChannelSessionMapping:
+        return ChannelSessionMapping(
+            channel_type=row["channel_type"],
+            external_chat_id=row["external_chat_id"],
+            magi_session_id=row["magi_session_id"],
+            magi_user_id=row["magi_user_id"],
+            is_group=bool(row["is_group"]),
+            created_at_ms=int(row["created_at_ms"]),
+            last_active_at_ms=int(row["last_active_at_ms"]),
+            metadata_json=row["metadata_json"],
+        )

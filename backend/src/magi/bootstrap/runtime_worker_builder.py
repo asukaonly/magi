@@ -13,6 +13,7 @@ from ..awareness.lifecycle import (
     SensorScheduleRegistrationModule,
     SensorSyncExecutorModule,
 )
+from ..channels.lifecycle import ChannelsModule
 from ..chat.lifecycle import ChatProjectorModule, ChatStoreModule
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
@@ -100,6 +101,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         L3SummaryScheduleRegistrationModule(context),
         L3DigestScheduleRegistrationModule(context),
         OtherDependenciesModule(context),
+        ChannelsModule(context),
     ]
 
 
