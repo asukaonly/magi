@@ -36,6 +36,8 @@ class NotificationRelay:
         self._poll_interval_s = poll_interval_s
         self._running = False
         self._cursor: int = 0
+        # Accumulate streaming deltas per (session_id, turn_id)
+        self._chunk_buffers: dict[tuple[str, str], list[str]] = {}
 
     async def run(self) -> None:
         self._running = True
@@ -91,11 +93,29 @@ class NotificationRelay:
                 channel, target, OutboundContent(text=content_text, is_final=True)
             )
         elif notif.channel == "agent_response_chunk":
+            turn_id = payload.get("turn_id") or ""
+            buf_key = (notif.session_id, turn_id)
+            delta = str(payload.get("content_delta") or "")
+
             if not payload.get("is_final"):
-                return  # Only deliver the final assembled response
-            content_text = str(payload.get("content") or payload.get("content_delta") or "")
+                # Accumulate streaming delta
+                if delta:
+                    self._chunk_buffers.setdefault(buf_key, []).append(delta)
+                return
+
+            # is_final — assemble full response from accumulated deltas
+            parts = self._chunk_buffers.pop(buf_key, [])
+            if delta:
+                parts.append(delta)
+            content_text = "".join(parts)
             if not content_text.strip():
                 return
+            logger.debug(
+                "Delivering assembled streamed response",
+                session_id=notif.session_id,
+                turn_id=turn_id,
+                chars=len(content_text),
+            )
             await self._send_with_retry(
                 channel, target, OutboundContent(text=content_text, is_final=True)
             )

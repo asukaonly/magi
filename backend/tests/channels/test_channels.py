@@ -6,6 +6,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -354,3 +355,59 @@ class TestNotificationRelay:
         # Mapper should not even be called for non-response channels
         mapper.lookup_by_session.assert_not_called()
         assert len(channel.sent) == 0
+
+    async def test_assembles_streamed_chunks(self) -> None:
+        """Relay accumulates content_delta from streaming chunks and sends on is_final."""
+        channel = FakeChannel("telegram")
+        registry = ChannelRegistry()
+        registry.register(channel)
+
+        mapper = MagicMock(spec=ChannelSessionMapper)
+        mapper.lookup_by_session = AsyncMock(
+            return_value=ChannelSessionMapping(
+                channel_type="telegram",
+                external_chat_id="12345",
+                magi_session_id="sess_abc",
+                magi_user_id="user1",
+            )
+        )
+
+        def _make_chunk(nid: int, delta: str, is_final: bool) -> MagicMock:
+            n = MagicMock()
+            n.notification_id = nid
+            n.channel = "agent_response_chunk"
+            n.session_id = "sess_abc"
+            payload: dict[str, Any] = {
+                "turn_id": "turn_1",
+                "content_delta": delta,
+                "is_final": is_final,
+            }
+            n.payload_json = json.dumps(payload)
+            return n
+
+        chunks = [
+            _make_chunk(1, "Hello", False),
+            _make_chunk(2, " world", False),
+            _make_chunk(3, "!", False),
+            _make_chunk(4, "", True),  # final marker, empty delta
+        ]
+
+        trace_store = MagicMock()
+        trace_store.get_latest_notification_id = AsyncMock(return_value=0)
+        trace_store.list_notifications = AsyncMock(side_effect=[chunks, []])
+
+        relay = NotificationRelay(
+            registry=registry,
+            session_mapper=mapper,
+            trace_store=trace_store,
+            poll_interval_s=0.01,
+        )
+
+        relay._running = True
+        relay._cursor = 0
+        await relay._poll_cycle()
+
+        assert len(channel.sent) == 1
+        _, content = channel.sent[0]
+        assert content.text == "Hello world!"
+        assert content.is_final is True
