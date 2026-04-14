@@ -15,6 +15,7 @@ class RuntimeCommandType(str, Enum):
 
     USER_MESSAGE = "user_message"
     REFRESH_LLM_CONFIG = "refresh_llm_config"
+    REFRESH_CHANNELS = "refresh_channels"
     SENSOR_SYNC = "sensor_sync"
     SENSOR_STATE_FLUSH = "sensor_state_flush"
 
@@ -42,6 +43,19 @@ class UserMessageCommand:
 @dataclass(slots=True)
 class RefreshLLMConfigCommand:
     """Persisted command payload for reloading runtime LLM configuration."""
+
+    source: str
+    reason: str | None = None
+    created_at: float = field(default_factory=time.time)
+    correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
+
+    def to_payload(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class RefreshChannelsCommand:
+    """Persisted command payload for reloading channel adapters."""
 
     source: str
     reason: str | None = None
@@ -99,6 +113,10 @@ class RuntimeQueuedCommand:
     def as_sensor_sync(self) -> SensorSyncCommand:
         """Convert the queued payload into a typed sensor-sync command."""
         return SensorSyncCommand(**self.payload)
+
+    def as_refresh_channels(self) -> RefreshChannelsCommand:
+        """Convert the queued payload into a typed channel-refresh command."""
+        return RefreshChannelsCommand(**self.payload)
 
     def as_sensor_state_flush(self) -> SensorStateFlushCommand:
         """Convert the queued payload into a typed sensor-state-flush command."""

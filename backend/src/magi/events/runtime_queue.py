@@ -11,6 +11,7 @@ import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
 from .contracts import (
+    RefreshChannelsCommand,
     RefreshLLMConfigCommand,
     SensorStateFlushCommand,
     RuntimeCommandType,
@@ -53,6 +54,14 @@ class SQLiteRuntimeCommandQueue:
     async def enqueue_refresh_llm_config(self, command: RefreshLLMConfigCommand) -> int:
         return await self._enqueue_command(
             command_type=RuntimeCommandType.REFRESH_LLM_CONFIG,
+            payload=command.to_payload(),
+            correlation_id=command.correlation_id,
+            created_at=command.created_at,
+        )
+
+    async def enqueue_refresh_channels(self, command: RefreshChannelsCommand) -> int:
+        return await self._enqueue_command(
+            command_type=RuntimeCommandType.REFRESH_CHANNELS,
             payload=command.to_payload(),
             correlation_id=command.correlation_id,
             created_at=command.created_at,

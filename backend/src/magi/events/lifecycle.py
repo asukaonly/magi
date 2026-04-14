@@ -146,6 +146,7 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                     command_types=(
                         RuntimeCommandType.USER_MESSAGE,
                         RuntimeCommandType.REFRESH_LLM_CONFIG,
+                        RuntimeCommandType.REFRESH_CHANNELS,
                         RuntimeCommandType.SENSOR_SYNC,
                         RuntimeCommandType.SENSOR_STATE_FLUSH,
                     ),
@@ -188,6 +189,14 @@ class RuntimeCommandProcessorModule(LifecycleModule):
 
                     refreshed_config = reload_config()
                     refresh_runtime_llm_config(refreshed_config)
+                    published = True
+                elif command.command_type is RuntimeCommandType.REFRESH_CHANNELS:
+                    from ..config.loader import reload_config
+
+                    reload_config()
+                    channels_module = self._context.channels.module
+                    if channels_module is not None:
+                        await channels_module.restart()
                     published = True
                 elif command.command_type is RuntimeCommandType.SENSOR_SYNC:
                     sensor_sync = command.as_sensor_sync()

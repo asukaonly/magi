@@ -874,6 +874,24 @@ async def _enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
     )
 
 
+async def _enqueue_runtime_channels_refresh_command(*, reason: str) -> None:
+    """Notify the runtime worker process to restart channel adapters."""
+    try:
+        queue = require_runtime_command_queue()
+    except RuntimeError:
+        logger.info("Runtime command queue unavailable during channels refresh notification", reason=reason)
+        return
+
+    from ...events.contracts import RefreshChannelsCommand
+
+    await queue.enqueue_refresh_channels(
+        RefreshChannelsCommand(
+            source="config_api",
+            reason=reason,
+        )
+    )
+
+
 def _is_masked_api_key(api_key: Optional[str]) -> bool:
     """Check if API key is a masked/placeholder value."""
     if not api_key:
@@ -959,6 +977,7 @@ async def update_config(config: SystemConfigModel):
         refreshed_config = reload_config()
         refresh_runtime_llm_config(refreshed_config)
         await _enqueue_runtime_llm_refresh_command(reason="config_updated")
+        await _enqueue_runtime_channels_refresh_command(reason="config_updated")
         return ConfigResponse(success=True, message="Configuration updated", data=_build_system_config())
     except HTTPException:
         raise

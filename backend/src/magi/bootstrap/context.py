@@ -176,6 +176,13 @@ class RuntimeTraceBootstrapState:
 
 
 @dataclass
+class ChannelsBootstrapState:
+    """External messaging channels state slice."""
+
+    module: Any | None = None
+
+
+@dataclass
 class RuntimeBootstrapContext:
     """Slice-based bootstrap context shared across layer lifecycle modules.
 
@@ -198,3 +205,4 @@ class RuntimeBootstrapContext:
     scheduler: SchedulerBootstrapState = field(default_factory=SchedulerBootstrapState)
     runtime_trace: RuntimeTraceBootstrapState = field(default_factory=RuntimeTraceBootstrapState)
     maintenance: MaintenanceBootstrapState = field(default_factory=MaintenanceBootstrapState)
+    channels: ChannelsBootstrapState = field(default_factory=ChannelsBootstrapState)

@@ -26,8 +26,26 @@ class ChannelsModule(LifecycleModule):
         )
         self._context = context
         self._relay_task: asyncio.Task[None] | None = None
+        self._registry = None
+        self._relay = None
+        self._session_mapper = None
 
     async def init(self) -> None:
+        self._context.channels.module = self
+        await self._start_channels()
+
+    async def restart(self) -> None:
+        """Tear down running channels and re-initialize from current config."""
+        logger.info("Restarting channels module after configuration change")
+        await self._stop_channels()
+        # Re-read config (already reloaded by command processor)
+        await self._start_channels()
+
+    async def shutdown(self) -> None:
+        await self._stop_channels()
+        self._context.channels.module = None
+
+    async def _start_channels(self) -> None:
         from .notification_relay import NotificationRelay
         from .registry import ChannelRegistry
         from .session_mapper import ChannelSessionMapper
@@ -84,14 +102,13 @@ class ChannelsModule(LifecycleModule):
         )
         self._relay_task = asyncio.create_task(relay.run())
 
-        # Store references for shutdown
         self._registry = registry
         self._relay = relay
         self._session_mapper = session_mapper
         logger.info("Channels module started")
 
-    async def shutdown(self) -> None:
-        if hasattr(self, "_relay") and self._relay is not None:
+    async def _stop_channels(self) -> None:
+        if self._relay is not None:
             self._relay.stop()
         if self._relay_task is not None:
             self._relay_task.cancel()
@@ -100,6 +117,9 @@ class ChannelsModule(LifecycleModule):
             except asyncio.CancelledError:
                 pass
             self._relay_task = None
-        if hasattr(self, "_registry") and self._registry is not None:
+        if self._registry is not None:
             await self._registry.stop_all()
+        self._registry = None
+        self._relay = None
+        self._session_mapper = None
         logger.info("Channels module stopped")
