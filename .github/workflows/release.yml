@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -147,6 +149,40 @@ jobs:
             echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
           fi
 
+      - name: Build release notes from commits
+        id: release_notes
+        shell: bash
+        run: |
+          current_tag="${GITHUB_REF_NAME}"
+          previous_tag="$(git tag --sort=-v:refname | grep -Fxv "${current_tag}" | head -n 1 || true)"
+
+          if [ -n "${previous_tag}" ]; then
+            compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/${previous_tag}...${current_tag}"
+            heading="## Changes since ${previous_tag}"
+            commit_lines="$(git log --no-merges --pretty='- %s (%h)' "${previous_tag}..${current_tag}")"
+          else
+            compare_url=""
+            heading="## Initial release"
+            commit_lines="$(git log --no-merges --pretty='- %s (%h)' "${current_tag}")"
+          fi
+
+          if [ -z "${commit_lines}" ]; then
+            commit_lines="- No user-facing commits found in this release."
+          fi
+
+          {
+            echo "title=Magi ${current_tag}"
+            echo "body<<EOF"
+            echo "${heading}"
+            echo
+            echo "${commit_lines}"
+            if [ -n "${compare_url}" ]; then
+              echo
+              echo "**Full Changelog**: ${compare_url}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and publish Tauri bundle
         uses: tauri-apps/tauri-action@v0.6.2
         env:
@@ -156,10 +192,8 @@ jobs:
         with:
           projectPath: frontend
           tagName: ${{ github.ref_name }}
-          releaseName: Magi ${{ github.ref_name }}
-          releaseBody: |
-            Automated desktop build for ${{ github.ref_name }}.
-            Download the installer assets attached to this release.
-          releaseDraft: true
+          releaseName: ${{ steps.release_notes.outputs.title }}
+          releaseBody: ${{ steps.release_notes.outputs.body }}
+          releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target ${{ matrix.target }}
