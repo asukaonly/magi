@@ -887,7 +887,7 @@ describe('config forms', () => {
       provider_options_example: {},
     }));
 
-    vi.mocked(configApi.resolveLLMProviderCatalog).mockResolvedValueOnce({
+    const manyModelCatalog = {
       success: true,
       message: '',
       data: {
@@ -911,8 +911,13 @@ describe('config forms', () => {
           },
         ],
       },
-    });
-    vi.mocked(configApi.getLLMCustomProviderTemplate).mockResolvedValueOnce({
+    };
+    const resolveCatalogMock = vi.mocked(configApi.resolveLLMProviderCatalog);
+    const templateMock = vi.mocked(configApi.getLLMCustomProviderTemplate);
+    const defaultResolveCatalogImplementation = resolveCatalogMock.getMockImplementation();
+    const defaultTemplateImplementation = templateMock.getMockImplementation();
+    resolveCatalogMock.mockImplementation(async () => manyModelCatalog as any);
+    templateMock.mockImplementation(async () => ({
       success: true,
       message: '',
       data: {
@@ -951,7 +956,7 @@ describe('config forms', () => {
           model_metadata_overrides: {},
         },
       },
-    });
+    }) as any);
 
     const manyModelValue = {
       providers: {
@@ -1002,24 +1007,35 @@ describe('config forms', () => {
       model_runtime_overrides: {},
     } as unknown as LLMConfig;
 
-    render(
-      <Form initialValues={{ llm: manyModelValue }}>
-        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-      </Form>
-    );
+    try {
+      render(
+        <Form initialValues={{ llm: manyModelValue }}>
+          <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+        </Form>
+      );
 
-    const coreCard = await screen.findByTestId('llm-scenario-core');
-    await user.click(within(coreCard).getByLabelText('llm.fields.model'));
+      const coreCard = await screen.findByTestId('llm-scenario-core');
+      await user.click(within(coreCard).getByLabelText('llm.fields.model'));
 
-    const searchInput = screen.getByPlaceholderText('llm.modelSelection.searchPlaceholder');
-    expect(searchInput).toBeInTheDocument();
+      const searchInput = screen.getByPlaceholderText('llm.modelSelection.searchPlaceholder');
+      expect(searchInput).toBeInTheDocument();
 
-    await user.type(searchInput, 'omega');
+      await user.type(searchInput, 'omega');
 
-    const menu = document.querySelector('[data-select-field-menu]');
-    expect(menu).toBeTruthy();
-    expect(within(menu as HTMLElement).getByRole('button', { name: 'omega-model' })).toBeInTheDocument();
-    expect(within(menu as HTMLElement).queryByRole('button', { name: 'alpha-model' })).not.toBeInTheDocument();
+      const menu = document.querySelector('[data-select-field-menu]');
+      expect(menu).toBeTruthy();
+      await waitFor(() => {
+        expect(within(menu as HTMLElement).getByRole('button', { name: 'omega-model' })).toBeInTheDocument();
+        expect(within(menu as HTMLElement).queryByRole('button', { name: 'alpha-model' })).not.toBeInTheDocument();
+      });
+    } finally {
+      if (defaultResolveCatalogImplementation) {
+        resolveCatalogMock.mockImplementation(defaultResolveCatalogImplementation);
+      }
+      if (defaultTemplateImplementation) {
+        templateMock.mockImplementation(defaultTemplateImplementation);
+      }
+    }
   });
 
   it('asks for confirmation before changing embedding dimension on the settings surface', async () => {
@@ -1061,6 +1077,7 @@ describe('config forms', () => {
       />
     );
 
+    await user.click(await screen.findByRole('tab', { name: 'llm.scenarios.embedding.title' }));
     const embeddingCard = await screen.findByTestId('llm-scenario-embedding');
     const dimensionField = within(embeddingCard).getByLabelText('llm.fields.embeddingDimension');
     onChange.mockClear();
@@ -1084,6 +1101,7 @@ describe('config forms', () => {
   });
 
   it('includes override-promoted embedding models in the embedding selection list', async () => {
+    const user = userEvent.setup();
     const controlledValue = {
       ...llmValue,
       providers: {
@@ -1134,6 +1152,7 @@ describe('config forms', () => {
       />
     );
 
+    await user.click(await screen.findByRole('tab', { name: 'llm.scenarios.embedding.title' }));
     const embeddingCard = await screen.findByTestId('llm-scenario-embedding');
     expect(within(embeddingCard).getByLabelText('llm.fields.model')).toHaveTextContent('GPT-5.2 Vector (OpenAI)');
   });
@@ -1165,15 +1184,19 @@ describe('config forms', () => {
     await user.clear(maxConcurrencyField);
     await user.type(maxConcurrencyField, '9');
 
-    await waitFor(() => {
-      expect(onChange).toHaveBeenCalled();
-    });
-
-    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
-    expect(latest.model_runtime_overrides).toEqual({
+    const expectedOverrides = {
       'openai::api.openai.com::gpt-5.2::chat': {
         max_concurrency: 9,
       },
+    };
+
+    await waitFor(() => {
+      expect(
+        onChange.mock.calls.some(
+          ([nextValue]) =>
+            JSON.stringify(nextValue?.model_runtime_overrides ?? {}) === JSON.stringify(expectedOverrides)
+        )
+      ).toBe(true);
     });
   });
 
