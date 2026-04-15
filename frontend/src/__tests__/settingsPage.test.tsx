@@ -56,7 +56,7 @@ vi.mock('@/i18n', () => ({
 }));
 
 vi.mock('@/components/config-forms/LLMForm', () => ({
-  default: ({
+  default: function MockLLMForm({
     value,
     onChange,
     onAutoNormalize,
@@ -68,7 +68,7 @@ vi.mock('@/components/config-forms/LLMForm', () => ({
     onAutoNormalize?: (next: any) => void;
     view?: 'all' | 'providers' | 'models';
     showAdvancedByDefault?: boolean;
-  }) => {
+  }) {
     useEffect(() => {
       const nextValue = llmFormAutoChangeRef.current?.({ value, view });
       if (nextValue) {

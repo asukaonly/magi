@@ -624,7 +624,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     if (!normalized.providers[activeProviderId]) {
       setActiveProviderId(Object.keys(normalized.providers)[0] || 'openai');
     }
-  }, [activeProviderId, controlled, currentValue, onAutoNormalize, registry]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeProviderId, controlled, currentValue, onAutoNormalize, registry]);
 
   const scenarioReferences = useMemo(() => {
     return Object.entries(currentValue.selections).reduce<Record<string, LLMScenario[]>>((acc, [scenario, selection]) => {

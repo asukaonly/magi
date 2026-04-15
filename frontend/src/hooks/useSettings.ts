@@ -353,7 +353,7 @@ export function useSettings(): UseSettingsReturn {
       loadPlugins(),
       loadTools(),
     ]);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchConfig, fetchTimelineStatuses, loadPlugins, loadTools]);
 
   // Reset timeline selection when statuses change
   useEffect(() => {
