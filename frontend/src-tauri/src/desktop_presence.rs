@@ -83,15 +83,13 @@ impl DesktopPresenceState {
 }
 
 #[cfg(target_os = "macos")]
-fn macos_template_icon_path() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("icons")
-        .join("tray-template-macos.png")
+fn macos_template_icon_bytes() -> &'static [u8] {
+    include_bytes!("../icons/tray-template-macos.png")
 }
 
 #[cfg(target_os = "macos")]
 fn load_tray_icon() -> Result<Image<'static>, String> {
-    Image::from_path(macos_template_icon_path())
+    Image::from_bytes(macos_template_icon_bytes())
         .map(|image| image.to_owned())
         .map_err(|err| format!("Failed to load macOS tray template icon: {err}"))
 }
@@ -209,6 +207,7 @@ fn handle_tray_event<R: Runtime>(tray: &tauri::tray::TrayIcon<R>, event: &TrayIc
 #[cfg(test)]
 mod tests {
     use super::{CloseAction, DesktopPresenceState};
+    use std::path::PathBuf;
 
     #[test]
     fn desktop_presence_defaults_to_hiding_on_close() {
@@ -231,14 +230,56 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn desktop_presence_includes_a_macos_template_icon_asset() {
-        let icon_path = super::macos_template_icon_path();
-
-        let icon_bytes =
-            std::fs::read(&icon_path).expect("expected macOS tray template icon asset");
+        let icon_bytes = super::macos_template_icon_bytes();
         assert!(icon_bytes.starts_with(&[0x89, b'P', b'N', b'G']));
-        let image = tauri::image::Image::from_path(&icon_path)
+        let image = tauri::image::Image::from_bytes(icon_bytes)
             .expect("expected macOS tray template icon to load");
         assert!(image.width() > 0);
         assert!(image.height() > 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desktop_presence_embeds_tray_icon_instead_of_using_manifest_dir_at_runtime() {
+        let source = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("desktop_presence.rs"),
+        )
+        .expect("expected desktop_presence.rs source to exist");
+
+        assert!(
+            source.contains("include_bytes!(\"../icons/tray-template-macos.png\")"),
+            "expected the macOS tray icon to be embedded into the binary"
+        );
+        assert!(
+            source.contains("Image::from_bytes(macos_template_icon_bytes())"),
+            "expected the macOS tray icon to load from embedded bytes at runtime"
+        );
+    }
+
+    #[test]
+    fn tauri_bundle_config_lists_desktop_icons() {
+        let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+        let config = std::fs::read_to_string(&config_path)
+            .expect("expected tauri.conf.json to be readable");
+        let config_json: serde_json::Value =
+            serde_json::from_str(&config).expect("expected valid tauri.conf.json");
+        let icons = config_json["bundle"]["icon"]
+            .as_array()
+            .expect("expected bundle.icon to be configured");
+        let icon_paths = icons
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            icon_paths.contains(&"icons/icon.icns"),
+            "expected macOS icon.icns to be bundled"
+        );
+        assert!(
+            icon_paths.contains(&"icons/icon.ico"),
+            "expected Windows icon.ico to be bundled"
+        );
     }
 }

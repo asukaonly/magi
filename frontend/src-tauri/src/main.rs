@@ -807,8 +807,16 @@ fn main() {
         .manage(BackendState::default())
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(|app| {
-            desktop_presence::setup(app.handle())?;
-            frontmost_app_monitor::setup_monitor()?;
+            if let Err(err) = desktop_presence::setup(app.handle()) {
+                eprintln!(
+                    "Optional desktop presence setup is unavailable; continuing without tray integration: {err}"
+                );
+            }
+            if let Err(err) = frontmost_app_monitor::setup_monitor() {
+                eprintln!(
+                    "Optional frontmost app monitor is unavailable; continuing without activation tracking: {err}"
+                );
+            }
             Ok(())
         })
         .on_window_event(|window, event| match event {
