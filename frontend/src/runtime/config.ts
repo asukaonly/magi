@@ -138,10 +138,12 @@ export async function initializeRuntime(
 
   try {
     const { invoke } = await import("@tauri-apps/api/core");
+    const t0 = performance.now();
 
     // Phase 1: spawn backend (returns immediately).
     onProgress?.("spawning");
     const result = await invoke<StartBackendResult>("start_backend");
+    console.log(`[startup] start_backend: ${(performance.now() - t0).toFixed(0)}ms`);
     if (!result?.ok || !result.baseUrl) {
       throw new Error(result?.error || "Desktop backend startup failed");
     }
@@ -150,15 +152,19 @@ export async function initializeRuntime(
 
     // Phase 2: poll until the Rust gateway reports ready.
     onProgress?.("waiting_for_worker");
+    const pollStart = performance.now();
     const deadline = Date.now() + STARTUP_POLL_TIMEOUT_MS;
+    let pollCount = 0;
     while (Date.now() <= deadline) {
       const poll = await invoke<PollStartupResult>("poll_backend_startup");
+      pollCount++;
 
       if (poll.error) {
         throw new Error(poll.error);
       }
 
       if (poll.ready) {
+        console.log(`[startup] poll_backend_startup ready after ${pollCount} polls, ${(performance.now() - pollStart).toFixed(0)}ms`);
         onProgress?.("connecting");
         break;
       }
@@ -172,7 +178,10 @@ export async function initializeRuntime(
     }
 
     // Final readiness check: ensure /api/ready responds.
+    const readyStart = performance.now();
     await waitForBackendReady(apiBaseUrl);
+    console.log(`[startup] waitForBackendReady: ${(performance.now() - readyStart).toFixed(0)}ms`);
+    console.log(`[startup] total: ${(performance.now() - t0).toFixed(0)}ms`);
 
     onProgress?.("ready");
 

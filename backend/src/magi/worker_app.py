@@ -42,18 +42,21 @@ def configure_worker_logging() -> Path:
 
 async def _run_worker() -> None:
     """Main async worker loop."""
+    worker_t0 = time.monotonic()
     runtime_paths = get_runtime_paths()
     configure_worker_logging()
 
     logger.info("IPC worker starting")
 
     # Wire DI container
+    t0 = time.monotonic()
     wire_container()
-    logger.info("DI container wired")
+    logger.info("DI container wired", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
 
     # Initialize agent runtime
+    t0 = time.monotonic()
     await initialize_agent_runtime()
-    logger.info("Agent runtime initialized")
+    logger.info("Agent runtime initialized", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
 
     # Build FastAPI app for IPC api.forward dispatch (no HTTP server)
     from .transport.http_app import create_transport_app
@@ -72,9 +75,10 @@ async def _run_worker() -> None:
     ipc_socket = os.environ.get("MAGI_IPC_SOCKET")
     if ipc_socket:
         from .ipc import IpcServer
+        t0 = time.monotonic()
         ipc_server = IpcServer(asgi_app=app)
         await ipc_server.start()
-        logger.info("IPC server started on %s", ipc_socket)
+        logger.info("IPC server started on %s", ipc_socket, elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
     else:
         logger.warning("MAGI_IPC_SOCKET not set — worker has no IPC transport")
 
@@ -102,7 +106,8 @@ async def _run_worker() -> None:
     health_file = runtime_paths.base_dir / "runtime" / "worker.ready"
     health_file.parent.mkdir(parents=True, exist_ok=True)
     health_file.write_text(str(os.getpid()))
-    logger.info("IPC worker ready (pid=%d)", os.getpid())
+    total_ms = round((time.monotonic() - worker_t0) * 1000, 1)
+    logger.info("IPC worker ready (pid=%d, startup_ms=%.1f)", os.getpid(), total_ms)
 
     # Wait for shutdown signal
     shutdown_event = asyncio.Event()

@@ -15,7 +15,7 @@ def test_build_pyinstaller_command_includes_required_hidden_imports() -> None:
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--onefile",
+        "--onedir",
     ]
     assert "--hidden-import" in command
     hidden_import_values = [

@@ -16,16 +16,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_shell::{
-    process::{CommandChild, CommandEvent},
-    ShellExt,
-};
 
 const BACKEND_HOST: &str = "127.0.0.1";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(25);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const MAX_ERROR_LINES: usize = 20;
 
 #[derive(Default)]
 struct BackendState {
@@ -56,49 +51,36 @@ struct ExternalBackendConfig {
 }
 
 enum BackendProcess {
-    Sidecar(Option<CommandChild>),
     Dev(Option<Child>),
 }
 
 impl BackendProcess {
     fn kill(&mut self) {
-        match self {
-            Self::Sidecar(child) => {
-                if let Some(sidecar) = child.take() {
-                    let _ = sidecar.kill();
-                }
-            }
-            Self::Dev(child) => {
-                if let Some(process) = child.as_mut() {
-                    let _ = process.kill();
-                }
-                child.take();
-            }
+        let Self::Dev(child) = self;
+        if let Some(process) = child.as_mut() {
+            let _ = process.kill();
         }
+        child.take();
     }
 
     fn wait_for_exit(&mut self, timeout: Duration) -> bool {
-        match self {
-            Self::Sidecar(_) => false,
-            Self::Dev(child) => {
-                let start = Instant::now();
-                while start.elapsed() < timeout {
-                    if let Some(process) = child.as_mut() {
-                        match process.try_wait() {
-                            Ok(Some(_)) => {
-                                child.take();
-                                return true;
-                            }
-                            Ok(None) => thread::sleep(SHUTDOWN_POLL_INTERVAL),
-                            Err(_) => break,
-                        }
-                    } else {
+        let Self::Dev(child) = self;
+        let start = Instant::now();
+        while start.elapsed() < timeout {
+            if let Some(process) = child.as_mut() {
+                match process.try_wait() {
+                    Ok(Some(_)) => {
+                        child.take();
                         return true;
                     }
+                    Ok(None) => thread::sleep(SHUTDOWN_POLL_INTERVAL),
+                    Err(_) => break,
                 }
-                false
+            } else {
+                return true;
             }
         }
+        false
     }
 }
 
@@ -295,84 +277,98 @@ fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, Stri
     }))
 }
 
+fn resolve_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to resolve resource directory: {e}"))?;
+
+    #[cfg(windows)]
+    let binary_name = "magi-backend.exe";
+    #[cfg(not(windows))]
+    let binary_name = "magi-backend";
+
+    let sidecar_path = resource_dir.join("sidecar-dist").join(binary_name);
+    if !sidecar_path.exists() {
+        return Err(format!(
+            "Sidecar binary not found at: {}",
+            sidecar_path.display()
+        ));
+    }
+    Ok(sidecar_path)
+}
+
+fn open_sidecar_log_stdio() -> Result<(Stdio, Stdio), String> {
+    let home = env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .map(PathBuf::from)
+        .map_err(|_| "Neither HOME nor USERPROFILE is set".to_string())?;
+    let log_path = home.join(".magi").join("logs").join("backend.log");
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("Failed to create backend log directory: {err}"))?;
+    }
+    let stdout_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|err| format!("Failed to open backend log file: {err}"))?;
+    let stderr_file = stdout_file
+        .try_clone()
+        .map_err(|err| format!("Failed to clone backend log file handle: {err}"))?;
+    Ok((Stdio::from(stdout_file), Stdio::from(stderr_file)))
+}
+
 fn spawn_sidecar_role(
     app: &AppHandle,
     role: &str,
     port: Option<u16>,
     session_token: &str,
     ipc_socket_path: &str,
-    recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
-    let mut args = vec![
-        "--role".to_string(),
-        role.to_string(),
-        "--no-reload".to_string(),
-    ];
+    let sidecar_path = resolve_sidecar_path(app)?;
+
+    // Ensure executable permission on Unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&sidecar_path)
+            .map_err(|e| format!("Failed to read sidecar metadata: {e}"))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&sidecar_path, perms)
+            .map_err(|e| format!("Failed to set sidecar executable permission: {e}"))?;
+    }
+
+    let (stdout, stderr) = open_sidecar_log_stdio()?;
+
+    let mut command = Command::new(&sidecar_path);
+    command
+        .arg("--role")
+        .arg(role)
+        .arg("--no-reload")
+        .env("MAGI_DESKTOP_MODE", "1")
+        .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
+        .env("MAGI_IPC_SOCKET", ipc_socket_path)
+        .stdout(stdout)
+        .stderr(stderr);
+
     if role == "api" || role == "unified" {
         let port_text = port
             .ok_or_else(|| format!("{} role requires a port", role))?
             .to_string();
-        args.extend([
-            "--host".to_string(),
-            BACKEND_HOST.to_string(),
-            "--port".to_string(),
-            port_text,
-        ]);
+        command
+            .arg("--host")
+            .arg(BACKEND_HOST)
+            .arg("--port")
+            .arg(&port_text);
     }
-    let (mut rx, child) = app
-        .shell()
-        .sidecar("magi-backend")
-        .map_err(|err| format!("Failed to prepare backend sidecar: {err}"))?
-        .args(args)
-        .env("MAGI_DESKTOP_MODE", "1")
-        .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
-        .env("MAGI_IPC_SOCKET", ipc_socket_path)
+
+    let child = command
         .spawn()
         .map_err(|err| format!("Failed to spawn backend sidecar: {err}"))?;
-
-    let pid = child.pid();
-    let app_handle = app.clone();
-    let role_label = role.to_string();
-    let errors_clone = recent_errors.clone();
-    tauri::async_runtime::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(line) => {
-                    let message = String::from_utf8_lossy(&line).to_string();
-                    let _ = app_handle.emit(
-                        "backend-log",
-                        format!("{} stdout: {}", role_label, message.trim_end()),
-                    );
-                }
-                CommandEvent::Stderr(line) => {
-                    let message = String::from_utf8_lossy(&line).to_string();
-                    let _ = app_handle.emit(
-                        "backend-log",
-                        format!("{} stderr: {}", role_label, message.trim_end()),
-                    );
-                    if let Ok(mut errors) = errors_clone.lock() {
-                        if errors.len() >= MAX_ERROR_LINES {
-                            errors.remove(0);
-                        }
-                        errors.push(format!("{}: {}", role_label, message.trim_end()));
-                    }
-                }
-                CommandEvent::Terminated(payload) => {
-                    let _ = app_handle.emit(
-                        "backend-exit",
-                        format!(
-                            "{} exited (code: {:?}, signal: {:?})",
-                            role_label, payload.code, payload.signal
-                        ),
-                    );
-                    break;
-                }
-                _ => {}
-            }
-        }
-    });
-
-    Ok((BackendProcess::Sidecar(Some(child)), Some(pid)))
+    let pid = Some(child.id());
+    Ok((BackendProcess::Dev(Some(child)), pid))
 }
 
 fn find_backend_dir() -> Result<PathBuf, String> {
@@ -474,7 +470,6 @@ fn spawn_sidecar_backend(
     app: &AppHandle,
     session_token: &str,
     ipc_socket_path: &str,
-    recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<ManagedBackendStart, String> {
     let (process, pid) = spawn_sidecar_role(
         app,
@@ -482,7 +477,6 @@ fn spawn_sidecar_backend(
         None,
         session_token,
         ipc_socket_path,
-        recent_errors,
     )?;
     Ok(ManagedBackendStart { process, pid })
 }
@@ -629,7 +623,6 @@ fn start_backend(
             &app,
             &session_token,
             &ipc_socket_path,
-            state.recent_errors.clone(),
         )?
     };
 
@@ -892,7 +885,6 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
         .manage(BackendState::default())
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(|app| {

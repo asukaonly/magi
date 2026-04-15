@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="${ROOT_DIR}/frontend"
 FRONTEND_PORT="${MAGI_FRONTEND_PORT:-5173}"
-TAURI_BIN_DIR="${ROOT_DIR}/frontend/src-tauri/binaries"
 
 kill_listeners_on_port() {
   local port="$1"
@@ -77,27 +76,14 @@ cleanup_on_exit() {
 }
 
 ensure_sidecar_placeholder() {
-  mkdir -p "${TAURI_BIN_DIR}"
-
-  local triple
-  triple="$(rustc -vV | awk '/host:/ {print $2}')"
-  if [[ -z "${triple}" ]]; then
-    echo "Failed to detect rust target triple for Tauri sidecar placeholder."
-    exit 1
+  # Ensure sidecar-dist placeholder exists for bundle.resources
+  local staging_dir="${ROOT_DIR}/frontend/src-tauri/sidecar-dist"
+  if [[ ! -d "${staging_dir}" ]]; then
+    mkdir -p "${staging_dir}/_internal"
+    touch "${staging_dir}/magi-backend"
+    chmod +x "${staging_dir}/magi-backend"
+    echo "Created sidecar staging placeholder for dev: ${staging_dir}"
   fi
-
-  local sidecar_path="${TAURI_BIN_DIR}/magi-backend-${triple}"
-  if [[ -f "${sidecar_path}" ]]; then
-    return 0
-  fi
-
-  cat > "${sidecar_path}" <<'EOF'
-#!/usr/bin/env bash
-echo "Magi sidecar placeholder (debug fallback mode)."
-exit 0
-EOF
-  chmod +x "${sidecar_path}"
-  echo "Created sidecar placeholder for dev: ${sidecar_path}"
 }
 
 ensure_sidecar_placeholder

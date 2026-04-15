@@ -39,7 +39,7 @@
       "icons/icon.ico"
     ],
     "targets": "all",
-    "externalBin": ["binaries/magi-backend"]
+    "resources": ["sidecar-dist/"]
   },
   "plugins": {
     "updater": {
