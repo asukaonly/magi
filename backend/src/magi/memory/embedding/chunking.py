@@ -11,6 +11,7 @@ DEFAULT_CHUNK_OVERLAP_CHARS = 120
 _MIN_BREAK_RATIO = 0.6
 
 DEFAULT_SENTENCE_MIN_CHARS = 8
+DEFAULT_SENTENCE_TARGET_CHARS = 400
 
 # CJK Unified Ideographs range for weighted length calculation.
 _CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
@@ -125,19 +126,34 @@ def chunk_sentences(
     text: str,
     *,
     min_chars: int = DEFAULT_SENTENCE_MIN_CHARS,
+    target_chars: int = DEFAULT_SENTENCE_TARGET_CHARS,
 ) -> list[ChunkedText]:
-    """Split *text* into sentence-level chunks for fine-grained vector indexing.
+    """Split *text* into sentence-group chunks for vector indexing.
 
-    Each sentence becomes its own chunk so that secondary facts buried
-    in a multi-topic message get their own embedding vector.
-
-    Sentences shorter than *min_chars* are merged into the preceding
-    chunk to avoid noisy low-context vectors.
+    Adjacent sentences are grouped together until reaching *target_chars*
+    (weighted length) so that each chunk carries enough context for a
+    quality embedding.  Very short sentences (< *min_chars*) are always
+    merged into the preceding group first.
     """
 
     normalized = str(text or "").strip()
     if not normalized:
         return []
+
+    safe_target = max(1, int(target_chars))
+
+    # Fast path: whole text fits in one chunk.
+    if _weighted_len(normalized) <= safe_target:
+        return [
+            ChunkedText(
+                chunk_id="chunk-0",
+                text=normalized,
+                chunk_index=0,
+                char_start=0,
+                char_end=len(normalized),
+                token_estimate=max(1, len(normalized) // 4),
+            )
+        ]
 
     # Find sentence boundary positions.
     split_ends: list[int] = [m.end() for m in _SENTENCE_BOUNDARY_RE.finditer(normalized)]
@@ -184,7 +200,7 @@ def chunk_sentences(
             )
         ]
 
-    # Merge short segments into the preceding one.
+    # Merge very short segments (< min_chars) into the preceding one.
     merged: list[tuple[int, int, str]] = [raw_segments[0]]
     for seg_start, seg_end, seg_text in raw_segments[1:]:
         if _weighted_len(seg_text) < min_chars and merged:
@@ -200,8 +216,24 @@ def chunk_sentences(
         else:
             merged.append((seg_start, seg_end, seg_text))
 
+    # Group adjacent segments until reaching target_chars.
+    grouped: list[tuple[int, int, str]] = []
+    g_start = merged[0][0]
+    g_end = merged[0][1]
+
+    for seg_start, seg_end, _ in merged[1:]:
+        candidate = normalized[g_start:seg_end]
+        if _weighted_len(candidate) > safe_target:
+            # Finalize current group.
+            grouped.append((g_start, g_end, normalized[g_start:g_end]))
+            g_start = seg_start
+        g_end = seg_end
+
+    # Finalize last group.
+    grouped.append((g_start, g_end, normalized[g_start:g_end]))
+
     chunks: list[ChunkedText] = []
-    for idx, (c_start, c_end, c_text) in enumerate(merged):
+    for idx, (c_start, c_end, c_text) in enumerate(grouped):
         chunks.append(
             ChunkedText(
                 chunk_id=f"chunk-{idx}",
