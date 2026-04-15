@@ -727,24 +727,24 @@ fn poll_backend_startup(
         .ok_or_else(|| "Missing main port".to_string())?;
 
     // Connect IPC client to Python worker (required)
-    let ipc_client =
-        match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path)) {
-            Ok((client, _event_rx)) => std::sync::Arc::new(client),
-            Err(e) => {
-                // Kill the process on IPC failure.
-                if let Some(mut process) = runtime.python_process.take() {
-                    process.kill();
-                }
-                runtime.base_url = None;
-                runtime.session_token = None;
-                runtime.python_pid = None;
-                return Ok(PollStartupResponse {
-                    ready: false,
-                    phase: "error".to_string(),
-                    error: Some(format!("IPC connect failed: {e}")),
-                });
+    let ipc_client = match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path))
+    {
+        Ok((client, _event_rx)) => std::sync::Arc::new(client),
+        Err(e) => {
+            // Kill the process on IPC failure.
+            if let Some(mut process) = runtime.python_process.take() {
+                process.kill();
             }
-        };
+            runtime.base_url = None;
+            runtime.session_token = None;
+            runtime.python_pid = None;
+            return Ok(PollStartupResponse {
+                ready: false,
+                phase: "error".to_string(),
+                error: Some(format!("IPC connect failed: {e}")),
+            });
+        }
+    };
 
     let api_state = api::state::ApiState { ipc_client };
     let router = api::build_router(api_state);

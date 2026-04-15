@@ -270,8 +270,8 @@ mod tests {
     #[test]
     fn tauri_bundle_config_lists_desktop_icons() {
         let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
-        let config = std::fs::read_to_string(&config_path)
-            .expect("expected tauri.conf.json to be readable");
+        let config =
+            std::fs::read_to_string(&config_path).expect("expected tauri.conf.json to be readable");
         let config_json: serde_json::Value =
             serde_json::from_str(&config).expect("expected valid tauri.conf.json");
         let icons = config_json["bundle"]["icon"]
