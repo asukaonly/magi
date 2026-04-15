@@ -226,6 +226,10 @@ class RetrievalConfig:
     rrf_weight_graph: float = 0.6
     rrf_weight_temporal_bm25: float = 0.8
 
+    # Evidence bundle filtering
+    evidence_bundle_max_count: int = 8
+    evidence_bundle_min_score: float = 0.15
+
     # Confidence-aware fallback
     confidence_fallback_enabled: bool = False
     confidence_fallback_min_score: float = 0.3

@@ -151,7 +151,7 @@ class EmbeddingConfigModel(BaseModel):
 
 
 class QueryExpansionConfigModel(BaseModel):
-    enabled: bool = Field(default=False)
+    enabled: bool = Field(default=True)
 
 
 class GraphSpreadingConfigModel(BaseModel):
