@@ -22,7 +22,7 @@ Current release expectations are:
 
 - maintainers publish desktop builds by pushing a version tag in the form `vX.Y.Z`
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
-- release automation builds the Python sidecar first, then runs frontend type-check, a focused frontend smoke suite, frontend lint, backend validation, and finally the Tauri bundle build
+- release automation builds the Python sidecar first, then runs frontend type-check, a focused frontend smoke suite, frontend lint, a focused backend smoke suite, and finally the Tauri bundle build
 - release jobs create or update a draft GitHub Release and attach the generated desktop installers
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
 - the desktop app checks the stable GitHub Release feed through `latest.json`, so draft releases do not become visible to in-app auto update until they are published

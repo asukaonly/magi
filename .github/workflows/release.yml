@@ -121,10 +121,9 @@ jobs:
           npm run test:ci
           npm run lint
 
-      - name: Run backend validation
-        working-directory: backend
+      - name: Run backend smoke validation
         shell: bash
-        run: pytest
+        run: ./scripts/run-backend-smoke.sh
 
       - name: Export optional macOS signing secrets
         shell: bash
