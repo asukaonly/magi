@@ -2,7 +2,13 @@
   "bootstrap": {
     "startupFailed": "Backend startup failed",
     "retry": "Retry",
-    "starting": "Starting Magi backend..."
+    "starting": "Starting Magi backend...",
+    "phase": {
+      "spawning": "Launching backend process...",
+      "waiting_for_worker": "Initializing runtime...",
+      "connecting": "Establishing connection...",
+      "ready": "Almost ready..."
+    }
   },
   "common": {
     "loading": "Loading..."

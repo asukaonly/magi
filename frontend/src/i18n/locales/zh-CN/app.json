@@ -2,7 +2,13 @@
   "bootstrap": {
     "startupFailed": "后端启动失败",
     "retry": "重试",
-    "starting": "正在启动 Magi 后端..."
+    "starting": "正在启动 Magi 后端...",
+    "phase": {
+      "spawning": "正在启动后端进程...",
+      "waiting_for_worker": "正在初始化运行时...",
+      "connecting": "正在建立连接...",
+      "ready": "即将就绪..."
+    }
   },
   "common": {
     "loading": "加载中..."

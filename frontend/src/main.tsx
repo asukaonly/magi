@@ -10,6 +10,7 @@ import './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
 import { initializeRuntime, resetRuntimeInitialization } from './runtime/config';
+import type { StartupPhase } from './runtime/config';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, applyStartMinimized } from './runtime/desktop';
 import { initializeTheme } from './stores/theme';
 
@@ -19,12 +20,14 @@ const RuntimeBootstrap: React.FC = () => {
   const { t } = useTranslation('app');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<StartupPhase>('spawning');
 
   const bootstrap = useCallback(async () => {
     setError(null);
     setReady(false);
+    setPhase('spawning');
     try {
-      const runtime = await initializeRuntime();
+      const runtime = await initializeRuntime((p) => setPhase(p));
       configureApiClient({
         baseUrl: runtime.apiBaseUrl,
         sessionToken: runtime.sessionToken,
@@ -74,8 +77,9 @@ const RuntimeBootstrap: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <p className="text-sm text-muted-foreground">{t('bootstrap.starting')}</p>
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+      <p className="text-sm text-muted-foreground">{t(`bootstrap.phase.${phase}`, t('bootstrap.starting'))}</p>
     </div>
   );
 };

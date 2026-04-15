@@ -23,10 +23,21 @@ interface StartBackendResult {
   error?: string;
 }
 
+interface PollStartupResult {
+  ready: boolean;
+  phase: string;
+  error?: string;
+}
+
 const DEFAULT_API_BASE_URL = "http://localhost:8000/api";
 const RESTRICTED_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
 const READY_CHECK_INTERVAL_MS = 250;
 const READY_CHECK_TIMEOUT_MS = 30000;
+const STARTUP_POLL_INTERVAL_MS = 500;
+const STARTUP_POLL_TIMEOUT_MS = 60000;
+
+export type StartupPhase = "spawning" | "waiting_for_worker" | "connecting" | "ready" | "error";
+export type StartupProgressCallback = (phase: StartupPhase) => void;
 
 let runtimeConfig: RuntimeConfig = {
   isDesktop: true,
@@ -109,7 +120,9 @@ async function waitForBackendReady(apiBaseUrl: string): Promise<void> {
   throw new Error("Backend readiness check timed out");
 }
 
-export async function initializeRuntime(): Promise<RuntimeConfig> {
+export async function initializeRuntime(
+  onProgress?: StartupProgressCallback,
+): Promise<RuntimeConfig> {
   if (initialized) {
     if (startupError) {
       throw new Error(startupError);
@@ -125,13 +138,44 @@ export async function initializeRuntime(): Promise<RuntimeConfig> {
 
   try {
     const { invoke } = await import("@tauri-apps/api/core");
+
+    // Phase 1: spawn backend (returns immediately).
+    onProgress?.("spawning");
     const result = await invoke<StartBackendResult>("start_backend");
     if (!result?.ok || !result.baseUrl) {
       throw new Error(result?.error || "Desktop backend startup failed");
     }
 
     const apiBaseUrl = normalizeApiBaseUrl(result.baseUrl);
+
+    // Phase 2: poll until the Rust gateway reports ready.
+    onProgress?.("waiting_for_worker");
+    const deadline = Date.now() + STARTUP_POLL_TIMEOUT_MS;
+    while (Date.now() <= deadline) {
+      const poll = await invoke<PollStartupResult>("poll_backend_startup");
+
+      if (poll.error) {
+        throw new Error(poll.error);
+      }
+
+      if (poll.ready) {
+        onProgress?.("connecting");
+        break;
+      }
+
+      // Update phase from Rust side.
+      if (poll.phase === "waiting_for_worker") {
+        onProgress?.("waiting_for_worker");
+      }
+
+      await sleep(STARTUP_POLL_INTERVAL_MS);
+    }
+
+    // Final readiness check: ensure /api/ready responds.
     await waitForBackendReady(apiBaseUrl);
+
+    onProgress?.("ready");
+
     runtimeConfig = {
       isDesktop: true,
       apiBaseUrl,

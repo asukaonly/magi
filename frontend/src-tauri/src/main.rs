@@ -41,6 +41,11 @@ struct BackendRuntime {
     base_url: Option<String>,
     session_token: Option<String>,
     python_pid: Option<u32>,
+    /// Stored between start_backend and poll_backend_startup.
+    ipc_socket_path: Option<String>,
+    main_port: Option<u16>,
+    /// True once Axum gateway and IPC are wired up.
+    gateway_ready: bool,
 }
 
 struct ExternalBackendConfig {
@@ -134,6 +139,14 @@ struct BackendBaseUrlResponse {
     base_url: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PollStartupResponse {
+    ready: bool,
+    phase: String,
+    error: Option<String>,
+}
+
 fn pick_open_port() -> Result<u16, String> {
     let listener = TcpListener::bind((BACKEND_HOST, 0))
         .map_err(|err| format!("Failed to pick free backend port: {err}"))?;
@@ -162,26 +175,6 @@ fn wait_for_health(host: &str, port: u16, timeout: Duration) -> bool {
                     return true;
                 }
             }
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
-    false
-}
-
-/// Wait for Python IPC worker to write its ready file.
-fn wait_for_ready_file(timeout: Duration) -> bool {
-    let home = match env::var("HOME")
-        .or_else(|_| env::var("USERPROFILE"))
-        .map(PathBuf::from)
-    {
-        Ok(h) => h,
-        Err(_) => return false,
-    };
-    let ready_path = home.join(".magi").join("runtime").join("worker.ready");
-    let start = Instant::now();
-    while start.elapsed() < timeout {
-        if ready_path.exists() {
-            return true;
         }
         thread::sleep(Duration::from_millis(200));
     }
@@ -530,6 +523,9 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
     runtime.base_url = None;
     runtime.session_token = None;
     runtime.python_pid = None;
+    runtime.ipc_socket_path = None;
+    runtime.main_port = None;
+    runtime.gateway_ready = false;
     Ok(())
 }
 
@@ -581,6 +577,7 @@ fn start_backend(
         runtime.base_url = Some(external.base_url.clone());
         runtime.session_token = Some(external.session_token.clone());
         runtime.python_pid = None;
+        runtime.gateway_ready = true;
 
         return Ok(StartBackendResponse {
             ok: true,
@@ -636,34 +633,118 @@ fn start_backend(
         )?
     };
 
-    if !wait_for_ready_file(STARTUP_TIMEOUT) {
-        let mut process = start.process;
-        process.kill();
-        let error_details = if let Ok(errors) = state.recent_errors.lock() {
-            if errors.is_empty() {
-                String::new()
-            } else {
-                format!("\n\nRecent logs:\n{}", errors.join("\n"))
-            }
-        } else {
-            String::new()
-        };
-        return Err(format!(
-            "Backend startup timeout: worker.ready was not created{}",
-            error_details
-        ));
+    // Store process and metadata — actual readiness is handled by poll_backend_startup.
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
+    runtime.python_process = Some(start.process);
+    runtime.base_url = Some(base_url.clone());
+    runtime.session_token = Some(session_token.clone());
+    runtime.python_pid = start.pid;
+    runtime.ipc_socket_path = Some(ipc_socket_path);
+    runtime.main_port = Some(main_port);
+    runtime.gateway_ready = false;
+
+    Ok(StartBackendResponse {
+        ok: true,
+        base_url,
+        session_token,
+        api_pid: start.pid,
+        runtime_worker_pid: start.pid,
+        error: None,
+    })
+}
+
+/// Non-blocking startup poll.  Returns the current phase so the frontend can
+/// display progress.  When the Python worker is ready, this command finishes
+/// the remaining setup (IPC connect, Axum gateway, notification bridge) in a
+/// single call, then returns `ready: true` from that point on.
+#[tauri::command]
+fn poll_backend_startup(
+    app: AppHandle,
+    state: State<'_, BackendState>,
+) -> Result<PollStartupResponse, String> {
+    // Fast path: already fully started.
+    {
+        let runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
+        if runtime.gateway_ready {
+            return Ok(PollStartupResponse {
+                ready: true,
+                phase: "ready".to_string(),
+                error: None,
+            });
+        }
+        if runtime.base_url.is_none() {
+            return Err("start_backend has not been called yet".to_string());
+        }
     }
 
-    // Connect IPC client to Python worker (required)
-    let ipc_client = match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path))
-    {
-        Ok((client, _event_rx)) => std::sync::Arc::new(client),
-        Err(e) => {
-            let mut process = start.process;
-            process.kill();
-            return Err(format!("IPC connect failed: {e}"));
-        }
+    // Check whether the Python worker has written its ready file.
+    let ready_file_exists = {
+        let home = env::var("HOME")
+            .or_else(|_| env::var("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        home.join(".magi")
+            .join("runtime")
+            .join("worker.ready")
+            .exists()
     };
+
+    if !ready_file_exists {
+        return Ok(PollStartupResponse {
+            ready: false,
+            phase: "waiting_for_worker".to_string(),
+            error: None,
+        });
+    }
+
+    // Worker is ready — finish setup under the lock.
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
+
+    // Double-check (another poll call could have completed setup concurrently).
+    if runtime.gateway_ready {
+        return Ok(PollStartupResponse {
+            ready: true,
+            phase: "ready".to_string(),
+            error: None,
+        });
+    }
+
+    let ipc_socket_path = runtime
+        .ipc_socket_path
+        .clone()
+        .ok_or_else(|| "Missing IPC socket path".to_string())?;
+    let main_port = runtime
+        .main_port
+        .ok_or_else(|| "Missing main port".to_string())?;
+
+    // Connect IPC client to Python worker (required)
+    let ipc_client =
+        match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path)) {
+            Ok((client, _event_rx)) => std::sync::Arc::new(client),
+            Err(e) => {
+                // Kill the process on IPC failure.
+                if let Some(mut process) = runtime.python_process.take() {
+                    process.kill();
+                }
+                runtime.base_url = None;
+                runtime.session_token = None;
+                runtime.python_pid = None;
+                return Ok(PollStartupResponse {
+                    ready: false,
+                    phase: "error".to_string(),
+                    error: Some(format!("IPC connect failed: {e}")),
+                });
+            }
+        };
 
     let api_state = api::state::ApiState { ipc_client };
     let router = api::build_router(api_state);
@@ -671,11 +752,26 @@ fn start_backend(
     // Ensure performance-critical indexes exist on SQLite databases
     magi_gateway::db::ensure_indexes();
 
-    let std_listener = std::net::TcpListener::bind((BACKEND_HOST, main_port))
-        .map_err(|e| format!("Failed to bind Axum listener on port {}: {}", main_port, e))?;
-    std_listener
-        .set_nonblocking(true)
-        .map_err(|e| format!("Failed to set listener non-blocking: {e}"))?;
+    let std_listener = match std::net::TcpListener::bind((BACKEND_HOST, main_port)) {
+        Ok(l) => l,
+        Err(e) => {
+            return Ok(PollStartupResponse {
+                ready: false,
+                phase: "error".to_string(),
+                error: Some(format!(
+                    "Failed to bind Axum listener on port {}: {}",
+                    main_port, e
+                )),
+            });
+        }
+    };
+    if let Err(e) = std_listener.set_nonblocking(true) {
+        return Ok(PollStartupResponse {
+            ready: false,
+            phase: "error".to_string(),
+            error: Some(format!("Failed to set listener non-blocking: {e}")),
+        });
+    }
 
     write_gateway_port_file(main_port);
 
@@ -703,23 +799,13 @@ fn start_backend(
         notification_bridge::run_notification_bridge(Some(event_emitter), bridge_shutdown_rx).await;
     });
 
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-    runtime.python_process = Some(start.process);
     runtime.axum_shutdown = Some(shutdown_tx);
     runtime.bridge_shutdown = Some(bridge_shutdown_tx);
-    runtime.base_url = Some(base_url.clone());
-    runtime.session_token = Some(session_token.clone());
-    runtime.python_pid = start.pid;
+    runtime.gateway_ready = true;
 
-    Ok(StartBackendResponse {
-        ok: true,
-        base_url,
-        session_token,
-        api_pid: runtime.python_pid,
-        runtime_worker_pid: runtime.python_pid,
+    Ok(PollStartupResponse {
+        ready: true,
+        phase: "ready".to_string(),
         error: None,
     })
 }
@@ -845,6 +931,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             start_backend,
+            poll_backend_startup,
             stop_backend,
             backend_status,
             get_backend_base_url,
