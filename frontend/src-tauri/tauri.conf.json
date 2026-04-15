@@ -38,7 +38,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg0NkZCOThCQTUzMEVEQUUKUldTdTdUQ2xpN2x2aEhnSko4R0JFc3crNnpMVWtuQXV0Nmg2N3R6ZnpES1VxaGRzSnFvdzNrUVcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhFRUI3MUU2NDg5QjkzMTUKUldRVms1dEk1bkhyanZLRmJ1WjVuQnlYekRGVE90ZFZjUDhzSzdHMHY3WXk3a2ZzOVdDa2N1ZFkK",
       "endpoints": [
         "https://github.com/asukaonly/magi/releases/latest/download/latest.json"
       ]
