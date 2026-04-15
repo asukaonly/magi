@@ -120,7 +120,7 @@ jobs:
       - name: Build Python sidecar (Windows)
         if: matrix.os_family == 'windows'
         shell: pwsh
-        run: ./scripts/build-sidecar.ps1 -TargetTriple ${{ matrix.target }}
+        run: ./scripts/build-sidecar.ps1
 
       - name: Install frontend dependencies
         working-directory: frontend

@@ -64,7 +64,7 @@ Magi is a local-first AI agent framework with:
 - Task-agent runtime centered on `ChatTaskAgent`, `ExploreTaskAgent`, `TaskOrchestrator`, and `WorkerAgentManager`
 - Tool registry + builtin/provider tools + skills integration
 - Lifecycle-based memory system (`L0`-`L4`)
-- Desktop runtime target: `Tauri shell + React WebView + Python sidecar backend`
+- Desktop runtime target: `Tauri + React WebView + Python sidecar backend`
 
 Main code locations:
 - Backend core: `backend/src/magi/`
@@ -136,7 +136,7 @@ magi/
 - aiosqlite / redis / chromadb / networkx
 - OpenAI + Anthropic SDKs
 - Socket.IO + aiohttp
-- PyInstaller (desktop sidecar packaging)
+- PyInstaller --onedir (desktop sidecar packaging)
 
 ### Frontend
 - React 18 + TypeScript + Vite
@@ -152,8 +152,8 @@ magi/
 
 ### Desktop Runtime
 - Tauri v2 (Rust host)
-- `@tauri-apps/api` + `@tauri-apps/plugin-shell`
-- Python backend as sidecar process with runtime token handshake
+- `@tauri-apps/api`
+- Python backend as sidecar process (PyInstaller --onedir, bundled via Tauri resources) with runtime token handshake
 
 ---
 
@@ -235,8 +235,7 @@ npm run tauri:build
 cd backend
 pytest
 
-# sidecar build
-cd ..
+# sidecar build (must run before tauri:build)
 ./scripts/build-sidecar.sh
 
 # tauri desktop + backend hot reload
