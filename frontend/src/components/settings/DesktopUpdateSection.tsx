@@ -157,14 +157,9 @@ export function DesktopUpdateSection() {
 
   return (
     <section className="space-y-4 pt-4">
-      <div className="space-y-1.5">
-        <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">
-          {t('settings.updates.title')}
-        </h3>
-        <p className="max-w-3xl text-xs leading-6 text-muted-foreground">
-          {t('settings.updates.description')}
-        </p>
-      </div>
+      <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">
+        {t('settings.updates.title')}
+      </h3>
 
       <div className="space-y-4 rounded-xl border border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.54)] px-4 py-4">
         <div className="grid gap-3 sm:grid-cols-2">

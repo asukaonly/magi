@@ -173,7 +173,8 @@ export function useSettings(): UseSettingsReturn {
       || activeSection === 'personality'
       || activeSection === 'statisticsLlm'
       || activeSection === 'statisticsRuntime'
-      || activeSection === 'memoryGeneral',
+      || activeSection === 'memoryGeneral'
+      || activeSection === 'extensions',
     [activeSection]
   );
 
