@@ -162,6 +162,34 @@ jobs:
             echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
           fi
 
+      - name: Sign sidecar binaries for notarization (macOS)
+        if: matrix.os_family == 'macos' && env.APPLE_SIGNING_IDENTITY != ''
+        shell: bash
+        run: |
+          # Create a temporary keychain and import the Developer ID certificate
+          KEYCHAIN_PATH="$RUNNER_TEMP/sidecar-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/sidecar-cert.p12"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # Prepend our keychain while keeping existing ones in the search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | xargs)
+
+          # Sign all Mach-O binaries in sidecar-dist
+          ./scripts/sign-sidecar-macos.sh
+
       - name: Build release notes from commits
         id: release_notes
         shell: bash
