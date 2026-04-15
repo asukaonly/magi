@@ -34,6 +34,7 @@ dependencies = [
 
     # 配置管理
     "pyyaml>=6.0.1",
+    "tomli>=1.1.0; python_version < '3.11'",
 
     # 日志
     "structlog>=24.1.0",

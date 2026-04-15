@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 from pathlib import Path
 
@@ -10,14 +11,31 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     "dependency_injector.errors",
 )
 
+# Packages whose submodules are loaded dynamically and must be collected in
+# full so that PyInstaller includes every internal module.
 COLLECT_SUBMODULE_PACKAGES = (
-    # dependency_injector's compiled extensions import sibling modules dynamically.
     "dependency_injector",
+    # jieba lazy-loads dictionary data files from its package directory.
+    "jieba",
+    # dateparser.search is imported lazily at call sites.
+    "dateparser",
 )
 
 COLLECT_BINARY_PACKAGES = (
     # sqlite-vec ships its loadable SQLite extension as a package binary.
     "sqlite_vec",
+)
+
+# Packages from optional dependency groups that should be bundled when they
+# are installed in the build environment.  PyInstaller cannot discover them
+# because they are behind ``try: import … except ImportError`` guards.
+OPTIONAL_HIDDEN_IMPORTS = (
+    # local-embedding extra
+    "onnxruntime",
+    "tokenizers",
+    "huggingface_hub",
+    # channels extra
+    "telegram",
 )
 
 PACKAGE_DATA_DIRECTORIES = (
@@ -26,6 +44,15 @@ PACKAGE_DATA_DIRECTORIES = (
     ("plugins", "plugins"),
     ("skills", "skills"),
 )
+
+
+def _detect_optional_hidden_imports() -> list[str]:
+    """Return optional hidden imports that are actually installed."""
+    found: list[str] = []
+    for module_name in OPTIONAL_HIDDEN_IMPORTS:
+        if importlib.util.find_spec(module_name) is not None:
+            found.append(module_name)
+    return found
 
 
 def build_packaged_data_entries(
@@ -68,6 +95,8 @@ def build_pyinstaller_command(
         name,
     ]
     for module_name in SIDE_EFFECT_HIDDEN_IMPORTS:
+        command.extend(["--hidden-import", module_name])
+    for module_name in _detect_optional_hidden_imports():
         command.extend(["--hidden-import", module_name])
     for package_name in COLLECT_SUBMODULE_PACKAGES:
         command.extend(["--collect-submodules", package_name])
