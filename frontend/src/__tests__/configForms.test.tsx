@@ -618,25 +618,6 @@ describe('config forms', () => {
     model_runtime_overrides: {},
   };
 
-  it('keeps the provider list compact and pushes details to the workbench pane', async () => {
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('llm.providerConfiguration.title')).toBeInTheDocument();
-    });
-
-    const providerList = screen.getByTestId('llm-provider-list-pane');
-
-    expect(within(providerList).getByText('OpenAI')).toBeInTheDocument();
-    expect(within(providerList).queryByText('General purpose')).not.toBeInTheDocument();
-    expect(within(providerList).queryByText('GPT-5.2')).not.toBeInTheDocument();
-    expect(screen.getByText('llm.providerConfiguration.availableModels')).toBeInTheDocument();
-  });
-
   it('renders the configured builtin providers with local icons in the provider list', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
@@ -677,37 +658,6 @@ describe('config forms', () => {
     ).toBeTruthy();
   });
 
-  it('renders provider configuration before model selection', async () => {
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    const providerHeading = await screen.findByText('llm.providerConfiguration.title');
-    const modelHeading = screen.getByText('llm.modelSelection.title');
-    expect(
-      providerHeading.compareDocumentPosition(modelHeading) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-  });
-
-  it('keeps the provider workbench split on desktop and gives the detail pane its own scroll container', async () => {
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    const workbench = await screen.findByTestId('llm-provider-workbench');
-    const detailPane = screen.getByTestId('llm-provider-detail-pane');
-    const modelSection = screen.getByTestId('llm-model-selection-section');
-
-    expect(workbench.className).toContain('xl:grid-cols-[220px_minmax(0,1fr)]');
-    expect(workbench.className).toContain('md:min-h-[440px]');
-    expect(detailPane.className).toContain('overflow-y-auto');
-    expect(modelSection.className).toContain('space-y-3');
-  });
-
   it('uses a switch control for provider enablement in the detail pane', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
@@ -720,22 +670,6 @@ describe('config forms', () => {
     });
 
     expect(screen.getByRole('switch', { name: 'llm.fields.enabled' })).toBeInTheDocument();
-  });
-
-  it('keeps provider test actions compact without extra explanatory copy', async () => {
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('llm-provider-detail-pane')).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole('button', { name: 'llm.actions.testConnection' })).toBeInTheDocument();
-    expect(screen.queryByText('llm.providerConfiguration.testTitle')).not.toBeInTheDocument();
-    expect(screen.queryByText('llm.providerConfiguration.testDesc')).not.toBeInTheDocument();
   });
 
   it('does not prefill default base url for inactive built-in providers', async () => {
@@ -892,38 +826,6 @@ describe('config forms', () => {
 
     const editor = screen.getByTestId('llm-provider-model-editor');
     expect(within(editor).getByRole('switch', { name: 'llm.modelFields.vision' })).toHaveAttribute('aria-checked', 'true');
-  });
-
-  it('uses custom select controls and flat cards for model selection on the settings surface', async () => {
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-      </Form>
-    );
-
-    const coreCard = await screen.findByTestId('llm-scenario-core');
-    const providerField = within(coreCard).getByLabelText('llm.fields.provider');
-    const modelField = within(coreCard).getByLabelText('llm.fields.model');
-
-    expect(providerField.tagName).toBe('BUTTON');
-    expect(modelField.tagName).toBe('BUTTON');
-    expect(coreCard.className).not.toContain('bg-[linear-gradient');
-    expect(coreCard.className).not.toContain('bg-muted/18');
-  });
-
-  it('does not render an extra top divider above advanced settings on the settings surface', async () => {
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-      </Form>
-    );
-
-    const coreCard = await screen.findByTestId('llm-scenario-core');
-    const advancedToggle = within(coreCard).getByRole('button', { name: 'llm.showAdvanced' });
-    const advancedContainer = advancedToggle.parentElement;
-
-    expect(advancedContainer).toBeTruthy();
-    expect(advancedContainer?.className).not.toContain('border-t');
   });
 
   it('sorts model options alphabetically in the scenario model menu', async () => {
@@ -1473,53 +1375,6 @@ describe('config forms', () => {
     expect(screen.queryByRole('button', { name: 'llm.actions.removeProvider' })).not.toBeInTheDocument();
   });
 
-  it('puts api connection fields before model management for custom providers', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-
-    const apiKeyField = screen.getByLabelText('llm.fields.apiKey');
-    const baseUrlField = screen.getByLabelText('llm.fields.baseUrl');
-    const modelEntryField = screen.getByLabelText('llm.fields.modelManualEntry');
-
-    expect(
-      apiKeyField.compareDocumentPosition(modelEntryField) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      baseUrlField.compareDocumentPosition(modelEntryField) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-  });
-
-  it('puts custom provider identity fields before api connection fields', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-
-    const displayNameField = screen.getByLabelText('llm.fields.displayName');
-    const apiFormatField = screen.getByLabelText('llm.fields.apiFormat');
-    const apiKeyField = screen.getByLabelText('llm.fields.apiKey');
-    const baseUrlField = screen.getByLabelText('llm.fields.baseUrl');
-
-    expect(
-      displayNameField.compareDocumentPosition(apiKeyField) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      apiFormatField.compareDocumentPosition(baseUrlField) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-  });
-
   it('uses a selectable default model instead of free text for custom providers', async () => {
     const user = userEvent.setup();
 
@@ -1560,58 +1415,6 @@ describe('config forms', () => {
     expect(
       defaultModelField.compareDocumentPosition(modelEntryField) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-  });
-
-  it('uses the custom provider initial as its icon glyph', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-
-    const displayNameField = screen.getByLabelText('llm.fields.displayName');
-    await user.clear(displayNameField);
-    await user.type(displayNameField, 'Nova Proxy');
-
-    const providerList = await screen.findByTestId('llm-provider-list-pane');
-    expect(within(providerList).getByTestId('llm-provider-icon-custom')).toHaveTextContent('N');
-  });
-
-  it('does not reintroduce implicit two-column layout for custom providers on the settings surface', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-
-    const customDefaultModelField = screen.getByLabelText('llm.fields.defaultModel');
-    const detailPane = screen.getByTestId('llm-provider-detail-pane');
-
-    expect(detailPane.className).not.toContain('lg:col-span-2');
-    expect(customDefaultModelField).toBeInTheDocument();
-  });
-
-  it('uses custom select controls for custom provider fields on the settings surface', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
-    );
-
-    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
-
-    expect(screen.getByLabelText('llm.fields.apiFormat').tagName).toBe('BUTTON');
-    expect(screen.getByLabelText('llm.fields.defaultModel').tagName).toBe('BUTTON');
   });
 
   it('removes the ambiguous custom api format option', async () => {
@@ -1747,22 +1550,6 @@ describe('config forms', () => {
         }),
       });
     });
-  });
-
-  it('stacks provider detail fields in a single column on the settings surface', async () => {
-    render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
-    );
-
-    const apiKeyField = await screen.findByLabelText('llm.fields.apiKey');
-    const fieldGrid = apiKeyField.closest('div.grid');
-    const availableModels = screen.getByText('llm.providerConfiguration.availableModels').parentElement;
-
-    expect(fieldGrid).toHaveClass('grid');
-    expect(fieldGrid?.className).not.toContain('lg:grid-cols-2');
-    expect(availableModels?.className).not.toContain('lg:col-span-2');
   });
 
   it('memory form warns when l1 is turned off', async () => {

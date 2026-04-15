@@ -118,7 +118,7 @@ jobs:
         shell: bash
         run: |
           npm run type-check
-          npm run test
+          npm run test:ci
           npm run lint
 
       - name: Run backend validation

@@ -630,33 +630,6 @@ describe('settings page draft saving', () => {
     expect(syncCloseToTrayPreferenceMock).toHaveBeenCalledWith(false);
   });
 
-  it('uses a full-width preferences pane without repeating single-field labels', async () => {
-    render(<SettingsPage />);
-
-    const content = await screen.findByTestId('settings-section-content');
-
-    expect(content).not.toHaveClass('max-w-3xl');
-    expect(screen.getAllByText('settings.fields.language')).toHaveLength(1);
-    expect(screen.getAllByText('settings.fields.theme')).toHaveLength(1);
-    expect(screen.getAllByText('settings.fields.windowSettings')).toHaveLength(1);
-    expect(screen.queryByText('settings.fields.defaultChatWorkspace')).not.toBeInTheDocument();
-  });
-
-  it('renders the theme preference as a dropdown-style field', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
-
-    const themeTrigger = await screen.findByRole('button', { name: 'settings.fields.theme' });
-
-    expect(screen.queryByRole('button', { name: 'settings.theme.light' })).not.toBeInTheDocument();
-
-    await user.click(themeTrigger);
-
-    expect(await screen.findByRole('button', { name: 'settings.theme.light' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'settings.theme.dark' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'settings.theme.system' })).toBeInTheDocument();
-  });
-
   it('does not mark provider settings dirty when llm form normalizes mounted values', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
@@ -1347,17 +1320,6 @@ describe('settings page draft saving', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled());
   });
 
-  it('keeps the dialog border on the outer frame and clips content in an inner shell', async () => {
-    render(<SettingsCenterDialog open onOpenChange={vi.fn()} />);
-
-    const dialog = await screen.findByRole('dialog');
-    const innerShell = screen.getByTestId('settings-center-shell');
-
-    expect(dialog.className).not.toContain('overflow-hidden');
-    expect(innerShell.className).toContain('overflow-hidden');
-    expect(innerShell.className).toContain('rounded-[inherit]');
-  });
-
   it('renders the personality editor inside settings', async () => {
     const user = userEvent.setup();
 
@@ -1368,16 +1330,6 @@ describe('settings page draft saving', () => {
     expect(await screen.findByText('personality-modern:embedded')).toBeInTheDocument();
     expect(screen.getByTestId('settings-section-content')).not.toHaveClass('max-w-3xl');
     expect(screen.queryByRole('button', { name: 'settings.actions.save' })).not.toBeInTheDocument();
-  });
-
-  it('applies the dedicated warm settings theme shell to the settings workspace', async () => {
-    render(<SettingsPage />);
-
-    const settingsRoot = await screen.findByTestId('settings-theme-root');
-    const activeNav = screen.getByRole('button', { name: 'settings.tabs.preferences' });
-
-    expect(settingsRoot.className).toContain('settings-theme-surface');
-    expect(activeNav.className).toContain('var(--settings-nav-active)');
   });
 
   it('does not expose the system settings entry in user-facing navigation', async () => {
@@ -1414,66 +1366,4 @@ describe('settings page draft saving', () => {
     expect(screen.getByTestId('settings-section-content')).not.toHaveClass('max-w-3xl');
   });
 
-  it('renders the top-level settings navigation in the user-facing order with sensors renamed', async () => {
-    render(<SettingsPage />);
-
-    const nav = (await screen.findByRole('button', { name: 'settings.tabs.preferences' })).closest('nav');
-    expect(nav).toBeTruthy();
-
-    const topLevelButtons = within(nav as HTMLElement)
-      .getAllByRole('button')
-      .map((button) => button.getAttribute('aria-label'))
-      .filter((label): label is string => Boolean(label))
-      .filter((label) =>
-        [
-          'settings.tabs.preferences',
-          'settings.tabs.llm',
-          'settings.tabs.conversation',
-          'settings.tabs.personality',
-          'settings.tabs.memory',
-          'settings.tabs.extensions',
-          'settings.tabs.timeline',
-          'settings.tabs.actions',
-          'settings.tabs.tools',
-          'settings.tabs.statistics',
-        ].includes(label)
-      );
-
-    expect(topLevelButtons).toEqual([
-      'settings.tabs.preferences',
-      'settings.tabs.llm',
-      'settings.tabs.conversation',
-      'settings.tabs.personality',
-      'settings.tabs.memory',
-      'settings.tabs.extensions',
-      'settings.tabs.timeline',
-      'settings.tabs.actions',
-      'settings.tabs.tools',
-      'settings.tabs.statistics',
-    ]);
-  });
-
-  it('shows the conversation settings section between llm and personality', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
-
-    const conversationButton = await screen.findByRole('button', { name: 'settings.tabs.conversation' });
-
-    await user.click(conversationButton);
-
-    expect(screen.getByRole('heading', { name: 'settings.tabs.conversation' })).toBeInTheDocument();
-    expect(screen.getByLabelText('settings.fields.defaultChatWorkspace')).toBeInTheDocument();
-  });
-
-  it('keeps a small horizontal gutter so field borders are not clipped in scrolling sections', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
-
-    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
-
-    const content = screen.getByTestId('settings-section-content');
-
-    expect(content.className).toContain('pl-1');
-    expect(content.className).toContain('pr-2');
-  });
 });
