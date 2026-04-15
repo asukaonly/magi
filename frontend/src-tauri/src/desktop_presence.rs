@@ -158,6 +158,15 @@ pub fn restore_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String>
     window
         .set_focus()
         .map_err(|err| format!("Failed to focus main window: {err}"))?;
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::NSApplication;
+        if let Some(mtm) = MainThreadMarker::new() {
+            #[allow(deprecated)]
+            NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+        }
+    }
     Ok(())
 }
 
