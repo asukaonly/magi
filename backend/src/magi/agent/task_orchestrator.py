@@ -13,6 +13,7 @@ from ..chat.workspace import get_default_chat_workspace_path
 from ..agent.runtime.contracts import FactRecord
 from ..tools.registry import ToolRegistry
 from ..tools.schema import ToolExecutionContext
+from ..utils.packaged_paths import get_repo_root
 from .orchestration import (
     OrchestrationExecutionResult,
     RETRIABLE_WORKER_FAILURES,
@@ -562,11 +563,7 @@ class TaskOrchestrator:
         return get_default_chat_workspace_path()
 
     def _resolve_runtime_project_root(self) -> str | None:
-        try:
-            candidate = Path(__file__).resolve().parents[4]
-        except IndexError:
-            return None
-
+        candidate = get_repo_root()
         if any((candidate / marker).exists() for marker in ("backend", "frontend", "docs", ".git")):
             return str(candidate)
         return None

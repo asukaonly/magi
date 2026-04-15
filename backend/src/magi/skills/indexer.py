@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from ..utils.packaged_paths import get_repo_root
 from .schema import SkillMetadata, SkillFrontmatter
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class SkillIndexer:
     """
 
     # Skill directories in priority order (higher priority first)
-    _REPO_ROOT = Path(__file__).resolve().parents[4]
+    _REPO_ROOT = get_repo_root()
     SKILL_LOCATIONS = [
         Path.home() / ".claude" / "skills",     # Personal (high priority)
         _REPO_ROOT / "skills",                  # Project predefined skills (magi/skills)

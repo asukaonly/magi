@@ -11,6 +11,7 @@ import yaml
 
 from ..event_contracts import MemoryEvent
 from .ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_ALIASES, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+from ...utils.packaged_paths import get_backend_root
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
     ),
 }
 
-_BUILTIN_YAML_PATH = Path(__file__).resolve().parents[4] / "configs" / "l2_extraction_profiles.yaml"
+_BUILTIN_YAML_PATH = get_backend_root() / "configs" / "l2_extraction_profiles.yaml"
 
 _loaded_profiles: dict[str, ExtractionProfile] | None = None
 

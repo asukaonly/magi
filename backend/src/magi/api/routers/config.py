@@ -31,6 +31,7 @@ from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
 from ...bootstrap import refresh_runtime_llm_config
+from ...utils.packaged_paths import get_backend_root
 from ..services.llm_testing_service import get_llm_provider_registry as _load_llm_provider_registry
 
 logger = get_logger(__name__)
@@ -949,7 +950,7 @@ def _resolve_personality_language_code(language: str) -> str:
 
 def _load_quick_mode_default_personality(language: str) -> Optional[FullPersonalityConfigModel]:
     """Load quick-mode default personality preset with language fallback."""
-    root = Path(__file__).resolve().parents[4] / "personalities"
+    root = get_backend_root() / "personalities"
     language_candidates = [_resolve_personality_language_code(language)]
     if "zh" not in language_candidates:
         language_candidates.append("zh")

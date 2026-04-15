@@ -12,6 +12,7 @@ import signal
 import sys
 import time
 import uuid
+from pathlib import Path
 
 from .core.container import get_container, wire_container
 from .core.logger import configure_logging, get_logger
@@ -27,11 +28,22 @@ DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS = 5.0
 RUNTIME_HEARTBEAT_ROLE = "ipc_worker"
 
 
+def configure_worker_logging() -> Path:
+    """Configure file-backed logging for the IPC worker."""
+    runtime_paths = get_runtime_paths()
+    log_file = runtime_paths.logs_dir / "magi.log"
+    configure_logging(
+        level="INFO",
+        log_file=str(log_file),
+        json_logs=False,
+    )
+    return log_file
+
+
 async def _run_worker() -> None:
     """Main async worker loop."""
     runtime_paths = get_runtime_paths()
-    log_file = runtime_paths.logs_dir / "magi.log"
-    configure_logging(str(log_file))
+    configure_worker_logging()
 
     logger.info("IPC worker starting")
 

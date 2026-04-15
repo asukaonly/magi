@@ -33,6 +33,7 @@ from ...config import get_config
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
 from ...llm.draft import build_adapter_from_provider
+from ...utils.packaged_paths import get_backend_root
 
 logger = get_logger(__name__)
 
@@ -80,7 +81,7 @@ class TestLLMProviderApiResponseModel(BaseModel):
 
 
 def _llm_provider_registry_path() -> Path:
-    return Path(__file__).resolve().parents[4] / "configs" / "llm_providers.yaml"
+    return get_backend_root() / "configs" / "llm_providers.yaml"
 
 
 def _default_llm_provider_registry() -> LLMProviderRegistryModel:

@@ -29,12 +29,13 @@ fi
 mkdir -p "${TAURI_BIN_DIR}"
 
 pushd "${BACKEND_DIR}" >/dev/null
-python -m PyInstaller \
-  --noconfirm \
-  --clean \
-  --onefile \
-  --name magi-backend \
-  run_server.py
+PYTHONPATH="${BACKEND_DIR}/src${PYTHONPATH+:${PYTHONPATH}}" python - <<'PY'
+import subprocess
+
+from magi.utils.sidecar_build import build_pyinstaller_command
+
+subprocess.run(build_pyinstaller_command(), check=True)
+PY
 popd >/dev/null
 
 SOURCE_BIN="${BACKEND_DIR}/dist/magi-backend"
@@ -49,4 +50,3 @@ cp "${SOURCE_BIN}" "${TARGET_BIN}"
 chmod +x "${TARGET_BIN}"
 
 echo "Built sidecar: ${TARGET_BIN}"
-

@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from ..avatar_paths import resolve_avatar_public_url, user_avatar_dir
+from ...utils.packaged_paths import get_backend_root
 
 
 personality_presets_router = APIRouter()
@@ -39,7 +40,7 @@ class PersonalityPresetDetailResponse(BaseModel):
 
 
 def _resolve_language_dir(lang: Optional[str]) -> Path:
-    root = Path(__file__).resolve().parents[4] / "personalities"
+    root = get_backend_root() / "personalities"
     if not root.exists():
         root.mkdir(parents=True, exist_ok=True)
     normalized = (lang or "zh").lower()

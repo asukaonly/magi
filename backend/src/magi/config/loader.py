@@ -44,6 +44,7 @@ from .llm_registry import (
     build_runtime_llm_defaults,
     load_llm_provider_registry,
 )
+from ..utils.packaged_paths import get_backend_root
 
 logger = logging.getLogger(__name__)
 
@@ -89,13 +90,12 @@ def get_llm_config_file() -> Path:
 
 def get_llm_provider_registry_file() -> Path:
     """Get packaged llm provider registry file path."""
-    return Path(__file__).parent.parent.parent.parent / "configs" / "llm_providers.yaml"
+    return get_backend_root() / "configs" / "llm_providers.yaml"
 
 
 def get_example_config_file() -> Path:
     """Get example config file path (in package)"""
-    # Path relative to this file: backend/configs/config.example.yaml
-    return Path(__file__).parent.parent.parent.parent / "configs" / "config.example.yaml"
+    return get_backend_root() / "configs" / "config.example.yaml"
 
 
 def get_data_dir() -> Path:

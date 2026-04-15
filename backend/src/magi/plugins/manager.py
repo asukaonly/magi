@@ -17,6 +17,7 @@ from ..config import get_config, save_config
 from ..config.models import PluginSettings
 from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..tools.registry import ToolRegistry, tool_registry as shared_tool_registry
+from ..utils.packaged_paths import get_repo_root
 from .actions import ActionRegistry, BaseAction, build_action_tool_class
 from .base import Plugin
 from .contracts import (
@@ -40,12 +41,13 @@ class PluginRuntimeBindings:
 
 def _resolve_search_paths() -> list[Path]:
     config = get_config()
-    builtin_root = Path(__file__).resolve().parents[4] / "plugins"
+    repo_root = get_repo_root()
+    builtin_root = repo_root / "plugins"
     resolved: list[Path] = [builtin_root]
     for raw_path in config.plugins.scan_paths:
         path = Path(raw_path).expanduser()
         if not path.is_absolute():
-            path = (Path(__file__).resolve().parents[4] / raw_path).resolve()
+            path = (repo_root / raw_path).resolve()
         if path not in resolved:
             resolved.append(path)
     return resolved
@@ -482,4 +484,4 @@ class PluginManager:
 
     @staticmethod
     def _default_builtin_root() -> Path:
-        return Path(__file__).resolve().parents[4] / "plugins"
+        return get_repo_root() / "plugins"

@@ -10,6 +10,8 @@ from typing import List, Optional
 
 import yaml
 
+from ..utils.packaged_paths import get_backend_root
+
 logger = logging.getLogger(__name__)
 
 _REGISTRY_FILENAME = "cross_encoder_models.yaml"
@@ -87,7 +89,7 @@ def load_cross_encoder_registry(config_path: Path) -> CrossEncoderModelRegistry:
 
 @lru_cache(maxsize=1)
 def _default_registry_path() -> Path:
-    return Path(__file__).resolve().parent.parent.parent.parent / "configs" / _REGISTRY_FILENAME
+    return get_backend_root() / "configs" / _REGISTRY_FILENAME
 
 
 def get_cross_encoder_registry() -> CrossEncoderModelRegistry:

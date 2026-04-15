@@ -10,6 +10,8 @@ from typing import List, Optional
 
 import yaml
 
+from ..utils.packaged_paths import get_backend_root
+
 logger = logging.getLogger(__name__)
 
 _REGISTRY_FILENAME = "local_embedding_models.yaml"
@@ -96,7 +98,7 @@ def load_local_embedding_registry(config_path: Path) -> LocalEmbeddingModelRegis
 @lru_cache(maxsize=1)
 def _default_registry_path() -> Path:
     """Resolve the default registry YAML path relative to configs/."""
-    return Path(__file__).resolve().parent.parent.parent.parent / "configs" / _REGISTRY_FILENAME
+    return get_backend_root() / "configs" / _REGISTRY_FILENAME
 
 
 def get_local_embedding_registry() -> LocalEmbeddingModelRegistry:
