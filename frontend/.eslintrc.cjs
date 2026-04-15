@@ -24,6 +24,7 @@ module.exports = {
     'node_modules/',
     'src-tauri/target/',
     'src-tauri/gen/',
+    'src-tauri/sidecar-dist/',
     'src-tauri/Cargo.lock',
   ],
   rules: {
