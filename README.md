@@ -86,6 +86,14 @@ Magi stores runtime/app data at:
 
 ### Quick Start (Source Development)
 
+#### Install all dependencies
+
+```bash
+./scripts/install-deps.sh
+```
+
+This installs frontend (npm), backend (pip), and Rust workspace dependencies in one step. Run it after cloning, switching branches, or pulling updates.
+
 #### Desktop (Tauri) + Backend hot reload
 
 ```bash

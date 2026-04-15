@@ -86,6 +86,14 @@ Magi 当前将运行数据存放在：
 
 ### 快速启动（源码开发）
 
+#### 一键安装所有依赖
+
+```bash
+./scripts/install-deps.sh
+```
+
+一次性安装前端（npm）、后端（pip）和 Rust 工作区依赖。在克隆仓库、切换分支或拉取更新后运行。
+
 #### Desktop（Tauri）+ Backend 热更新
 
 ```bash
