@@ -621,9 +621,7 @@ pub async fn get_preset(
         }
         let content = match std::fs::read_to_string(&file) {
             Ok(c) => c,
-            Err(_) => {
-                return json!({"success": false, "message": "Failed to read preset file"})
-            }
+            Err(_) => return json!({"success": false, "message": "Failed to read preset file"}),
         };
         let mut data: Value = match serde_json::from_str(&content) {
             Ok(d) => d,
@@ -652,9 +650,7 @@ pub async fn get_preset(
 // ---------------------------------------------------------------------------
 
 /// PUT /api/personality/current — switch active personality
-pub async fn set_current_personality(
-    Json(body): Json<Value>,
-) -> (StatusCode, Json<Value>) {
+pub async fn set_current_personality(Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
     let name = match body.get("name").and_then(|v| v.as_str()) {
         Some(n) if !n.is_empty() => n.to_string(),
         _ => {
@@ -707,11 +703,10 @@ pub async fn save_personality(
     Json(config): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
     let use_ai_name = params.use_ai_name.unwrap_or(false);
-    let result = tokio::task::spawn_blocking(move || {
-        do_save_personality(&name, config, use_ai_name)
-    })
-    .await
-    .unwrap_or_else(|_| Err("Internal error".to_string()));
+    let result =
+        tokio::task::spawn_blocking(move || do_save_personality(&name, config, use_ai_name))
+            .await
+            .unwrap_or_else(|_| Err("Internal error".to_string()));
 
     match result {
         Ok((actual_name, data)) => (
@@ -788,8 +783,8 @@ fn do_save_personality(
     }
 
     // Write JSON
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize: {e}"))?;
+    let content =
+        serde_json::to_string_pretty(&config).map_err(|e| format!("Failed to serialize: {e}"))?;
     let filepath = dir.join(format!("{actual_name}.json"));
     std::fs::write(&filepath, content).map_err(|e| format!("Failed to write: {e}"))?;
 
@@ -800,9 +795,7 @@ fn do_save_personality(
 }
 
 /// DELETE /api/personality/{name}
-pub async fn delete_personality(
-    Path(name): Path<String>,
-) -> (StatusCode, Json<Value>) {
+pub async fn delete_personality(Path(name): Path<String>) -> (StatusCode, Json<Value>) {
     if name == "default" {
         return (
             StatusCode::BAD_REQUEST,

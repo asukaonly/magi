@@ -139,10 +139,13 @@ pub async fn run_notification_bridge(
             let mut data = parse_payload(&row.payload_json);
             // Inject top-level fields into data for frontend compatibility
             if let Some(obj) = data.as_object_mut() {
-                obj.entry("user_id").or_insert_with(|| serde_json::Value::String(row.user_id.clone()));
-                obj.entry("session_id").or_insert_with(|| serde_json::Value::String(row.session_id.clone()));
+                obj.entry("user_id")
+                    .or_insert_with(|| serde_json::Value::String(row.user_id.clone()));
+                obj.entry("session_id")
+                    .or_insert_with(|| serde_json::Value::String(row.session_id.clone()));
                 if let Some(ref turn_id) = row.turn_id {
-                    obj.entry("turn_id").or_insert_with(|| serde_json::Value::String(turn_id.clone()));
+                    obj.entry("turn_id")
+                        .or_insert_with(|| serde_json::Value::String(turn_id.clone()));
                 }
             }
 

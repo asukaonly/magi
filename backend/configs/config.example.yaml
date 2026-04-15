@@ -225,12 +225,12 @@ plugins:
 channels:
   telegram:
     enabled: false
-    bot_token: ""                    # From @BotFather
-    mode: "polling"                  # "polling" or "webhook"
-    webhook_url: ""                  # Required if mode == "webhook"
+    bot_token: "" # From @BotFather
+    mode: "polling" # "polling" or "webhook"
+    webhook_url: "" # Required if mode == "webhook"
     webhook_secret: ""
-    allowed_user_ids: []             # Empty = allow all; list = whitelist
-    group_trigger_keyword: ""        # Optional keyword prefix for group chats
+    allowed_user_ids: [] # Empty = allow all; list = whitelist
+    group_trigger_keyword: "" # Optional keyword prefix for group chats
     magi_user_id: "default"
     max_message_length: 4096
 
