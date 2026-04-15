@@ -1805,6 +1805,11 @@
       "description": "Quitting will stop backend tasks and shut down the local runtime.",
       "cancel": "Keep Running",
       "confirm": "Quit"
+    },
+    "health": {
+      "degraded": "Backend services are running but may need attention.",
+      "offline": "Backend is not responding. Some features may be unavailable.",
+      "exited": "Backend process has stopped unexpectedly."
     }
   },
   "personality": {

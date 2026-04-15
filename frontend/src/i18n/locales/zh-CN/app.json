@@ -1879,6 +1879,11 @@
       "description": "退出后会终止后台任务并关闭本地运行时。",
       "cancel": "继续驻留",
       "confirm": "退出"
+    },
+    "health": {
+      "degraded": "后端服务运行中，但可能需要关注。",
+      "offline": "后端无响应，部分功能可能不可用。",
+      "exited": "后端进程已意外停止。"
     }
   },
   "personality": {

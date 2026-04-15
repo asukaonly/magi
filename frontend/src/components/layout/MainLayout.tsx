@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useChatShellStore } from '@/stores';
+import { useBackendHealth } from '@/hooks/useBackendHealth';
 import { panelByPathname } from '@/pages/chat-route-helpers';
 import AppShellProviders from './AppShellProviders';
+import BackendHealthBanner from './BackendHealthBanner';
 import Sidebar from './Sidebar';
 import ShellOverlays from './ShellOverlays';
 
@@ -11,6 +13,7 @@ const SHELL_DRAG_STRIP_LEFT = '84px';
 const MainLayout: React.FC = () => {
   const location = useLocation();
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  useBackendHealth();
 
   useEffect(() => {
     setActivePanel(panelByPathname(location.pathname));
@@ -30,8 +33,9 @@ const MainLayout: React.FC = () => {
             data-tauri-drag-region
           />
           <Sidebar />
-          <div className="col-start-2 min-h-0 min-w-0">
-            <main className="h-full overflow-hidden">
+          <div className="col-start-2 flex min-h-0 min-w-0 flex-col">
+            <BackendHealthBanner />
+            <main className="min-h-0 flex-1 overflow-hidden">
               <div className="page-enter h-full overflow-hidden">
                 <Outlet />
               </div>
