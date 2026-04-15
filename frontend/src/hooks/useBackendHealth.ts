@@ -52,7 +52,7 @@ export function useBackendHealth(): void {
 
     const check = async () => {
       try {
-        const resp = await apiClient.get<ReadyResponse>('/api/ready');
+        const resp = await apiClient.get<ReadyResponse>('/ready');
         const data = resp.data?.data;
         failCount.current = 0;
         if (data?.status === 'ready') {
@@ -65,7 +65,7 @@ export function useBackendHealth(): void {
         if (failCount.current >= FAILURE_THRESHOLD) {
           // Distinguish: can we still reach the Rust gateway?
           try {
-            await apiClient.get('/api/health');
+            await apiClient.get('/health');
             // Gateway alive but Python down
             setHealth('offline', 'unreachable');
           } catch {
