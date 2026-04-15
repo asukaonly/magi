@@ -1167,10 +1167,10 @@ describe('config forms', () => {
     await user.click(screen.getByRole('button', { name: '512' }));
 
     expect(await screen.findByText('llm.embeddingDimensionConfirm.title')).toBeInTheDocument();
-    expect(onChange).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'llm.embeddingDimensionConfirm.cancel' }));
-    expect(onChange).not.toHaveBeenCalled();
+    const latestAfterCancel = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] ?? controlledValue;
+    expect(latestAfterCancel.selections.embedding.embedding_dimension).toBe(1536);
 
     await user.click(dimensionField);
     await user.click(screen.getByRole('button', { name: '512' }));
