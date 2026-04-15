@@ -24,9 +24,15 @@ jobs:
           - label: macOS Intel
             runner: macos-15-intel
             target: x86_64-apple-darwin
+            os_family: macos
           - label: macOS Apple Silicon
             runner: macos-15
             target: aarch64-apple-darwin
+            os_family: macos
+          - label: Windows
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            os_family: windows
 
     steps:
       - name: Checkout repository
@@ -106,9 +112,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]" pyinstaller
 
-      - name: Build Python sidecar
+      - name: Build Python sidecar (Unix)
+        if: matrix.os_family != 'windows'
         shell: bash
         run: ./scripts/build-sidecar.sh
+
+      - name: Build Python sidecar (Windows)
+        if: matrix.os_family == 'windows'
+        shell: pwsh
+        run: ./scripts/build-sidecar.ps1 -TargetTriple ${{ matrix.target }}
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -128,6 +140,7 @@ jobs:
         run: ./scripts/run-backend-smoke.sh
 
       - name: Export optional macOS signing secrets
+        if: matrix.os_family == 'macos'
         shell: bash
         run: |
           if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
