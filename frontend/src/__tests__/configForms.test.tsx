@@ -637,7 +637,7 @@ describe('config forms', () => {
     expect(screen.getByText('llm.providerConfiguration.availableModels')).toBeInTheDocument();
   });
 
-  it('renders the extended builtin providers with local icons in the provider list', async () => {
+  it('renders the configured builtin providers with local icons in the provider list', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
         <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
@@ -646,17 +646,12 @@ describe('config forms', () => {
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
 
+    expect(within(providerList).getByText('OpenAI')).toBeInTheDocument();
+    expect(within(providerList).getByText('Anthropic')).toBeInTheDocument();
     expect(within(providerList).getByText('Z.ai')).toBeInTheDocument();
-    expect(within(providerList).getByText('Google Gemini')).toBeInTheDocument();
-    expect(within(providerList).getByText('DeepSeek')).toBeInTheDocument();
-    expect(within(providerList).getByText('Kimi')).toBeInTheDocument();
-    expect(within(providerList).getByText('MiniMax')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-openai')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-icon-anthropic')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-zai')).toBeInTheDocument();
-    expect(within(providerList).getByTestId('llm-provider-icon-gemini')).toBeInTheDocument();
-    expect(within(providerList).getByTestId('llm-provider-icon-deepseek')).toBeInTheDocument();
-    expect(within(providerList).getByTestId('llm-provider-icon-kimi')).toBeInTheDocument();
-    expect(within(providerList).getByTestId('llm-provider-icon-minimax')).toBeInTheDocument();
   });
 
   it('pins enabled providers above disabled providers in the settings provider list', async () => {
@@ -708,7 +703,7 @@ describe('config forms', () => {
     const modelSection = screen.getByTestId('llm-model-selection-section');
 
     expect(workbench.className).toContain('xl:grid-cols-[220px_minmax(0,1fr)]');
-    expect(workbench.className).toContain('md:h-[clamp(440px,56vh,680px)]');
+    expect(workbench.className).toContain('md:min-h-[440px]');
     expect(detailPane.className).toContain('overflow-y-auto');
     expect(modelSection.className).toContain('space-y-3');
   });

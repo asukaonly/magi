@@ -10,8 +10,16 @@ import { pluginsApi } from '@/api/modules/plugins';
 import { sensorsApi } from '@/api/modules/sensors';
 import { toolsApi } from '@/api/modules/tools';
 
-const { syncCloseToTrayPreferenceMock, pickDirectoryMock, llmFormAutoChangeRef } = vi.hoisted(() => ({
+const {
+  syncCloseToTrayPreferenceMock,
+  syncAutoStartPreferenceMock,
+  syncStartMinimizedPreferenceMock,
+  pickDirectoryMock,
+  llmFormAutoChangeRef,
+} = vi.hoisted(() => ({
   syncCloseToTrayPreferenceMock: vi.fn(),
+  syncAutoStartPreferenceMock: vi.fn(),
+  syncStartMinimizedPreferenceMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   llmFormAutoChangeRef: {
     current: null as null | ((args: { value: any; view?: 'all' | 'providers' | 'models' }) => any | null),
@@ -115,6 +123,8 @@ vi.mock('@/components/settings/RuntimeStatisticsSection', () => ({
 
 vi.mock('@/runtime/desktop', () => ({
   syncCloseToTrayPreference: syncCloseToTrayPreferenceMock,
+  syncAutoStartPreference: syncAutoStartPreferenceMock,
+  syncStartMinimizedPreference: syncStartMinimizedPreferenceMock,
   pickDirectory: pickDirectoryMock,
 }));
 
@@ -524,6 +534,8 @@ describe('settings page draft saving', () => {
     llmFormMock.mockReset();
     llmFormAutoChangeRef.current = null;
     syncCloseToTrayPreferenceMock.mockReset();
+    syncAutoStartPreferenceMock.mockReset();
+    syncStartMinimizedPreferenceMock.mockReset();
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
 
@@ -721,7 +733,7 @@ describe('settings page draft saving', () => {
     expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
   });
 
-  it('reloads llm settings from the saved server response after saving', async () => {
+  it('feeds saved llm responses back into the provider form after saving', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.update).mockResolvedValue({
       success: true,
@@ -746,7 +758,13 @@ describe('settings page draft saving', () => {
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
     await waitFor(() => {
-      expect(screen.getByText('llm-normalized')).toBeInTheDocument();
+      expect(llmFormMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          value: expect.objectContaining({
+            normalized: true,
+          }),
+        })
+      );
     });
   });
 
@@ -897,38 +915,17 @@ describe('settings page draft saving', () => {
     );
   });
 
-  it('saves memory reranker settings from the general memory section', async () => {
+  it('saves cross-encoder controls from the general memory section', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.reranker_enabled.label' }));
-
-    await user.click(screen.getByRole('button', { name: 'settings.memory.fields.reranker_backend.label' }));
-    await user.click(screen.getByRole('button', { name: 'settings.memory.options.reranker_backend.llm' }));
-
-    await user.click(screen.getByRole('button', { name: 'settings.memory.fields.reranker_mode.label' }));
-    await user.click(screen.getByRole('button', { name: 'settings.options.remote' }));
-
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.reranker_layers.l3.label' }));
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.reranker_layers.l4.label' }));
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.cross_encoder_enabled.label' }));
 
     const topKInput = screen.getByLabelText('settings.memory.fields.reranker_top_k.label');
     fireEvent.change(topKInput, { target: { value: '12' } });
-
-    const timeoutInput = screen.getByLabelText('settings.memory.fields.reranker_timeout_seconds.label');
-    fireEvent.change(timeoutInput, { target: { value: '1.2' } });
-
-    const candidateMaxCharsInput = screen.getByLabelText('settings.memory.fields.reranker_candidate_max_chars.label');
-    fireEvent.change(candidateMaxCharsInput, { target: { value: '640' } });
-
-    const providerInput = screen.getByLabelText('settings.memory.fields.reranker_remote_provider_id.label');
-    fireEvent.change(providerInput, { target: { value: 'openai' } });
-
-    const modelInput = screen.getByLabelText('settings.memory.fields.reranker_remote_model.label');
-    fireEvent.change(modelInput, { target: { value: 'gpt-4o-mini' } });
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
@@ -937,16 +934,9 @@ describe('settings page draft saving', () => {
         expect.objectContaining({
           memory: expect.objectContaining({
             reranker: expect.objectContaining({
-              enabled: true,
-              backend: 'llm',
-              mode: 'remote',
-              layers: ['L1', 'L4'],
               top_k: 12,
-              timeout_seconds: 1.2,
-              candidate_max_chars: 640,
-              remote: expect.objectContaining({
-                provider_id: 'openai',
-                model: 'gpt-4o-mini',
+              cross_encoder: expect.objectContaining({
+                enabled: true,
               }),
             }),
           }),

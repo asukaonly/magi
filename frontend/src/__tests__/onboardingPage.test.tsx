@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { configApi } from '@/api/modules/config';
 import OnboardingPage from '@/pages/Onboarding';
 
 vi.mock('react-i18next', () => ({
@@ -35,20 +36,16 @@ vi.mock('@/api/modules/config', async () => {
 });
 
 describe('OnboardingPage', () => {
-  it('centers the onboarding surface within the viewport', async () => {
+  it('loads the onboarding template and renders the onboarding flow', async () => {
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(() => null),
       setItem: vi.fn(),
       removeItem: vi.fn(),
     });
 
-    const { container } = render(<OnboardingPage />);
+    render(<OnboardingPage />);
 
     await screen.findByText('onboarding-flow');
-
-    const root = container.firstElementChild as HTMLElement | null;
-
-    expect(root?.className).toContain('items-center');
-    expect(root?.className).toContain('justify-center');
+    expect(configApi.getOnboardingTemplate).toHaveBeenCalled();
   });
 });

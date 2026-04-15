@@ -23,7 +23,9 @@ vi.mock('react-router-dom', () => ({
 }));
 
 describe('OnboardingFlow', () => {
-  it('uses a viewport-filling frame layout and keeps quick mode on provider configuration only', () => {
+  it('shows the welcome entrypoint first and keeps quick mode focused on scenario and provider setup', async () => {
+    const user = userEvent.setup();
+
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(() => null),
       setItem: vi.fn(),
@@ -42,14 +44,21 @@ describe('OnboardingFlow', () => {
       />
     );
 
-    expect(container.innerHTML).toContain('h-[clamp(620px,82vh,840px)]');
-    expect(screen.getByText('steps.language')).toBeInTheDocument();
+    expect(container.innerHTML).toContain('fixed inset-0');
+    expect(screen.getByText('welcome.title')).toBeInTheDocument();
+    expect(screen.getByText('welcome.subtitle')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' }));
+
+    expect(await screen.findByText('steps.scenario')).toBeInTheDocument();
     expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
     expect(screen.queryByText('steps.personality')).not.toBeInTheDocument();
     expect(screen.queryByText('steps.llmModels')).not.toBeInTheDocument();
   });
 
-  it('includes a dedicated model-selection step in expert mode', () => {
+  it('includes a dedicated model-selection step after entering expert mode', async () => {
+    const user = userEvent.setup();
+
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(() => null),
       setItem: vi.fn(),
@@ -68,13 +77,13 @@ describe('OnboardingFlow', () => {
       />
     );
 
-    expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'welcome.expertMode welcome.expertModeDesc' }));
+
+    expect(await screen.findByText('steps.llmProviders')).toBeInTheDocument();
     expect(screen.getByText('steps.llmModels')).toBeInTheDocument();
   });
 
-  it('renders the mode step with the same heading structure as other onboarding steps', async () => {
-    const user = userEvent.setup();
-
+  it('renders the welcome mode selection entrypoint with both mode cards', () => {
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(() => null),
       setItem: vi.fn(),
@@ -93,11 +102,11 @@ describe('OnboardingFlow', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    expect(await screen.findByText('mode.label')).toBeInTheDocument();
-    expect(screen.getByText('mode.description')).toBeInTheDocument();
-    expect(screen.getByText('mode.quick')).toBeInTheDocument();
-    expect(screen.getByText('mode.expert')).toBeInTheDocument();
+    expect(screen.getByText('welcome.title')).toBeInTheDocument();
+    expect(screen.getByText('welcome.subtitle')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'welcome.quickMode welcome.quickModeDesc' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'welcome.expertMode welcome.expertModeDesc' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '中文' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'EN' })).toBeInTheDocument();
   });
 });

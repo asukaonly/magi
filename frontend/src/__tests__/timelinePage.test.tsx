@@ -213,10 +213,10 @@ describe('timeline page', () => {
       )
     );
     expect(await screen.findByText('Deep Work')).toBeInTheDocument();
-    expect(screen.getByText('coding')).toBeInTheDocument();
-    expect(screen.getByText('notes')).toBeInTheDocument();
-    expect(screen.getByText('chat')).toBeInTheDocument();
-    expect(screen.getByText('manual_journal')).toBeInTheDocument();
+    expect(screen.getByText('#coding')).toBeInTheDocument();
+    expect(screen.getByText('#notes')).toBeInTheDocument();
+    expect(screen.getByText('timeline.sources.chat')).toBeInTheDocument();
+    expect(screen.getByText('timeline.sources.manual_journal')).toBeInTheDocument();
     expect(screen.queryByText('March reflection')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'timeline.scale.hour' }));
@@ -236,8 +236,7 @@ describe('timeline page', () => {
     render(<TimelinePage />);
 
     await user.click(await screen.findByRole('button', { name: 'timeline.scale.day' }));
-    const openButton = await screen.findByRole('button', { name: 'timeline.actions.openContext:cluster-1' });
-    await user.click(openButton);
+    await user.click(await screen.findByRole('button', { name: /Deep Work/ }));
 
     await waitFor(() => expect(timelineApi.getContext).toHaveBeenCalledWith('cluster-1'));
     expect(await screen.findByText('Focus remained high despite rising stress.')).toBeInTheDocument();
