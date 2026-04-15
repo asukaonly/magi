@@ -22,10 +22,10 @@ jobs:
       matrix:
         include:
           - label: macOS Intel
-            runner: macos-13
+            runner: macos-15-intel
             target: x86_64-apple-darwin
           - label: macOS Apple Silicon
-            runner: macos-14
+            runner: macos-15
             target: aarch64-apple-darwin
 
     steps:
@@ -149,7 +149,7 @@ jobs:
           fi
 
       - name: Build and publish Tauri bundle
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
