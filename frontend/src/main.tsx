@@ -9,10 +9,12 @@ import './index.css';
 import './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
+import type { LanguageCode } from './api/modules/config';
 import { initializeRuntime, resetRuntimeInitialization } from './runtime/config';
 import type { StartupPhase } from './runtime/config';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, applyStartMinimized } from './runtime/desktop';
 import { initializeTheme } from './stores/theme';
+import { persistLanguageSelection, previewLanguageSelection } from './utils/settings-helpers';
 
 initializeTheme();
 
@@ -35,6 +37,11 @@ const RuntimeBootstrap: React.FC = () => {
       try {
         const response = await configApi.get();
         const prefs = response.data?.preferences;
+        if (prefs?.language) {
+          const lang = prefs.language as LanguageCode;
+          persistLanguageSelection(lang);
+          await previewLanguageSelection(lang);
+        }
         await syncCloseToTrayPreference(prefs?.close_to_tray_enabled ?? true);
         await syncAutoStartPreference(prefs?.auto_start_enabled ?? false);
         await syncStartMinimizedPreference(prefs?.start_minimized ?? false);
