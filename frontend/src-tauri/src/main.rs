@@ -471,13 +471,8 @@ fn spawn_sidecar_backend(
     session_token: &str,
     ipc_socket_path: &str,
 ) -> Result<ManagedBackendStart, String> {
-    let (process, pid) = spawn_sidecar_role(
-        app,
-        "ipc_worker",
-        None,
-        session_token,
-        ipc_socket_path,
-    )?;
+    let (process, pid) =
+        spawn_sidecar_role(app, "ipc_worker", None, session_token, ipc_socket_path)?;
     Ok(ManagedBackendStart { process, pid })
 }
 
@@ -619,11 +614,7 @@ fn start_backend(
     let start = if cfg!(debug_assertions) {
         spawn_dev_backend_pair(&session_token, &ipc_socket_path)?
     } else {
-        spawn_sidecar_backend(
-            &app,
-            &session_token,
-            &ipc_socket_path,
-        )?
+        spawn_sidecar_backend(&app, &session_token, &ipc_socket_path)?
     };
 
     // Store process and metadata — actual readiness is handled by poll_backend_startup.
