@@ -156,6 +156,54 @@ if [[ ${#FW_OLD_BASES[@]} -gt 0 ]]; then
         | grep "${old}" || true)
     done
   done < <(find "${SIDECAR_DIR}" -type f -print0)
+
+  # Fix symlinks whose targets referenced the old framework name.
+  # e.g. _internal/Python -> Python.framework/Versions/3.11/Python
+  # becomes dangling after the rename; retarget to Python_framework/…
+  echo "==> Fixing symlinks after framework rename ..."
+  FIXED_LINKS=0
+  while IFS= read -r -d '' lnk; do
+    target=$(readlink "$lnk")
+    new_target="$target"
+    for idx in "${!FW_OLD_BASES[@]}"; do
+      new_target="${new_target//${FW_OLD_BASES[$idx]}/${FW_NEW_BASES[$idx]}}"
+    done
+    if [[ "$target" != "$new_target" ]]; then
+      ln -sfn "$new_target" "$lnk"
+      FIXED_LINKS=$((FIXED_LINKS + 1))
+      echo "  relink: ${lnk#"${SIDECAR_DIR}/"} -> ${new_target}"
+    fi
+  done < <(find "${SIDECAR_DIR}" -type l -print0)
+  echo "    Fixed ${FIXED_LINKS} symlink(s)."
+
+  # Replace any remaining dangling symlinks with copies of their targets.
+  # (Safety net in case symlinks cross framework boundaries.)
+  echo "==> Replacing dangling symlinks with copies ..."
+  REPLACED=0
+  while IFS= read -r -d '' lnk; do
+    if [[ ! -e "$lnk" ]]; then
+      echo "  WARNING: dangling symlink: ${lnk#"${SIDECAR_DIR}/"} -> $(readlink "$lnk")"
+      # Try to resolve by looking for the file under the new name
+      resolved=""
+      for idx in "${!FW_OLD_BASES[@]}"; do
+        candidate="${lnk%/*}/$(readlink "$lnk" | sed "s/${FW_OLD_BASES[$idx]}/${FW_NEW_BASES[$idx]}/g")"
+        if [[ -f "$candidate" ]]; then
+          resolved="$candidate"
+          break
+        fi
+      done
+      if [[ -n "$resolved" ]]; then
+        rm -f "$lnk"
+        cp "$resolved" "$lnk"
+        REPLACED=$((REPLACED + 1))
+        echo "    replaced with copy from: ${resolved#"${SIDECAR_DIR}/"}"
+      else
+        echo "    ERROR: cannot resolve dangling symlink, removing"
+        rm -f "$lnk"
+      fi
+    fi
+  done < <(find "${SIDECAR_DIR}" -type l -print0)
+  echo "    Replaced ${REPLACED} dangling symlink(s)."
 fi
 
 # Verify no .framework dirs remain
