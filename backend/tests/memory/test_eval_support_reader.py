@@ -94,7 +94,7 @@ async def test_reader_uses_namespace_as_memory_user_scope() -> None:
     assert captured == {
         "user_id": "benchmark/longmemeval/run-1/q-1",
         "session_id": None,
-        "query_mode": "detail",
+        "query_mode": "exact_fact",
     }
 
 

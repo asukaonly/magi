@@ -1123,7 +1123,7 @@ def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
-            assert request.query_mode == "detail"
+            assert request.query_mode == "exact_fact"
             return SimpleNamespace(
                 l1_events=[
                     {

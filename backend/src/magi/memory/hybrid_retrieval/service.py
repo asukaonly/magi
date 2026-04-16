@@ -15,7 +15,9 @@ from .answerability import (
     has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
-from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, enrich_l2_conditions
+from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, classify_query_mode, enrich_l2_conditions
+from .mode_registry import MODE_REGISTRY, VALID_MODES
+from .router import normalize_query_mode
 from .models import (
     IntentDeciderInput,
     L1Conditions,
@@ -107,21 +109,28 @@ class HybridRetrievalService:
         """Execute a layer-aware retrieval query."""
         self._refresh_runtime_config()
         self._refresh_handlers()
+
+        # 1. Resolve query mode — normalize legacy names first
+        resolved_mode = normalize_query_mode(request.query_mode)
+        if not resolved_mode or resolved_mode not in VALID_MODES:
+            resolved_mode = classify_query_mode(request.query)
+
+        mode_plan = MODE_REGISTRY[resolved_mode]
+
         payload = RetrievalPayload(
             trace={
                 "query": request.query,
-                "recall_intent": request.recall_intent,
-                "query_mode": request.query_mode,
+                "query_mode": resolved_mode,
                 "sources": request.source_filters,
                 "domains": request.domain_filters,
             }
         )
 
-        # 1. L0 unconditional
+        # 2. L0 unconditional
         if request.session_id and self._memory.l0 is not None:
             payload.l0_workbench = await self._load_l0(request.session_id)
 
-        # 2. Intent decision
+        # 3. Intent decision
         intent_input = IntentDeciderInput(
             query=request.query,
             user_id=request.user_id,
@@ -129,37 +138,33 @@ class HybridRetrievalService:
             raw_time_range=request.time_range if request.time_range else None,
             source_filters=request.source_filters,
             domain_filters=request.domain_filters,
-            recall_intent_hint=request.recall_intent,
-            query_mode_hint=request.query_mode,
+            query_mode_hint=resolved_mode,
             l1_limit=request.limit,
         )
         decision = await self._intent_decider.decide(intent_input)
         payload.trace["intent_source"] = decision.source
         payload.trace["intent_reasoning"] = decision.reasoning
 
-        # 2b. Adaptive parameter tuning based on intent signals
-        # Build a per-query L1 handler copy when config adaptation is needed
-        # so concurrent queries never interfere with each other.
+        # 4. Build mode-adapted L1 handler with RRF weights from mode plan
         effective_l1 = self._l1
-        effective_query_mode = request.query_mode
-        effective_recall_intent = request.recall_intent
-        if effective_query_mode or effective_recall_intent:
-            from .adaptive_params import adapt_config
+        if mode_plan.rrf_profile and self._l1 is not None:
+            from dataclasses import replace as dc_replace
 
-            adapted = adapt_config(
+            adapted_config = dc_replace(
                 self._config,
-                query_mode=effective_query_mode,
-                recall_intent=effective_recall_intent,
+                **{k: v for k, v in mode_plan.rrf_profile.items() if hasattr(self._config, k)},
             )
-            if adapted is not self._config and self._l1 is not None:
+            if adapted_config is not self._config:
                 effective_l1 = L1Handler(
-                    self._l1._store, adapted, l2_store=self._l1._l2_store,
+                    self._l1._store, adapted_config, l2_store=self._l1._l2_store,
                 )
-                payload.trace["adaptive_params_applied"] = True
-                payload.trace["adaptive_query_mode"] = effective_query_mode
-                payload.trace["adaptive_recall_intent"] = effective_recall_intent
+                payload.trace["mode_rrf_applied"] = True
 
-        return await self._execute_query(request, decision, intent_input, payload, effective_l1=effective_l1)
+        return await self._execute_query(
+            request, decision, intent_input, payload,
+            effective_l1=effective_l1,
+            mode_plan=mode_plan,
+        )
 
     async def _execute_query(
         self,
@@ -169,11 +174,12 @@ class HybridRetrievalService:
         payload: RetrievalPayload,
         *,
         effective_l1: Optional[L1Handler] = None,
+        mode_plan: Any = None,
     ) -> RetrievalPayload:
         """Inner query execution.
 
         *effective_l1* is the L1 handler to use for this query; it may
-        differ from ``self._l1`` when adaptive parameter tuning creates
+        differ from ``self._l1`` when mode-based RRF tuning creates
         a per-query handler copy.
         """
         l1 = effective_l1 if effective_l1 is not None else self._l1
@@ -213,7 +219,7 @@ class HybridRetrievalService:
         )
 
         # 5+6. Post-processing (fusion, manifest selection, evidence bundles)
-        return await self._apply_post_processing(payload, request=request)
+        return await self._apply_post_processing(payload, request=request, mode_plan=mode_plan)
 
     async def _execute_and_merge_plans(
         self,
@@ -355,6 +361,7 @@ class HybridRetrievalService:
         payload: RetrievalPayload,
         *,
         request: RetrievalQuery,
+        mode_plan: Any = None,
     ) -> RetrievalPayload:
         """Apply fusion, manifest selection, evidence bundling, and timeline summary."""
         # Save pre-truncation L1 events for evidence bundling (fusion
@@ -386,6 +393,20 @@ class HybridRetrievalService:
         payload.trace["l2_entity_card_count"] = len(payload.l2_entity_cards)
         payload.trace["l2_relationship_count"] = len(payload.l2_relationships)
         payload.trace["l2_assertion_count"] = len(payload.l2_assertions)
+
+        # Evidence assembly + reducer (mode-driven pipeline)
+        if mode_plan is not None:
+            from .evidence import ASSEMBLER_REGISTRY
+            from .reducers import REDUCER_REGISTRY
+
+            assembler = ASSEMBLER_REGISTRY.get(mode_plan.evidence_shape)
+            reducer = REDUCER_REGISTRY.get(mode_plan.reducer_type)
+            if assembler is not None and reducer is not None:
+                evidence = assembler.assemble(payload, request)
+                reduced = reducer.reduce(evidence)
+                payload.trace["evidence_shape"] = mode_plan.evidence_shape
+                payload.trace["reducer_type"] = mode_plan.reducer_type
+                payload.trace["evidence_reduced"] = reduced
 
         return payload
 
@@ -588,6 +609,9 @@ class HybridRetrievalService:
                 payload.l2_entity_cards.extend(result.get("entity_cards", []))
                 payload.l2_relationships.extend(result.get("relationships", []))
                 payload.l2_assertions.extend(result.get("assertions", []))
+                payload.l2_episodes.extend(result.get("episodes", []))
+                payload.l2_state_facts.extend(result.get("state_facts", []))
+                payload.l2_state_history.extend(result.get("state_history", []))
                 if isinstance(result.get("trace"), dict):
                     payload.trace["l2_query_trace"] = result["trace"]
         elif layer == "L3":
@@ -608,6 +632,8 @@ class HybridRetrievalService:
             + len(payload.l2_entity_cards)
             + len(payload.l2_relationships)
             + len(payload.l2_assertions)
+            + len(payload.l2_episodes)
+            + len(payload.l2_state_facts)
             + len(payload.l3_reflections)
             + len(payload.l4_procedures)
         )

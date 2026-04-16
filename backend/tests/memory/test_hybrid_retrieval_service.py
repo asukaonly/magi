@@ -131,7 +131,6 @@ def _make_request(**kwargs):
         "user_id": "u1",
         "session_id": "s1",
         "time_range": {},
-        "recall_intent": None,
         "query_mode": None,
         "source_filters": [],
         "domain_filters": [],
@@ -204,16 +203,14 @@ class TestServiceBasicFlow:
         l0.get_prompt_workbench_projection.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_trace_and_intent_input_include_recall_intent(self):
+    async def test_trace_includes_query_mode(self):
         mem = _make_memory()
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         svc._intent_decider.decide = AsyncMock(return_value=IntentDecision())  # type: ignore[method-assign]
 
-        result = await svc.query(_make_request(recall_intent="preference_recall"))
+        result = await svc.query(_make_request(query_mode="exact_fact"))
 
-        assert result.trace["recall_intent"] == "preference_recall"
-        intent_input = svc._intent_decider.decide.await_args.args[0]  # type: ignore[attr-defined]
-        assert intent_input.recall_intent_hint == "preference_recall"
+        assert result.trace.get("query_mode") == "exact_fact"
 
 
 class TestServiceLayerRouting:
@@ -302,7 +299,6 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我讨厌什么天气",
-                recall_intent="preference_recall",
             )
         )
 
@@ -383,7 +379,6 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我讨厌什么天气",
-                recall_intent="preference_recall",
             )
         )
 
@@ -412,7 +407,6 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我和魔都是什么关系",
-                recall_intent="relationship_recall",
             )
         )
 
@@ -583,7 +577,6 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我讨厌什么天气",
-                recall_intent="preference_recall",
                 user_id="local_user",
             )
         )
@@ -616,7 +609,6 @@ class TestServiceLayerRouting:
             _make_request(
                 query_mode="graph",
                 query="我讨厌什么天气",
-                recall_intent="preference_recall",
                 user_id="local_user",
             )
         )
@@ -1441,8 +1433,8 @@ class TestL2TemporalInjection:
     """Verify that L2 plan is injected when query has temporal anchors but LLM routed to L1-only."""
 
     @pytest.mark.asyncio
-    async def test_temporal_query_injects_l2_plan(self):
-        """When the LLM routes a temporal query to L1 only, _augment_primary_plans should add an L2 plan."""
+    async def test_temporal_query_includes_l2(self):
+        """Temporal queries include L2 via episode_recall mode routing."""
         l1 = _make_l1_store([{"event_id": "e1", "content": "I got a smoker today", "timestamp": 1000.0}])
         l2 = AsyncMock()
         l2.batch_get_tom_snapshots.return_value = []
@@ -1453,10 +1445,10 @@ class TestL2TemporalInjection:
         mem = _make_memory(l1=l1, l2=l2)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
 
-        # Temporal query: "What did I buy 10 days ago?" contains date anchor
+        # Temporal query: "What did I buy 10 days ago?" routes to episode_recall which includes L2
         result = await svc.query(_make_request(query="What did I buy 10 days ago?"))
 
-        assert result.trace.get("l2_temporal_injected") is True
+        assert result.trace.get("query_mode") == "episode_recall"
 
     @pytest.mark.asyncio
     async def test_temporal_injection_uses_self_anchor(self):

@@ -97,9 +97,8 @@ class TestContextDeciderMemoryGuidance:
         assert decision.memory_route == "explicit_query"
         assert decision.routing_memory_hint == {
             "query": "What did I browse yesterday?",
-            "query_mode": "detail",
+            "query_mode": "episode_recall",
             "sources": ["timeline"],
-            "recall_intent": "event_recall",
             "time_range": {"relative": "1d"},
         }
 
@@ -223,9 +222,8 @@ class TestContextDeciderMemoryGuidance:
         assert decision.memory_route == "explicit_query"
         assert decision.routing_memory_hint == {
             "query": "我喜欢什么天气",
-            "query_mode": "detail",
+            "query_mode": "exact_fact",
             "sources": ["profile", "chat"],
-            "recall_intent": "preference_recall",
         }
 
     @pytest.mark.asyncio
@@ -268,9 +266,8 @@ class TestContextDeciderMemoryGuidance:
         assert decision.memory_route == "explicit_query"
         assert decision.routing_memory_hint == {
             "query": "我的默认工作目录是什么",
-            "query_mode": "detail",
+            "query_mode": "exact_fact",
             "sources": ["profile", "settings"],
-            "recall_intent": "profile_fact_recall",
         }
 
     @pytest.mark.asyncio
@@ -313,7 +310,6 @@ class TestContextDeciderMemoryGuidance:
         assert decision.memory_route == "explicit_query"
         assert decision.routing_memory_hint == {
             "query": "你记得我们之前约定了什么",
-            "query_mode": "detail",
+            "query_mode": "exact_fact",
             "sources": ["chat", "relationship"],
-            "recall_intent": "relationship_recall",
         }

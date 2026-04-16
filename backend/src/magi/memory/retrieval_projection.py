@@ -37,14 +37,13 @@ def project_historical_recall(
     summary = _build_summary(
         findings=findings,
         query=normalized_request.query,
-        recall_intent=normalized_request.recall_intent,
+        query_mode=normalized_request.query_mode,
         status=status,
     )
     insufficient_evidence = status == "not_found"
 
     return HistoricalRecallPayload(
         status=status,
-        recall_intent=normalized_request.recall_intent,
         query_mode=normalized_request.query_mode or str(normalized_payload.trace.get("query_mode") or "") or None,
         summary=summary,
         findings=findings,
@@ -77,6 +76,9 @@ def _coerce_payload(payload: RetrievalPayload | dict[str, Any]) -> RetrievalPayl
         l2_assertions=list(payload.get("l2_assertions") or []),
         l3_reflections=list(payload.get("l3_reflections") or []),
         l4_procedures=list(payload.get("l4_procedures") or []),
+        l2_episodes=list(payload.get("l2_episodes") or []),
+        l2_state_facts=list(payload.get("l2_state_facts") or []),
+        l2_state_history=list(payload.get("l2_state_history") or []),
         trace=dict(payload.get("trace") or {}),
     )
 
@@ -91,7 +93,6 @@ def _coerce_request(request: RetrievalQuery | dict[str, Any]) -> RetrievalQuery:
         user_id=request.get("user_id"),
         session_id=request.get("session_id"),
         time_range=dict(request.get("time_range") or {}),
-        recall_intent=request.get("recall_intent"),
         query_mode=request.get("query_mode"),
         source_filters=list(request.get("source_filters") or []),
         domain_filters=list(request.get("domain_filters") or []),
@@ -100,26 +101,22 @@ def _coerce_request(request: RetrievalQuery | dict[str, Any]) -> RetrievalQuery:
 
 
 def _build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[dict[str, Any]]:
-    recall_intent = str(request.recall_intent or "").strip()
-    if recall_intent in {"preference_recall", "relationship_recall"}:
+    query_mode = str(request.query_mode or "").strip()
+
+    # Fact-oriented modes: prefer L2 semantic data
+    if query_mode in {"exact_fact", "current_state"}:
         findings = _project_relationships(payload.l2_relationships)
         if findings:
-            if recall_intent == "preference_recall":
+            if query_mode == "exact_fact":
                 return _sort_preference_relationship_findings(findings, payload=payload, request=request)
             return findings
         findings = _project_assertions(payload.l2_assertions)
         if findings:
             return findings
         return _project_events(payload.l1_events)
-    if recall_intent == "profile_fact_recall":
-        findings = _project_assertions(payload.l2_assertions)
-        if findings:
-            return findings
-        findings = _project_relationships(payload.l2_relationships)
-        if findings:
-            return findings
-        return _project_events(payload.l1_events)
-    if recall_intent == "workflow_reuse":
+
+    # Strategy mode: prefer L4
+    if query_mode == "strategy":
         findings = _project_procedures(payload.l4_procedures)
         if findings:
             return findings
@@ -127,6 +124,15 @@ def _build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[
         if findings:
             return findings
         return _project_events(payload.l1_events)
+
+    # Summary mode: prefer L3
+    if query_mode == "summary":
+        findings = _project_reflections(payload.l3_reflections)
+        if findings:
+            return findings
+        return _project_events(payload.l1_events)
+
+    # Episode / cross-session / temporal / default: prefer events
     findings = _project_events(payload.l1_events)
     if findings:
         return findings
@@ -357,13 +363,13 @@ def _build_summary(
     *,
     findings: list[dict[str, Any]],
     query: str,
-    recall_intent: str | None,
+    query_mode: str | None,
     status: str,
 ) -> str:
     if status == "not_found":
         return "未检索到可确认的历史记忆。"
 
-    if recall_intent == "preference_recall" and _is_list_like_query(query):
+    if query_mode == "exact_fact" and _is_list_like_query(query):
         grouped_summary = _build_grouped_preference_summary(findings)
         if grouped_summary:
             return grouped_summary
@@ -373,7 +379,7 @@ def _build_summary(
         statement = str(primary.get("statement") or "").strip()
         subject, predicate, object_value = _split_relationship_statement(statement)
         object_label = _humanize_object(object_value)
-        if recall_intent == "preference_recall":
+        if query_mode == "exact_fact":
             if predicate == "LIKES":
                 return f"你喜欢{object_label}。"
             if predicate == "DISLIKES":

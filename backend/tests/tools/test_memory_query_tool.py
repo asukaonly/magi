@@ -43,7 +43,7 @@ class TestMemoryQueryTool:
         assert "query" in param_names
         assert "time_range" in param_names
         assert "sources" in param_names
-        assert "recall_intent" in param_names
+        assert "query_mode" in param_names
         assert "query_mode" in param_names
 
         query_param = next(p for p in schema.parameters if p.name == "query")
@@ -115,14 +115,14 @@ class TestMemoryQueryTool:
         )
         context = ToolExecutionContext(agent_id="test", task_id="test-task")
 
-        result = await tool.execute({"query": "test query", "recall_intent": "preference_recall"}, context)
+        result = await tool.execute({"query": "test query", "query_mode": "exact_fact"}, context)
 
         assert result.success is True
         assert result.data["historical_recall"]["summary"] == "你讨厌潮湿天气。"
         assert result.data["historical_recall"]["findings"][0]["statement"] == "user:local_user DISLIKES weather_state:humid"
         assert result.data["debug"]["retrieval_trace"]["query_mode"] == "detail"
         request = fake_service.query.await_args.args[0]
-        assert request.recall_intent == "preference_recall"
+        assert request.query_mode == "exact_fact"
 
     @pytest.mark.asyncio
     async def test_tool_execution_uses_context_user_and_session(self, monkeypatch):
@@ -154,7 +154,7 @@ class TestMemoryQueryTool:
             },
         )
 
-        result = await tool.execute({"query": "我喜欢什么天气", "recall_intent": "preference_recall"}, context)
+        result = await tool.execute({"query": "我喜欢什么天气", "query_mode": "exact_fact"}, context)
 
         assert result.success is True
         request = fake_service.query.await_args.args[0]

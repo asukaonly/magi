@@ -21,7 +21,6 @@ from magi.memory.hybrid_retrieval.graph_spreader import (
     SpreadingResult,
     _parse_evidence_ids,
 )
-from magi.memory.hybrid_retrieval.adaptive_params import adapt_config
 from magi.memory.hybrid_retrieval.models import (
     L1Conditions,
     RetrievalConfig,
@@ -338,56 +337,6 @@ class TestConfidenceAwareFallback:
 # ---------------------------------------------------------------------------
 # P2-4: Adaptive retrieval parameters
 # ---------------------------------------------------------------------------
-
-
-class TestAdaptiveParams:
-    def test_detail_mode_boosts_bm25_vector(self):
-        config = RetrievalConfig()
-        adapted = adapt_config(config, query_mode="detail")
-        assert adapted.rrf_weight_bm25 > config.rrf_weight_bm25
-        assert adapted.rrf_weight_vector > config.rrf_weight_vector
-        assert adapted.rrf_weight_entity < config.rrf_weight_entity
-
-    def test_graph_mode_boosts_entity_graph(self):
-        config = RetrievalConfig()
-        adapted = adapt_config(config, query_mode="graph")
-        assert adapted.rrf_weight_entity > config.rrf_weight_entity
-        assert adapted.rrf_weight_graph > config.rrf_weight_graph
-        assert adapted.rrf_weight_bm25 < config.rrf_weight_bm25
-
-    def test_recall_intent_overrides_mode(self):
-        """recall_intent should override query_mode when both are set."""
-        config = RetrievalConfig()
-        # detail mode would boost bm25 to 1.2
-        adapted = adapt_config(
-            config,
-            query_mode="detail",
-            recall_intent="relationship_recall",
-        )
-        # relationship_recall should override: entity high, bm25 low
-        assert adapted.rrf_weight_entity > 1.0
-        assert adapted.rrf_weight_bm25 < 1.0
-
-    def test_unknown_mode_returns_original(self):
-        config = RetrievalConfig()
-        adapted = adapt_config(config, query_mode="nonexistent")
-        assert adapted is config
-
-    def test_none_signals_returns_original(self):
-        config = RetrievalConfig()
-        adapted = adapt_config(config)
-        assert adapted is config
-
-    def test_preference_recall_boosts_entity(self):
-        config = RetrievalConfig()
-        adapted = adapt_config(config, recall_intent="preference_recall")
-        assert adapted.rrf_weight_entity > config.rrf_weight_entity
-
-    def test_event_recall_boosts_bm25(self):
-        config = RetrievalConfig()
-        adapted = adapt_config(config, recall_intent="event_recall")
-        assert adapted.rrf_weight_bm25 > config.rrf_weight_bm25
-        assert adapted.reranker_top_k == 20
 
 
 # ---------------------------------------------------------------------------
