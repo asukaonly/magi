@@ -58,7 +58,6 @@ class PersonaEntity:
 @dataclass
 class CachedPhrases:
     on_init: List[str] = field(default_factory=lambda: ["Hi, I'm online.", "Ready when you are."])
-    on_wake: List[str] = field(default_factory=list)
     on_error_generic: List[str] = field(default_factory=lambda: ["That failed. Let me retry.", "Oops, tool hiccup."])
     on_success: List[str] = field(default_factory=lambda: ["Done.", "Handled."])
     on_switch_attempt: List[str] = field(default_factory=lambda: ["Stay with me, I know your style.", "Give me one more chance."])
