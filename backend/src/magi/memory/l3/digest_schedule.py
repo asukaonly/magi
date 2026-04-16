@@ -37,9 +37,9 @@ def _build_persona_context() -> dict[str, str] | None:
         persona = config.persona_entity
         return {
             "name": persona.basic_profile.name,
-            "tone": persona.psychological_traits.communication_tone,
-            "background": persona.basic_profile.core_background,
-            "keywords": ", ".join(persona.psychological_traits.high_frequency_keywords),
+            "tone": persona.core_identity.language_fingerprint,
+            "background": persona.core_identity.inner_narrative,
+            "keywords": persona.core_identity.attention_bias,
         }
     except Exception as exc:
         logger.debug("Could not load personality for digest: %s", exc)

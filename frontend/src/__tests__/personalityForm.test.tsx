@@ -144,7 +144,10 @@ describe('PersonalityForm', () => {
               ...DEFAULT_PERSONALITY_CONFIG.persona_entity.basic_profile,
               name: '向晚',
               occupation: '虚拟偶像',
-              core_background: '一个努力又有点笨拙的虚拟偶像。',
+            },
+            core_identity: {
+              ...DEFAULT_PERSONALITY_CONFIG.persona_entity.core_identity,
+              inner_narrative: '一个努力又有点笨拙的虚拟偶像。',
             },
           },
         },

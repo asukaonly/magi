@@ -83,11 +83,11 @@ class BootstrapDialogueService:
     ) -> Optional[str]:
         """Use LLM to generate a natural in-character first greeting."""
         persona = config.persona_entity.basic_profile
-        psych = config.persona_entity.psychological_traits
+        identity = config.persona_entity.core_identity
 
         system_prompt = (
-            f"You are {persona.name}. {persona.core_background}\n\n"
-            f"Tone: {psych.communication_tone}\n"
+            f"You are {persona.name}. {identity.inner_narrative}\n\n"
+            f"Language style: {identity.language_fingerprint}\n"
         )
         if bootstrap.style_instruction:
             system_prompt += f"Style: {bootstrap.style_instruction}\n"
@@ -190,10 +190,11 @@ class BootstrapDialogueService:
     ) -> str:
         """Build the system prompt for a bootstrap round."""
         persona = config.persona_entity.basic_profile
+        identity = config.persona_entity.core_identity
         parts: List[str] = []
 
         parts.append(
-            f"You are {persona.name}. {persona.core_background}\n"
+            f"You are {persona.name}. {identity.inner_narrative}\n"
             f"This is your FIRST conversation with this user. You don't know them yet."
         )
 

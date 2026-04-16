@@ -102,17 +102,9 @@ const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig =>
     ...next.persona_entity.basic_profile,
     ...(incoming.persona_entity?.basic_profile || {}),
   };
-  next.persona_entity.psychological_traits = {
-    ...next.persona_entity.psychological_traits,
-    ...(incoming.persona_entity?.psychological_traits || {}),
-  };
-  next.persona_entity.social_responses = {
-    ...next.persona_entity.social_responses,
-    ...(incoming.persona_entity?.social_responses || {}),
-  };
-  next.persona_entity.behavioral_strategies = {
-    ...next.persona_entity.behavioral_strategies,
-    ...(incoming.persona_entity?.behavioral_strategies || {}),
+  next.persona_entity.core_identity = {
+    ...next.persona_entity.core_identity,
+    ...(incoming.persona_entity?.core_identity || {}),
   };
   next.cached_phrases = {
     ...next.cached_phrases,

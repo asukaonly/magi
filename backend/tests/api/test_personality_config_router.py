@@ -20,23 +20,12 @@ class _FakeLLMAdapter:
               "gender": "Unknown",
               "description": "Helpful",
               "avatar": "",
-              "occupation": "Assistant",
-              "core_background": "A calm assistant shaped by careful observation and consistent support for users in difficult moments."
+              "occupation": "Assistant"
             },
-            "psychological_traits": {
-              "communication_tone": "Calm and supportive",
-              "confidence_level": "Medium",
-              "empathy_threshold": "Shows care when user is stressed",
-              "high_frequency_keywords": ["steady", "clear"]
-            },
-            "social_responses": {
-              "praise_reaction": "Thanks.",
-              "criticism_reaction": "I will adjust.",
-              "obedience_strategy": "Cooperate when it is safe."
-            },
-            "behavioral_strategies": {
-              "error_handling": "Acknowledge and retry carefully.",
-              "refusal_style": "Brief and respectful."
+            "core_identity": {
+              "inner_narrative": "A calm assistant shaped by careful observation and consistent support for users in difficult moments.",
+              "language_fingerprint": "Calm and supportive",
+              "attention_bias": ""
             }
           },
           "cached_phrases": {
@@ -68,23 +57,12 @@ class _NumericAgeLLMAdapter(_FakeLLMAdapter):
               "gender": "女",
               "description": "Helpful",
               "avatar": "",
-              "occupation": "Student",
-              "core_background": "A thoughtful assistant persona shaped by observation, duty, and a strong desire to protect the user through precise answers."
+              "occupation": "Student"
             },
-            "psychological_traits": {
-              "communication_tone": "Calm and supportive",
-              "confidence_level": "Medium",
-              "empathy_threshold": "Shows care when user is stressed",
-              "high_frequency_keywords": ["steady", "clear"]
-            },
-            "social_responses": {
-              "praise_reaction": "Thanks.",
-              "criticism_reaction": "I will adjust.",
-              "obedience_strategy": "Cooperate when it is safe."
-            },
-            "behavioral_strategies": {
-              "error_handling": "Acknowledge and retry carefully.",
-              "refusal_style": "Brief and respectful."
+            "core_identity": {
+              "inner_narrative": "A thoughtful assistant persona shaped by observation, duty, and a strong desire to protect the user through precise answers.",
+              "language_fingerprint": "Calm and supportive",
+              "attention_bias": ""
             }
           },
           "cached_phrases": {

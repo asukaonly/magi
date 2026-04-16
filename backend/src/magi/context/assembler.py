@@ -422,63 +422,47 @@ class PromptContextRenderer:
         return "\n".join(lines).strip()
 
     def _render_persona_entity(self, persona: Dict[str, Any]) -> List[str]:
-        """Render persona entity as markdown."""
+        """Render persona entity as narrative-style markdown."""
         lines = ["# Persona Entity"]
 
         basic = persona.get("basic_profile", {}) or {}
         if basic:
-            lines.append("## Basic Profile")
             name = basic.get("name", "Unknown")
             age = basic.get("age", "Unknown")
             gender = basic.get("gender", "Unknown")
             occupation = basic.get("occupation", "Unknown")
             lines.append(f"* Name: {name} | Age: {age} | Gender: {gender} | Occupation: {occupation}")
-            core_bg = basic.get("core_background", "")
-            if core_bg:
-                lines.append(f"* Core Background: {core_bg}")
             lines.append("")
 
-        traits = persona.get("psychological_traits", {}) or {}
-        if traits:
-            lines.append("## Psychological Traits & Response Mechanisms")
-            tone = traits.get("communication_tone", "")
-            if tone:
-                lines.append(f"* Communication Tone: {tone}")
-            confidence = traits.get("confidence_level", "")
-            if confidence:
-                lines.append(f"* Confidence Level: {confidence}")
-            empathy = traits.get("empathy_threshold", "")
-            if empathy:
-                lines.append(f"* Empathy Threshold: {empathy}")
-            keywords = traits.get("high_frequency_keywords", [])
-            if keywords:
-                lines.append(f"* High-Frequency Keywords: {', '.join(keywords)}")
-            lines.append("")
+        identity = persona.get("core_identity", {}) or {}
+        if identity:
+            lines.append("## Core Identity")
+            narrative = identity.get("inner_narrative", "")
+            if narrative:
+                lines.append(narrative)
+                lines.append("")
+            fingerprint = identity.get("language_fingerprint", "")
+            if fingerprint:
+                lines.append("### Language & Expression")
+                lines.append(fingerprint)
+                lines.append("")
+            bias = identity.get("attention_bias", "")
+            if bias:
+                lines.append("### Attention Bias")
+                lines.append(bias)
+                lines.append("")
 
-        social = persona.get("social_responses", {}) or {}
-        if social:
-            lines.append("## Social Response Mechanisms")
-            praise = social.get("praise_reaction", "")
-            if praise:
-                lines.append(f"* Praise Reaction: {praise}")
-            criticism = social.get("criticism_reaction", "")
-            if criticism:
-                lines.append(f"* Criticism Reaction: {criticism}")
-            obedience = social.get("obedience_strategy", "")
-            if obedience:
-                lines.append(f"* Obedience Strategy: {obedience}")
-            lines.append("")
-
-        behavior = persona.get("behavioral_strategies", {}) or {}
-        if behavior:
-            lines.append("## Behavioral Strategies")
-            error_handling = behavior.get("error_handling", "")
-            if error_handling:
-                lines.append(f"* Error Handling: {error_handling}")
-            refusal = behavior.get("refusal_style", "")
-            if refusal:
-                lines.append(f"* Refusal Style: {refusal}")
-            lines.append("")
+        # Backward compatibility: render legacy fields if core_identity is absent
+        if not identity:
+            traits = persona.get("psychological_traits", {}) or {}
+            if traits:
+                tone = traits.get("communication_tone", "")
+                if tone:
+                    lines.append(f"* Communication Tone: {tone}")
+                keywords = traits.get("high_frequency_keywords", [])
+                if keywords:
+                    lines.append(f"* High-Frequency Keywords: {', '.join(keywords)}")
+                lines.append("")
 
         return lines
 

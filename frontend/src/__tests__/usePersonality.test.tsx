@@ -59,22 +59,11 @@ const buildConfig = (name: string, onSwitchAttempt: string[] = []) => ({
       description: '',
       avatar: '',
       occupation: `${name}-occupation`,
-      core_background: '',
     },
-    psychological_traits: {
-      communication_tone: '',
-      confidence_level: 'Medium',
-      empathy_threshold: '',
-      high_frequency_keywords: [],
-    },
-    social_responses: {
-      praise_reaction: '',
-      criticism_reaction: '',
-      obedience_strategy: '',
-    },
-    behavioral_strategies: {
-      error_handling: '',
-      refusal_style: '',
+    core_identity: {
+      inner_narrative: '',
+      language_fingerprint: '',
+      attention_bias: '',
     },
   },
   cached_phrases: {

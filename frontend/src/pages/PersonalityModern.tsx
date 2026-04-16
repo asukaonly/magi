@@ -25,7 +25,6 @@ import { cn } from '@/lib/utils';
 import { personalitiesApi } from '@/api';
 import {
   usePersonality,
-  CONFIDENCE_OPTIONS,
   parseLines,
   toLines,
   getInitials,
@@ -428,119 +427,39 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                       onChange={(event) => patch((d) => { d.persona_entity.basic_profile.occupation = event.target.value; })}
                     />
                   </label>
-                  <label className="space-y-2 md:col-span-3">
-                    <span className="text-sm font-medium">{t('personality.fields.coreBackground')}</span>
-                    <Textarea
-                      rows={6}
-                      className="rounded-xl"
-                      value={config.persona_entity.basic_profile.core_background}
-                      onChange={(event) => patch((d) => { d.persona_entity.basic_profile.core_background = event.target.value; })}
-                    />
-                  </label>
                 </CardContent>
               </Card>
 
               <Card className={sectionCardClass}>
                 <CardHeader>
-                  <CardTitle>{t('personality.sections.psychologicalTraits')}</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.communicationTone')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.psychological_traits.communication_tone}
-                      onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.communication_tone = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.confidenceLevel')}</span>
-                    <select
-                      className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      value={config.persona_entity.psychological_traits.confidence_level}
-                      onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.confidence_level = event.target.value; })}
-                    >
-                      {CONFIDENCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </label>
-                  <label className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium">{t('personality.fields.empathyThreshold')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.psychological_traits.empathy_threshold}
-                      onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.empathy_threshold = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium">{t('personality.fields.highFrequencyKeywords')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.psychological_traits.high_frequency_keywords.join(', ')}
-                      onChange={(event) => patch((d) => {
-                        d.persona_entity.psychological_traits.high_frequency_keywords = event.target.value
-                          .split(',')
-                          .map((item) => item.trim())
-                          .filter(Boolean);
-                      })}
-                    />
-                  </label>
-                </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.socialResponses')}</CardTitle>
-                </CardHeader>
-                  <CardContent className="grid gap-4">
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.praiseReaction')}</span>
-                      <Input
-                        className="rounded-xl"
-                        value={config.persona_entity.social_responses.praise_reaction}
-                        onChange={(event) => patch((d) => { d.persona_entity.social_responses.praise_reaction = event.target.value; })}
-                      />
-                    </label>
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.criticismReaction')}</span>
-                      <Input
-                        className="rounded-xl"
-                        value={config.persona_entity.social_responses.criticism_reaction}
-                        onChange={(event) => patch((d) => { d.persona_entity.social_responses.criticism_reaction = event.target.value; })}
-                      />
-                    </label>
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.obedienceStrategy')}</span>
-                      <Textarea
-                        rows={4}
-                        className="rounded-xl"
-                        value={config.persona_entity.social_responses.obedience_strategy}
-                        onChange={(event) => patch((d) => { d.persona_entity.social_responses.obedience_strategy = event.target.value; })}
-                      />
-                    </label>
-                  </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.behavioralStrategies')}</CardTitle>
+                  <CardTitle>{t('personality.sections.coreIdentity')}</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4">
                   <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.errorHandling')}</span>
+                    <span className="text-sm font-medium">{t('personality.fields.innerNarrative')}</span>
                     <Textarea
-                      rows={4}
+                      rows={6}
                       className="rounded-xl"
-                      value={config.persona_entity.behavioral_strategies.error_handling}
-                      onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.error_handling = event.target.value; })}
+                      value={config.persona_entity.core_identity.inner_narrative}
+                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.inner_narrative = event.target.value; })}
                     />
                   </label>
                   <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.refusalStyle')}</span>
+                    <span className="text-sm font-medium">{t('personality.fields.languageFingerprint')}</span>
                     <Textarea
                       rows={4}
                       className="rounded-xl"
-                      value={config.persona_entity.behavioral_strategies.refusal_style}
-                      onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.refusal_style = event.target.value; })}
+                      value={config.persona_entity.core_identity.language_fingerprint}
+                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.language_fingerprint = event.target.value; })}
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">{t('personality.fields.attentionBias')}</span>
+                    <Textarea
+                      rows={2}
+                      className="rounded-xl"
+                      value={config.persona_entity.core_identity.attention_bias}
+                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.attention_bias = event.target.value; })}
                     />
                   </label>
                 </CardContent>

@@ -39,9 +39,7 @@ export { personalityApi, DEFAULT_PERSONALITY_CONFIG } from './modules/personalit
 export type {
   PersonalityConfig,
   BasicProfile,
-  PsychologicalTraits,
-  SocialResponses,
-  BehavioralStrategies,
+  CoreIdentity,
   PersonaEntity,
   CachedPhrases,
   StateTransitionProtocolItem,

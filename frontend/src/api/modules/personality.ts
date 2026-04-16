@@ -11,32 +11,17 @@ export interface BasicProfile {
   description: string;
   avatar: string;
   occupation: string;
-  core_background: string;
 }
 
-export interface PsychologicalTraits {
-  communication_tone: string;
-  confidence_level: 'Extremely High' | 'High' | 'Medium' | 'Low' | string;
-  empathy_threshold: string;
-  high_frequency_keywords: string[];
-}
-
-export interface SocialResponses {
-  praise_reaction: string;
-  criticism_reaction: string;
-  obedience_strategy: string;
-}
-
-export interface BehavioralStrategies {
-  error_handling: string;
-  refusal_style: string;
+export interface CoreIdentity {
+  inner_narrative: string;
+  language_fingerprint: string;
+  attention_bias: string;
 }
 
 export interface PersonaEntity {
   basic_profile: BasicProfile;
-  psychological_traits: PsychologicalTraits;
-  social_responses: SocialResponses;
-  behavioral_strategies: BehavioralStrategies;
+  core_identity: CoreIdentity;
 }
 
 export interface CachedPhrases {
@@ -98,32 +83,17 @@ export const DEFAULT_BASIC_PROFILE: BasicProfile = {
   description: '',
   avatar: '',
   occupation: 'Assistant',
-  core_background: '',
 };
 
-export const DEFAULT_PSYCHOLOGICAL_TRAITS: PsychologicalTraits = {
-  communication_tone: 'Calm and supportive',
-  confidence_level: 'Medium',
-  empathy_threshold: 'Shows care when user is stressed',
-  high_frequency_keywords: [],
-};
-
-export const DEFAULT_SOCIAL_RESPONSES: SocialResponses = {
-  praise_reaction: '',
-  criticism_reaction: '',
-  obedience_strategy: '',
-};
-
-export const DEFAULT_BEHAVIORAL_STRATEGIES: BehavioralStrategies = {
-  error_handling: '',
-  refusal_style: '',
+export const DEFAULT_CORE_IDENTITY: CoreIdentity = {
+  inner_narrative: '',
+  language_fingerprint: '',
+  attention_bias: '',
 };
 
 export const DEFAULT_PERSONA_ENTITY: PersonaEntity = {
   basic_profile: DEFAULT_BASIC_PROFILE,
-  psychological_traits: DEFAULT_PSYCHOLOGICAL_TRAITS,
-  social_responses: DEFAULT_SOCIAL_RESPONSES,
-  behavioral_strategies: DEFAULT_BEHAVIORAL_STRATEGIES,
+  core_identity: DEFAULT_CORE_IDENTITY,
 };
 
 export const DEFAULT_CACHED_PHRASES: CachedPhrases = {

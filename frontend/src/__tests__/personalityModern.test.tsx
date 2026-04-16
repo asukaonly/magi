@@ -43,22 +43,11 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
         description: '赛博乐子人 / 反讽大师',
         avatar: '',
         occupation: '',
-        core_background: '',
       },
-      psychological_traits: {
-        communication_tone: '',
-        confidence_level: 'Medium',
-        empathy_threshold: '',
-        high_frequency_keywords: [],
-      },
-      social_responses: {
-        praise_reaction: '',
-        criticism_reaction: '',
-        obedience_strategy: '',
-      },
-      behavioral_strategies: {
-        error_handling: '',
-        refusal_style: '',
+      core_identity: {
+        inner_narrative: '',
+        language_fingerprint: '',
+        attention_bias: '',
       },
     },
     cached_phrases: {
@@ -140,22 +129,11 @@ describe('PersonalityModern', () => {
               description: '傲娇驾驶员',
               avatar: '',
               occupation: '',
-              core_background: '',
             },
-            psychological_traits: {
-              communication_tone: '',
-              confidence_level: 'Medium',
-              empathy_threshold: '',
-              high_frequency_keywords: [],
-            },
-            social_responses: {
-              praise_reaction: '',
-              criticism_reaction: '',
-              obedience_strategy: '',
-            },
-            behavioral_strategies: {
-              error_handling: '',
-              refusal_style: '',
+            core_identity: {
+              inner_narrative: '',
+              language_fingerprint: '',
+              attention_bias: '',
             },
           },
           cached_phrases: {
@@ -198,22 +176,11 @@ describe('PersonalityModern', () => {
               description: '',
               avatar: '',
               occupation: '',
-              core_background: '',
             },
-            psychological_traits: {
-              communication_tone: '',
-              confidence_level: 'Medium',
-              empathy_threshold: '',
-              high_frequency_keywords: [],
-            },
-            social_responses: {
-              praise_reaction: '',
-              criticism_reaction: '',
-              obedience_strategy: '',
-            },
-            behavioral_strategies: {
-              error_handling: '',
-              refusal_style: '',
+            core_identity: {
+              inner_narrative: '',
+              language_fingerprint: '',
+              attention_bias: '',
             },
           },
           cached_phrases: {
