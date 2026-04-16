@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -58,6 +58,7 @@ class PersonaEntity:
 @dataclass
 class CachedPhrases:
     on_init: List[str] = field(default_factory=lambda: ["Hi, I'm online.", "Ready when you are."])
+    on_wake: List[str] = field(default_factory=list)
     on_error_generic: List[str] = field(default_factory=lambda: ["That failed. Let me retry.", "Oops, tool hiccup."])
     on_success: List[str] = field(default_factory=lambda: ["Done.", "Handled."])
     on_switch_attempt: List[str] = field(default_factory=lambda: ["Stay with me, I know your style.", "Give me one more chance."])
@@ -85,6 +86,12 @@ class BootstrapConfig:
     opening_line: str = ""
     extract_targets: List[str] = field(default_factory=list)
     max_rounds: int = 3
+
+
+def _pick(dc_cls: type, raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Return *raw* filtered to only keys accepted by dataclass *dc_cls*."""
+    allowed = {f.name for f in fields(dc_cls)}
+    return {k: v for k, v in raw.items() if k in allowed}
 
 
 @dataclass
@@ -120,15 +127,15 @@ class PersonalityConfig:
 
         return cls(
             persona_entity=PersonaEntity(
-                basic_profile=BasicProfile(**{**asdict(BasicProfile()), **basic}),
-                psychological_traits=PsychologicalTraits(**{**asdict(PsychologicalTraits()), **psych}),
-                social_responses=SocialResponses(**{**asdict(SocialResponses()), **social}),
-                behavioral_strategies=BehavioralStrategies(**{**asdict(BehavioralStrategies()), **behavior}),
+                basic_profile=BasicProfile(**{**asdict(BasicProfile()), **_pick(BasicProfile, basic)}),
+                psychological_traits=PsychologicalTraits(**{**asdict(PsychologicalTraits()), **_pick(PsychologicalTraits, psych)}),
+                social_responses=SocialResponses(**{**asdict(SocialResponses()), **_pick(SocialResponses, social)}),
+                behavioral_strategies=BehavioralStrategies(**{**asdict(BehavioralStrategies()), **_pick(BehavioralStrategies, behavior)}),
             ),
-            cached_phrases=CachedPhrases(**{**asdict(CachedPhrases()), **phrases}),
+            cached_phrases=CachedPhrases(**{**asdict(CachedPhrases()), **_pick(CachedPhrases, phrases)}),
             appearance_prompt=data.get("appearance_prompt", ""),
             state_transition_protocol=[
-                StateTransitionProtocolItem(**{**asdict(StateTransitionProtocolItem()), **item})
+                StateTransitionProtocolItem(**{**asdict(StateTransitionProtocolItem()), **_pick(StateTransitionProtocolItem, item)})
                 for item in transitions
                 if isinstance(item, dict)
             ],
@@ -143,7 +150,7 @@ class PersonalityConfig:
                 if isinstance(item, dict)
             ],
             scenario_prompts=dict(scenario_prompts_raw) if isinstance(scenario_prompts_raw, dict) else {},
-            bootstrap=BootstrapConfig(**{**asdict(BootstrapConfig()), **bootstrap_raw})
+            bootstrap=BootstrapConfig(**{**asdict(BootstrapConfig()), **_pick(BootstrapConfig, bootstrap_raw)})
             if isinstance(bootstrap_raw, dict) else None,
         )
 
