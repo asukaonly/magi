@@ -727,24 +727,24 @@ fn poll_backend_startup(
         .ok_or_else(|| "Missing main port".to_string())?;
 
     // Connect IPC client to Python worker (required)
-    let ipc_client =
-        match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path)) {
-            Ok((client, _event_rx)) => std::sync::Arc::new(client),
-            Err(e) => {
-                // Kill the process on IPC failure.
-                if let Some(mut process) = runtime.python_process.take() {
-                    process.kill();
-                }
-                runtime.base_url = None;
-                runtime.session_token = None;
-                runtime.python_pid = None;
-                return Ok(PollStartupResponse {
-                    ready: false,
-                    phase: "error".to_string(),
-                    error: Some(format!("IPC connect failed: {e}")),
-                });
+    let ipc_client = match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path))
+    {
+        Ok((client, _event_rx)) => std::sync::Arc::new(client),
+        Err(e) => {
+            // Kill the process on IPC failure.
+            if let Some(mut process) = runtime.python_process.take() {
+                process.kill();
             }
-        };
+            runtime.base_url = None;
+            runtime.session_token = None;
+            runtime.python_pid = None;
+            return Ok(PollStartupResponse {
+                ready: false,
+                phase: "error".to_string(),
+                error: Some(format!("IPC connect failed: {e}")),
+            });
+        }
+    };
 
     let api_state = api::state::ApiState { ipc_client };
     let router = api::build_router(api_state);
@@ -881,7 +881,30 @@ fn cancel_exit_request() -> Result<(), String> {
 }
 
 fn main() {
+    let log_dir = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(".magi")
+        .join("logs");
+
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Folder {
+                        path: log_dir,
+                        file_name: Some("desktop".to_string()),
+                    },
+                ))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
+                .level(log::LevelFilter::Info)
+                .max_file_size(10 * 1024 * 1024) // 10 MB per file
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
+                .build(),
+        )
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             let _ = desktop_presence::restore_main_window(app);
         }))
