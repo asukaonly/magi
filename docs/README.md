@@ -20,16 +20,19 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 4. [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
   Read this when working on bootstrap, runtime orchestration, task agents, worker execution, scheduler registration, sensor sync execution, or service and transport boundaries.
 
-5. [Memory System Design](./memory-system-design.md)
+5. [Timeline Domain Architecture](./timeline-domain-architecture.md)
+  Read this when working on timeline viewport assembly, clustering, state bands, insight extraction, or sensor-to-timeline data flow.
+
+6. [Memory System Design](./memory-system-design.md)
   Maintainer-level implementation design for the lifecycle-based memory model.
 
-6. [Unified Plugin Extension Architecture](./plugin-extension-architecture.md)
+7. [Unified Plugin Extension Architecture](./plugin-extension-architecture.md)
   Current design for plugin discovery, contribution registration, and settings metadata.
 
-7. [Plugin Development Guide](./plugin-development-guide.md)
+8. [Plugin Development Guide](./plugin-development-guide.md)
   Practical guide for authoring built-in or external plugins.
 
-8. [Backlog](./backlog.md)
+9. [Backlog](./backlog.md)
   Current development and maintenance follow-ups that are intentionally not mixed into the design docs.
 
 ## Audience Guide

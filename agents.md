@@ -38,6 +38,7 @@ Before changing architecture, core flows, product behavior, or module boundaries
 - `docs/product-configuration-guide.md`
 - `docs/layered-agent-architecture.md`
 - `docs/task-agent-runtime-architecture.md`
+- `docs/timeline-domain-architecture.md`
 - `docs/memory-system-design.md`
 - `docs/plugin-extension-architecture.md`
 - `docs/plugin-development-guide.md`
@@ -80,18 +81,28 @@ Main code locations:
 magi/
 ├── backend/
 │   ├── src/magi/
-│   │   ├── api/                # FastAPI app + routers
-│   │   ├── core/               # Agent core lifecycle + loop
-│   │   ├── llm/                # LLM adapters and provider bridge
-│   │   ├── tools/              # Tool registry and builtin/providers
-│   │   ├── memory/             # Memory layers and helpers
-│   │   ├── skills/             # Skill loading/index/execution
-│   │   ├── events/             # Event backends
-│   │   ├── awareness/          # Perception and sensors
-│   │   ├── processing/         # Processing modules
-│   │   ├── plugins/            # Plugin manager and base interfaces
+│   │   ├── agent/              # Task-agent runtime, orchestration, workers
+│   │   ├── api/                # Product-facing routers and services
+│   │   ├── awareness/          # Sensors, actions, action emission
+│   │   ├── bootstrap/          # Composition root and lifecycle assembly
+│   │   ├── channels/           # External messaging adapters
+│   │   ├── chat/               # Chat domain persistence and attachments
 │   │   ├── config/             # Config models/loader/introspection
-│   │   └── websocket/          # WebSocket events/server
+│   │   ├── context/            # Prompt and recall shaping
+│   │   ├── core/               # Infrastructure, DI, logging, runtime paths
+│   │   ├── events/             # Message bus and event transport
+│   │   ├── ipc/                # IPC server, dispatcher, protocol
+│   │   ├── llm/                # LLM adapters and provider bridge
+│   │   ├── memory/             # Lifecycle-based memory stores and retrieval
+│   │   ├── personality/        # Personality state and subjective modeling
+│   │   ├── plugins/            # Plugin discovery and registration
+│   │   ├── runtime_trace/      # Execution observability persistence
+│   │   ├── scheduler/          # Persistent scheduler and target dispatch
+│   │   ├── skills/             # Skill loading/index/execution
+│   │   ├── tasks/              # User-facing task tracking
+│   │   ├── timeline/           # Timeline domain and sync workflows
+│   │   ├── tools/              # Tool registry and builtin/providers
+│   │   └── transport/          # IPC transport app wiring and middleware
 │   ├── tests/                  # Backend tests
 │   ├── configs/                # Runtime/provider configs
 │   └── pyproject.toml
