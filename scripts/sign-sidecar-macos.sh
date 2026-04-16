@@ -53,63 +53,53 @@ security list-keychains -d user -s "$KEYCHAIN_PATH" \
 echo "==> Keychain ready."
 
 # ── Collect and sign ────────────────────────────────────────────
-# Signing order matters for Apple notarization:
-#   1. .so / .dylib shared libraries (leaf dependencies)
-#   2. .framework bundles (signed as bundles, not individual files)
-#   3. Executable binaries (top-level; with entitlements)
+# PyInstaller bundles a non-standard Python.framework that lacks
+# Info.plist and proper versioned structure.  Signing it as a bundle
+# produces an *invalid* signature.
 #
-# Files inside .framework/ are skipped because signing the framework
-# bundle covers them. Symlinks are also skipped.
+# Strategy: sign every individual Mach-O file (including those inside
+# .framework/ directories).  Sign deepest paths first so inner
+# dependencies are signed before outer binaries.
+#
+# Symlinks (e.g. _internal/Python -> Python.framework/…/Python) are
+# skipped; signing the real target is sufficient.
 
-echo "==> Phase 1: Signing shared libraries (.so / .dylib) ..."
-LIBS=()
+echo "==> Collecting all Mach-O files in sidecar-dist ..."
+ALL_MACHO=()
 while IFS= read -r -d '' f; do
-  # Skip anything inside a .framework bundle
-  case "$f" in *.framework/*) continue ;; esac
+  # Skip symlinks – sign only real files
+  [[ -L "$f" ]] && continue
   if file "$f" | grep -q "Mach-O"; then
-    LIBS+=("$f")
+    ALL_MACHO+=("$f")
   fi
-done < <(find "${SIDECAR_DIR}" -type f \( -name "*.so" -o -name "*.dylib" \) -print0)
+done < <(find "${SIDECAR_DIR}" -type f -print0)
 
-for f in "${LIBS[@]}"; do
-  echo "  lib: ${f#"${SIDECAR_DIR}/"}"
-  codesign --force --options runtime \
-    --sign "${APPLE_SIGNING_IDENTITY}" --timestamp "$f"
+# Sort by path depth descending so inner files are signed first
+IFS=$'\n' SORTED=($(printf '%s\n' "${ALL_MACHO[@]}" | awk -F/ '{print NF, $0}' | sort -rn | cut -d' ' -f2-))
+unset IFS
+
+TOTAL=${#SORTED[@]}
+echo "==> Found ${TOTAL} Mach-O files to sign."
+
+COUNT=0
+for f in "${SORTED[@]}"; do
+  COUNT=$((COUNT + 1))
+  REL="${f#"${SIDECAR_DIR}/"}"
+  echo "  [${COUNT}/${TOTAL}] ${REL}"
+
+  # Shared libraries: no entitlements needed
+  # Executables (magi-backend, Python, node, etc.): need entitlements
+  case "$f" in
+    *.so|*.dylib)
+      codesign --force --options runtime \
+        --sign "${APPLE_SIGNING_IDENTITY}" --timestamp "$f"
+      ;;
+    *)
+      codesign --force --options runtime \
+        --sign "${APPLE_SIGNING_IDENTITY}" \
+        --entitlements "${ENTITLEMENTS}" --timestamp "$f"
+      ;;
+  esac
 done
-echo "    Signed ${#LIBS[@]} shared libraries."
 
-echo "==> Phase 2: Signing .framework bundles ..."
-FRAMEWORKS=()
-while IFS= read -r -d '' fw; do
-  FRAMEWORKS+=("$fw")
-done < <(find "${SIDECAR_DIR}" -type d -name "*.framework" -print0)
-
-for fw in "${FRAMEWORKS[@]}"; do
-  echo "  framework: ${fw#"${SIDECAR_DIR}/"}"
-  codesign --force --options runtime \
-    --sign "${APPLE_SIGNING_IDENTITY}" \
-    --entitlements "${ENTITLEMENTS}" --timestamp "$fw"
-done
-echo "    Signed ${#FRAMEWORKS[@]} framework bundles."
-
-echo "==> Phase 3: Signing remaining executables ..."
-EXECS=()
-while IFS= read -r -d '' f; do
-  # Skip shared libs (already signed), framework contents, and symlinks
-  case "$f" in *.so|*.dylib) continue ;; esac
-  case "$f" in *.framework/*) continue ;; esac
-  if file "$f" | grep -q "Mach-O"; then
-    EXECS+=("$f")
-  fi
-done < <(find "${SIDECAR_DIR}" -type f -not -type l -print0)
-
-for f in "${EXECS[@]}"; do
-  echo "  exec: ${f#"${SIDECAR_DIR}/"}"
-  codesign --force --options runtime \
-    --sign "${APPLE_SIGNING_IDENTITY}" \
-    --entitlements "${ENTITLEMENTS}" --timestamp "$f"
-done
-echo "    Signed ${#EXECS[@]} executables."
-
-TOTAL=$(( ${#LIBS[@]} + ${#FRAMEWORKS[@]} + ${#EXECS[@]} ))
-echo "==> Sidecar signing complete (${TOTAL} items)."
+echo "==> Sidecar signing complete (${TOTAL} files)."
