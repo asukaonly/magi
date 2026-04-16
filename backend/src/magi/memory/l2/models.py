@@ -494,6 +494,7 @@ class L2TomAssertionWrite:
     decay_anchor_at: float = 0.0
     context_ref_id: str = ""
     expires_at: float | None = None
+    memory_subdomain: str = ""
 
     def __post_init__(self) -> None:
         self.entity_id = _non_empty_text(self.entity_id, field_name="entity_id")
@@ -517,6 +518,7 @@ class L2TomAssertionWrite:
         self.decay_anchor_at = float(self.decay_anchor_at or 0.0)
         self.context_ref_id = _optional_text(self.context_ref_id) or ""
         self.expires_at = None if self.expires_at in (None, "") else float(self.expires_at)
+        self.memory_subdomain = _optional_text(self.memory_subdomain) or ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

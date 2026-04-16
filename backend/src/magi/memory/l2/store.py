@@ -292,6 +292,7 @@ class L2CognitionStore:
                 """
             )
             await self._ensure_knowledge_graph_columns(db)
+            await self._ensure_entity_facet_columns(db)
             await self._ensure_tom_assertion_schema(db)
             await self._ensure_tom_snapshot_schema(db)
             await self._projection_queue.ensure_schema(db)
@@ -357,6 +358,20 @@ class L2CognitionStore:
             if "privacy_scope" not in existing_columns:
                 await db.execute(
                     "ALTER TABLE tom_trait_assertions ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
+                )
+
+            # P2 memory subdomain classification
+            if "memory_subdomain" not in existing_columns:
+                await db.execute(
+                    "ALTER TABLE tom_trait_assertions ADD COLUMN memory_subdomain TEXT NOT NULL DEFAULT 'state'"
+                )
+                # Backfill existing rows: persistent/none → semantic, else state
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions SET memory_subdomain = 'semantic'
+                    WHERE temporal_scope IN ('persistent', 'stable', '')
+                      AND (decay_policy IS NULL OR decay_policy IN ('none', 'evidence_only', ''))
+                    """
                 )
 
             # Migrate validation_state → status for existing rows
@@ -433,6 +448,7 @@ class L2CognitionStore:
                 superseded_by TEXT,
                 superseded_at REAL,
                 privacy_scope TEXT NOT NULL DEFAULT 'private',
+                memory_subdomain TEXT NOT NULL DEFAULT 'state',
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             );
@@ -445,7 +461,7 @@ class L2CognitionStore:
                 confidence_score, evidence_events, volatility_index, source_domain, inference_depth,
                 validation_state, first_inferred_at, last_validated_at, target_entity_id,
                 target_entity_type, target_scope, temporal_scope, decay_policy, decay_anchor_at,
-                context_ref_id, expires_at, status, privacy_scope, created_at, updated_at
+                context_ref_id, expires_at, status, privacy_scope, memory_subdomain, created_at, updated_at
             )
             SELECT
                 assertion_id,
@@ -498,6 +514,10 @@ class L2CognitionStore:
                     ELSE 'active'
                 END,
                 'private',
+                CASE
+                    WHEN trait_name IN ('annoyance', 'irritation', 'frustration', 'mood', 'engagement', 'stress_level') THEN 'state'
+                    ELSE 'semantic'
+                END,
                 created_at,
                 updated_at
             FROM tom_trait_assertions_legacy
@@ -544,6 +564,7 @@ class L2CognitionStore:
                 superseded_by TEXT,
                 superseded_at REAL,
                 privacy_scope TEXT NOT NULL DEFAULT 'private',
+                memory_subdomain TEXT NOT NULL DEFAULT 'state',
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             );
@@ -555,6 +576,7 @@ class L2CognitionStore:
                        decay_policy, decay_anchor_at, context_ref_id, expires_at,
                        user_feedback, user_feedback_at,
                        status, superseded_by, superseded_at, privacy_scope,
+                       COALESCE(memory_subdomain, 'state'),
                        created_at, updated_at
                 FROM _tom_assertions_uniq_mig;
             DROP TABLE _tom_assertions_uniq_mig;
@@ -674,6 +696,11 @@ class L2CognitionStore:
         normalized_fact_kind = str(fact_kind).strip() if fact_kind is not None else ""
         now = time.time()
 
+        # ── P2: fact_kind admission check ──
+        normalized_fact_kind = self._validate_fact_kind(
+            normalized_fact_kind, extraction_method, confidence
+        )
+
         # Auto-set TTL for future_intent edges
         effective_expires_at = expires_at
         if normalized_fact_kind == "future_intent" and effective_expires_at is None:
@@ -781,8 +808,8 @@ class L2CognitionStore:
                         fact_kind, confidence, evidence_event_ids, observation_count, first_observed_at,
                         last_observed_at, last_confirmed_at, source_type, extraction_method,
                         evidence_text, natural_summary, embedding_status, expires_at,
-                        status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'active', ?, ?)
+                        status, privacy_scope, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'active', 'private', ?, ?)
                     """,
                     (
                         triple_id,
@@ -2586,6 +2613,7 @@ class L2CognitionStore:
             target_entity_id=normalized_candidate["target_entity_id"],
             anchor_at=normalized_candidate["decay_anchor_at"],
         )
+        normalized_candidate["memory_subdomain"] = str(candidate.get("memory_subdomain", "")).strip() or ""
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -2617,8 +2645,8 @@ class L2CognitionStore:
                         inference_depth, validation_state, first_inferred_at, last_validated_at,
                         target_entity_id, target_entity_type, target_scope, temporal_scope,
                         decay_policy, decay_anchor_at, context_ref_id, expires_at,
-                        status, privacy_scope, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        status, privacy_scope, memory_subdomain, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         assertion_id,
@@ -2645,6 +2673,7 @@ class L2CognitionStore:
                         normalized_candidate["expires_at"],
                         normalized_candidate["validation_state"],  # status mirrors validation_state
                         "private",
+                        normalized_candidate["memory_subdomain"],
                         now,
                         now,
                     ),
@@ -2739,8 +2768,8 @@ class L2CognitionStore:
                             inference_depth, validation_state, first_inferred_at, last_validated_at,
                             target_entity_id, target_entity_type, target_scope, temporal_scope,
                             decay_policy, decay_anchor_at, context_ref_id, expires_at,
-                            status, privacy_scope, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            status, privacy_scope, memory_subdomain, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             new_assertion_id,
@@ -2767,6 +2796,7 @@ class L2CognitionStore:
                             normalized_candidate["expires_at"],
                             "tentative",
                             str(existing["privacy_scope"] or "private"),
+                            normalized_candidate["memory_subdomain"],
                             now,
                             now,
                         ),
@@ -3806,6 +3836,91 @@ class L2CognitionStore:
             await db.execute("ALTER TABLE knowledge_graph ADD COLUMN embedding_status TEXT DEFAULT 'pending'")
         if "expires_at" not in columns:
             await db.execute("ALTER TABLE knowledge_graph ADD COLUMN expires_at REAL")
+        # P2 semantic memory refinement columns
+        if "valid_from" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN valid_from REAL")
+        if "valid_to" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN valid_to REAL")
+        if "status_reason" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN status_reason TEXT")
+        if "privacy_scope" not in columns:
+            await db.execute(
+                "ALTER TABLE knowledge_graph ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
+            )
+
+    async def _ensure_entity_facet_columns(self, db: aiosqlite.Connection) -> None:
+        """Backfill additive columns for older entity_facets schemas."""
+        db.row_factory = aiosqlite.Row
+        async with db.execute("PRAGMA table_info(entity_facets)") as cursor:
+            rows = await cursor.fetchall()
+        columns = {str(row["name"]) for row in rows}
+        if "status" not in columns:
+            await db.execute(
+                "ALTER TABLE entity_facets ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+            )
+        if "privacy_scope" not in columns:
+            await db.execute(
+                "ALTER TABLE entity_facets ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
+            )
+
+    # ── P2: fact_kind admission ──────────────────────────────────────
+
+    # extraction_methods that qualify as explicit/structured sources
+    _EXPLICIT_SOURCES: set[str] = {"rule", "structured_hint", "source_explicit"}
+    _STRUCTURED_SOURCES: set[str] = {"structured_hint", "rule"}
+
+    # fact_kind values that require specific extraction lineage
+    _FACT_KIND_RULES: dict[str, set[str]] = {
+        "public_topology": _EXPLICIT_SOURCES | _STRUCTURED_SOURCES,
+        "stable_preference": _EXPLICIT_SOURCES,
+    }
+
+    @staticmethod
+    def _validate_fact_kind(
+        fact_kind: str,
+        extraction_method: str,
+        confidence: float,
+    ) -> str:
+        """Validate fact_kind against extraction_method, downgrading on mismatch.
+
+        Returns the (possibly adjusted) fact_kind. Empty input is returned as-is
+        so callers can fall back to existing values on update.
+        """
+        if not fact_kind:
+            return ""
+
+        # public_topology: only from explicit/structured sources,
+        # or high-confidence structured
+        if fact_kind == "public_topology":
+            allowed = L2CognitionStore._FACT_KIND_RULES["public_topology"]
+            if extraction_method not in allowed and not (
+                extraction_method in L2CognitionStore._STRUCTURED_SOURCES
+                and confidence >= 0.8
+            ):
+                logger.warning(
+                    "fact_kind_downgraded",
+                    original=fact_kind,
+                    extraction_method=extraction_method,
+                    confidence=confidence,
+                    target="explicit_fact",
+                )
+                return "explicit_fact"
+
+        # stable_preference: only from explicit user statements/configs
+        elif fact_kind == "stable_preference":
+            allowed = L2CognitionStore._FACT_KIND_RULES["stable_preference"]
+            if extraction_method not in allowed:
+                logger.warning(
+                    "fact_kind_downgraded",
+                    original=fact_kind,
+                    extraction_method=extraction_method,
+                    target="explicit_fact",
+                )
+                return "explicit_fact"
+
+        # interaction_evidence: real events can direct-write, no restriction needed
+
+        return fact_kind
 
 
 __all__ = ["L2CognitionStore"]
