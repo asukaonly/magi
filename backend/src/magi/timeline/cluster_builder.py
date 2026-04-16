@@ -7,7 +7,12 @@ from typing import Any
 
 
 class TimelineClusterBuilder:
-    """Group nearby timeline events into semantic activity blocks."""
+    """Group nearby timeline events into semantic activity blocks.
+
+    At ``day`` and ``week`` scales the builder prefers durable episodes
+    (from the L2 ``episodes`` table) over transient re-clustering when
+    episodes are available.
+    """
 
     _MAX_GAP_BY_SCALE = {
         "month": 4.0 * 60.0 * 60.0,
@@ -16,7 +21,37 @@ class TimelineClusterBuilder:
         "hour": 60.0,
     }
 
-    def build(self, events: list[dict[str, Any]], *, scale: str) -> list[dict[str, Any]]:
+    _EPISODE_SCALES = {"day", "week"}
+
+    def build(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        scale: str,
+        episodes: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        # For day/week scales, prefer durable episodes when available
+        if scale in self._EPISODE_SCALES and episodes:
+            clusters = [self._episode_to_cluster(ep, index) for index, ep in enumerate(episodes)]
+            # Fall back: events not covered by any episode get transient clusters
+            uncovered = self._uncovered_events(events, episodes)
+            if uncovered:
+                transient = self._cluster_events(uncovered, scale=scale, start_index=len(clusters))
+                clusters.extend(transient)
+            clusters.sort(key=lambda c: c["time_start"])
+            return clusters
+
+        return self._cluster_events(events, scale=scale, start_index=0)
+
+    # ── Transient clustering (raw L1 events) ─────────────────────
+
+    def _cluster_events(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        scale: str,
+        start_index: int = 0,
+    ) -> list[dict[str, Any]]:
         if not events:
             return []
         sorted_events = sorted(events, key=lambda item: float(item.get("timestamp") or 0.0))
@@ -39,7 +74,58 @@ class TimelineClusterBuilder:
         if current_group:
             groups.append(current_group)
 
-        return [self._build_cluster(group, index) for index, group in enumerate(groups)]
+        return [self._build_cluster(group, start_index + index) for index, group in enumerate(groups)]
+
+    # ── Episode-based clusters ───────────────────────────────────
+
+    def _episode_to_cluster(self, episode: dict[str, Any], index: int) -> dict[str, Any]:
+        """Convert a durable L2 episode into a cluster dict."""
+        import json as _json
+        time_start = float(episode.get("time_start") or 0.0)
+        time_end = float(episode.get("time_end") or time_start)
+        label = str(episode.get("user_label") or episode.get("label") or episode.get("episode_type") or "activity")
+        summary = str(episode.get("summary") or "")
+        entity_ids_raw = episode.get("primary_entity_ids") or "[]"
+        if isinstance(entity_ids_raw, str):
+            try:
+                entity_ids_raw = _json.loads(entity_ids_raw)
+            except (ValueError, TypeError):
+                entity_ids_raw = []
+        return {
+            "block_id": f"episode:{episode.get('episode_id', index)}",
+            "time_start": time_start,
+            "time_end": time_end,
+            "duration_seconds": max(0.0, time_end - time_start),
+            "label": label.replace("_", " ").title(),
+            "summary": summary,
+            "dominant_mode": str(episode.get("dominant_mode") or label),
+            "source_types": [],
+            "event_count": int(episode.get("source_event_count") or 0),
+            "representative_event_ids": [],
+            "keywords": list(entity_ids_raw)[:4] if isinstance(entity_ids_raw, list) else [],
+            "media_refs": [],
+            "state_snapshot": {},
+            "episode_id": str(episode.get("episode_id", "")),
+            "user_label": episode.get("user_label"),
+            "user_note": episode.get("user_note"),
+        }
+
+    @staticmethod
+    def _uncovered_events(
+        events: list[dict[str, Any]],
+        episodes: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Return events that do not fall within any episode's time span."""
+        uncovered: list[dict[str, Any]] = []
+        for event in events:
+            ts = float(event.get("timestamp") or 0.0)
+            covered = any(
+                float(ep.get("time_start") or 0) <= ts <= float(ep.get("time_end") or 0)
+                for ep in episodes
+            )
+            if not covered:
+                uncovered.append(event)
+        return uncovered
 
     def _build_cluster(self, events: list[dict[str, Any]], index: int) -> dict[str, Any]:
         first = events[0]

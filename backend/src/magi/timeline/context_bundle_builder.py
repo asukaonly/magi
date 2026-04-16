@@ -15,6 +15,11 @@ class TimelineContextBundleBuilder:
         self._l4 = l4_store
 
     async def build(self, *, anchor: dict[str, Any]) -> dict[str, Any]:
+        # Episode-backed anchor: use episode metadata + member events
+        episode_id = anchor.get("episode_id")
+        if episode_id and self._l2 is not None and hasattr(self._l2, "list_episode_events"):
+            return await self._build_episode_bundle(anchor, episode_id)
+
         event_ids = list(anchor.get("representative_event_ids") or anchor.get("source_event_ids") or [])
 
         l1_events: list[dict[str, Any]] = []
@@ -63,6 +68,48 @@ class TimelineContextBundleBuilder:
                 }
                 for event in l1_events
                 if event.get("source_type") == "chat"
+            ],
+            "runtime_trace": [],
+        }
+
+    async def _build_episode_bundle(self, anchor: dict[str, Any], episode_id: str) -> dict[str, Any]:
+        """Build context bundle from a durable L2 episode."""
+        episode_events = await self._l2.list_episode_events(episode_id=episode_id)
+        event_ids = [str(ee.get("event_id")) for ee in episode_events if ee.get("event_id")]
+
+        l1_events: list[dict[str, Any]] = []
+        if self._l1 is not None:
+            for eid in event_ids:
+                event = await self._l1.get_event(eid)
+                if event is not None:
+                    l1_events.append(self._to_event_preview(event))
+
+        l2_state_evidence: list[dict[str, Any]] = []
+        if hasattr(self._l2, "find_edges_by_event_id"):
+            for eid in event_ids[:10]:
+                l2_state_evidence.extend(await self._l2.find_edges_by_event_id(eid))
+
+        l3_reflections: list[dict[str, Any]] = []
+        if self._l3 is not None and hasattr(self._l3, "list_summaries"):
+            summaries = await self._l3.list_summaries(limit=50)
+            event_id_set = set(event_ids)
+            l3_reflections = [
+                s for s in summaries
+                if set(s.get("source_event_ids") or []) & event_id_set
+            ]
+
+        return {
+            "anchor": anchor,
+            "episode_id": episode_id,
+            "user_label": anchor.get("user_label"),
+            "user_note": anchor.get("user_note"),
+            "l1_events": l1_events,
+            "l2_state_evidence": l2_state_evidence,
+            "l3_reflections": l3_reflections,
+            "l4_related_procedures": [],
+            "chat_excerpts": [
+                {"event_id": e["event_id"], "content": e["summary"]}
+                for e in l1_events if e.get("source_type") == "chat"
             ],
             "runtime_trace": [],
         }
