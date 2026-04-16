@@ -368,6 +368,22 @@ The scheduler engine lives in `scheduler/service.py`. Layer-owned schedule regis
 
 This keeps scheduling policy with the owning layers instead of centralizing it in one runtime module.
 
+### Sensor sync execution model
+
+For `sensor_sync` targets, the scheduler does not execute any sensor plugin code. It enqueues a durable job and returns immediately:
+
+1. APScheduler fires a `sensor_sync` schedule.
+2. `SchedulerService.execute_schedule()` checks whether the target already has an outstanding (queued or running) job in `sensor_sync_jobs`.
+3. If one exists, the trigger is coalesced; no new job is created.
+4. If none exists, the scheduler writes one `schedule_executions` row and one `sensor_sync_jobs` row with status `queued`, then returns.
+5. `SensorSyncExecutor` (awareness layer, dedicated thread with its own asyncio event loop) claims queued jobs, runs `collect_items → fetch_item → build_output → extract_metadata → ingest`, and writes final success or failure state.
+
+The `sensor_sync_jobs` table enforces at most one outstanding job per `(target_type, target_key)` via a partial unique index. A slow sensor causes skipped ticks, not backlog growth.
+
+Manual sync requests reuse the same queueing model through `SensorSchedulerContributor.queue_manual_sync()`. Sensor runtime-state flushes also run on the executor thread to avoid cross-thread access to shared sensor instances.
+
+On startup, the executor requeues stale `running` jobs. Stale detection uses `started_at` with a configurable timeout. `memory_l2_maintenance` keeps the existing direct scheduler execution path and is unaffected.
+
 ## Memory Event Flow
 
 The current memory write path is:
@@ -407,10 +423,10 @@ Two rules matter here:
 
 Pull-capable timeline sensors participate in the runtime like this:
 
-1. the scheduler fires a `sensor_sync` target
-2. the target handler resolves the sensor from `SensorRegistry`
-3. the sensor collects source items
-4. those items are normalized through sensor output and memory contracts
+1. the scheduler fires a `sensor_sync` schedule and the scheduler enqueues a durable job (see Sensor sync execution model above)
+2. `SensorSyncExecutor` claims the job on its dedicated thread
+3. the executor resolves the sensor from `SensorRegistry`, runs `collect_items`, `fetch_item`, `build_output`, and `extract_metadata`
+4. ingested outputs flow through `SensorIngestionGateway` into memory and timeline stores
 5. downstream consumers such as `TimelineAdapter` project the ingested outputs into timeline read models
 
 This is how plugin-backed local sources participate in timeline ingestion without each source inventing its own background loop.
