@@ -433,13 +433,39 @@ This is how plugin-backed local sources participate in timeline ingestion withou
 
 ## Transport Boundary
 
-HTTP and WebSocket transport is owned by the Rust gateway (`crates/magi-gateway/`). The Python sidecar runs no HTTP server. FastAPI is used only as an in-memory ASGI app, with requests arriving over an IPC channel (NDJSON over Unix Domain Socket).
+HTTP and WebSocket transport is owned by the Rust gateway (`crates/magi-gateway/`). The Python sidecar runs no HTTP server. FastAPI is used only as an in-memory ASGI app, with requests arriving over an IPC channel (NDJSON over Unix Domain Socket on macOS/Linux, TCP loopback on Windows).
 
-Transport-related Python code lives in `backend/src/magi/transport/` and handles:
+The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over the IPC channel.
 
-- IPC request dispatch to FastAPI routers
-- error handling and request logging middleware
-- language context propagation
+Transport-related Python code lives in `backend/src/magi/ipc/` and `backend/src/magi/transport/`:
+
+- `ipc/server.py` — IPC server accepting connections from the Rust gateway
+- `ipc/dispatcher.py` — method-to-handler routing for IPC commands
+- `ipc/handlers.py` — command handler implementations
+- `ipc/protocol.py` — message framing and parsing
+- `transport/http_app.py` — in-memory ASGI app for IPC request dispatch
+- `transport/http_middleware.py` — error handling, request logging, language context
+
+### IPC message types
+
+The IPC channel uses newline-delimited JSON (NDJSON). Message types:
+
+- **request** (Rust → Python): `{"id": "uuid", "method": "...", "params": {...}}` — expects response or stream + response
+- **notify** (Rust → Python): `{"method": "...", "params": {...}}` — fire-and-forget, no `id`
+- **response** (Python → Rust): `{"id": "uuid", "result": {...}}` — terminates request
+- **error** (Python → Rust): `{"id": "uuid", "error": {"code": -1, "message": "..."}}` — terminates request
+- **stream** (Python → Rust): `{"id": "uuid", "stream": {...}}` — intermediate data, 0..N before result/error
+- **event** (Python → Rust): `{"event": "...", "data": {...}}` — unsolicited runtime push
+
+Multiple requests can be in-flight concurrently on one connection, multiplexed by `id`.
+
+### Workspace structure
+
+The Rust side is organized as a Cargo workspace:
+
+- `crates/magi-gateway/` — lib crate: Axum routes, IPC client, DB reader, config I/O, notification bridge
+- `frontend/src-tauri/` — Tauri desktop binary, depends on magi-gateway
+- `gateway-cli/` — headless binary for non-desktop operation (benchmarks, CI)
 
 Current rule:
 
