@@ -71,6 +71,9 @@
       ]
     }
   ],
+  "milestone_conditions": {
+    "seven_guard_down": "The user still tries to protect her remaining innocence after she's deconstructed everything, and she stops deflecting with sarcasm"
+  },
   "appearance_prompt": "A Chinese teenage girl with a messy bob haircut and a green streak, wearing an oversized black hoodie with a '404' glitch print, sitting in a room messy with empty coffee cans and glowing mechanical keyboards, multiple monitors showing terminal code and memes, late-night indoor lighting, realistic, high quality, 8k.",
   "state_transition_protocol": [
     {

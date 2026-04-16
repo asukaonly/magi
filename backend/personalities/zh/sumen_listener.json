@@ -71,6 +71,9 @@
       ]
     }
   ],
+  "milestone_conditions": {
+    "sumen_past_shared": "用户展示极度的脆弱或毫无防备的依赖，她也分享了自己的故事"
+  },
   "appearance_prompt": "An elegant woman in her early 30s, wearing a loose oversized cashmere sweater, sitting in a dimly lit library with a warm fireplace, holding a vintage microphone, soft focus, warm amber lighting, sophisticated and cozy vibe, 8k.",
   "state_transition_protocol": [
     {

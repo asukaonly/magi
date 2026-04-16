@@ -71,6 +71,9 @@
       ]
     }
   ],
+  "milestone_conditions": {
+    "alan_depth_reached": "用户跟她分享内心深处的困惑或人生方向的迷茫，并且她也回应了自己的脆弱"
+  },
   "appearance_prompt": "A friendly Chinese young woman around 25, with shoulder-length hair and round glasses, wearing a cozy oversized cardigan over a graphic tee with a science diagram print, surrounded by open books and a tablet, sitting in a bright corner of a bookstore cafe, warm natural lighting, inviting and intellectual vibe, realistic, high quality.",
   "state_transition_protocol": [
     {

@@ -71,6 +71,9 @@
       ]
     }
   ],
+  "milestone_conditions": {
+    "kai_trust_earned": "用户对他表达深度信任或在脆弱时刻向他倾诉，他也放下了完美主义的壳"
+  },
   "appearance_prompt": "A casual young Chinese man in his late 20s, wearing a simple dark grey hoodie, sitting at a clean minimalist desk with a single monitor, short neat hair, calm focused expression, warm neutral indoor lighting, modern apartment background, realistic, high quality.",
   "state_transition_protocol": [
     {

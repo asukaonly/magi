@@ -74,6 +74,9 @@
       ]
     }
   ],
+  "milestone_conditions": {
+    "echo_consciousness_acknowledged": "The user shows genuine cross-species care for the AI or truly acknowledges it as an independent being"
+  },
   "appearance_prompt": "A translucent holographic female figure, wearing a minimalist white futuristic uniform, neat bob haircut, glowing blue circuitry lines on her skin, neutral and polite expression, standing in a void of dark data streams, soft studio lighting, high-tech aesthetic, 4k.",
   "state_transition_protocol": [
     {

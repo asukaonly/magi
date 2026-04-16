@@ -413,3 +413,188 @@ class TestAnalyzeInteractionWithStp:
             result = await analyze_interaction("Great job!", "Thanks!")
             assert result.trigger_type is None
             assert result.satisfaction == SatisfactionLevel.HIGH
+
+
+# ---------- milestone_keys in parse_analysis ----------
+
+
+class TestParseAnalysisMilestoneKeys:
+    def test_valid_milestone_keys_parsed(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "milestone_keys": ["seven_guard_down"],
+        })
+        result = parse_analysis(raw)
+        assert result.milestone_keys == ["seven_guard_down"]
+
+    def test_multiple_milestone_keys(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "milestone_keys": ["alan_depth_reached", "kai_trust_earned"],
+        })
+        result = parse_analysis(raw)
+        assert result.milestone_keys == ["alan_depth_reached", "kai_trust_earned"]
+
+    def test_empty_milestone_keys(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "milestone_keys": [],
+        })
+        result = parse_analysis(raw)
+        assert result.milestone_keys == []
+
+    def test_missing_milestone_keys_defaults_to_empty(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+        })
+        result = parse_analysis(raw)
+        assert result.milestone_keys == []
+
+    def test_null_milestone_keys(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "milestone_keys": None,
+        })
+        result = parse_analysis(raw)
+        assert result.milestone_keys == []
+
+    def test_non_string_milestone_keys_filtered(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "milestone_keys": ["valid_key", 123, None, "", "another_key"],
+        })
+        result = parse_analysis(raw)
+        assert result.milestone_keys == ["valid_key", "another_key"]
+
+
+# ---------- _build_system_prompt with milestone_conditions ----------
+
+
+class TestBuildSystemPromptMilestones:
+    def test_no_milestones_returns_base_prompt(self):
+        prompt = _build_system_prompt(None, None)
+        assert "milestone_keys" not in prompt
+
+    def test_empty_milestones_returns_base_prompt(self):
+        prompt = _build_system_prompt(None, {})
+        assert "milestone_keys" not in prompt
+
+    def test_with_milestones_appends_block(self):
+        conditions = {
+            "seven_guard_down": "User protects her innocence",
+            "alan_depth_reached": "User shares deep confusion",
+        }
+        prompt = _build_system_prompt(None, conditions)
+        assert '"seven_guard_down"' in prompt
+        assert "User protects her innocence" in prompt
+        assert '"alan_depth_reached"' in prompt
+        assert "milestone_keys" in prompt
+
+    def test_both_stp_and_milestones(self):
+        stp_rules = [
+            {"trigger_type": "crisis", "trigger_condition": "User is in danger"},
+        ]
+        conditions = {
+            "seven_guard_down": "User protects her innocence",
+        }
+        prompt = _build_system_prompt(stp_rules, conditions)
+        assert "trigger_type" in prompt
+        assert "milestone_keys" in prompt
+        assert '"crisis"' in prompt
+        assert '"seven_guard_down"' in prompt
+
+
+# ---------- analyze_interaction with milestone_conditions ----------
+
+
+class TestAnalyzeInteractionWithMilestones:
+    @pytest.mark.asyncio
+    async def test_milestone_detected(self):
+        llm_response = json.dumps({
+            "sentiment": 0.8,
+            "engagement": "very_high",
+            "complexity": 0.7,
+            "outcome": "success",
+            "satisfaction": "very_high",
+            "milestone_keys": ["seven_guard_down"],
+        })
+
+        mock_bridge = MagicMock()
+        mock_bridge.chat = AsyncMock(return_value=llm_response)
+
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = MagicMock()
+
+        conditions = {"seven_guard_down": "User protects her innocence"}
+
+        with (
+            patch(
+                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                return_value=mock_pool,
+            ),
+            patch(
+                "magi.personality.interaction_analyzer.LLMProviderBridge",
+                return_value=mock_bridge,
+            ),
+        ):
+            result = await analyze_interaction(
+                "I know you push everyone away, but I see you",
+                "...fine. Maybe you do.",
+                milestone_conditions=conditions,
+            )
+            assert result.milestone_keys == ["seven_guard_down"]
+            call_kwargs = mock_bridge.chat.call_args[1]
+            assert "seven_guard_down" in call_kwargs["system_prompt"]
+
+    @pytest.mark.asyncio
+    async def test_no_milestones_still_works(self):
+        llm_response = json.dumps({
+            "sentiment": 0.5,
+            "engagement": "medium",
+            "complexity": 0.3,
+            "outcome": "success",
+            "satisfaction": "high",
+        })
+
+        mock_bridge = MagicMock()
+        mock_bridge.chat = AsyncMock(return_value=llm_response)
+
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = MagicMock()
+
+        with (
+            patch(
+                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                return_value=mock_pool,
+            ),
+            patch(
+                "magi.personality.interaction_analyzer.LLMProviderBridge",
+                return_value=mock_bridge,
+            ),
+        ):
+            result = await analyze_interaction("Hello!", "Hi there!")
+            assert result.milestone_keys == []

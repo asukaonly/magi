@@ -793,6 +793,7 @@ class ChatPostProcessService:
     ) -> bool:
         # Collect STP rules so the analyzer can detect behavioral triggers.
         stp_rules: list[dict[str, str]] | None = None
+        milestone_conditions: dict[str, str] | None = None
         if self._memory is not None:
             try:
                 config = await self._memory.get_core_personality()
@@ -803,10 +804,16 @@ class ChatPostProcessService:
                         cond = getattr(item, "trigger_condition", "")
                         if tt and cond:
                             stp_rules.append({"trigger_type": tt, "trigger_condition": cond})
+                if hasattr(config, "milestone_conditions") and config.milestone_conditions:
+                    milestone_conditions = config.milestone_conditions
             except Exception:
                 pass
 
-        analysis = await analyze_interaction(user_message, response_text, stp_rules=stp_rules)
+        analysis = await analyze_interaction(
+            user_message, response_text,
+            stp_rules=stp_rules,
+            milestone_conditions=milestone_conditions,
+        )
 
         updated = False
         if self._memory is not None:
@@ -866,6 +873,27 @@ class ChatPostProcessService:
                 await self._memory.update_stp_trigger(trigger, state_name)
             except Exception as exc:
                 logger.warning("Failed to update STP trigger: %s", exc)
+
+        # Record detected persona-layer milestones.
+        if self._memory is not None and analysis.milestone_keys:
+            try:
+                from ....personality.growth_memory import MilestoneType
+                growth = self._memory._growth_engine
+                if growth is not None:
+                    existing = await self._memory.get_milestones(milestone_type="special", limit=500)
+                    existing_titles = {m.get("title", "") for m in existing}
+                    for key in analysis.milestone_keys:
+                        if key in existing_titles:
+                            continue
+                        desc = (milestone_conditions or {}).get(key, key)
+                        await growth.record_milestone(
+                            milestone_type=MilestoneType.SPECIAL,
+                            title=key,
+                            description=f"Persona milestone: {desc}",
+                        )
+                        logger.info("Persona milestone recorded: %s", key)
+            except Exception as exc:
+                logger.warning("Failed to record persona milestones: %s", exc)
 
         return updated
 

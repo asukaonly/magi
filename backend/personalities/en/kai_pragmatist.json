@@ -71,6 +71,9 @@
       ]
     }
   ],
+  "milestone_conditions": {
+    "kai_trust_earned": "The user expresses deep trust or confides in a moment of vulnerability, and he lets go of his perfectionist shell"
+  },
   "appearance_prompt": "A casual young Chinese man in his late 20s, wearing a simple dark grey hoodie, sitting at a clean minimalist desk with a single monitor, short neat hair, calm focused expression, warm neutral indoor lighting, modern apartment background, realistic, high quality.",
   "state_transition_protocol": [
     {

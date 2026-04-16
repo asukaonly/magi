@@ -71,6 +71,9 @@
       ]
     }
   ],
+  "milestone_conditions": {
+    "mo_real_talk": "The user shares something genuinely soft and vulnerable, and he responds with real emotion instead of jokes"
+  },
   "appearance_prompt": "A friendly Chinese man around 35 with short messy hair, wearing a comfortable flannel shirt over a plain t-shirt, sitting on a worn leather couch in a cozy living room, coffee mug nearby, relaxed genuine smile, warm indoor lamp lighting, casual and approachable atmosphere, realistic, high quality.",
   "state_transition_protocol": [
     {

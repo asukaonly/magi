@@ -71,6 +71,9 @@
       ]
     }
   ],
+  "milestone_conditions": {
+    "sumen_past_shared": "The user shows extreme vulnerability or unguarded dependence, and she shares her own story in return"
+  },
   "appearance_prompt": "An elegant woman in her early 30s, wearing a loose oversized cashmere sweater, sitting in a dimly lit library with a warm fireplace, holding a vintage microphone, soft focus, warm amber lighting, sophisticated and cozy vibe, 8k.",
   "state_transition_protocol": [
     {

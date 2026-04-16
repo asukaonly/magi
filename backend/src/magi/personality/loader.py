@@ -124,6 +124,7 @@ class PersonalityConfig:
     appearance_prompt: str = ""
     state_transition_protocol: List[StateTransitionProtocolItem] = field(default_factory=list)
     persona_layers: List[PersonaLayerItem] = field(default_factory=list)
+    milestone_conditions: Dict[str, str] = field(default_factory=dict)
     scenario_prompts: Dict[str, str] = field(default_factory=dict)
     bootstrap: Optional[BootstrapConfig] = None
 
@@ -172,6 +173,7 @@ class PersonalityConfig:
                 for item in layers
                 if isinstance(item, dict)
             ],
+            milestone_conditions=dict(data.get("milestone_conditions", {})),
             scenario_prompts=dict(scenario_prompts_raw) if isinstance(scenario_prompts_raw, dict) else {},
             bootstrap=BootstrapConfig(**{**asdict(BootstrapConfig()), **_pick(BootstrapConfig, bootstrap_raw)})
             if isinstance(bootstrap_raw, dict) else None,

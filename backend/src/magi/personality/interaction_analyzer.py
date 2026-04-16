@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from ..config.models import LLMScenario
@@ -67,6 +67,7 @@ class InteractionAnalysis:
     outcome: InteractionOutcome
     satisfaction: SatisfactionLevel
     trigger_type: Optional[str] = None
+    milestone_keys: List[str] = field(default_factory=list)
 
     @property
     def outcome_str(self) -> str:
@@ -82,45 +83,72 @@ DEFAULT_ANALYSIS = InteractionAnalysis(
 )
 
 
-def _build_system_prompt(stp_rules: List[Dict[str, str]] | None = None) -> str:
-    """Build the system prompt, optionally including STP trigger detection."""
-    if not stp_rules:
+def _build_system_prompt(
+    stp_rules: List[Dict[str, str]] | None = None,
+    milestone_conditions: Dict[str, str] | None = None,
+) -> str:
+    """Build the system prompt, optionally including STP trigger and milestone detection."""
+    extra = ""
+
+    # STP trigger detection block
+    if stp_rules:
+        rules_lines: list[str] = []
+        trigger_types: list[str] = []
+        for rule in stp_rules:
+            tt = rule.get("trigger_type", "")
+            cond = rule.get("trigger_condition", "")
+            if tt and cond:
+                rules_lines.append(f'- "{tt}": {cond}')
+                trigger_types.append(f'"{tt}"')
+        if rules_lines:
+            extra += (
+                "\n\nAdditionally, determine if the user's message activates any of "
+                "these behavioral triggers:\n"
+                + "\n".join(rules_lines)
+                + "\n\nAdd this field to your JSON output:\n"
+                '- "trigger_type": one of '
+                + ", ".join(trigger_types)
+                + ' if a trigger condition is clearly matched, or null if none applies. '
+                'Only activate a trigger when the conversation clearly matches the described condition.'
+            )
+
+    # Milestone detection block
+    if milestone_conditions:
+        ms_lines: list[str] = []
+        ms_keys: list[str] = []
+        for key, cond in milestone_conditions.items():
+            ms_lines.append(f'- "{key}": {cond}')
+            ms_keys.append(f'"{key}"')
+        if ms_lines:
+            extra += (
+                "\n\nAlso, determine if this exchange represents a significant "
+                "relationship milestone. The following milestones may occur:\n"
+                + "\n".join(ms_lines)
+                + "\n\nAdd this field to your JSON output:\n"
+                '- "milestone_keys": an array of milestone keys ('
+                + ", ".join(ms_keys)
+                + ') that are clearly achieved in this exchange, or an empty array if none. '
+                'Only mark a milestone when the exchange unmistakably demonstrates '
+                'the described condition — do not mark it for vague similarity.'
+            )
+
+    if not extra:
         return _SYSTEM_PROMPT
-
-    rules_lines: list[str] = []
-    trigger_types: list[str] = []
-    for rule in stp_rules:
-        tt = rule.get("trigger_type", "")
-        cond = rule.get("trigger_condition", "")
-        if tt and cond:
-            rules_lines.append(f'- "{tt}": {cond}')
-            trigger_types.append(f'"{tt}"')
-
-    if not rules_lines:
-        return _SYSTEM_PROMPT
-
-    stp_block = (
-        "\n\nAdditionally, determine if the user's message activates any of "
-        "these behavioral triggers:\n"
-        + "\n".join(rules_lines)
-        + "\n\nAdd this field to your JSON output:\n"
-        '- "trigger_type": one of '
-        + ", ".join(trigger_types)
-        + ' if a trigger condition is clearly matched, or null if none applies. '
-        'Only activate a trigger when the conversation clearly matches the described condition.'
-    )
-    return _SYSTEM_PROMPT + stp_block
+    return _SYSTEM_PROMPT + extra
 
 
 async def analyze_interaction(
     user_message: str,
     assistant_response: str,
     stp_rules: List[Dict[str, str]] | None = None,
+    milestone_conditions: Dict[str, str] | None = None,
 ) -> InteractionAnalysis:
     """Analyze a single interaction turn using a lightweight LLM call.
 
     When *stp_rules* are provided the LLM is also asked to detect whether
     the exchange matches one of the persona's STP trigger conditions.
+    When *milestone_conditions* are provided the LLM also checks whether
+    any persona-layer milestone conditions are met.
 
     Returns DEFAULT_ANALYSIS if the LLM call fails or is unavailable.
     """
@@ -143,7 +171,7 @@ async def analyze_interaction(
         f"Assistant response:\n{assistant_response[:500]}"
     )
 
-    system_prompt = _build_system_prompt(stp_rules)
+    system_prompt = _build_system_prompt(stp_rules, milestone_conditions)
 
     t0 = time.monotonic()
     try:
@@ -195,6 +223,11 @@ def parse_analysis(raw: str) -> InteractionAnalysis:
     if isinstance(raw_trigger, str) and raw_trigger in _VALID_TRIGGER_TYPES:
         trigger_type = raw_trigger
 
+    raw_milestones = data.get("milestone_keys")
+    milestone_keys: List[str] = []
+    if isinstance(raw_milestones, list):
+        milestone_keys = [k for k in raw_milestones if isinstance(k, str) and k]
+
     return InteractionAnalysis(
         sentiment=sentiment,
         engagement=engagement,
@@ -202,6 +235,7 @@ def parse_analysis(raw: str) -> InteractionAnalysis:
         outcome=outcome,
         satisfaction=satisfaction,
         trigger_type=trigger_type,
+        milestone_keys=milestone_keys,
     )
 
 
