@@ -162,11 +162,6 @@ jobs:
             echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
           fi
 
-      - name: Sign sidecar binaries for notarization (macOS)
-        if: matrix.os_family == 'macos'
-        shell: bash
-        run: ./scripts/sign-sidecar-macos.sh
-
       - name: Build release notes from commits
         id: release_notes
         shell: bash
@@ -209,6 +204,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: frontend
+          tauriScript: ${{ matrix.os_family == 'macos' && '../scripts/tauri-build-macos.sh' || '' }}
           tagName: ${{ github.ref_name }}
           releaseName: ${{ steps.release_notes.outputs.title }}
           releaseBody: ${{ steps.release_notes.outputs.body }}
