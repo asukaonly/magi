@@ -131,6 +131,8 @@ class EmotionalState:
     stress_level: float = 0.2
     focus_state: str = "normal"
     social_state: str = "neutral"
+    active_stp_trigger: str = ""
+    active_stp_state_name: str = ""
     updated_at: float = field(default_factory=time.time)
 
 

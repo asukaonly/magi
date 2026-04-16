@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
@@ -13,6 +14,8 @@ from .behavior_evolution import SatisfactionLevel
 from .emotional_state import EngagementLevel, InteractionOutcome
 
 logger = get_logger(__name__)
+
+_VALID_TRIGGER_TYPES = frozenset({"crisis", "intimacy", "hostility", "absurdity"})
 
 _SYSTEM_PROMPT = """\
 You are an interaction quality classifier. Analyze a user–assistant exchange and output a JSON object with these fields:
@@ -63,6 +66,7 @@ class InteractionAnalysis:
     complexity: float
     outcome: InteractionOutcome
     satisfaction: SatisfactionLevel
+    trigger_type: Optional[str] = None
 
     @property
     def outcome_str(self) -> str:
@@ -78,11 +82,45 @@ DEFAULT_ANALYSIS = InteractionAnalysis(
 )
 
 
+def _build_system_prompt(stp_rules: List[Dict[str, str]] | None = None) -> str:
+    """Build the system prompt, optionally including STP trigger detection."""
+    if not stp_rules:
+        return _SYSTEM_PROMPT
+
+    rules_lines: list[str] = []
+    trigger_types: list[str] = []
+    for rule in stp_rules:
+        tt = rule.get("trigger_type", "")
+        cond = rule.get("trigger_condition", "")
+        if tt and cond:
+            rules_lines.append(f'- "{tt}": {cond}')
+            trigger_types.append(f'"{tt}"')
+
+    if not rules_lines:
+        return _SYSTEM_PROMPT
+
+    stp_block = (
+        "\n\nAdditionally, determine if the user's message activates any of "
+        "these behavioral triggers:\n"
+        + "\n".join(rules_lines)
+        + "\n\nAdd this field to your JSON output:\n"
+        '- "trigger_type": one of '
+        + ", ".join(trigger_types)
+        + ' if a trigger condition is clearly matched, or null if none applies. '
+        'Only activate a trigger when the conversation clearly matches the described condition.'
+    )
+    return _SYSTEM_PROMPT + stp_block
+
+
 async def analyze_interaction(
     user_message: str,
     assistant_response: str,
+    stp_rules: List[Dict[str, str]] | None = None,
 ) -> InteractionAnalysis:
     """Analyze a single interaction turn using a lightweight LLM call.
+
+    When *stp_rules* are provided the LLM is also asked to detect whether
+    the exchange matches one of the persona's STP trigger conditions.
 
     Returns DEFAULT_ANALYSIS if the LLM call fails or is unavailable.
     """
@@ -105,10 +143,12 @@ async def analyze_interaction(
         f"Assistant response:\n{assistant_response[:500]}"
     )
 
+    system_prompt = _build_system_prompt(stp_rules)
+
     t0 = time.monotonic()
     try:
         raw = await bridge.chat(
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
             max_tokens=256,
             temperature=0.1,
@@ -150,12 +190,18 @@ def parse_analysis(raw: str) -> InteractionAnalysis:
         data.get("satisfaction", ""), SatisfactionLevel.NEUTRAL
     )
 
+    raw_trigger = data.get("trigger_type")
+    trigger_type: Optional[str] = None
+    if isinstance(raw_trigger, str) and raw_trigger in _VALID_TRIGGER_TYPES:
+        trigger_type = raw_trigger
+
     return InteractionAnalysis(
         sentiment=sentiment,
         engagement=engagement,
         complexity=complexity,
         outcome=outcome,
         satisfaction=satisfaction,
+        trigger_type=trigger_type,
     )
 
 

@@ -204,6 +204,18 @@ class EmotionalStateEngine:
 
     # Internal note.
 
+    async def update_stp_trigger(
+        self,
+        trigger_type: str,
+        state_name: str,
+    ) -> None:
+        """Update the active STP trigger detected from interaction analysis."""
+        state = await self.get_current_state()
+        state.active_stp_trigger = trigger_type
+        state.active_stp_state_name = state_name
+        state.updated_at = time.time()
+        await self._save_current_state()
+
     async def update_after_interaction(
         self,
         outcome: InteractionOutcome,

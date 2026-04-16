@@ -126,6 +126,8 @@ class PromptContextAssembler:
     ) -> SelfMemoryContext:
         persona_entity: Dict[str, Any] = {}
         dynamic_state: Dict[str, Any] = {}
+        active_stp_trigger = ""
+        active_stp_state_name = ""
 
         if self_memory is not None:
             config = await self_memory.get_core_personality()
@@ -144,6 +146,8 @@ class PromptContextAssembler:
                 "energy_level": float(getattr(emotion, "energy_level", 0.7)),
                 "stress_level": float(getattr(emotion, "stress_level", 0.2)),
             }
+            active_stp_trigger = getattr(emotion, "active_stp_trigger", "") or ""
+            active_stp_state_name = getattr(emotion, "active_stp_state_name", "") or ""
 
         user_pref_memory: Dict[str, Any] = {}
         if other_memory is not None and user_id:
@@ -177,16 +181,22 @@ class PromptContextAssembler:
             user_id=user_id,
         )
 
-        # Load state transition protocol rules
+        # Load state transition protocol rules — only inject the active trigger's
+        # rule (if any) to save tokens and reduce prompt noise.
         stp_rules: List[Dict[str, str]] = []
+        resolved_override = state_transition_override
         if self_memory is not None:
             config = await self_memory.get_core_personality()
             if hasattr(config, "state_transition_protocol") and config.state_transition_protocol:
                 for item in config.state_transition_protocol:
-                    rule: Dict[str, str] = {}
                     trigger_type = getattr(item, "trigger_type", "")
-                    if trigger_type:
-                        rule["trigger_type"] = trigger_type
+                    if not trigger_type:
+                        continue
+                    # When an STP trigger is active, include only its matching rule.
+                    if active_stp_trigger and trigger_type != active_stp_trigger:
+                        continue
+                    rule: Dict[str, str] = {}
+                    rule["trigger_type"] = trigger_type
                     condition = getattr(item, "trigger_condition", "")
                     if condition:
                         rule["trigger_condition"] = condition
@@ -196,8 +206,11 @@ class PromptContextAssembler:
                     shift = getattr(item, "behavior_shift", "")
                     if shift:
                         rule["behavior_shift"] = shift
-                    if rule:
-                        stp_rules.append(rule)
+                    stp_rules.append(rule)
+
+            # Promote the detected STP state name as the active override.
+            if active_stp_trigger and active_stp_state_name and not resolved_override:
+                resolved_override = active_stp_state_name
 
         # Load recent persona journal entries
         journal_entries: List[Dict[str, Any]] = []
@@ -218,7 +231,7 @@ class PromptContextAssembler:
             persona_entity=persona_entity,
             dynamic_state=dynamic_state,
             retrieval_memory=retrieval_memory,
-            state_transition_override=state_transition_override,
+            state_transition_override=resolved_override,
             state_transition_rules=stp_rules,
             scenario_prompt=scenario_prompt_text,
             active_persona_layers=active_layers,

@@ -203,6 +203,15 @@ class SelfMemory:
                 complexity=complexity,
             )
 
+    async def update_stp_trigger(
+        self,
+        trigger_type: str,
+        state_name: str,
+    ) -> None:
+        """Update the active STP trigger detected from interaction analysis."""
+        if self.enable_evolution and self._emotion_engine:
+            await self._emotion_engine.update_stp_trigger(trigger_type, state_name)
+
     async def store_experience(self, perception, action, result):
         """
         Internal note.

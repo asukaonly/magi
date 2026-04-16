@@ -9,6 +9,7 @@ import pytest
 from magi.personality.interaction_analyzer import (
     DEFAULT_ANALYSIS,
     InteractionAnalysis,
+    _build_system_prompt,
     analyze_interaction,
     parse_analysis,
 )
@@ -251,3 +252,164 @@ class TestAnalyzeInteraction:
             result = await analyze_interaction("hello", "hi")
             assert result.outcome == InteractionOutcome.SUCCESS
             assert call_count == 2
+
+
+# ---------- trigger_type in parse_analysis ----------
+
+
+class TestParseAnalysisTriggerType:
+    def test_valid_trigger_type_parsed(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "trigger_type": "crisis",
+        })
+        result = parse_analysis(raw)
+        assert result.trigger_type == "crisis"
+
+    def test_unknown_trigger_type_ignored(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "trigger_type": "unknown_type",
+        })
+        result = parse_analysis(raw)
+        assert result.trigger_type is None
+
+    def test_null_trigger_type(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "trigger_type": None,
+        })
+        result = parse_analysis(raw)
+        assert result.trigger_type is None
+
+    def test_missing_trigger_type_defaults_to_none(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+        })
+        result = parse_analysis(raw)
+        assert result.trigger_type is None
+
+    def test_all_four_trigger_types(self):
+        for tt in ("crisis", "intimacy", "hostility", "absurdity"):
+            raw = json.dumps({
+                "sentiment": 0.0,
+                "engagement": "medium",
+                "complexity": 0.5,
+                "outcome": "success",
+                "satisfaction": "neutral",
+                "trigger_type": tt,
+            })
+            result = parse_analysis(raw)
+            assert result.trigger_type == tt
+
+
+# ---------- _build_system_prompt ----------
+
+
+class TestBuildSystemPrompt:
+    def test_no_rules_returns_base_prompt(self):
+        prompt = _build_system_prompt(None)
+        assert "trigger_type" not in prompt
+
+    def test_empty_rules_returns_base_prompt(self):
+        prompt = _build_system_prompt([])
+        assert "trigger_type" not in prompt
+
+    def test_with_rules_appends_stp_block(self):
+        rules = [
+            {"trigger_type": "crisis", "trigger_condition": "User is in danger"},
+            {"trigger_type": "hostility", "trigger_condition": "User is aggressive"},
+        ]
+        prompt = _build_system_prompt(rules)
+        assert '"crisis"' in prompt
+        assert "User is in danger" in prompt
+        assert '"hostility"' in prompt
+        assert "trigger_type" in prompt
+
+
+# ---------- analyze_interaction with stp_rules ----------
+
+
+class TestAnalyzeInteractionWithStp:
+    @pytest.mark.asyncio
+    async def test_stp_trigger_detected(self):
+        llm_response = json.dumps({
+            "sentiment": -0.3,
+            "engagement": "high",
+            "complexity": 0.4,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "trigger_type": "hostility",
+        })
+
+        mock_bridge = MagicMock()
+        mock_bridge.chat = AsyncMock(return_value=llm_response)
+
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = MagicMock()
+
+        stp_rules = [
+            {"trigger_type": "hostility", "trigger_condition": "User is aggressive"},
+        ]
+
+        with (
+            patch(
+                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                return_value=mock_pool,
+            ),
+            patch(
+                "magi.personality.interaction_analyzer.LLMProviderBridge",
+                return_value=mock_bridge,
+            ),
+        ):
+            result = await analyze_interaction("You're useless!", "I'm sorry.", stp_rules=stp_rules)
+            assert result.trigger_type == "hostility"
+            # Verify the system prompt included STP context.
+            call_kwargs = mock_bridge.chat.call_args[1]
+            assert "hostility" in call_kwargs["system_prompt"]
+
+    @pytest.mark.asyncio
+    async def test_no_stp_rules_still_works(self):
+        llm_response = json.dumps({
+            "sentiment": 0.5,
+            "engagement": "medium",
+            "complexity": 0.3,
+            "outcome": "success",
+            "satisfaction": "high",
+        })
+
+        mock_bridge = MagicMock()
+        mock_bridge.chat = AsyncMock(return_value=llm_response)
+
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = MagicMock()
+
+        with (
+            patch(
+                "magi.personality.interaction_analyzer.require_scenario_llm_pool",
+                return_value=mock_pool,
+            ),
+            patch(
+                "magi.personality.interaction_analyzer.LLMProviderBridge",
+                return_value=mock_bridge,
+            ),
+        ):
+            result = await analyze_interaction("Great job!", "Thanks!")
+            assert result.trigger_type is None
+            assert result.satisfaction == SatisfactionLevel.HIGH

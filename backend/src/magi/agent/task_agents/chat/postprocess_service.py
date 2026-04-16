@@ -791,7 +791,22 @@ class ChatPostProcessService:
     async def _record_memory_updates(
         self, *, user_id: str, user_message: str, response_text: str = "",
     ) -> bool:
-        analysis = await analyze_interaction(user_message, response_text)
+        # Collect STP rules so the analyzer can detect behavioral triggers.
+        stp_rules: list[dict[str, str]] | None = None
+        if self._memory is not None:
+            try:
+                config = await self._memory.get_core_personality()
+                if hasattr(config, "state_transition_protocol") and config.state_transition_protocol:
+                    stp_rules = []
+                    for item in config.state_transition_protocol:
+                        tt = getattr(item, "trigger_type", "")
+                        cond = getattr(item, "trigger_condition", "")
+                        if tt and cond:
+                            stp_rules.append({"trigger_type": tt, "trigger_condition": cond})
+            except Exception:
+                pass
+
+        analysis = await analyze_interaction(user_message, response_text, stp_rules=stp_rules)
 
         updated = False
         if self._memory is not None:
@@ -835,6 +850,23 @@ class ChatPostProcessService:
                 updated = True
             except Exception as exc:
                 logger.warning("Failed to update other memory: %s", exc)
+
+        # Persist detected STP trigger into emotional state for the next turn.
+        if self._memory is not None:
+            try:
+                trigger = analysis.trigger_type or ""
+                state_name = ""
+                if trigger and stp_rules:
+                    # Look up the matching rule's target_state_name from full config.
+                    config = await self._memory.get_core_personality()
+                    for item in getattr(config, "state_transition_protocol", []):
+                        if getattr(item, "trigger_type", "") == trigger:
+                            state_name = getattr(item, "target_state_name", "")
+                            break
+                await self._memory.update_stp_trigger(trigger, state_name)
+            except Exception as exc:
+                logger.warning("Failed to update STP trigger: %s", exc)
+
         return updated
 
     def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None:
