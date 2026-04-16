@@ -33,6 +33,8 @@ from .evidence_policy import resolve_l2_policy
 from .entity_catalog import L2EntityCatalog
 from .extraction_profiles import ExtractionProfile, resolve_extraction_profile
 from .llm_service import L2LLMService
+from .episode_formation import assign_events_to_episode
+from .models import EpisodeCandidateJob
 from .ontology import coerce_unknown_entity_type
 from .pipeline_conflict import L2ConflictArbitrationMixin
 from .pipeline_entity import L2EntityResolutionMixin
@@ -657,6 +659,21 @@ class L2Pipeline(L2ConflictArbitrationMixin, L2EntityResolutionMixin, L2Validati
                 snapshot_refresh_entity_ids = result.get("snapshot_refresh_entity_ids", [])
                 if isinstance(snapshot_refresh_entity_ids, list) and snapshot_refresh_entity_ids:
                     await self.enqueue_snapshot_refresh(snapshot_refresh_entity_ids)
+                # ── Episode candidate formation ──────────────────
+                if self._cognition_store is not None and job.event_ids and not result.get("skipped"):
+                    try:
+                        candidate_jobs = [
+                            EpisodeCandidateJob(
+                                event_id=eid,
+                                event_timestamp=float(evt.get("timestamp", 0.0) or 0.0),
+                                entity_ids=touched_entity_ids if isinstance(touched_entity_ids, list) else [],
+                            )
+                            for eid, evt in zip(job.event_ids, job.events)
+                        ]
+                        if candidate_jobs:
+                            await assign_events_to_episode(self._cognition_store, candidate_jobs)
+                    except Exception:
+                        logger.debug("Episode candidate formation failed", exc_info=True)
             except Exception as exc:
                 if self._cognition_store is not None and job is not None and job.event_ids:
                     await self._cognition_store.fail_projection_jobs(
