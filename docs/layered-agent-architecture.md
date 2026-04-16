@@ -54,16 +54,21 @@ Responsibilities:
 - database initialization
 - maintenance dependencies
 - shared infrastructure exports
+- persistent scheduler engine (timing, target dispatch, durable execution bookkeeping)
+- runtime trace persistence (spans, LLM calls, tool calls, execution observability)
 
 Primary packages:
 
 - `core/`
+- `scheduler/`
+- `runtime_trace/`
 - selected infrastructure helpers in `bootstrap/exports.py`
 
 Notes:
 
 - the scheduler engine is infrastructure, even if bootstrap starts it later in dependency order
 - bootstrap order and ownership layer are not the same thing
+- `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L6 recall
 
 ### L2. Configuration
 
@@ -243,28 +248,45 @@ Responsibilities:
 - product-facing routers (dispatched via IPC from the Rust gateway)
 - application services
 - read and write service contracts
+- chat domain persistence (sessions, turns, messages, attachments)
+- task domain persistence (user-facing task tracking)
+- external messaging channel adapters (Telegram and other platforms)
 
 Primary packages:
 
 - `api/routers/`
 - `api/services/`
+- `chat/`
+- `tasks/`
+- `channels/`
 
 Notes:
 
 - the Rust gateway (`crates/magi-gateway/`) handles static database reads, config file I/O, and session/task mutations natively
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
+- `chat/` owns transcript truth (`chat.db`), attachment storage, and session workspace; it is not the memory layer
+- `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline
 
 ### L14. Connection And Transport
 
 Responsibilities:
 
-- IPC transport app assembly and middleware for the Python sidecar
+- IPC server and command dispatch for the Python sidecar
+- IPC transport app assembly and middleware
 - HTTP and WebSocket serving (owned by the Rust gateway, not Python)
 
 Primary packages:
 
-- `transport/` (Python-side IPC transport wiring)
+- `ipc/` (Python-side IPC server, dispatcher, protocol, handlers)
+- `transport/` (Python-side in-memory ASGI app wiring and middleware)
 - `crates/magi-gateway/src/api/` (Rust-side HTTP/WebSocket handling)
+- `crates/magi-gateway/src/ipc/` (Rust-side IPC client and protocol)
+
+Notes:
+
+- the Python process runs no HTTP server; all external traffic arrives over a Unix Domain Socket IPC channel from the Rust gateway
+- `ipc/` owns the server, NDJSON protocol parsing, and method-to-handler routing
+- `transport/` owns the in-memory FastAPI/ASGI app used for IPC request dispatch
 
 ## Boundary Contracts
 
@@ -338,12 +360,12 @@ To reduce future ambiguity, prefer the following terminology:
 - `Timeline queries` or `read models` instead of `data display`
 - `Memory layers` for lifecycle/storage structure, and `memory content categories` for things like preference, tool experience, or persona-adjacent facts
 
-## Suggested Package Mapping
+## Package Mapping
 
-The current codebase already roughly maps to this target model:
+The current codebase maps to the layered model like this:
 
 - `bootstrap/` -> outer composition root, not a numbered layer
-- `core/`, parts of `utils/` -> L1 application infrastructure
+- `core/`, `scheduler/`, `runtime_trace/`, parts of `utils/` -> L1 application infrastructure
 - `config/` -> L2 configuration
 - `events/` -> L3 message bus
 - `plugins/` -> L4 plugin registration
@@ -355,9 +377,7 @@ The current codebase already roughly maps to this target model:
 - `context/` -> L10 context
 - `agent/` -> L11 agent runtime
 - `timeline/` -> L12 timeline domain
-- `api/` -> L13 external services
-- `transport/` and `crates/magi-gateway/` -> L14 connection and transport
+- `api/`, `chat/`, `tasks/`, `channels/` -> L13 external services
+- `ipc/`, `transport/` and `crates/magi-gateway/` -> L14 connection and transport
 
-`runtime/` should enter the deletion path as refactors land. The target package model is `bootstrap/` for the outer composition root plus `core/` for L1 infrastructure. If a module belongs to one of the numbered layers, it should eventually live there instead of remaining in a generic runtime package.
-
-This mapping is approximate and may continue to evolve during refactors, but the boundary rules above should remain stable.
+The boundary rules above should remain stable even as package internals evolve.
