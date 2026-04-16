@@ -24,6 +24,7 @@ python -m PyInstaller `
   --noconfirm `
   --clean `
   --onefile `
+  --noconsole `
   --name magi-backend `
   --hidden-import winrt.windows.media.control `
   run_server.py
