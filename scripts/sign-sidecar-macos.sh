@@ -54,7 +54,7 @@ echo "==> Keychain ready."
 
 # ── Debug: dump initial sidecar structure ───────────────────────
 echo "==> Sidecar structure (before processing):"
-find "${SIDECAR_DIR}" -maxdepth 4 | head -80
+find "${SIDECAR_DIR}" -maxdepth 4 2>/dev/null | head -80 || true
 echo "---"
 
 # ── Pre-sign: remove stale code signatures ─────────────────────
@@ -169,7 +169,7 @@ echo "    Defused ${#FW_OLD_BASES[@]} framework(s)."
 
 # ── Debug: dump structure after defuse ──────────────────────────
 echo "==> Sidecar structure (after defuse):"
-find "${SIDECAR_DIR}" -maxdepth 4 | head -80
+find "${SIDECAR_DIR}" -maxdepth 4 2>/dev/null | head -80 || true
 echo "---"
 
 # ── Sign all Mach-O binaries ───────────────────────────────────
