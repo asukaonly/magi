@@ -52,6 +52,33 @@ security list-keychains -d user -s "$KEYCHAIN_PATH" \
 
 echo "==> Keychain ready."
 
+# ── Pre-sign cleanup ────────────────────────────────────────────
+# 1. Remove any stale _CodeSignature dirs inside .framework bundles
+#    left by prior signing attempts or PyInstaller itself.
+# 2. Break hardlinks.  PyInstaller often hardlinks _internal/Python
+#    to Python.framework/Versions/*/Python.  Apple notarization may
+#    reject signed binaries that share an inode, because re-signing
+#    one path silently mutates the other.  Replacing hardlinks with
+#    independent copies eliminates this class of failure.
+
+echo "==> Removing stale _CodeSignature dirs inside sidecar-dist ..."
+find "${SIDECAR_DIR}" -type d -name "_CodeSignature" -print -exec rm -rf {} + 2>/dev/null || true
+
+echo "==> Breaking hardlinks for Mach-O files ..."
+BROKEN=0
+while IFS= read -r -d '' f; do
+  [[ -L "$f" ]] && continue
+  NLINKS=$(stat -f '%l' "$f")
+  if [[ "$NLINKS" -gt 1 ]] && file "$f" | grep -q "Mach-O"; then
+    TMPFILE="${f}.__break_hl__"
+    cp "$f" "$TMPFILE"
+    mv "$TMPFILE" "$f"
+    BROKEN=$((BROKEN + 1))
+    echo "  broke hardlink: ${f#"${SIDECAR_DIR}/"} (was ${NLINKS} links)"
+  fi
+done < <(find "${SIDECAR_DIR}" -type f -print0)
+echo "==> Broke ${BROKEN} hardlinks."
+
 # ── Collect and sign ────────────────────────────────────────────
 # PyInstaller bundles a non-standard Python.framework that lacks
 # Info.plist and proper versioned structure.  Signing it as a bundle
@@ -67,7 +94,6 @@ echo "==> Keychain ready."
 echo "==> Collecting all Mach-O files in sidecar-dist ..."
 ALL_MACHO=()
 while IFS= read -r -d '' f; do
-  # Skip symlinks – sign only real files
   [[ -L "$f" ]] && continue
   if file "$f" | grep -q "Mach-O"; then
     ALL_MACHO+=("$f")
