@@ -2912,3 +2912,291 @@ async def test_snapshot_preference_affinity_computation(tmp_path):
     tea = snapshot["preferences"]["tea_preference"]
     # 0.30 * (1 + 0.1 * 1) = 0.30 * 1.1 = 0.33
     assert tea["affinity"] == 0.33
+
+
+# ── P0: State Memory Supersession Tests ─────────────────────────────
+
+
+def _make_assertion_candidate(
+    *,
+    entity_id: str = "user:u1",
+    entity_type: str = "user",
+    trait_family: str = "emotion",
+    trait_name: str = "mood",
+    trait_value: str = "happy",
+    confidence_score: float = 0.25,
+    evidence_events: list | None = None,
+    volatility_index: float = 0.5,
+    source_domain: str = "chat",
+    inference_depth: str = "surface",
+    validation_state: str = "tentative",
+    first_inferred_at: float = 1710000000.0,
+    last_validated_at: float = 1710000000.0,
+    target_entity_id: str = "",
+    target_entity_type: str = "",
+    target_scope: str = "global",
+    temporal_scope: str = "persistent",
+    decay_policy: str = "standard_decay",
+    decay_anchor_at: float | None = None,
+    context_ref_id: str = "",
+    expires_at: float | None = None,
+) -> dict:
+    return {
+        "entity_id": entity_id,
+        "entity_type": entity_type,
+        "trait_family": trait_family,
+        "trait_name": trait_name,
+        "trait_value": trait_value,
+        "confidence_score": confidence_score,
+        "evidence_events": evidence_events or ["evt-1"],
+        "volatility_index": volatility_index,
+        "source_domain": source_domain,
+        "inference_depth": inference_depth,
+        "validation_state": validation_state,
+        "first_inferred_at": first_inferred_at,
+        "last_validated_at": last_validated_at,
+        "target_entity_id": target_entity_id,
+        "target_entity_type": target_entity_type,
+        "target_scope": target_scope,
+        "temporal_scope": temporal_scope,
+        "decay_policy": decay_policy,
+        "decay_anchor_at": decay_anchor_at,
+        "context_ref_id": context_ref_id,
+        "expires_at": expires_at,
+    }
+
+
+@pytest.mark.asyncio
+async def test_persistent_value_change_supersedes_old_assertion(tmp_path):
+    """When a persistent-scope assertion value changes, old is superseded and new is inserted."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    # Insert initial assertion
+    c1 = _make_assertion_candidate(trait_value="happy", evidence_events=["evt-1"])
+    id1 = await store.upsert_assertion_candidate(c1)
+
+    # Change value — should supersede
+    c2 = _make_assertion_candidate(
+        trait_value="sad",
+        evidence_events=["evt-2"],
+        last_validated_at=1710010000.0,
+    )
+    id2 = await store.upsert_assertion_candidate(c2)
+
+    assert id1 != id2
+
+    old = await store.get_tom_assertion(assertion_id=id1)
+    new = await store.get_tom_assertion(assertion_id=id2)
+
+    assert old is not None
+    assert old["status"] == "superseded"
+    assert old["superseded_by"] == id2
+    assert old["superseded_at"] is not None
+
+    assert new is not None
+    assert new["status"] == "tentative"
+    assert new["trait_value"] == "sad"
+
+
+@pytest.mark.asyncio
+async def test_session_scope_value_change_updates_in_place(tmp_path):
+    """Session-scope assertions update in place on value change, not supersede."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    c1 = _make_assertion_candidate(
+        trait_value="happy",
+        temporal_scope="session",
+        evidence_events=["evt-1"],
+    )
+    id1 = await store.upsert_assertion_candidate(c1)
+
+    c2 = _make_assertion_candidate(
+        trait_value="sad",
+        temporal_scope="session",
+        evidence_events=["evt-2"],
+        last_validated_at=1710010000.0,
+    )
+    id2 = await store.upsert_assertion_candidate(c2)
+
+    # Same assertion_id — updated in place
+    assert id1 == id2
+
+    a = await store.get_tom_assertion(assertion_id=id1)
+    assert a is not None
+    assert a["trait_value"] == "sad"
+    assert a["status"] == "contradicted"
+
+
+@pytest.mark.asyncio
+async def test_same_value_corroboration_keeps_same_id(tmp_path):
+    """Repeated same-value evidence corroborates without superseding."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    c1 = _make_assertion_candidate(trait_value="happy", evidence_events=["evt-1"])
+    id1 = await store.upsert_assertion_candidate(c1)
+
+    c2 = _make_assertion_candidate(
+        trait_value="happy",
+        evidence_events=["evt-2"],
+        last_validated_at=1710010000.0,
+    )
+    id2 = await store.upsert_assertion_candidate(c2)
+
+    assert id1 == id2
+
+    a = await store.get_tom_assertion(assertion_id=id1)
+    assert a is not None
+    assert a["status"] == "corroborated"
+    assert a["confidence_score"] > 0.3
+
+
+@pytest.mark.asyncio
+async def test_user_correction_supersedes_and_creates_stable(tmp_path):
+    """correct_assertion creates a new stable assertion and supersedes the old."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    c1 = _make_assertion_candidate(
+        trait_name="location",
+        trait_value="Hangzhou",
+        evidence_events=["evt-1"],
+    )
+    id1 = await store.upsert_assertion_candidate(c1)
+
+    result = await store.correct_assertion(
+        assertion_id=id1,
+        new_value="Shanghai",
+        reason="I moved",
+    )
+
+    assert result is not None
+    assert result["trait_value"] == "Shanghai"
+    assert result["status"] == "stable"
+    assert result["confidence_score"] == 0.95
+    assert result["source_domain"] == "user_correction"
+
+    old = await store.get_tom_assertion(assertion_id=id1)
+    assert old is not None
+    assert old["status"] == "superseded"
+    assert old["superseded_by"] == result["assertion_id"]
+
+
+@pytest.mark.asyncio
+async def test_superseded_assertion_excluded_from_new_upsert(tmp_path):
+    """A superseded assertion should not be found by the upsert query."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    c1 = _make_assertion_candidate(trait_value="A", evidence_events=["evt-1"])
+    id1 = await store.upsert_assertion_candidate(c1)
+
+    # Supersede via value change
+    c2 = _make_assertion_candidate(
+        trait_value="B",
+        evidence_events=["evt-2"],
+        last_validated_at=1710010000.0,
+    )
+    id2 = await store.upsert_assertion_candidate(c2)
+
+    # Now insert same value as original — should create new, not match superseded
+    c3 = _make_assertion_candidate(
+        trait_value="B",
+        evidence_events=["evt-3"],
+        last_validated_at=1710020000.0,
+    )
+    id3 = await store.upsert_assertion_candidate(c3)
+
+    # Should corroborate id2, not resurrect id1
+    assert id3 == id2
+
+    old = await store.get_tom_assertion(assertion_id=id1)
+    assert old["status"] == "superseded"
+
+
+@pytest.mark.asyncio
+async def test_assertion_row_includes_status_columns(tmp_path):
+    """_assertion_row_to_dict includes status, superseded_by, superseded_at, privacy_scope."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    c1 = _make_assertion_candidate(trait_value="test", evidence_events=["evt-1"])
+    id1 = await store.upsert_assertion_candidate(c1)
+
+    a = await store.get_tom_assertion(assertion_id=id1)
+    assert a is not None
+    assert "status" in a
+    assert "superseded_by" in a
+    assert "superseded_at" in a
+    assert "privacy_scope" in a
+    assert a["privacy_scope"] == "private"
+
+
+@pytest.mark.asyncio
+async def test_schema_migration_adds_new_columns(tmp_path):
+    """Existing DB without status columns gets them added on init."""
+    import aiosqlite as _aiosqlite
+
+    db_path = tmp_path / "l2.db"
+    # Create a minimal old-schema table
+    async with _aiosqlite.connect(db_path) as db:
+        await db.executescript(
+            """
+            CREATE TABLE tom_trait_assertions (
+                assertion_id TEXT PRIMARY KEY,
+                entity_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL DEFAULT 'user',
+                trait_family TEXT NOT NULL,
+                trait_name TEXT NOT NULL,
+                trait_value TEXT NOT NULL,
+                confidence_score REAL NOT NULL DEFAULT 0.5,
+                evidence_events TEXT NOT NULL DEFAULT '[]',
+                volatility_index REAL NOT NULL DEFAULT 0.5,
+                source_domain TEXT NOT NULL DEFAULT 'chat',
+                inference_depth TEXT NOT NULL DEFAULT 'surface',
+                validation_state TEXT NOT NULL DEFAULT 'tentative',
+                first_inferred_at REAL NOT NULL,
+                last_validated_at REAL NOT NULL,
+                target_entity_id TEXT NOT NULL DEFAULT '',
+                target_entity_type TEXT NOT NULL DEFAULT '',
+                target_scope TEXT NOT NULL DEFAULT 'global',
+                temporal_scope TEXT NOT NULL DEFAULT 'session',
+                decay_policy TEXT,
+                decay_anchor_at REAL,
+                context_ref_id TEXT NOT NULL DEFAULT '',
+                expires_at REAL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
+            );
+            """
+        )
+        await db.commit()
+
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(db_path))
+    await store.initialize()
+
+    async with _aiosqlite.connect(db_path) as db:
+        async with db.execute("PRAGMA table_info(tom_trait_assertions)") as cursor:
+            columns = {str(row[1]) for row in await cursor.fetchall()}
+
+    assert "status" in columns
+    assert "superseded_by" in columns
+    assert "superseded_at" in columns
+    assert "privacy_scope" in columns

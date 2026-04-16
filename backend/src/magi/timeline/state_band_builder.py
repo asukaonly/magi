@@ -133,9 +133,13 @@ class TimelineStateBandBuilder:
         period_start: float,
         period_end: float,
     ) -> list[dict[str, Any]]:
+        _excluded_statuses = {"superseded", "archived", "expired", "user_rejected"}
         matches: list[dict[str, Any]] = []
         for assertion in assertions:
             if str(assertion.get("entity_id") or "") != "user:self":
+                continue
+            status = str(assertion.get("status") or assertion.get("validation_state") or "")
+            if status in _excluded_statuses:
                 continue
             first_inferred_at = float(assertion.get("first_inferred_at") or period_start)
             last_validated_at = float(assertion.get("last_validated_at") or first_inferred_at)

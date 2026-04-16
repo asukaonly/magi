@@ -164,9 +164,12 @@ class L2CognitionStore:
                     expires_at REAL,
                     user_feedback TEXT,
                     user_feedback_at REAL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    superseded_by TEXT,
+                    superseded_at REAL,
+                    privacy_scope TEXT NOT NULL DEFAULT 'private',
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
+                    updated_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_tom_assertions_entity_updated
                     ON tom_trait_assertions(entity_id, entity_type, updated_at DESC);
@@ -285,6 +288,61 @@ class L2CognitionStore:
                 await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN user_feedback TEXT")
             if "user_feedback_at" not in existing_columns:
                 await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN user_feedback_at REAL")
+
+            # P0 state memory columns
+            if "status" not in existing_columns:
+                await db.execute(
+                    "ALTER TABLE tom_trait_assertions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+                )
+            if "superseded_by" not in existing_columns:
+                await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN superseded_by TEXT")
+            if "superseded_at" not in existing_columns:
+                await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN superseded_at REAL")
+            if "privacy_scope" not in existing_columns:
+                await db.execute(
+                    "ALTER TABLE tom_trait_assertions ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
+                )
+
+            # Migrate validation_state → status for existing rows
+            if "status" not in existing_columns:
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions SET status = CASE
+                        WHEN validation_state = 'stable' THEN 'stable'
+                        WHEN validation_state = 'corroborated' THEN 'corroborated'
+                        WHEN validation_state = 'tentative' THEN 'tentative'
+                        WHEN validation_state = 'contradicted' THEN 'contradicted'
+                        WHEN validation_state = 'expired' THEN 'expired'
+                        WHEN validation_state = 'user_rejected' THEN 'user_rejected'
+                        ELSE 'active'
+                    END
+                    """
+                )
+
+            # Drop old UNIQUE constraint by recreating the table without it.
+            # Check if the UNIQUE constraint still exists.
+            async with db.execute("PRAGMA index_list(tom_trait_assertions)") as cursor:
+                indexes = await cursor.fetchall()
+            has_old_unique = any(
+                str(idx["origin"]) == "u" for idx in indexes
+            )
+            if has_old_unique:
+                await self._recreate_assertions_without_unique(db)
+
+            # Ensure partial index for active assertions
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_tom_assertions_active_key
+                    ON tom_trait_assertions(entity_id, entity_type, trait_name, target_entity_id, status)
+                    WHERE status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
+                """
+            )
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_tom_assertions_privacy_scope
+                    ON tom_trait_assertions(privacy_scope)
+                """
+            )
             return
 
         await db.executescript(
@@ -315,9 +373,12 @@ class L2CognitionStore:
                 expires_at REAL,
                 user_feedback TEXT,
                 user_feedback_at REAL,
+                status TEXT NOT NULL DEFAULT 'active',
+                superseded_by TEXT,
+                superseded_at REAL,
+                privacy_scope TEXT NOT NULL DEFAULT 'private',
                 created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
+                updated_at REAL NOT NULL
             );
             """
         )
@@ -328,7 +389,7 @@ class L2CognitionStore:
                 confidence_score, evidence_events, volatility_index, source_domain, inference_depth,
                 validation_state, first_inferred_at, last_validated_at, target_entity_id,
                 target_entity_type, target_scope, temporal_scope, decay_policy, decay_anchor_at,
-                context_ref_id, expires_at, created_at, updated_at
+                context_ref_id, expires_at, status, privacy_scope, created_at, updated_at
             )
             SELECT
                 assertion_id,
@@ -371,12 +432,85 @@ class L2CognitionStore:
                 last_validated_at,
                 '',
                 expires_at,
+                CASE
+                    WHEN validation_state = 'stable' THEN 'stable'
+                    WHEN validation_state = 'corroborated' THEN 'corroborated'
+                    WHEN validation_state = 'tentative' THEN 'tentative'
+                    WHEN validation_state = 'contradicted' THEN 'contradicted'
+                    WHEN validation_state = 'expired' THEN 'expired'
+                    WHEN validation_state = 'user_rejected' THEN 'user_rejected'
+                    ELSE 'active'
+                END,
+                'private',
                 created_at,
                 updated_at
             FROM tom_trait_assertions_legacy
             """
         )
         await db.execute("DROP TABLE tom_trait_assertions_legacy")
+
+    async def _recreate_assertions_without_unique(self, db: aiosqlite.Connection) -> None:
+        """Drop the UNIQUE constraint by recreating the table.
+
+        SQLite does not support ``ALTER TABLE ... DROP CONSTRAINT``, so the
+        only way to remove the old ``UNIQUE(entity_id, entity_type,
+        trait_name, target_entity_id)`` is to recreate the table.
+        """
+        await db.executescript(
+            """
+            ALTER TABLE tom_trait_assertions RENAME TO _tom_assertions_uniq_mig;
+            CREATE TABLE tom_trait_assertions (
+                assertion_id TEXT PRIMARY KEY,
+                entity_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                trait_family TEXT NOT NULL,
+                trait_name TEXT NOT NULL,
+                trait_value TEXT NOT NULL,
+                confidence_score REAL NOT NULL,
+                evidence_events TEXT NOT NULL,
+                volatility_index REAL NOT NULL,
+                source_domain TEXT NOT NULL,
+                inference_depth TEXT NOT NULL,
+                validation_state TEXT NOT NULL,
+                first_inferred_at REAL NOT NULL,
+                last_validated_at REAL NOT NULL,
+                target_entity_id TEXT NOT NULL DEFAULT '',
+                target_entity_type TEXT NOT NULL DEFAULT '',
+                target_scope TEXT NOT NULL DEFAULT 'global',
+                temporal_scope TEXT NOT NULL DEFAULT 'session',
+                decay_policy TEXT,
+                decay_anchor_at REAL,
+                context_ref_id TEXT NOT NULL DEFAULT '',
+                expires_at REAL,
+                user_feedback TEXT,
+                user_feedback_at REAL,
+                status TEXT NOT NULL DEFAULT 'active',
+                superseded_by TEXT,
+                superseded_at REAL,
+                privacy_scope TEXT NOT NULL DEFAULT 'private',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+            INSERT INTO tom_trait_assertions
+                SELECT assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+                       confidence_score, evidence_events, volatility_index, source_domain,
+                       inference_depth, validation_state, first_inferred_at, last_validated_at,
+                       target_entity_id, target_entity_type, target_scope, temporal_scope,
+                       decay_policy, decay_anchor_at, context_ref_id, expires_at,
+                       user_feedback, user_feedback_at,
+                       status, superseded_by, superseded_at, privacy_scope,
+                       created_at, updated_at
+                FROM _tom_assertions_uniq_mig;
+            DROP TABLE _tom_assertions_uniq_mig;
+            """
+        )
+        # Re-create the entity+updated index
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_tom_assertions_entity_updated
+                ON tom_trait_assertions(entity_id, entity_type, updated_at DESC)
+            """
+        )
 
     async def _ensure_tom_snapshot_schema(self, db: aiosqlite.Connection) -> None:
         db.row_factory = aiosqlite.Row
@@ -932,7 +1066,8 @@ class L2CognitionStore:
             cursor = await db.execute(
                 f"""
                 UPDATE tom_trait_assertions
-                SET validation_state = 'expired', expires_at = ?, updated_at = ?
+                SET validation_state = 'expired', status = 'expired',
+                    expires_at = ?, updated_at = ?
                 WHERE entity_id IN ({placeholders})
                   AND decay_policy = 'session_decay'
                   AND validation_state = 'tentative'
@@ -1013,10 +1148,10 @@ class L2CognitionStore:
                 """
                 UPDATE tom_trait_assertions
                 SET user_feedback = ?, user_feedback_at = ?,
-                    confidence_score = ?, validation_state = ?, updated_at = ?
+                    confidence_score = ?, validation_state = ?, status = ?, updated_at = ?
                 WHERE assertion_id = ?
                 """,
-                (feedback, now, new_confidence, new_state, now, assertion_id),
+                (feedback, now, new_confidence, new_state, new_state, now, assertion_id),
             )
             await db.commit()
 
@@ -1030,6 +1165,113 @@ class L2CognitionStore:
             new_state=new_state,
         )
         return await self.get_tom_assertion(assertion_id=assertion_id)
+
+    async def correct_assertion(
+        self,
+        *,
+        assertion_id: str,
+        new_value: str,
+        reason: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """User-initiated value correction that supersedes the current assertion.
+
+        Creates a new assertion with the corrected value and marks the old one
+        as ``superseded``.  The new assertion starts at ``status='stable'``
+        with high confidence because it comes directly from the user.
+
+        Args:
+            assertion_id: The assertion to correct.
+            new_value: The corrected value.
+            reason: Optional reason for the correction.
+
+        Returns:
+            The newly created assertion dict, or ``None`` if the original was
+            not found.
+        """
+        await self.initialize()
+        now = time.time()
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+                (assertion_id,),
+            ) as cursor:
+                existing = await cursor.fetchone()
+
+            if existing is None:
+                return None
+
+            new_assertion_id = f"assert_{uuid.uuid4().hex}"
+
+            # Supersede the old assertion
+            await db.execute(
+                """
+                UPDATE tom_trait_assertions
+                SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+                WHERE assertion_id = ?
+                """,
+                (new_assertion_id, now, now, assertion_id),
+            )
+
+            # Insert the corrected assertion with high confidence
+            evidence = json.loads(existing["evidence_events"] or "[]")
+            await db.execute(
+                """
+                INSERT INTO tom_trait_assertions(
+                    assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+                    confidence_score, evidence_events, volatility_index, source_domain,
+                    inference_depth, validation_state, first_inferred_at, last_validated_at,
+                    target_entity_id, target_entity_type, target_scope, temporal_scope,
+                    decay_policy, decay_anchor_at, context_ref_id, expires_at,
+                    status, privacy_scope, user_feedback, user_feedback_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_assertion_id,
+                    str(existing["entity_id"]),
+                    str(existing["entity_type"]),
+                    str(existing["trait_family"]),
+                    str(existing["trait_name"]),
+                    new_value,
+                    0.95,  # high confidence — user-provided
+                    json.dumps(evidence, ensure_ascii=False),
+                    float(existing["volatility_index"]),
+                    "user_correction",
+                    "explicit",
+                    "stable",
+                    float(existing["first_inferred_at"]),
+                    now,
+                    str(existing["target_entity_id"] or ""),
+                    str(existing["target_entity_type"] or ""),
+                    str(existing["target_scope"] or "global"),
+                    str(existing["temporal_scope"] or "session"),
+                    existing["decay_policy"],
+                    existing["decay_anchor_at"],
+                    str(existing["context_ref_id"] or ""),
+                    existing["expires_at"],
+                    "stable",
+                    str(existing["privacy_scope"] if "privacy_scope" in existing.keys() else "private"),
+                    "confirmed",
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+
+        logger.info(
+            "L2 user correction applied",
+            old_assertion_id=assertion_id,
+            new_assertion_id=new_assertion_id,
+            entity_id=str(existing["entity_id"]),
+            trait_name=str(existing["trait_name"]),
+            old_value=str(existing["trait_value"]),
+            new_value=new_value,
+            reason=reason,
+        )
+        return await self.get_tom_assertion(assertion_id=new_assertion_id)
 
     async def count_tom_snapshots(self) -> int:
         """Count all ToM snapshots."""
@@ -1703,11 +1945,13 @@ class L2CognitionStore:
                 await db.execute(
                     """
                     UPDATE tom_trait_assertions
-                    SET confidence_score = ?, validation_state = ?, last_validated_at = ?, updated_at = ?
+                    SET confidence_score = ?, validation_state = ?, status = ?,
+                        last_validated_at = ?, updated_at = ?
                     WHERE assertion_id = ?
                     """,
                     (
                         confidence,
+                        status,
                         status,
                         last_seen,
                         now,
@@ -1763,17 +2007,18 @@ class L2CognitionStore:
         superseded_outgoing = [e for e in all_edges if e["subject_id"] == entity_id and e["status"] in _superseded]
         superseded_incoming = [e for e in all_edges if e["object_id"] == entity_id and e["status"] in _superseded]
         expired_assertions = [item for item in assertions if self._is_assertion_expired(item)]
+        _active_statuses = {"stable", "corroborated", "tentative"}
         active_assertions = [
             item
             for item in assertions
-            if item["validation_state"] in {"stable", "corroborated"}
+            if item.get("status", item["validation_state"]) in {"stable", "corroborated"}
             and not self._is_assertion_expired(item)
             and item.get("user_feedback") != "rejected"
         ]
         tentative_assertions = [
             item
             for item in assertions
-            if item["validation_state"] == "tentative"
+            if item.get("status", item["validation_state"]) == "tentative"
             and not self._is_assertion_expired(item)
             and item.get("user_feedback") != "rejected"
         ]
@@ -1904,10 +2149,14 @@ class L2CognitionStore:
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
+            # Find the active assertion for this key (excluding superseded/archived/expired)
             async with db.execute(
                 """
                 SELECT * FROM tom_trait_assertions
                 WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
+                  AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
+                ORDER BY updated_at DESC
+                LIMIT 1
                 """,
                 (
                     normalized_candidate["entity_id"],
@@ -1927,8 +2176,9 @@ class L2CognitionStore:
                         confidence_score, evidence_events, volatility_index, source_domain,
                         inference_depth, validation_state, first_inferred_at, last_validated_at,
                         target_entity_id, target_entity_type, target_scope, temporal_scope,
-                        decay_policy, decay_anchor_at, context_ref_id, expires_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        decay_policy, decay_anchor_at, context_ref_id, expires_at,
+                        status, privacy_scope, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         assertion_id,
@@ -1953,6 +2203,8 @@ class L2CognitionStore:
                         normalized_candidate["decay_anchor_at"],
                         normalized_candidate["context_ref_id"],
                         normalized_candidate["expires_at"],
+                        normalized_candidate["validation_state"],  # status mirrors validation_state
+                        "private",
                         now,
                         now,
                     ),
@@ -1979,43 +2231,152 @@ class L2CognitionStore:
             last_validated_at = float(normalized_candidate["last_validated_at"])
             existing_value = str(existing["trait_value"])
             next_value = str(normalized_candidate["trait_value"])
+            existing_temporal_scope = str(existing["temporal_scope"] or "session")
 
             if existing_value != next_value:
-                confidence = max(0.15, float(existing["confidence_score"]) * 0.35)
-                validation_state = "contradicted"
+                # Value changed — decide: supersede or in-place update
+                if existing_temporal_scope in ("session", "momentary"):
+                    # Session/momentary state: update in place (ephemeral)
+                    confidence = max(0.15, float(existing["confidence_score"]) * 0.35)
+                    validation_state = "contradicted"
+                    status = "contradicted"
+                    await db.execute(
+                        """
+                        UPDATE tom_trait_assertions
+                        SET trait_value = ?, confidence_score = ?, evidence_events = ?,
+                            validation_state = ?, status = ?, last_validated_at = ?,
+                            target_entity_type = ?, target_scope = ?, temporal_scope = ?,
+                            decay_policy = ?, decay_anchor_at = ?, context_ref_id = ?,
+                            expires_at = ?, updated_at = ?
+                        WHERE assertion_id = ?
+                        """,
+                        (
+                            next_value,
+                            confidence,
+                            json.dumps(evidence, ensure_ascii=False),
+                            validation_state,
+                            status,
+                            last_validated_at,
+                            normalized_candidate["target_entity_type"],
+                            normalized_candidate["target_scope"],
+                            normalized_candidate["temporal_scope"],
+                            normalized_candidate["decay_policy"],
+                            normalized_candidate["decay_anchor_at"],
+                            normalized_candidate["context_ref_id"],
+                            normalized_candidate["expires_at"],
+                            now,
+                            str(existing["assertion_id"]),
+                        ),
+                    )
+                    await db.commit()
+                    logger.debug(
+                        "L2 assertion upserted",
+                        assertion_id=str(existing["assertion_id"]),
+                        entity_id=normalized_candidate["entity_id"],
+                        trait_name=normalized_candidate["trait_name"],
+                        validation_state=validation_state,
+                        confidence=confidence,
+                        evidence_count=len(evidence),
+                        action="updated_in_place",
+                    )
+                    return str(existing["assertion_id"])
+                else:
+                    # Persistent/daily/stable scope: supersede the old, insert new
+                    new_assertion_id = f"assert_{uuid.uuid4().hex}"
+                    await db.execute(
+                        """
+                        UPDATE tom_trait_assertions
+                        SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+                        WHERE assertion_id = ?
+                        """,
+                        (new_assertion_id, now, now, str(existing["assertion_id"])),
+                    )
+                    await db.execute(
+                        """
+                        INSERT INTO tom_trait_assertions(
+                            assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+                            confidence_score, evidence_events, volatility_index, source_domain,
+                            inference_depth, validation_state, first_inferred_at, last_validated_at,
+                            target_entity_id, target_entity_type, target_scope, temporal_scope,
+                            decay_policy, decay_anchor_at, context_ref_id, expires_at,
+                            status, privacy_scope, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            new_assertion_id,
+                            normalized_candidate["entity_id"],
+                            normalized_candidate["entity_type"],
+                            normalized_candidate["trait_family"],
+                            normalized_candidate["trait_name"],
+                            next_value,
+                            float(normalized_candidate["confidence_score"]),
+                            json.dumps(normalized_candidate["evidence_events"], ensure_ascii=False),
+                            float(normalized_candidate["volatility_index"]),
+                            normalized_candidate["source_domain"],
+                            normalized_candidate["inference_depth"],
+                            "tentative",
+                            float(normalized_candidate["first_inferred_at"]),
+                            last_validated_at,
+                            normalized_candidate["target_entity_id"],
+                            normalized_candidate["target_entity_type"],
+                            normalized_candidate["target_scope"],
+                            normalized_candidate["temporal_scope"],
+                            normalized_candidate["decay_policy"],
+                            normalized_candidate["decay_anchor_at"],
+                            normalized_candidate["context_ref_id"],
+                            normalized_candidate["expires_at"],
+                            "tentative",
+                            str(existing["privacy_scope"] or "private"),
+                            now,
+                            now,
+                        ),
+                    )
+                    await db.commit()
+                    logger.info(
+                        "L2 assertion superseded",
+                        old_assertion_id=str(existing["assertion_id"]),
+                        new_assertion_id=new_assertion_id,
+                        entity_id=normalized_candidate["entity_id"],
+                        trait_name=normalized_candidate["trait_name"],
+                        old_value=existing_value,
+                        new_value=next_value,
+                    )
+                    return new_assertion_id
             else:
+                # Same value — corroborate
                 confidence = min(0.95, 0.3 + 0.25 * max(0, len(evidence) - 1))
                 enough_events = len(evidence) >= 3
                 enough_span = (last_validated_at - first_inferred_at) > 24 * 60 * 60
                 validation_state = "stable" if enough_events and enough_span and confidence >= 0.8 else "corroborated"
+                status = validation_state
 
-            await db.execute(
-                """
-                UPDATE tom_trait_assertions
-                SET trait_value = ?, confidence_score = ?, evidence_events = ?,
-                    validation_state = ?, last_validated_at = ?, target_entity_type = ?,
-                    target_scope = ?, temporal_scope = ?, decay_policy = ?, decay_anchor_at = ?,
-                    context_ref_id = ?, expires_at = ?, updated_at = ?
-                WHERE assertion_id = ?
-                """,
-                (
-                    next_value if existing_value != next_value else existing_value,
-                    confidence,
-                    json.dumps(evidence, ensure_ascii=False),
-                    validation_state,
-                    last_validated_at,
-                    normalized_candidate["target_entity_type"],
-                    normalized_candidate["target_scope"],
-                    normalized_candidate["temporal_scope"],
-                    normalized_candidate["decay_policy"],
-                    normalized_candidate["decay_anchor_at"],
-                    normalized_candidate["context_ref_id"],
-                    normalized_candidate["expires_at"],
-                    now,
-                    str(existing["assertion_id"]),
-                ),
-            )
-            await db.commit()
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions
+                    SET confidence_score = ?, evidence_events = ?,
+                        validation_state = ?, status = ?, last_validated_at = ?, target_entity_type = ?,
+                        target_scope = ?, temporal_scope = ?, decay_policy = ?, decay_anchor_at = ?,
+                        context_ref_id = ?, expires_at = ?, updated_at = ?
+                    WHERE assertion_id = ?
+                    """,
+                    (
+                        confidence,
+                        json.dumps(evidence, ensure_ascii=False),
+                        validation_state,
+                        status,
+                        last_validated_at,
+                        normalized_candidate["target_entity_type"],
+                        normalized_candidate["target_scope"],
+                        normalized_candidate["temporal_scope"],
+                        normalized_candidate["decay_policy"],
+                        normalized_candidate["decay_anchor_at"],
+                        normalized_candidate["context_ref_id"],
+                        normalized_candidate["expires_at"],
+                        now,
+                        str(existing["assertion_id"]),
+                    ),
+                )
+                await db.commit()
         logger.debug(
             "L2 assertion upserted",
             assertion_id=str(existing["assertion_id"]),
@@ -2901,6 +3262,10 @@ class L2CognitionStore:
             "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
             "user_feedback": str(row["user_feedback"]) if "user_feedback" in columns and row["user_feedback"] else None,
             "user_feedback_at": float(row["user_feedback_at"]) if "user_feedback_at" in columns and row["user_feedback_at"] else None,
+            "status": str(row["status"]) if "status" in columns and row["status"] else "active",
+            "superseded_by": str(row["superseded_by"]) if "superseded_by" in columns and row["superseded_by"] else None,
+            "superseded_at": float(row["superseded_at"]) if "superseded_at" in columns and row["superseded_at"] else None,
+            "privacy_scope": str(row["privacy_scope"]) if "privacy_scope" in columns and row["privacy_scope"] else "private",
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }

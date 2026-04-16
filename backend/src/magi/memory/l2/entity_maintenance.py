@@ -771,8 +771,9 @@ class L2EntityMaintenance:
             cursor = await db.execute(
                 """
                 UPDATE tom_trait_assertions
-                SET validation_state = 'expired', updated_at = ?
+                SET validation_state = 'expired', status = 'expired', updated_at = ?
                 WHERE validation_state NOT IN ('expired', 'user_rejected', 'contradicted')
+                  AND status NOT IN ('superseded', 'archived')
                   AND (
                     (expires_at IS NOT NULL AND expires_at < ?)
                     OR (decay_policy = 'fast_decay' AND updated_at < ?)
@@ -799,6 +800,7 @@ class L2EntityMaintenance:
                 WHERE entity_id NOT IN (
                     SELECT DISTINCT entity_id FROM tom_trait_assertions
                     WHERE validation_state IN ('tentative', 'corroborated', 'stable')
+                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
                 )
                 """
             )
@@ -834,6 +836,7 @@ class L2EntityMaintenance:
                     SELECT DISTINCT entity_id, entity_type, MIN(updated_at) AS min_updated
                     FROM tom_trait_assertions
                     WHERE validation_state IN ('tentative', 'corroborated')
+                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
                       AND updated_at < ?
                       AND updated_at > ?
                     GROUP BY entity_id, entity_type
