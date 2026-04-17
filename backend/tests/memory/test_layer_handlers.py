@@ -42,11 +42,15 @@ class TestL1Handler:
         s = AsyncMock()
         s.db_path = ":memory:"
         s.bm25_search.return_value = [("e1", -1.0), ("e2", -0.5)]
-        s._semantic_search_event_hits.return_value = []
+        s.vector_search.return_value = []
         s.query_events.return_value = [
             {"event_id": "e1", "content": "hello world", "timestamp": 1000},
             {"event_id": "e2", "content": "world peace", "timestamp": 2000},
         ]
+        s.resolve_event_entities.return_value = []
+        s.find_events_by_entities.return_value = []
+        s.filter_ids_by_user.return_value = []
+        s.fetch_events.return_value = []
         return s
 
     @pytest.mark.asyncio
@@ -1006,7 +1010,9 @@ class TestL3Handler:
         s = AsyncMock()
         s.db_path = ":memory:"
         s.bm25_search.return_value = [("s1", -1.0)]
-        s._semantic_search_summaries.return_value = [{"summary_id": "s1", "content": "weekly summary"}]
+        s.vector_search.return_value = [{"summary_id": "s1", "content": "weekly summary"}]
+        s.keyword_search.return_value = []
+        s.fetch_by_ids.return_value = [{"summary_id": "s1", "content": "weekly summary"}]
         return s
 
     @pytest.mark.asyncio
@@ -1068,7 +1074,8 @@ class TestL4Handler:
         s = AsyncMock()
         s.db_path = ":memory:"
         s.bm25_search.return_value = [("p1", -1.0)]
-        s._semantic_query_strategies.return_value = [{"skill_id": "p1", "content": "deploy strategy"}]
+        s.keyword_search.return_value = []
+        s.fetch_by_ids.return_value = [{"skill_id": "p1", "content": "deploy strategy"}]
         return s
 
     @pytest.mark.asyncio

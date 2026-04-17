@@ -635,6 +635,153 @@ class L1EventStore:
 
         return [r[0] for r in rows if r[0] not in exclude][:limit]
 
+    async def resolve_event_entities(self, event_ids: List[str]) -> List[str]:
+        """Return distinct entity IDs linked to the given events."""
+        if not event_ids:
+            return []
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            ph = ", ".join("?" for _ in event_ids)
+            async with db.execute(
+                f"SELECT DISTINCT entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
+                tuple(event_ids),
+            ) as cursor:
+                return [row[0] for row in await cursor.fetchall()]
+
+    async def find_events_by_entities(
+        self,
+        entity_ids: List[str],
+        *,
+        exclude_event_ids: Optional[List[str]] = None,
+        limit: int = 30,
+    ) -> List[Tuple[str, int]]:
+        """Find events sharing given entities, ranked by shared-entity count.
+
+        Returns ``[(event_id, shared_count), ...]`` ordered desc by *shared_count*.
+        """
+        if not entity_ids:
+            return []
+        await self.initialize()
+        exclude = set(exclude_event_ids or [])
+        eph = ", ".join("?" for _ in entity_ids)
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                f"SELECT event_id, COUNT(DISTINCT entity_id) AS shared"
+                f" FROM l1_event_entities"
+                f" WHERE entity_id IN ({eph})"
+                f" GROUP BY event_id"
+                f" ORDER BY shared DESC"
+                f" LIMIT ?",
+                (*entity_ids, limit + len(exclude)),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [(r[0], r[1]) for r in rows if r[0] not in exclude][:limit]
+
+    async def filter_ids_by_user(self, event_ids: List[str], user_id: str) -> List[str]:
+        """Return the subset of *event_ids* that belong to *user_id*."""
+        if not event_ids:
+            return []
+        await self.initialize()
+        ph = ", ".join("?" for _ in event_ids)
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                f"SELECT event_id FROM fact_events"
+                f" WHERE event_id IN ({ph}) AND user_id = ? AND deleted_at IS NULL",
+                (*event_ids, user_id),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        valid = {str(row[0]) for row in rows}
+        return [eid for eid in event_ids if eid in valid]
+
+    async def fetch_events(
+        self,
+        event_ids: List[str],
+        *,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        event_types: Optional[List[str]] = None,
+        source_filters: Optional[List[str]] = None,
+        domain_filters: Optional[List[str]] = None,
+        exclude_domain: Optional[str] = None,
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """Hydrate events by IDs with optional SQL filters, preserving input order.
+
+        Parameters mirror the filtering logic used by hybrid retrieval handlers.
+        *exclude_domain* defaults to ``RUNTIME_TELEMETRY`` when *domain_filters*
+        is not provided.
+        """
+        if not event_ids:
+            return []
+        await self.initialize()
+
+        sql = "SELECT * FROM fact_events WHERE deleted_at IS NULL"
+        args: list[Any] = []
+        ph = ", ".join("?" for _ in event_ids)
+        sql += f" AND event_id IN ({ph})"
+        args.extend(event_ids)
+
+        if session_id:
+            sql += " AND session_id = ?"
+            args.append(session_id)
+        if user_id:
+            sql += " AND user_id = ?"
+            args.append(user_id)
+        if event_types:
+            et_ph = ", ".join("?" for _ in event_types)
+            sql += f" AND event_type IN ({et_ph})"
+            args.extend(event_types)
+        if source_filters:
+            sf_ph = ", ".join("?" for _ in source_filters)
+            sql += f" AND source IN ({sf_ph})"
+            args.extend(source_filters)
+
+        if domain_filters:
+            domain_ints: list[int] = []
+            for df in domain_filters:
+                try:
+                    domain_ints.append(int(MemoryDomain.from_value(df)))
+                except (ValueError, KeyError):
+                    pass
+            if domain_ints:
+                df_ph = ", ".join("?" for _ in domain_ints)
+                sql += f" AND memory_domain IN ({df_ph})"
+                args.extend(domain_ints)
+        elif exclude_domain:
+            try:
+                sql += " AND memory_domain != ?"
+                args.append(int(MemoryDomain.from_value(exclude_domain)))
+            except (ValueError, KeyError):
+                pass
+
+        if time_start is not None:
+            sql += " AND timestamp >= ?"
+            args.append(time_start)
+        if time_end is not None:
+            sql += " AND timestamp <= ?"
+            args.append(time_end)
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+
+        events_by_id = {str(row["event_id"]): self._row_to_dict(row) for row in rows}
+        return [events_by_id[eid] for eid in event_ids if eid in events_by_id]
+
+    async def vector_search(
+        self,
+        *,
+        query: str,
+        limit: int = 100,
+        user_id: Optional[str] = None,
+    ) -> list[VectorSearchHit]:
+        """Semantic vector search over L1 event chunks."""
+        return await self._semantic_search_event_hits(
+            query=query, limit=limit, user_id=user_id,
+        )
+
     async def find_event_id_by_idempotency(
         self,
         *,

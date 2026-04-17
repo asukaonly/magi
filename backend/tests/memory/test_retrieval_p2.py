@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -228,9 +228,13 @@ class TestL1HandlerGraphSpreading:
         store = MagicMock()
         store.db_path = ":memory:"
         store.bm25_search = AsyncMock(return_value=[("evt1", 1.0)])
-        store._semantic_search_event_hits = AsyncMock(return_value=[])
+        store.vector_search = AsyncMock(return_value=[])
         store.query_events = AsyncMock(return_value=[])
         store.expand_by_entities = AsyncMock(return_value=[])
+        store.resolve_event_entities = AsyncMock(return_value=[])
+        store.find_events_by_entities = AsyncMock(return_value=[])
+        store.filter_ids_by_user = AsyncMock(return_value=[])
+        store.fetch_events = AsyncMock(return_value=[])
 
         from magi.memory.hybrid_retrieval.handlers import L1Handler
 
@@ -258,9 +262,13 @@ class TestL1HandlerGraphSpreading:
         store = MagicMock()
         store.db_path = ":memory:"
         store.bm25_search = AsyncMock(return_value=[("evt1", 1.0)])
-        store._semantic_search_event_hits = AsyncMock(return_value=[])
+        store.vector_search = AsyncMock(return_value=[])
         store.query_events = AsyncMock(return_value=[])
         store.expand_by_entities = AsyncMock(return_value=[])
+        store.resolve_event_entities = AsyncMock(return_value=[])
+        store.find_events_by_entities = AsyncMock(return_value=[])
+        store.filter_ids_by_user = AsyncMock(return_value=[])
+        store.fetch_events = AsyncMock(return_value=[])
 
         l2_store = _mock_l2_store({
             "ent_a": [
@@ -273,26 +281,19 @@ class TestL1HandlerGraphSpreading:
 
         handler = L1Handler(store, config, l2_store=l2_store)
 
-        # Mock the entity resolution step
-        with patch("magi.memory.hybrid_retrieval.handlers.sqlite_connection_async") as mock_conn:
-            mock_db = AsyncMock()
-            mock_cursor = AsyncMock()
-            mock_cursor.fetchall = AsyncMock(return_value=[("ent_a",)])
-            mock_db.execute = AsyncMock(return_value=mock_cursor)
-            mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_db.__aexit__ = AsyncMock(return_value=None)
-            mock_conn.return_value = mock_db
+        # Seed entity resolution returns one entity so graph spreading runs
+        store.resolve_event_entities = AsyncMock(return_value=["ent_a"])
 
-            handler._fetch_and_filter = AsyncMock(return_value=[
-                {"event_id": "evt1", "content": "test", "timestamp": 1000},
-            ])
-            handler._reranker = MagicMock()
-            handler._reranker.rerank = AsyncMock(return_value=[
-                {"event_id": "evt1", "content": "test", "retrieval_score": 1.0},
-            ])
+        handler._fetch_and_filter = AsyncMock(return_value=[
+            {"event_id": "evt1", "content": "test", "timestamp": 1000},
+        ])
+        handler._reranker = MagicMock()
+        handler._reranker.rerank = AsyncMock(return_value=[
+            {"event_id": "evt1", "content": "test", "retrieval_score": 1.0},
+        ])
 
-            results = await handler.execute(L1Conditions(content_query="test", limit=5))
-            assert len(results) >= 1
+        results = await handler.execute(L1Conditions(content_query="test", limit=5))
+        assert len(results) >= 1
 
 
 # ---------------------------------------------------------------------------

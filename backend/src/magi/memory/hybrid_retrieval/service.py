@@ -155,9 +155,7 @@ class HybridRetrievalService:
                 **{k: v for k, v in mode_plan.rrf_profile.items() if hasattr(self._config, k)},
             )
             if adapted_config is not self._config:
-                effective_l1 = L1Handler(
-                    self._l1._store, adapted_config, l2_store=self._l1._l2_store,
-                )
+                effective_l1 = self._l1.with_config(adapted_config)
                 payload.trace["mode_rrf_applied"] = True
 
         return await self._execute_query(
@@ -429,7 +427,7 @@ class HybridRetrievalService:
         l3_store = getattr(self._memory, "l3", None)
         l4_store = getattr(self._memory, "l4", None)
 
-        if l1_store and (self._l1 is None or self._l1._store is not l1_store):
+        if l1_store and (self._l1 is None or self._l1.store is not l1_store):
             self._l1 = L1Handler(l1_store, self._config, l2_store=l2_store)
         elif not l1_store:
             self._l1 = None
@@ -439,12 +437,12 @@ class HybridRetrievalService:
         elif not l2_store:
             self._l2 = None
 
-        if l3_store and (self._l3 is None or self._l3._store is not l3_store):
+        if l3_store and (self._l3 is None or self._l3.store is not l3_store):
             self._l3 = L3Handler(l3_store, self._config)
         elif not l3_store:
             self._l3 = None
 
-        if l4_store and (self._l4 is None or self._l4._store is not l4_store):
+        if l4_store and (self._l4 is None or self._l4.store is not l4_store):
             self._l4 = L4Handler(l4_store, self._config)
         elif not l4_store:
             self._l4 = None

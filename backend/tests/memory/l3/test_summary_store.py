@@ -210,7 +210,7 @@ async def test_search_summaries_fuses_bm25_and_vector_hits(tmp_path, monkeypatch
         return [{"summary_id": "summary-vector"}]
 
     monkeypatch.setattr(l3_store, "bm25_search", _fake_bm25)
-    monkeypatch.setattr(l3_store, "_semantic_search_summaries", _fake_semantic)
+    monkeypatch.setattr(l3_store, "vector_search", _fake_semantic)
 
     results = await l3_store.search_summaries(query="career planning", summary_type="thematic", limit=5)
 
@@ -280,7 +280,7 @@ async def test_search_summaries_filters_summary_category(tmp_path, monkeypatch: 
         return [{"summary_id": "summary-trend-shift"}, {"summary_id": "summary-state-change"}]
 
     monkeypatch.setattr(l3_store, "bm25_search", _fake_bm25)
-    monkeypatch.setattr(l3_store, "_semantic_search_summaries", _fake_semantic)
+    monkeypatch.setattr(l3_store, "vector_search", _fake_semantic)
 
     results = await l3_store.search_summaries(
         query="stress",
@@ -905,7 +905,7 @@ async def test_l3_batch_embedding_flush_indexes_summary_chunks(tmp_path):
     try:
         await store._store_summary(summary)
         await store._maybe_upsert_summary_embeddings([summary])
-        results = await store._fetch_summaries_by_ids(["summary-chunked"], summary_type=None, summary_category=None)
+        results = await store.fetch_by_ids(["summary-chunked"], summary_type=None, summary_category=None)
     finally:
         await store.shutdown()
 
@@ -949,7 +949,7 @@ async def test_l3_summary_exposes_embedding_status_and_profile_id(tmp_path):
         }
         await store._store_summary(summary)
         await store._maybe_upsert_summary_embeddings([summary])
-        results = await store._fetch_summaries_by_ids(["summary-status"], summary_type=None, summary_category=None)
+        results = await store.fetch_by_ids(["summary-status"], summary_type=None, summary_category=None)
     finally:
         await store.shutdown()
 
@@ -1005,7 +1005,7 @@ async def test_l3_semantic_search_folds_chunk_hits_to_parent_summary(tmp_path):
             ]
 
         store._vector_index.search = _fake_search  # type: ignore[method-assign]
-        ranked = await store._semantic_search_summaries(
+        ranked = await store.vector_search(
             query="career recovery summary",
             summary_type="thematic",
             summary_category="topic",
@@ -1063,7 +1063,7 @@ async def test_l3_rebuild_embeddings_reindexes_disabled_summaries(tmp_path):
     await rebuild_store.initialize()
     try:
         processed = await rebuild_store.rebuild_embeddings(batch_size=10)
-        results = await rebuild_store._fetch_summaries_by_ids(
+        results = await rebuild_store.fetch_by_ids(
             ["summary-rebuild"],
             summary_type=None,
             summary_category=None,

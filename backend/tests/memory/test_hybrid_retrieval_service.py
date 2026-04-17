@@ -41,14 +41,13 @@ def _make_l1_store(events=None):
     l1 = AsyncMock()
     l1.db_path = tempfile.mktemp(suffix=".db")
     l1.bm25_search.return_value = [(e["event_id"], -1.0) for e in (events or [])]
-    l1._semantic_search_event_hits.return_value = []
+    l1.vector_search.return_value = []
     l1.query_events.return_value = events or []
     l1.search_events.return_value = events or []
-
-    def _row_to_dict(row):
-        return dict(row)
-
-    l1._row_to_dict = _row_to_dict
+    l1.resolve_event_entities.return_value = []
+    l1.find_events_by_entities.return_value = []
+    l1.filter_ids_by_user.return_value = []
+    l1.fetch_events.return_value = events or []
     return l1
 
 
@@ -76,12 +75,9 @@ def _make_l3_store(tmp_path, summaries=None):
     l3 = AsyncMock()
     l3.db_path = db_path
     l3.bm25_search.return_value = [(s["summary_id"], -1.0) for s in (summaries or [])]
-    l3._semantic_search_summaries.return_value = []
-
-    def _row_to_dict(row):
-        return dict(row)
-
-    l3._row_to_dict = _row_to_dict
+    l3.vector_search.return_value = []
+    l3.keyword_search.return_value = []
+    l3.fetch_by_ids.return_value = []
     return l3
 
 
@@ -116,12 +112,8 @@ def _make_l4_store(tmp_path, skills=None):
     l4 = AsyncMock()
     l4.db_path = db_path
     l4.bm25_search.return_value = [(s["skill_id"], -1.0) for s in (skills or [])]
-    l4._semantic_query_strategies.return_value = []
-
-    def _row_to_dict(row):
-        return dict(row)
-
-    l4._row_to_dict = _row_to_dict
+    l4.keyword_search.return_value = []
+    l4.fetch_by_ids.return_value = []
     return l4
 
 
@@ -1501,7 +1493,7 @@ class TestServiceErrorHandling:
         l1 = _make_l1_store([])
         l1.bm25_search.side_effect = RuntimeError("db error")
         l1.query_events.side_effect = RuntimeError("db error")
-        l1._semantic_search_event_hits.side_effect = RuntimeError("db error")
+        l1.vector_search.side_effect = RuntimeError("db error")
         mem = _make_memory(l1=l1)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         result = await svc.query(_make_request())
