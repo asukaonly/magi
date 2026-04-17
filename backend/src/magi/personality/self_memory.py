@@ -212,44 +212,6 @@ class SelfMemory:
         if self.enable_evolution and self._emotion_engine:
             await self._emotion_engine.update_stp_trigger(trigger_type, state_name)
 
-    async def store_experience(self, perception, action, result):
-        """
-        Internal note.
-
-        Args:
-            perception: Perception
-            action: Action
-            result: Result
-        """
-        # Experience storage is primarily handled by the current memory system.
-        # This hook remains only for legacy callers that still forward experience tuples.
-        logger = logging.getLogger(__name__)
-
-        # Extract interaction information if available
-        user_id = None
-        if hasattr(perception, 'data') and isinstance(perception.data, dict):
-            user_id = perception.data.get('user_id') or perception.data.get('message', {}).get('user_id')
-
-        # Record interaction if evolution is enabled and user_id is available
-        if user_id and self.enable_evolution:
-            from .growth_memory import InteractionType
-
-            # Determine outcome based on result
-            outcome = "positive"
-            if hasattr(result, 'success'):
-                outcome = "positive" if result.success else "negative"
-
-            # Record the interaction
-            await self.record_interaction(
-                user_id=user_id,
-                interaction_type=InteractionType.CHAT,
-                outcome=outcome,
-                notes=f"Action: {type(action).__name__ if action else 'None'}"
-            )
-            logger.debug(f"Experience stored for user {user_id}")
-
-    # Internal note.
-
     async def record_interaction(
         self,
         user_id: str,

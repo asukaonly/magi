@@ -10,8 +10,6 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .models import CognitionProfile, CorePersonality
-
 logger = logging.getLogger(__name__)
 
 
@@ -253,61 +251,6 @@ class PersonalityLoader:
         if not self.personalities_path.exists():
             return []
         return sorted(path.stem for path in self.personalities_path.glob("*.json"))
-
-    def to_core_personality(self, config: PersonalityConfig) -> CorePersonality:
-        from .models import CommunicationDistance, LanguageStyle, ValueAlignment
-
-        identity = config.persona_entity.core_identity
-        narrative = identity.inner_narrative.lower()
-
-        traits: List[str] = []
-        if "confident" in narrative or "direct" in narrative:
-            traits.append("confident")
-        if "cautious" in narrative or "careful" in narrative:
-            traits.append("cautious")
-        if "protective" in narrative or "crisis" in narrative:
-            traits.append("protective")
-
-        greetings = config.cached_phrases.on_init[:4]
-        return CorePersonality(
-            name=config.persona_entity.basic_profile.name,
-            role=config.persona_entity.basic_profile.occupation,
-            backstory=identity.inner_narrative,
-            language_style=LanguageStyle.CASUAL,
-            use_emoji=False,
-            catchphrases=[],
-            greetings=greetings,
-            tone=identity.language_fingerprint,
-            communication_distance=CommunicationDistance.EQUAL,
-            value_alignment=ValueAlignment.NEUTRAL_GOOD,
-            traits=traits,
-            virtues=[],
-            flaws=[],
-            taboos=[],
-            boundaries=[],
-        )
-
-    def to_cognition_profile(self, config: PersonalityConfig) -> CognitionProfile:
-        from .models import RiskPreference, ThinkingStyle
-
-        narrative = config.persona_entity.core_identity.inner_narrative.lower()
-        primary_style = ThinkingStyle.LOGICAL
-        if "intuitive" in narrative:
-            primary_style = ThinkingStyle.INTUITIVE
-        elif "creative" in narrative:
-            primary_style = ThinkingStyle.CREATIVE
-
-        risk_preference = RiskPreference.BALANCED
-
-        return CognitionProfile(
-            primary_style=primary_style,
-            secondary_style=ThinkingStyle.INTUITIVE,
-            risk_preference=risk_preference,
-            expertise=[],
-            reasoning_depth="medium",
-            creativity_level=0.5,
-            learning_rate=0.5,
-        )
 
 
 _default_loader: Optional[PersonalityLoader] = None
