@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 # Internal note.
 
 class MilestoneType(Enum):
-    """milestonetype"""
+    """Milestone type."""
     FIRST_USE = "first_use"              # First use of a capability
-    strEAK = "streak"                    # Consecutive work/interaction streak
-    masterY = "mastery"                  # Mastered a skill
-    relationship = "relationship"        # relationshipmilestone
-    ACHIEVEMENT = "achievement"          # achievement
+    STREAK = "streak"                    # Consecutive work/interaction streak
+    MASTERY = "mastery"                  # Mastered a skill
+    RELATIONSHIP = "relationship"        # Relationship milestone
+    ACHIEVEMENT = "achievement"          # Achievement
     PERSONALITY_CHANGE = "personality"   # Personality change
     SPECIAL = "special"                  # Special event
     BOOTSTRAP_COMPLETED = "bootstrap_completed"  # Bootstrap dialogue completed
@@ -40,13 +40,13 @@ class MilestoneType(Enum):
 
 
 class InteractionType(Enum):
-    """Interaction type"""
+    """Interaction type."""
     CHAT = "chat"                        # Chat
-    task = "task"                        # task
-    code = "code"                        # code
-    ANALYSIS = "analysis"                # analysis
+    TASK = "task"                        # Task
+    CODE = "code"                        # Code
+    ANALYSIS = "analysis"                # Analysis
     CREATIVE = "creative"                # Creative
-    LEARNING = "learning"                # learning
+    LEARNING = "learning"                # Learning
 
 
 # ===== data Models =====
@@ -313,7 +313,7 @@ class GrowthMemoryEngine:
         Returns:
             Internal note.
         """
-        notttw = time.time()
+        now_ts = time.time()
 
         # Internal note.
         profile = await self.get_relationship(user_id)
@@ -322,8 +322,8 @@ class GrowthMemoryEngine:
             profile = RelationshipProfile(
                 user_id=user_id,
                 depth=0.0,
-                first_interaction=notttw,
-                last_interaction=notttw,
+                first_interaction=now_ts,
+                last_interaction=now_ts,
                 total_interactions=0,
                 interaction_types={},
                 sentiment_score=0.0,
@@ -333,7 +333,7 @@ class GrowthMemoryEngine:
 
         # Update statistics
         profile.total_interactions += 1
-        profile.last_interaction = notttw
+        profile.last_interaction = now_ts
 
         # Internal note.
         type_key = interaction_type.value
@@ -354,7 +354,7 @@ class GrowthMemoryEngine:
 
         # addnote
         if notes:
-            profile.notes.append(f"[{datetime.fromtimestamp(notttw).strftime('%Y-%m-%d')}] {notes}")
+            profile.notes.append(f"[{datetime.fromtimestamp(now_ts).strftime('%Y-%m-%d')}] {notes}")
             # Internal note.
             profile.notes = profile.notes[-20:]
 
@@ -431,8 +431,8 @@ class GrowthMemoryEngine:
         Returns:
             relationshipdepth 0-1
         """
-        notttw = time.time()
-        duration_days = (notttw - profile.first_interaction) / (24 * 3600)
+        now_ts = time.time()
+        duration_days = (now_ts - profile.first_interaction) / (24 * 3600)
 
         # Internal note.
         frequency_score = min(1.0, profile.total_interactions / 100)
@@ -540,7 +540,7 @@ class GrowthMemoryEngine:
         # Internal note.
         if profile.total_interactions == 1:
             await self.record_milestone(
-                milestone_type=MilestoneType.relationship,
+                milestone_type=MilestoneType.RELATIONSHIP,
                 title=f"First Meeting: {user_id}",
                 description=f"First interaction with user {user_id}",
                 metadata={"user_id": user_id}
@@ -558,14 +558,14 @@ class GrowthMemoryEngine:
             if profile.depth >= threshold:
                 # Internal note.
                 existing = await self.get_milestones(
-                    milestone_type=MilestoneType.relationship,
+                    milestone_type=MilestoneType.RELATIONSHIP,
                     limit=100
                 )
                 milestone_title = f"{title}: {user_id}"
 
                 if not any(m.title == milestone_title for m in existing):
                     await self.record_milestone(
-                        milestone_type=MilestoneType.relationship,
+                        milestone_type=MilestoneType.RELATIONSHIP,
                         title=milestone_title,
                         description=f"Relationship with {user_id} reached {title} level (depth: {profile.depth:.2f})",
                         metadata={"user_id": user_id, "depth": profile.depth}
@@ -576,7 +576,7 @@ class GrowthMemoryEngine:
         for count in interaction_milestones:
             if profile.total_interactions == count:
                 await self.record_milestone(
-                    milestone_type=MilestoneType.relationship,
+                    milestone_type=MilestoneType.RELATIONSHIP,
                     title=f"{count} Interactions: {user_id}",
                     description=f"Reached {count} interactions with {user_id}",
                     metadata={"user_id": user_id, "count": count}

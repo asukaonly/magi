@@ -85,8 +85,8 @@ class EmotionalConfig:
 # ===== emotionhistory =====
 
 @dataclass
-class Emotionalevent:
-    """emotioneventrecord"""
+class EmotionalEvent:
+    """Emotional event record."""
     timestamp: float
     event_type: str                 # interaction/task/time elapsed
     previous_mood: str
@@ -121,7 +121,7 @@ class EmotionalStateEngine:
         self.db_path = db_path
         self.config = config or EmotionalConfig()
         self._current_state: Optional[EmotionalState] = None
-        self._event_history: List[Emotionalevent] = []
+        self._event_history: List[EmotionalEvent] = []
 
     @property
     def _expanded_db_path(self) -> str:
@@ -593,7 +593,7 @@ class EmotionalStateEngine:
 
     # ===== historyquery =====
 
-    async def get_recent_events(self, limit: int = 50) -> List[Emotionalevent]:
+    async def get_recent_events(self, limit: int = 50) -> List[EmotionalEvent]:
         """Get recent emotional events"""
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
@@ -608,7 +608,7 @@ class EmotionalStateEngine:
 
             events = []
             for row in rows:
-                events.append(Emotionalevent(
+                events.append(EmotionalEvent(
                     timestamp=row[0],
                     event_type=row[1],
                     previous_mood=row[2],

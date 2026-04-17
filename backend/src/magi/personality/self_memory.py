@@ -145,7 +145,7 @@ class SelfMemory:
                 description=f"Reloaded personality configuration: {self.personality_name}"
             )
 
-        name = self._personality_config.name if self._personality_config else "Unknotttwn"
+        name = self._personality_config.name if self._personality_config else "Unknown"
         logger.info(f"Personality reloaded: {old_personality_name} -> {self.personality_name} ({name})")
 
     # Internal note.

@@ -189,7 +189,7 @@ class BehaviorEvolutionEngine:
                 user_satisfaction = SatisfactionLevel(user_satisfaction)
             except ValueError:
                 logger.warning(
-                    f"Unknotttwn satisfaction level '{user_satisfaction}', fallback to neutral"
+                    f"Unknown satisfaction level '{user_satisfaction}', fallback to neutral"
                 )
                 user_satisfaction = SatisfactionLevel.NEUTRAL
 
