@@ -265,6 +265,11 @@ export interface L4Skill {
 }
 
 // Statistics Types
+export interface MemoryAttention {
+  pending_assertions: number;
+  open_circuit_breakers: number;
+}
+
 export interface MemoryStatistics {
   identity?: { canonical_self_id: string; identity_link_count: number };
   l0: L0Stats;
@@ -272,6 +277,9 @@ export interface MemoryStatistics {
   l2: { relation_count: number; assertion_count: number; db_path?: string };
   l3: { summary_count: number; db_path?: string };
   l4: { skill_count: number; open_circuit_breakers: number; db_path?: string };
+  total_memories?: number;
+  disk_usage_bytes?: number;
+  attention?: MemoryAttention;
 }
 
 export interface ClearMemoryResult {

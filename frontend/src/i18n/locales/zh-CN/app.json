@@ -1542,13 +1542,13 @@
     },
     "overview": {
       "eyebrow": "记忆总览",
-      "subtitle": "先查看跨层搜索、整体统计、层级入口与最近变化，再决定进入哪一层继续工作。",
+      "subtitle": "查看记忆存储状态、搜索记忆内容、处理待办事项。",
       "searchLabel": "跨层搜索",
       "searchResultsTitle": "搜索结果",
       "searchResultsBody": "围绕“{{query}}”整理出的跨层线索会先落在这里，便于快速判断应该进入哪一层继续查看。",
       "searchIdleBody": "输入一个关键词后，这里会把跨层线索整理成适合继续深入的入口。",
       "searchIdleHint": "还没有搜索结果。你可以先搜索偏好、人物、地点或技能名称，再从结果最密集的层继续进入。",
-      "noSearchResults": "暂时没有命中结果。可以换一个更具体的关键词，或直接从下方层级入口进入。",
+      "noSearchResults": "暂时没有命中结果，可以换一个更具体的关键词再试。",
       "matchesLabel": "命中",
       "workspaceTitle": "层级入口",
       "workspaceBody": "从这里进入 5 层独立记忆页面。每一层都保留自己的筛选方式和阅读节奏，方便按任务深入查看。",
@@ -1568,7 +1568,14 @@
         "summaryTitle": "新摘要沉淀",
         "relationTitle": "知识关系规模",
         "skillTitle": "技能记忆条目"
-      }
+      },
+      "storageSummary": "共 {{total}} 条记忆 · {{size}}",
+      "matchCount": "{{count}} 条命中",
+      "viewAll": "查看全部",
+      "attentionTitle": "需要你处理 ({{count}})",
+      "pendingAssertions": "{{count}} 条知识待确认",
+      "openBreakers": "{{count}} 个技能已熔断",
+      "allClear": "一切正常，暂时没有需要处理的事项。"
     },
     "pages": {
       "workbench": {

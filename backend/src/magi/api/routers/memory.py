@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict
 from datetime import date, datetime, time as datetime_time, timezone
+import os
+from pathlib import Path
 import re
 import time
 from typing import Any, Dict, List, Literal, Optional
@@ -1237,9 +1239,72 @@ async def get_memory_statistics():
     if unified_memory.l3:
         stats["l3"]["db_path"] = unified_memory.l3.db_path
 
-    stats["l4"] = {"skill_count": l4_count, "open_circuit_breakers": 0}
+    # L4 statistics: also count open circuit breakers
+    open_cb_count = 0
+    if unified_memory.l4:
+        try:
+            from ...core.sqlite import sqlite_connection_async as _sc
+            async with _sc(unified_memory.l4.db_path) as _db:
+                cursor = await _db.execute(
+                    "SELECT COUNT(*) FROM procedural_skills WHERE circuit_breaker_state = 'open'"
+                )
+                row = await cursor.fetchone()
+                open_cb_count = (row[0] if row else 0)
+        except Exception:
+            pass
+
+    stats["l4"] = {"skill_count": l4_count, "open_circuit_breakers": open_cb_count}
     if unified_memory.l4:
         stats["l4"]["db_path"] = unified_memory.l4.db_path
+
+    # Pending assertions count (tentative / contradicted)
+    pending_assertions = 0
+    if unified_memory.l2:
+        try:
+            from ...core.sqlite import sqlite_connection_async as _sc2
+            async with _sc2(unified_memory.l2.db_path) as _db2:
+                cursor = await _db2.execute(
+                    "SELECT COUNT(*) FROM tom_trait_assertions "
+                    "WHERE validation_state IN ('tentative', 'contradicted') AND status = 'active'"
+                )
+                row = await cursor.fetchone()
+                pending_assertions = (row[0] if row else 0)
+        except Exception:
+            pass
+
+    # Aggregate totals
+    total_memories = l1_count + l2_rel_count + l2_tom_count + l3_count + l4_count
+
+    # Disk usage: collect unique db file paths and sum their sizes
+    db_paths: set[str] = set()
+    for layer_attr in ("l0", "l1", "l2", "l3", "l4"):
+        store = getattr(unified_memory, layer_attr, None)
+        if store is None:
+            continue
+        for path_attr in ("db_path", "checkpoint_db_path"):
+            p = getattr(store, path_attr, None)
+            if p:
+                db_paths.add(str(p))
+    # Also include L2 entity catalog if separate
+    entity_catalog = getattr(unified_memory.l2, "entity_catalog", None)
+    if entity_catalog:
+        p = getattr(entity_catalog, "db_path", None)
+        if p:
+            db_paths.add(str(p))
+
+    disk_usage_bytes = 0
+    for db_file in db_paths:
+        try:
+            disk_usage_bytes += os.path.getsize(db_file)
+        except OSError:
+            pass
+
+    stats["total_memories"] = total_memories
+    stats["disk_usage_bytes"] = disk_usage_bytes
+    stats["attention"] = {
+        "pending_assertions": pending_assertions,
+        "open_circuit_breakers": open_cb_count,
+    }
 
     if memory_integration:
         stats["integration"] = memory_integration.get_statistics()
