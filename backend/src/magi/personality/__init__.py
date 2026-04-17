@@ -18,7 +18,6 @@ from .models import (
     ThinkingStyle,
     ValueAlignment,
 )
-from .user_profile_memory import UserProfileMemory, OtherMemory  # OtherMemory is a compat alias
 from .self_memory import SelfMemory
 
 __all__ = [
@@ -37,8 +36,6 @@ __all__ = [
     "InteractionType",
     "LanguageStyle",
     "MilestoneType",
-    "OtherMemory",
-    "UserProfileMemory",
     "PersonalityConfig",
     "PersonalityLoader",
     "RiskPreference",

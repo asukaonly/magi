@@ -36,7 +36,6 @@ class AgentRuntimeModule(LifecycleModule):
         llm_adapter = require_initialized(self._context.llm.llm_adapter, "llm adapter")
         llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "llm pool")
         memory = require_initialized(self._context.personality.self_memory, "self memory")
-        other_memory = require_initialized(self._context.personality.other_memory, "other memory")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
         hybrid_retrieval_service = require_initialized(
             self._context.memory.hybrid_retrieval_service,
@@ -57,7 +56,6 @@ class AgentRuntimeModule(LifecycleModule):
                 llm_adapter=llm_adapter,
                 llm_pool=llm_pool,
                 memory=memory,
-                other_memory=other_memory,
                 unified_memory=unified_memory,
                 hybrid_retrieval_service=hybrid_retrieval_service,
                 memory_integration=memory_integration,

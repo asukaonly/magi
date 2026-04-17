@@ -47,16 +47,21 @@ class _FakeSelfMemory:
         return {"sentiment_score": -0.1, "trust_level": 0.5}
 
 
-class _FakeProfile:
+class _FakeL2EntityCatalog:
+    async def list_entities(self, entity_ids=None, **kwargs):
+        return [{"entity_id": "user:u-chat", "canonical_name": "Bob", "aliases": []}]
+
+
+class _FakeL2Store:
+    async def get_tom_snapshot(self, entity_id=None, entity_type=None):
+        return {"preferences": {"locale": "zh-CN"}}
+
+
+class _FakeUnifiedMemory:
     def __init__(self):
-        self.name = "Bob"
-        self.preferences = {"locale": "zh-CN"}
-
-
-class _FakeUserProfileMemory:
-    def get_profile(self, user_id: str):
-        _ = user_id
-        return _FakeProfile()
+        self.l2_entity_catalog = _FakeL2EntityCatalog()
+        self.l2 = _FakeL2Store()
+        self.l0 = None
 
 
 class _RecordingLLMPool:
@@ -91,7 +96,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             agent_id="u-chat",
             llm_adapter=_FakeLLMAdapter(),
             memory=_FakeSelfMemory(),
-            other_memory=_FakeUserProfileMemory(),
+            unified_memory=_FakeUnifiedMemory(),
             hybrid_retrieval_service=_FakeHybridRetrievalService(),
         )
 
@@ -136,7 +141,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             agent_id="u-chat",
             llm_pool=pool,
             memory=_FakeSelfMemory(),
-            other_memory=_FakeUserProfileMemory(),
+            unified_memory=_FakeUnifiedMemory(),
             hybrid_retrieval_service=_FakeHybridRetrievalService(),
         )
 

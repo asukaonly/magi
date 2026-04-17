@@ -41,7 +41,6 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             prompt_context_assembler=PromptContextAssembler(),
             prompt_context_renderer=PromptContextRenderer(),
             memory=_FakeMemory(),
-            other_memory=None,
             retrieval_memory_provider=retrieval_memory_provider,
         )
 
@@ -86,7 +85,6 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             prompt_context_assembler=PromptContextAssembler(),
             prompt_context_renderer=PromptContextRenderer(),
             memory=_FakeMemory(),
-            other_memory=None,
             retrieval_memory_provider=retrieval_memory_provider,
         )
 
@@ -117,7 +115,6 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             prompt_context_assembler=PromptContextAssembler(),
             prompt_context_renderer=PromptContextRenderer(),
             memory=_FakeMemory(),
-            other_memory=None,
             retrieval_memory_provider=retrieval_memory_provider,
             session_workspace_provider=session_workspace_provider,
         )
@@ -145,7 +142,6 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             prompt_context_assembler=PromptContextAssembler(),
             prompt_context_renderer=PromptContextRenderer(),
             memory=_FakeMemory(),
-            other_memory=None,
             retrieval_memory_provider=retrieval_memory_provider,
         )
 
@@ -176,7 +172,6 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             prompt_context_assembler=PromptContextAssembler(),
             prompt_context_renderer=PromptContextRenderer(),
             memory=_FakeMemory(),
-            other_memory=None,
             retrieval_memory_provider=retrieval_memory_provider,
         )
 

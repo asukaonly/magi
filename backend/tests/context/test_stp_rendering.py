@@ -133,7 +133,6 @@ class TestStpOnDemandFiltering:
         assembler = PromptContextAssembler(tool_registry=None)
         ctx = await assembler._build_self_memory_context(
             self_memory=fake_self_memory,
-            other_memory=None,
             user_id="u1",
             task_category="chat",
             retrieved_memory_payload=None,

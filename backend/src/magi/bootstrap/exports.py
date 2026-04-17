@@ -48,7 +48,6 @@ class RuntimeExportsModule(LifecycleModule):
             self._context.memory.hybrid_retrieval_service,
             "hybrid retrieval service",
         )
-        other_memory = require_initialized(self._context.personality.other_memory, "other memory")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
         sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
         action_registry = require_initialized(self._context.plugins.action_registry, "action registry")
@@ -63,7 +62,6 @@ class RuntimeExportsModule(LifecycleModule):
         container.memory_integration.override(providers.Object(memory_integration))
         container.unified_memory.override(providers.Object(unified_memory))
         container.hybrid_retrieval_service.override(providers.Object(hybrid_retrieval_service))
-        container.other_memory.override(providers.Object(other_memory))
         container.plugin_manager.override(providers.Object(plugin_manager))
         container.sensor_registry.override(providers.Object(sensor_registry))
         container.action_registry.override(providers.Object(action_registry))
@@ -105,7 +103,6 @@ class RuntimeExportsModule(LifecycleModule):
         container.scheduler_service.reset_override()
         container.sensor_scheduler_contrib.reset_override()
         container.scenario_llm_pool.reset_override()
-        container.other_memory.reset_override()
         container.plugin_manager.reset_override()
         container.sensor_registry.reset_override()
         container.action_registry.reset_override()

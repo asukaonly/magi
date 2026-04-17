@@ -21,6 +21,7 @@ from .schema import (
     ToolCatalogContext,
 )
 from .scenario_prompts import ScenarioPromptsStore
+from .user_profile_service import UserProfileService
 from ..personality.persona_journal_service import PersonaJournalService
 
 
@@ -47,10 +48,11 @@ BOUNDARY_TEMPLATE = "\n".join(
 class PromptContextAssembler:
     """Builds reusable modular prompt contexts."""
 
-    def __init__(self, tool_registry=None, scenario_prompts_store=None, persona_journal_service=None):
+    def __init__(self, tool_registry=None, scenario_prompts_store=None, persona_journal_service=None, user_profile_service=None):
         self.tool_registry = tool_registry
         self.scenario_prompts_store = scenario_prompts_store
         self.persona_journal_service: PersonaJournalService | None = persona_journal_service
+        self.user_profile_service: UserProfileService | None = user_profile_service
 
     async def assemble(
         self,
@@ -61,7 +63,6 @@ class PromptContextAssembler:
         task_category: str,
         user_id: str,
         self_memory=None,
-        other_memory=None,
         tool_result: Optional[Dict[str, Any]] = None,
         retrieved_memory_payload: Optional[Dict[str, Any]] = None,
         state_transition_override: Optional[str] = None,
@@ -72,7 +73,6 @@ class PromptContextAssembler:
         identity = self._build_identity_constraints()
         self_mem = await self._build_self_memory_context(
             self_memory=self_memory,
-            other_memory=other_memory,
             user_id=user_id,
             task_category=task_category,
             retrieved_memory_payload=retrieved_memory_payload,
@@ -82,7 +82,6 @@ class PromptContextAssembler:
         )
         profile = await self._build_profile_memory_context(
             self_memory=self_memory,
-            other_memory=other_memory,
             user_id=user_id,
         )
         runtime = self._build_runtime_system_context(
@@ -116,7 +115,6 @@ class PromptContextAssembler:
         self,
         *,
         self_memory,
-        other_memory,
         user_id: str,
         task_category: str,
         retrieved_memory_payload: Optional[Dict[str, Any]],
@@ -150,10 +148,8 @@ class PromptContextAssembler:
             active_stp_state_name = getattr(emotion, "active_stp_state_name", "") or ""
 
         user_pref_memory: Dict[str, Any] = {}
-        if other_memory is not None and user_id:
-            profile = other_memory.get_profile(user_id)
-            if profile is not None:
-                user_pref_memory = dict(getattr(profile, "preferences", {}) or {})
+        if self.user_profile_service is not None and user_id:
+            user_pref_memory = await self.user_profile_service.get_preference_summary(user_id)
 
         payload = retrieved_memory_payload or {}
         retrieval_memory = RetrievalMemoryContext(
@@ -304,15 +300,13 @@ class PromptContextAssembler:
 
         return active_layers
 
-    async def _build_profile_memory_context(self, *, self_memory, other_memory, user_id: str) -> ProfileMemoryContext:
+    async def _build_profile_memory_context(self, *, self_memory, user_id: str) -> ProfileMemoryContext:
         user_name = "unknown"
         preferences: Dict[str, Any] = {}
 
-        if other_memory is not None and user_id:
-            profile = other_memory.get_profile(user_id)
-            if profile is not None:
-                user_name = str(getattr(profile, "name", user_name) or user_name)
-                preferences = dict(getattr(profile, "preferences", {}) or {})
+        if self.user_profile_service is not None and user_id:
+            user_name = await self.user_profile_service.get_display_name(user_id)
+            preferences = await self.user_profile_service.get_preference_summary(user_id)
 
         relation: Dict[str, Any] = {}
         if self_memory is not None and user_id:
