@@ -8,14 +8,22 @@ from magi.context.user_profile_service import UserProfileService
 
 
 class _FakeL2EntityCatalog:
+    def __init__(self):
+        self.call_count = 0
+
     async def list_entities(self, entity_ids=None, **kwargs):
+        self.call_count += 1
         if entity_ids and entity_ids[0] == "user:alice":
             return [{"entity_id": "user:alice", "canonical_name": "Alice", "aliases": ["ali"]}]
         return []
 
 
 class _FakeL2Store:
+    def __init__(self):
+        self.call_count = 0
+
     async def get_tom_snapshot(self, entity_id=None, entity_type=None):
+        self.call_count += 1
         if entity_id == "user:alice":
             return {"preferences": {"language": "zh-CN", "theme": "dark"}}
         return None
@@ -102,6 +110,56 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         svc = UserProfileService(unified_memory=_BrokenUnifiedMemory())
         prefs = await svc.get_preference_summary("alice")
         self.assertEqual(prefs, {})
+
+    # -- Cache behaviour ---------------------------------------------------
+
+    async def test_repeated_calls_use_cache(self):
+        um = _FakeUnifiedMemory()
+        svc = UserProfileService(unified_memory=um)
+
+        await svc.get_display_name("alice")
+        await svc.get_display_name("alice")
+        await svc.get_preference_summary("alice")
+
+        # Only one DB round-trip for each store.
+        self.assertEqual(um.l2_entity_catalog.call_count, 1)
+        self.assertEqual(um.l2.call_count, 1)
+
+    async def test_cache_returns_independent_dict_copy(self):
+        svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
+        prefs1 = await svc.get_preference_summary("alice")
+        prefs1["mutated"] = True
+        prefs2 = await svc.get_preference_summary("alice")
+        self.assertNotIn("mutated", prefs2)
+
+    async def test_invalidate_single_user(self):
+        um = _FakeUnifiedMemory()
+        svc = UserProfileService(unified_memory=um)
+
+        await svc.get_display_name("alice")
+        self.assertEqual(um.l2_entity_catalog.call_count, 1)
+
+        svc.invalidate("alice")
+        await svc.get_display_name("alice")
+        self.assertEqual(um.l2_entity_catalog.call_count, 2)
+
+    async def test_invalidate_all(self):
+        um = _FakeUnifiedMemory()
+        svc = UserProfileService(unified_memory=um)
+
+        await svc.get_display_name("alice")
+        svc.invalidate()
+        await svc.get_display_name("alice")
+        self.assertEqual(um.l2_entity_catalog.call_count, 2)
+
+    async def test_cache_expires_after_ttl(self):
+        um = _FakeUnifiedMemory()
+        svc = UserProfileService(unified_memory=um, cache_ttl=0)  # immediate expiry
+
+        await svc.get_display_name("alice")
+        await svc.get_display_name("alice")
+        # With TTL=0, every call re-fetches.
+        self.assertEqual(um.l2_entity_catalog.call_count, 2)
 
 
 if __name__ == "__main__":
