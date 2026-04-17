@@ -109,7 +109,9 @@ class EmotionalStateEngine:
     def __init__(
         self,
         db_path: str = "~/.magi/data/memory/emotional_state.db",
-        config: EmotionalConfig = None
+        config: EmotionalConfig = None,
+        *,
+        persona_id: str = "",
     ):
         """
         Internal note.
@@ -117,9 +119,11 @@ class EmotionalStateEngine:
         Args:
             db_path: databasefilepath
             config: evolutionConfigurationParameter
+            persona_id: Stable persona identity for scoping data.
         """
         self.db_path = db_path
         self.config = config or EmotionalConfig()
+        self.persona_id = persona_id
         self._current_state: Optional[EmotionalState] = None
         self._event_history: List[EmotionalEvent] = []
 
@@ -154,14 +158,25 @@ class EmotionalStateEngine:
                     mood_delta real NOT NULL,
                     energy_delta real NOT NULL,
                     stress_delta real NOT NULL,
-                    cause TEXT NOT NULL
+                    cause TEXT NOT NULL,
+                    persona_id TEXT NOT NULL DEFAULT ''
                 )
             """)
+
+            # Migration: add persona_id column if missing (existing DBs).
+            try:
+                await db.execute("ALTER TABLE emotional_events ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
+            except Exception:
+                pass  # Column already exists
 
             # createindex
             await db.execute("""
                 create index IF NOT EXISTS idx_emotional_events_timestamp
                 ON emotional_events(timestamp DESC)
+            """)
+            await db.execute("""
+                create index IF NOT EXISTS idx_emotional_events_persona
+                ON emotional_events(persona_id, timestamp DESC)
             """)
 
             await db.commit()
@@ -179,9 +194,11 @@ class EmotionalStateEngine:
 
     async def _load_current_state(self) -> None:
         """Load current state from database"""
+        state_key = f"current:{self.persona_id}" if self.persona_id else "current"
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT value FROM emotional_state WHERE key = 'current'"
+                "SELECT value FROM emotional_state WHERE key = ?",
+                (state_key,)
             )
             row = await cursor.fetchone()
 
@@ -194,11 +211,12 @@ class EmotionalStateEngine:
 
     async def _save_current_state(self) -> None:
         """savecurrentState"""
+        state_key = f"current:{self.persona_id}" if self.persona_id else "current"
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE intO emotional_state (key, value, updated_at)
                    valueS (?, ?, ?)""",
-                ("current", json.dumps(asdict(self._current_state)), time.time())
+                (state_key, json.dumps(asdict(self._current_state)), time.time())
             )
             await db.commit()
 
@@ -584,10 +602,10 @@ class EmotionalStateEngine:
             await db.execute(
                 """INSERT intO emotional_events
                    (timestamp, event_type, previous_mood, new_mood,
-                    mood_delta, energy_delta, stress_delta, cause)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    mood_delta, energy_delta, stress_delta, cause, persona_id)
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (time.time(), event_type, previous_mood, new_mood,
-                 mood_delta, energy_delta, stress_delta, cause)
+                 mood_delta, energy_delta, stress_delta, cause, self.persona_id)
             )
             await db.commit()
 
@@ -600,9 +618,10 @@ class EmotionalStateEngine:
                 """SELECT timestamp, event_type, previous_mood, new_mood,
                           mood_delta, energy_delta, stress_delta, cause
                    FROM emotional_events
+                   WHERE persona_id = ?
                    order BY timestamp DESC
                    LIMIT ?""",
-                (limit,)
+                (self.persona_id, limit)
             )
             rows = await cursor.fetchall()
 
@@ -630,7 +649,7 @@ class EmotionalStateEngine:
 
         # cleareventhistory
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            await db.execute("delete FROM emotional_events")
+            await db.execute("delete FROM emotional_events WHERE persona_id = ?", (self.persona_id,))
             await db.commit()
 
         logger.info("Emotional state reset to initial values")

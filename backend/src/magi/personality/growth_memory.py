@@ -96,14 +96,16 @@ class GrowthMemoryEngine:
     Internal note.
     """
 
-    def __init__(self, db_path: str = "~/.magi/data/memory/growth_memory.db"):
+    def __init__(self, db_path: str = "~/.magi/data/memory/growth_memory.db", *, persona_id: str = ""):
         """
         Internal note.
 
         Args:
             db_path: databasefilepath
+            persona_id: Stable persona identity for scoping data.
         """
         self.db_path = db_path
+        self.persona_id = persona_id
         self._relationship_cache: Dict[str, RelationshipProfile] = {}
         self._milestone_cache: Optional[List[Milestone]] = None
 
@@ -126,7 +128,8 @@ class GrowthMemoryEngine:
                     title TEXT NOT NULL,
                     description TEXT NOT NULL,
                     timestamp real NOT NULL,
-                    metadata TEXT NOT NULL
+                    metadata TEXT NOT NULL,
+                    persona_id TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -142,9 +145,17 @@ class GrowthMemoryEngine:
                     sentiment_score real NOT NULL,
                     trust_level real NOT NULL,
                     notes TEXT NOT NULL,
-                    updated_at real NOT NULL
+                    updated_at real NOT NULL,
+                    persona_id TEXT NOT NULL DEFAULT ''
                 )
             """)
+
+            # Migration: add persona_id column if missing (existing DBs).
+            for tbl in ("milestones", "relationships"):
+                try:
+                    await db.execute(f"ALTER TABLE {tbl} ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
+                except Exception:
+                    pass  # Column already exists
 
             # personalityevolutiontable
             await db.execute("""
@@ -174,8 +185,16 @@ class GrowthMemoryEngine:
                 ON milestones(timestamp DESC)
             """)
             await db.execute("""
+                create index IF NOT EXISTS idx_milestones_persona
+                ON milestones(persona_id, timestamp DESC)
+            """)
+            await db.execute("""
                 create index IF NOT EXISTS idx_relationships_updated
                 ON relationships(updated_at DESC)
+            """)
+            await db.execute("""
+                create index IF NOT EXISTS idx_relationships_persona
+                ON relationships(persona_id, user_id)
             """)
 
             await db.commit()
@@ -214,8 +233,8 @@ class GrowthMemoryEngine:
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT intO milestones (id, Type, title, description, timestamp, metadata)
-                   valueS (?, ?, ?, ?, ?, ?)""",
+                """INSERT intO milestones (id, Type, title, description, timestamp, metadata, persona_id)
+                   valueS (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     milestone_id,
                     milestone_type.value,
@@ -223,6 +242,7 @@ class GrowthMemoryEngine:
                     description,
                     milestone.timestamp,
                     json.dumps(metadata or {}),
+                    self.persona_id,
                 )
             )
             await db.commit()
@@ -260,16 +280,16 @@ class GrowthMemoryEngine:
             if milestone_type:
                 cursor = await db.execute(
                     """SELECT id, Type, title, description, timestamp, metadata
-                       FROM milestones WHERE type = ?
+                       FROM milestones WHERE type = ? AND persona_id = ?
                        order BY timestamp DESC LIMIT ?""",
-                    (milestone_type.value, limit)
+                    (milestone_type.value, self.persona_id, limit)
                 )
             else:
                 cursor = await db.execute(
                     """SELECT id, Type, title, description, timestamp, metadata
-                       FROM milestones
+                       FROM milestones WHERE persona_id = ?
                        order BY timestamp DESC LIMIT ?""",
-                    (limit,)
+                    (self.persona_id, limit)
                 )
 
             rows = await cursor.fetchall()
@@ -393,8 +413,8 @@ class GrowthMemoryEngine:
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
                           trust_level, notes
-                   FROM relationships WHERE user_id = ?""",
-                (user_id,)
+                   FROM relationships WHERE user_id = ? AND persona_id = ?""",
+                (user_id, self.persona_id)
             )
             row = await cursor.fetchone()
 
@@ -592,7 +612,7 @@ class GrowthMemoryEngine:
 
         # getallrelationship
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM relationships")
+            cursor = await db.execute("SELECT COUNT(*) FROM relationships WHERE persona_id = ?", (self.persona_id,))
             total_relationships = (await cursor.fetchone())[0]
 
         return {
@@ -655,8 +675,8 @@ class GrowthMemoryEngine:
                 """INSERT OR REPLACE intO relationships
                    (user_id, depth, first_interaction, last_interaction,
                     total_interactions, interaction_types, sentiment_score,
-                    trust_level, notes, updated_at)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    trust_level, notes, updated_at, persona_id)
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     profile.user_id,
                     profile.depth,
@@ -668,6 +688,7 @@ class GrowthMemoryEngine:
                     profile.trust_level,
                     json.dumps(profile.notes),
                     time.time(),
+                    self.persona_id,
                 )
             )
             await db.commit()
@@ -685,7 +706,9 @@ class GrowthMemoryEngine:
                           total_interactions, interaction_types, sentiment_score,
                           trust_level, notes
                    FROM relationships
-                   order BY depth DESC"""
+                   WHERE persona_id = ?
+                   order BY depth DESC""",
+                (self.persona_id,)
             )
             rows = await cursor.fetchall()
 
@@ -708,7 +731,7 @@ class GrowthMemoryEngine:
     async def reset_user(self, user_id: str) -> None:
         """resetUser relationship"""
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            await db.execute("delete FROM relationships WHERE user_id = ?", (user_id,))
+            await db.execute("delete FROM relationships WHERE user_id = ? AND persona_id = ?", (user_id, self.persona_id))
             await db.commit()
 
         if user_id in self._relationship_cache:

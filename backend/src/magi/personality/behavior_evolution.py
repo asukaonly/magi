@@ -82,14 +82,16 @@ class BehaviorEvolutionEngine:
     Internal note.
     """
 
-    def __init__(self, db_path: str = "~/.magi/data/memory/behavior_evolution.db"):
+    def __init__(self, db_path: str = "~/.magi/data/memory/behavior_evolution.db", *, persona_id: str = ""):
         """
         Internal note.
 
         Args:
             db_path: databasefilepath
+            persona_id: Stable persona identity for scoping data.
         """
         self.db_path = db_path
+        self.persona_id = persona_id
         self._cache: Dict[str, TaskBehaviorProfile] = {}
         self._stats_cache: Dict[str, CategoryStatistics] = {}
 
@@ -117,7 +119,8 @@ class BehaviorEvolutionEngine:
                     task_complexity real NOT NULL,
                     task_duration real NOT NULL,
                     accepted intEGER NOT NULL,
-                    data_json TEXT NOT NULL
+                    data_json TEXT NOT NULL,
+                    persona_id TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -135,7 +138,8 @@ class BehaviorEvolutionEngine:
                     cautious_score real NOT NULL,
                     impatient_score real NOT NULL,
                     dense_score real NOT NULL,
-                    updated_at real NOT NULL
+                    updated_at real NOT NULL,
+                    persona_id TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -144,14 +148,26 @@ class BehaviorEvolutionEngine:
                 create table IF NOT EXISTS behavior_profiles (
                     task_category TEXT primary key,
                     profile_json TEXT NOT NULL,
-                    updated_at real NOT NULL
+                    updated_at real NOT NULL,
+                    persona_id TEXT NOT NULL DEFAULT ''
                 )
             """)
+
+            # Migration: add persona_id column if missing (existing DBs).
+            for tbl in ("task_interactions", "category_statistics", "behavior_profiles"):
+                try:
+                    await db.execute(f"ALTER TABLE {tbl} ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
+                except Exception:
+                    pass  # Column already exists
 
             # createindex
             await db.execute("""
                 create index IF NOT EXISTS idx_task_interactions_category
                 ON task_interactions(task_category)
+            """)
+            await db.execute("""
+                create index IF NOT EXISTS idx_task_interactions_persona
+                ON task_interactions(persona_id, task_category)
             """)
 
             await db.commit()
@@ -214,8 +230,8 @@ class BehaviorEvolutionEngine:
                 """INSERT OR REPLACE intO task_interactions
                    (task_id, task_category, timestamp, clarification_count,
                     confirmation_count, correction_count, satisfaction,
-                    task_complexity, task_duration, accepted, data_json)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    task_complexity, task_duration, accepted, data_json, persona_id)
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task_id,
                     task_category,
@@ -228,6 +244,7 @@ class BehaviorEvolutionEngine:
                     task_duration,
                     1 if accepted else 0,
                     json.dumps(record_data),
+                    self.persona_id,
                 )
             )
             await db.commit()
@@ -264,8 +281,8 @@ class BehaviorEvolutionEngine:
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT profile_json FROM behavior_profiles WHERE task_category = ?",
-                (task_category,)
+                "SELECT profile_json FROM behavior_profiles WHERE task_category = ? AND persona_id = ?",
+                (task_category, self.persona_id)
             )
             row = await cursor.fetchone()
 
@@ -305,8 +322,8 @@ class BehaviorEvolutionEngine:
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT * FROM category_statistics WHERE category = ?",
-                (task_category,)
+                "SELECT * FROM category_statistics WHERE category = ? AND persona_id = ?",
+                (task_category, self.persona_id)
             )
             row = await cursor.fetchone()
 
@@ -335,7 +352,8 @@ class BehaviorEvolutionEngine:
         """Get all task categories"""
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT DISTINCT task_category FROM task_interactions order BY task_category"
+                "SELECT DISTINCT task_category FROM task_interactions WHERE persona_id = ? order BY task_category",
+                (self.persona_id,)
             )
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
@@ -354,8 +372,8 @@ class BehaviorEvolutionEngine:
                     AVG(correction_count) as avg_corr,
                     AVG(task_complexity) as avg_complex
                    FROM task_interactions
-                   WHERE task_category = ?""",
-                (task_category,)
+                   WHERE task_category = ? AND persona_id = ?""",
+                (task_category, self.persona_id)
             )
             row = await cursor.fetchone()
 
@@ -368,8 +386,8 @@ class BehaviorEvolutionEngine:
 
                 cursor = await db.execute(
                     """SELECT satisfaction, COUNT(*) FROM task_interactions
-                       WHERE task_category = ? group BY satisfaction""",
-                    (task_category,)
+                       WHERE task_category = ? AND persona_id = ? group BY satisfaction""",
+                    (task_category, self.persona_id)
                 )
                 sat_rows = await cursor.fetchall()
 
@@ -415,8 +433,8 @@ class BehaviorEvolutionEngine:
                    (category, total_tasks, accepted_tasks, avg_clarifications,
                     avg_confirmations, avg_corrections, avg_satisfaction,
                     avg_complexity, cautious_score, impatient_score, dense_score,
-                    updated_at)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    updated_at, persona_id)
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task_category,
                     stats.total_tasks,
@@ -430,6 +448,7 @@ class BehaviorEvolutionEngine:
                     stats.impatient_score,
                     stats.dense_score,
                     time.time(),
+                    self.persona_id,
                 )
             )
             await db.commit()
@@ -495,9 +514,9 @@ class BehaviorEvolutionEngine:
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE intO behavior_profiles
-                   (task_category, profile_json, updated_at)
-                   valueS (?, ?, ?)""",
-                (task_category, json.dumps(data), time.time())
+                   (task_category, profile_json, updated_at, persona_id)
+                   valueS (?, ?, ?, ?)""",
+                (task_category, json.dumps(data), time.time(), self.persona_id)
             )
             await db.commit()
 
@@ -506,9 +525,9 @@ class BehaviorEvolutionEngine:
     async def reset_category(self, task_category: str) -> None:
         """Reset category behavior evolution"""
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            await db.execute("delete FROM task_interactions WHERE task_category = ?", (task_category,))
-            await db.execute("delete FROM category_statistics WHERE category = ?", (task_category,))
-            await db.execute("delete FROM behavior_profiles WHERE task_category = ?", (task_category,))
+            await db.execute("delete FROM task_interactions WHERE task_category = ? AND persona_id = ?", (task_category, self.persona_id))
+            await db.execute("delete FROM category_statistics WHERE category = ? AND persona_id = ?", (task_category, self.persona_id))
+            await db.execute("delete FROM behavior_profiles WHERE task_category = ? AND persona_id = ?", (task_category, self.persona_id))
             await db.commit()
 
         # Internal note.

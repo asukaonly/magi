@@ -42,7 +42,9 @@ class SelfMemory:
         personality_name: str = "default",
         personalities_path: str = None,
         db_path: str = None,
-        enable_evolution: bool = True
+        enable_evolution: bool = True,
+        *,
+        persona_id: str = "",
     ):
         """
         Internal note.
@@ -52,11 +54,13 @@ class SelfMemory:
             Internal note.
             Internal note.
             enable_evolution: is notEnablepersonalityevolution
+            persona_id: Stable persona identity for scoping evolution data.
         """
         # Internal note.
         runtime_paths = get_runtime_paths()
 
         self.personality_name = personality_name
+        self.persona_id = persona_id
         self.personalities_path = personalities_path or str(runtime_paths.personalities_dir)
         self.db_path = db_path or str(runtime_paths.self_memory_db_path)
         self.enable_evolution = enable_evolution
@@ -85,9 +89,9 @@ class SelfMemory:
             emotion_db = str(runtime_paths.emotional_db_path)
             growth_db = str(runtime_paths.growth_db_path)
 
-            self._behavior_engine = BehaviorEvolutionEngine(behavior_db)
-            self._emotion_engine = EmotionalStateEngine(emotion_db)
-            self._growth_engine = GrowthMemoryEngine(growth_db)
+            self._behavior_engine = BehaviorEvolutionEngine(behavior_db, persona_id=self.persona_id)
+            self._emotion_engine = EmotionalStateEngine(emotion_db, persona_id=self.persona_id)
+            self._growth_engine = GrowthMemoryEngine(growth_db, persona_id=self.persona_id)
 
             await self._behavior_engine.init()
             await self._emotion_engine.init()

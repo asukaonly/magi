@@ -143,6 +143,11 @@ class RuntimePaths:
         return self.base_dir / "logs"
 
     @property
+    def persona_registry_db_path(self) -> Path:
+        """Persona registry database path."""
+        return self.app_data_dir / "persona_registry.db"
+
+    @property
     def behavior_db_path(self) -> Path:
         """Behavior evolution database path."""
         return self.memory_dir / "behavior_evolution.db"

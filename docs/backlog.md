@@ -6,7 +6,24 @@ It is intentionally separate from the stable design docs.
 
 ## Active Development
 
-### 1. Finish the lifecycle-based memory implementation
+### 1. Persona registry migration and frontend integration
+
+Status: active
+
+Why it is still open:
+
+- The persona registry backend (PersonaRepository, seed service, evolution engine persona_id scoping, `/api/personas/*` routes) is implemented and tested.
+- The frontend still uses filename-based persona identity via the old `/api/personality/*` routes.
+- Onboarding flow needs to call the seed endpoint and select a persona from the registry instead of copying preset files.
+
+Remaining work:
+
+- Wire onboarding frontend to call `POST /api/personas/seed` and `PUT /api/personas/active` instead of file-copy approach.
+- Migrate `PersonalityModern.tsx` and `personalityApi` to use `/api/personas/*` routes with persona_id.
+- Add data migration script to import existing file-based personas into the registry for existing installs.
+- Retire `current_state.py` filesystem approach once frontend is fully migrated.
+
+### 2. Finish the lifecycle-based memory implementation
 
 Status: active
 
@@ -21,7 +38,7 @@ Current focus areas:
 - finish retrieval and prompt integration against the lifecycle model
 - remove superseded legacy memory modules once the new path fully owns production behavior
 
-### 2. Continue runtime boundary cleanup
+### 3. Continue runtime boundary cleanup
 
 Status: active
 
@@ -31,7 +48,7 @@ Open items:
 - replace the remaining module-scoped shared instances in `api/services/chat_read_service.py` and `api/services/chat_trace_read_service.py` with clearer lifecycle ownership when practical
 - review legacy packages such as `processing/` and other dormant runtime leftovers, then either integrate them into the current layered model or delete them
 
-### 3. Keep service and transport boundaries thin
+### 4. Keep service and transport boundaries thin
 
 Status: active
 
