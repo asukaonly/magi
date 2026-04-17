@@ -25,6 +25,7 @@ from .models import (
     TimeRange,
 )
 from .l2_handler import L2Handler
+from .protocols import L1StoreProtocol, L3StoreProtocol, L4StoreProtocol
 from .reranker import build_retrieval_reranker
 
 logger = logging.getLogger(__name__)
@@ -165,7 +166,7 @@ class L1Handler(RRFSearchHandler):
 
     def __init__(
         self,
-        l1_store: Any,
+        l1_store: L1StoreProtocol,
         config: Optional[RetrievalConfig] = None,
         *,
         l2_store: Any = None,
@@ -532,7 +533,7 @@ class L3Handler(RRFSearchHandler):
 
     layer_name = "L3"
 
-    def __init__(self, l3_store: Any, config: Optional[RetrievalConfig] = None) -> None:
+    def __init__(self, l3_store: L3StoreProtocol, config: Optional[RetrievalConfig] = None) -> None:
         super().__init__(l3_store, config)
 
     async def execute(
@@ -647,7 +648,7 @@ class L4Handler(RRFSearchHandler):
 
     layer_name = "L4"
 
-    def __init__(self, l4_store: Any, config: Optional[RetrievalConfig] = None) -> None:
+    def __init__(self, l4_store: L4StoreProtocol, config: Optional[RetrievalConfig] = None) -> None:
         super().__init__(l4_store, config)
 
     async def execute(
