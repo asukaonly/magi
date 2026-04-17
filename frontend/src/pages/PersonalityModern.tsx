@@ -47,8 +47,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     // State
     config,
     list,
-    currentName,
-    selectedName,
+    currentId,
+    selectedId,
     isNewMode,
     loading,
     saving,
@@ -169,20 +169,20 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
           {/* Personality Avatars */}
           {list.map((item) => {
-            const isSelected = item.name === selectedName;
-            const isCurrent = item.name === currentName;
+            const isSelected = item.id === selectedId;
+            const isCurrent = item.id === currentId;
             const initials = getInitials(item.displayName);
             const selectorAvatarValue =
-              item.name === selectedName ? (avatarValue || item.avatar || '') : (item.avatar || '');
+              item.id === selectedId ? (avatarValue || item.avatar || '') : (item.avatar || '');
             const selectorAvatarUrl =
-              selectorAvatarValue && !(item.name === selectedName && avatarBroken)
+              selectorAvatarValue && !(item.id === selectedId && avatarBroken)
                 ? personalitiesApi.getAvatarUrl(selectorAvatarValue)
                 : '';
 
             return (
               <button
-                key={item.name}
-                onClick={() => selectPersonality(item.name)}
+                key={item.id}
+                onClick={() => selectPersonality(item.id)}
                 className="group relative flex shrink-0 flex-col items-center gap-2"
               >
                 <div
@@ -288,7 +288,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   <h2 className="text-2xl font-semibold tracking-tight text-foreground">
                     {detailTitle}
                   </h2>
-                  {!isNewMode && selectedName === currentName ? (
+                  {!isNewMode && selectedId === currentId ? (
                     <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
                       {t('personality.current')}
                     </span>
@@ -302,7 +302,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
               {/* Action Buttons */}
               <div className="flex flex-wrap gap-2">
-                {!isNewMode && selectedName !== currentName && (
+                {!isNewMode && selectedId !== currentId && (
                   <Button onClick={switchPersonality} disabled={switching} className="rounded-2xl">
                     <Check className="mr-2 h-4 w-4" />
                     {switching ? t('personality.switching') : t('personality.switch')}
@@ -340,7 +340,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   <Button
                     variant="outline"
                     onClick={requestDeletePersonality}
-                    disabled={selectedName === 'default'}
+                    disabled={selectedId === currentId}
                     className="rounded-2xl border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
@@ -665,7 +665,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
           <DialogHeader>
             <DialogTitle>{t('personality.deleteTitle')}</DialogTitle>
             <DialogDescription>
-              {t('personality.deleteConfirm', { name: selectedName })}
+              {t('personality.deleteConfirm', { name: selectedInfo?.displayName || '' })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

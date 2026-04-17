@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { configApi } from '../../api/modules/config';
 import type { SystemConfig, EmbeddingConfig, CrossEncoderConfig } from '../../api/modules/config';
+import { personasApi } from '../../api/modules/personas';
 import LLMForm from '../config-forms/LLMForm';
 import PersonalityForm from '../config-forms/PersonalityForm';
 import MemoryForm from '../config-forms/MemoryForm';
@@ -266,6 +267,24 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     const values = form.getFieldsValue(true);
     values.preferences.onboarding_completed = true;
     await configApi.completeOnboarding(values);
+
+    // Seed builtin personas into the registry and set the selected one active
+    const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
+    try {
+      await personasApi.seed(locale);
+      // Find the persona matching the selected personality name
+      const listResult = await personasApi.list();
+      const personas = listResult.data || [];
+      const selectedName = values.personality?.persona_entity?.basic_profile?.name;
+      const match = personas.find((p) => p.name === selectedName) || personas[0];
+      if (match) {
+        await personasApi.setActive(match.persona_id);
+      }
+    } catch {
+      // Persona registry is best-effort during onboarding;
+      // the backend lifecycle fallback handles missing registry state.
+    }
+
     localStorage.removeItem(STORAGE_KEY);
     if (values.preferences.language) {
       localStorage.setItem('magi_language', values.preferences.language);

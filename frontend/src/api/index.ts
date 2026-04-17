@@ -52,6 +52,9 @@ export type {
 export { personalitiesApi } from './modules/personalities';
 export type { PersonalityPreset } from './modules/personalities';
 
+export { personasApi } from './modules/personas';
+export type { PersonaSummary, PersonaDetail, SeedPreview } from './modules/personas';
+
 export { skillsApi } from './modules/skills';
 export type { SkillItem } from './modules/skills';
 

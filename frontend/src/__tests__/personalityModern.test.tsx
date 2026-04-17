@@ -67,17 +67,17 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
     ],
   },
   list: [
-    { name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师', avatar: '/static/user-avatars/seven.png' },
-    { name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员', avatar: '' },
+    { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师', avatar: '/static/user-avatars/seven.png' },
+    { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员', avatar: '' },
   ],
-  currentName: '七号',
-  selectedName: '七号',
+  currentId: 'uuid-seven',
+  selectedId: 'uuid-seven',
   isNewMode: false,
   loading: false,
   saving: false,
   generating: false,
   switching: false,
-  selectedInfo: { name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师' },
+  selectedInfo: { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师' },
   switchPrompt: null,
   prompt: '',
   setPrompt: vi.fn(),
@@ -118,8 +118,8 @@ describe('PersonalityModern', () => {
   it('hides the current badge when viewing a non-active personality', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
-        selectedName: '明日香',
-        selectedInfo: { name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员' },
+        selectedId: 'uuid-asuka',
+        selectedInfo: { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员' },
         config: {
           persona_entity: {
             basic_profile: {
@@ -165,7 +165,7 @@ describe('PersonalityModern', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
         isNewMode: true,
-        selectedName: '',
+        selectedId: '__new__',
         selectedInfo: undefined,
         config: {
           persona_entity: {

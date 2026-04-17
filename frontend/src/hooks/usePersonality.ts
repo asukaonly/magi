@@ -17,6 +17,7 @@ import {
   type PersonalityConfig,
   type StateTransitionProtocolItem,
 } from '@/api';
+import { personasApi, type PersonaSummary } from '@/api/modules/personas';
 import { handleError } from '@/utils/error-handler';
 
 // ============================================================================
@@ -24,22 +25,23 @@ import { handleError } from '@/utils/error-handler';
 // ============================================================================
 
 export interface PersonalityInfo {
-  name: string;
+  id: string;          // persona_id (UUID)
+  name: string;        // display name
   displayName: string;
   subtitle?: string;
   avatar?: string;
 }
 
 export interface UsePersonalityOptions {
-  initialPersonalityName?: string;
+  initialPersonalityId?: string;
 }
 
 export interface UsePersonalityReturn {
   // State
   config: PersonalityConfig;
   list: PersonalityInfo[];
-  currentName: string;
-  selectedName: string;
+  currentId: string;
+  selectedId: string;
   isNewMode: boolean;
   loading: boolean;
   saving: boolean;
@@ -50,7 +52,7 @@ export interface UsePersonalityReturn {
     phrase: string;
     fromName: string;
     toName: string;
-    targetName: string;
+    targetId: string;
   } | null;
 
   // Form state
@@ -61,7 +63,7 @@ export interface UsePersonalityReturn {
 
   // Actions
   patch: (fn: (draft: PersonalityConfig) => void) => void;
-  selectPersonality: (name: string) => void;
+  selectPersonality: (id: string) => void;
   startNewPersonality: () => void;
   cancelNewPersonality: () => void;
   save: () => Promise<void>;
@@ -139,7 +141,7 @@ const getInitials = (name: string): string => {
 export function usePersonality(
   options: UsePersonalityOptions = {}
 ): UsePersonalityReturn {
-  const { initialPersonalityName } = options;
+  const { initialPersonalityId } = options;
   const { t } = useTranslation('app');
 
   // Loading states
@@ -148,14 +150,12 @@ export function usePersonality(
   const [generating, setGenerating] = useState(false);
   const [switching, setSwitching] = useState(false);
 
-  // Personality state
-  const [currentName, setCurrentName] = useState('default');
-  const [selectedName, setSelectedName] = useState(initialPersonalityName || 'default');
+  // Personality state – identity is now UUID-based
+  const [currentId, setCurrentId] = useState('');
+  const [selectedId, setSelectedId] = useState(initialPersonalityId || '');
   const [isNewMode, setIsNewMode] = useState(false);
   const [config, setConfig] = useState<PersonalityConfig>(DEFAULT_PERSONALITY_CONFIG);
-  const [list, setList] = useState<PersonalityInfo[]>([
-    { name: 'default', displayName: 'default', subtitle: 'System Default' },
-  ]);
+  const [list, setList] = useState<PersonalityInfo[]>([]);
 
   // Form state
   const [prompt, setPrompt] = useState('');
@@ -164,7 +164,7 @@ export function usePersonality(
     phrase: string;
     fromName: string;
     toName: string;
-    targetName: string;
+    targetId: string;
   } | null>(null);
 
   // ============================================================================
@@ -180,63 +180,49 @@ export function usePersonality(
   }, []);
 
   // ============================================================================
-  // Data Loading
+  // Data Loading (registry-backed)
   // ============================================================================
 
   const loadList = useCallback(async () => {
     try {
-      const result = await personalityApi.list();
-      const data = result.data as { personalities?: string[] } | undefined;
-      const names = data?.personalities || ['default'];
-      const items: PersonalityInfo[] = [];
-
-      for (const name of names) {
-        try {
-          const detail = await personalityApi.get(name);
-          const configData = detail.data as PersonalityConfig | undefined;
-          const profile = configData?.persona_entity?.basic_profile;
-
-          items.push({
-            name,
-            displayName: profile?.name || name,
-            subtitle: profile?.occupation,
-            avatar: profile?.avatar || '',
-          });
-        } catch {
-          items.push({ name, displayName: name });
-        }
-      }
-
-      setList(
-        items.length ? items : [{ name: 'default', displayName: 'default' }]
-      );
+      const result = await personasApi.list();
+      const summaries: PersonaSummary[] = result.data || [];
+      const items: PersonalityInfo[] = summaries.map((s) => ({
+        id: s.persona_id,
+        name: s.name,
+        displayName: s.name,
+        subtitle: s.description || '',
+        avatar: s.avatar_path || '',
+      }));
+      setList(items);
     } catch {
-      setList([{ name: 'default', displayName: 'default' }]);
+      setList([]);
     }
   }, []);
 
   const loadCurrent = useCallback(async (): Promise<string> => {
     try {
-      const result = await personalityApi.getCurrent();
-      const data = result.data as { current?: string } | undefined;
-      const current = data?.current || 'default';
-      setCurrentName(current);
-      setSelectedName(current);
-      return current;
+      const result = await personasApi.getActive();
+      const activeId = result.persona_id ?? '';
+      setCurrentId(activeId);
+      setSelectedId((prev) => prev || activeId);
+      return activeId;
     } catch {
-      setCurrentName('default');
-      setSelectedName('default');
-      return 'default';
+      setCurrentId('');
+      return '';
     }
   }, []);
 
   const loadOne = useCallback(
-    async (name: string) => {
+    async (id: string) => {
+      if (!id) return;
       setLoading(true);
       try {
-        const result = await personalityApi.get(name);
-        const data = (result.data || {}) as Partial<PersonalityConfig>;
-        setConfig(mergeConfig(data));
+        const result = await personasApi.get(id);
+        const detail = result.data;
+        if (detail?.config) {
+          setConfig(mergeConfig(detail.config as Partial<PersonalityConfig>));
+        }
       } catch {
         toast.error(t('personality.loadFailed'));
       } finally {
@@ -249,9 +235,11 @@ export function usePersonality(
   // Initial load
   useEffect(() => {
     const init = async () => {
-      const current = await loadCurrent();
+      const activeId = await loadCurrent();
       await loadList();
-      await loadOne(current);
+      if (activeId) {
+        await loadOne(activeId);
+      }
     };
     void init();
   }, [loadCurrent, loadList, loadOne]);
@@ -261,31 +249,31 @@ export function usePersonality(
   // ============================================================================
 
   const selectPersonality = useCallback(
-    (name: string) => {
+    (id: string) => {
       if (isNewMode) {
         setIsNewMode(false);
       }
-      setSelectedName(name);
-      void loadOne(name);
+      setSelectedId(id);
+      void loadOne(id);
     },
     [isNewMode, loadOne]
   );
 
   const startNewPersonality = useCallback(() => {
     setIsNewMode(true);
-    setSelectedName('__new__');
+    setSelectedId('__new__');
     setConfig(structuredClone(DEFAULT_PERSONALITY_CONFIG));
   }, []);
 
   const cancelNewPersonality = useCallback(() => {
     setIsNewMode(false);
-    setSelectedName(currentName);
-    void loadOne(currentName);
-  }, [currentName, loadOne]);
+    setSelectedId(currentId);
+    void loadOne(currentId);
+  }, [currentId, loadOne]);
 
   const selectedInfo = useMemo(
-    () => list.find((item) => item.name === selectedName),
-    [list, selectedName]
+    () => list.find((item) => item.id === selectedId),
+    [list, selectedId]
   );
 
   const save = useCallback(async () => {
@@ -301,36 +289,33 @@ export function usePersonality(
     setSaving(true);
     try {
       if (isNewMode) {
-        // Create mode: create new personality
-        await personalityApi.updateWithAIName(config);
+        // Create via persona registry
+        const configJson = JSON.stringify(config);
+        const result = await personasApi.create({ config_json: configJson });
+        const newId = result.data?.persona_id;
         toast.success(t('personality.createSuccess'));
         setIsNewMode(false);
         await loadList();
-        await loadCurrent();
-        // Select the newly created personality
-        const newName = config.persona_entity.basic_profile.name;
-        setSelectedName(newName);
-        void loadOne(newName);
-      } else if (
-        currentName === 'default' ||
-        currentName !== config.persona_entity.basic_profile.name
-      ) {
-        await personalityApi.updateWithAIName(config);
-        toast.success(t('personality.saveSuccess'));
-        await loadList();
-        await loadCurrent();
+        if (newId) {
+          setSelectedId(newId);
+          await loadOne(newId);
+        }
       } else {
-        await personalityApi.update(currentName, config);
+        // Update existing persona in registry
+        const configJson = JSON.stringify(config);
+        await personasApi.update(selectedId, {
+          name: config.persona_entity.basic_profile.name,
+          config_json: configJson,
+        });
         toast.success(t('personality.saveSuccess'));
         await loadList();
-        await loadCurrent();
       }
     } catch (error) {
       handleError(error, 'Save personality');
     } finally {
       setSaving(false);
     }
-  }, [config, currentName, isNewMode, loadCurrent, loadList, loadOne, t]);
+  }, [config, selectedId, isNewMode, loadList, loadOne, t]);
 
   const generate = useCallback(async () => {
     if (!prompt.trim()) {
@@ -356,35 +341,33 @@ export function usePersonality(
   }, [prompt, targetLanguage, t]);
 
   const switchPersonality = useCallback(async () => {
-    if (selectedName === currentName) {
+    if (selectedId === currentId) {
       return;
     }
 
     setSwitching(true);
     try {
-      const response = await personalityApi.get(currentName);
-      const data = (response.data || {}) as Partial<PersonalityConfig>;
-      const currentConfig = mergeConfig(data);
-      const retentionPhrase =
-        currentConfig.cached_phrases.on_switch_attempt.find((item) => item.trim()) ||
-        t('personality.switchPromptFallback');
+      // Load the current persona's config to get its retention phrase
+      let retentionPhrase = t('personality.switchPromptFallback');
+      try {
+        const currentResult = await personasApi.get(currentId);
+        const currentConfig = currentResult.data?.config as Partial<PersonalityConfig> | undefined;
+        const phrase = currentConfig?.cached_phrases?.on_switch_attempt?.find((item: string) => item.trim());
+        if (phrase) retentionPhrase = phrase;
+      } catch {
+        // use fallback
+      }
+      const currentInfo = list.find((item) => item.id === currentId);
       setSwitchPrompt({
         phrase: retentionPhrase,
-        fromName: currentConfig.persona_entity.basic_profile.name || currentName,
-        toName: selectedInfo?.displayName || selectedName,
-        targetName: selectedName,
-      });
-    } catch {
-      setSwitchPrompt({
-        phrase: t('personality.switchPromptFallback'),
-        fromName: currentName,
-        toName: selectedInfo?.displayName || selectedName,
-        targetName: selectedName,
+        fromName: currentInfo?.displayName || '',
+        toName: selectedInfo?.displayName || '',
+        targetId: selectedId,
       });
     } finally {
       setSwitching(false);
     }
-  }, [currentName, selectedInfo?.displayName, selectedName, t]);
+  }, [currentId, selectedId, selectedInfo?.displayName, list, t]);
 
   const confirmSwitchPersonality = useCallback(async () => {
     if (!switchPrompt) {
@@ -393,10 +376,10 @@ export function usePersonality(
 
     setSwitching(true);
     try {
-      await personalityApi.setCurrent(switchPrompt.targetName);
-      setCurrentName(switchPrompt.targetName);
+      await personasApi.setActive(switchPrompt.targetId);
+      setCurrentId(switchPrompt.targetId);
       setSwitchPrompt(null);
-      await loadOne(switchPrompt.targetName);
+      await loadOne(switchPrompt.targetId);
       toast.success(t('personality.switchSuccess', { name: switchPrompt.toName }));
     } catch (error) {
       handleError(error, 'Switch personality');
@@ -412,22 +395,24 @@ export function usePersonality(
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const requestDeletePersonality = useCallback(() => {
-    if (selectedName === 'default') return;
+    if (!selectedId || selectedId === currentId) return;
     setDeleteConfirmOpen(true);
-  }, [selectedName]);
+  }, [selectedId, currentId]);
 
   const confirmDeletePersonality = useCallback(async () => {
     setDeleteConfirmOpen(false);
-    if (selectedName === 'default') return;
+    if (!selectedId || selectedId === currentId) return;
     try {
-      await personalityApi.delete(selectedName);
+      await personasApi.delete(selectedId);
       await loadList();
-      const current = await loadCurrent();
-      await loadOne(current);
+      const activeId = await loadCurrent();
+      if (activeId) {
+        await loadOne(activeId);
+      }
     } catch (error) {
       handleError(error, 'Delete personality');
     }
-  }, [selectedName, loadList, loadCurrent, loadOne]);
+  }, [selectedId, currentId, loadList, loadCurrent, loadOne]);
 
   const cancelDeletePersonality = useCallback(() => {
     setDeleteConfirmOpen(false);
@@ -436,8 +421,8 @@ export function usePersonality(
   const deletePersonality = confirmDeletePersonality;
 
   const reload = useCallback(async () => {
-    await loadOne(selectedName);
-  }, [loadOne, selectedName]);
+    await loadOne(selectedId);
+  }, [loadOne, selectedId]);
 
   // ============================================================================
   // Computed Values
@@ -447,8 +432,8 @@ export function usePersonality(
     // State
     config,
     list,
-    currentName,
-    selectedName,
+    currentId,
+    selectedId,
     isNewMode,
     loading,
     saving,

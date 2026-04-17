@@ -14,10 +14,10 @@ import {
   personalityApi,
   personalitiesApi,
   type LLMConfig,
-  PersonalityPreset,
   PersonalityConfig,
   type StateTransitionProtocolItem,
 } from '../../api';
+import { personasApi, type SeedPreview } from '../../api/modules/personas';
 
 interface PersonalityFormProps {
   quickMode?: boolean;
@@ -26,7 +26,7 @@ interface PersonalityFormProps {
 
 // Group display order
 const GROUP_ORDER = ['magi', 'general'];
-const DEFAULT_PRESET_ID = 'echo_ai_ssistant';
+const DEFAULT_PRESET_SLUG = 'echo_ai_ssistant';
 
 type CachedPhraseKey = 'on_init' | 'on_error_generic' | 'on_success' | 'on_switch_attempt';
 
@@ -63,7 +63,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   const { t } = useTranslation('onboarding');
   const formContext = React.useContext(FormContext);
   const formInstance = formContext?.instance;
-  const [presets, setPresets] = useState<PersonalityPreset[]>([]);
+  const [presets, setPresets] = useState<SeedPreview[]>([]);
   const [generating, setGenerating] = useState(false);
   const [oneLiner, setOneLiner] = useState('');
   const [viewMode, setViewMode] = useState<'selection' | 'focus'>('selection');
@@ -79,7 +79,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   useEffect(() => {
     const loadPresets = async () => {
       try {
-        const response = await personalitiesApi.list(language);
+        const response = await personasApi.seedPreviews(language);
         setPresets(response.data || []);
       } catch (error) {
         setPresets([]);
@@ -103,7 +103,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     }
 
     const defaultPreset =
-      presets.find((item) => item.id === DEFAULT_PRESET_ID) ??
+      presets.find((item) => item.seed_slug === DEFAULT_PRESET_SLUG) ??
       presets.find((item) => item.name.toLowerCase() === 'echo-01') ??
       presets.find((item) => item.group === 'general') ??
       presets[0];
@@ -116,7 +116,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       setLoadingConfig(true);
       setConfigLoaded(false);
       try {
-        const result = await personalitiesApi.get(defaultPreset.id, language);
+        const result = await personalitiesApi.get(defaultPreset.seed_slug, language);
         if (cancelled) return;
         const data = (result.data || {}) as Partial<PersonalityConfig>;
         const mergedConfig = mergeConfig(data);
@@ -128,7 +128,6 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
           persona_entity: {
             basic_profile: {
               name: defaultPreset.name,
-              occupation: defaultPreset.occupation,
               description: defaultPreset.description,
               avatar: defaultPreset.avatar,
             },
@@ -151,7 +150,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     };
   }, [defaultPresetResolved, formInstance, language, presets]);
 
-  const avatarFor = (item: PersonalityPreset): string => {
+  const avatarFor = (item: SeedPreview): string => {
     const map: Record<string, string> = {
       assistant: '🤖',
       analyst: '🧠',
@@ -160,7 +159,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       writer: '✍️',
       default: '✨',
     };
-    return map[item.id] || item.name.trim().charAt(0).toUpperCase() || '✨';
+    return map[item.seed_slug] || item.name.trim().charAt(0).toUpperCase() || '✨';
   };
 
   const patch = (fn: (draft: PersonalityConfig) => void) => {
@@ -235,7 +234,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   };
 
   const handleSelectPreset = async (
-    item: PersonalityPreset,
+    item: SeedPreview,
     setFieldValue: (name: any, value: any) => void
   ) => {
     setViewMode('focus');
@@ -244,8 +243,8 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     setConfigLoaded(false);
 
     try {
-      // Fetch full config from preset API
-      const result = await personalitiesApi.get(item.id, language);
+      // Fetch full config from preset API using seed_slug
+      const result = await personalitiesApi.get(item.seed_slug, language);
       const data = (result.data || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
@@ -318,7 +317,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
               : config.persona_entity.basic_profile.description || focusedPreset?.description || '';
             const focusDescription = isCustomSelected
               ? t('personality.blankCardDesc')
-              : config.persona_entity.core_identity.inner_narrative || focusedPreset?.prompt || focusedPreset?.description || '';
+              : config.persona_entity.core_identity.inner_narrative || focusedPreset?.description || '';
 
             // Group by backend group field
             const groupedPersonalities = GROUP_ORDER.reduce((acc, group) => {
@@ -327,13 +326,13 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                 acc.push({ group, items });
               }
               return acc;
-            }, [] as Array<{ group: string; items: PersonalityPreset[] }>);
+            }, [] as Array<{ group: string; items: SeedPreview[] }>);
 
-            const renderPersonalityCard = (item: PersonalityPreset) => {
+            const renderPersonalityCard = (item: SeedPreview) => {
               const active = selectedPreset === item.name;
-              const expanded = expandedCardId === item.id;
+              const expanded = expandedCardId === item.seed_slug;
               return (
-                <div key={item.id} className="relative">
+                <div key={item.seed_slug} className="relative">
                   <div
                     onClick={() => void handleSelectPreset(item, setFieldValue)}
                     className={cn(
@@ -345,12 +344,12 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-primary/10 text-xl">
-                        {item.avatar && !brokenAvatarKeys[`list:${item.id}:${item.avatar}`] ? (
+                        {item.avatar && !brokenAvatarKeys[`list:${item.seed_slug}:${item.avatar}`] ? (
                           <img
                             src={resolveAvatarUrl(item.avatar)}
                             alt={item.name}
                             className="h-full w-full object-cover"
-                            onError={() => markAvatarBroken(`list:${item.id}:${item.avatar}`)}
+                            onError={() => markAvatarBroken(`list:${item.seed_slug}:${item.avatar}`)}
                           />
                         ) : (
                           avatarFor(item)
@@ -364,7 +363,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setExpandedCardId(expanded ? null : item.id);
+                          setExpandedCardId(expanded ? null : item.seed_slug);
                         }}
                         className={cn(
                           'pointer-events-auto shrink-0 rounded p-1 transition-colors hover:bg-muted',
@@ -379,7 +378,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         />
                       </button>
                     </div>
-                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.prompt || item.description}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.description}</p>
                   </div>
 
                   <AnimatePresence initial={false}>
@@ -392,7 +391,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         className="overflow-hidden"
                       >
                         <div className="mt-1 rounded-xl border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground">
-                          <p className="line-clamp-4">{item.prompt || item.description}</p>
+                          <p className="line-clamp-4">{item.description}</p>
                         </div>
                       </motion.div>
                     )}
