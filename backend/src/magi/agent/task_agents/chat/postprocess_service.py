@@ -15,9 +15,6 @@ from ....agent.trace import (
 )
 from ....chat import ChatMessageRecord, ChatProjector, ChatStore
 from ....events.events import EventTypes
-from ....personality.behavior_evolution import SatisfactionLevel
-from ....personality.emotional_state import EngagementLevel, InteractionOutcome
-from ....personality.growth_memory import InteractionType
 from ....personality.interaction_analyzer import analyze_interaction, DEFAULT_ANALYSIS
 from ....memory.l3.models import TaskOutcomePacket
 from ....runtime_trace import (
@@ -816,66 +813,15 @@ class ChatPostProcessService:
         updated = False
         if self._memory is not None:
             try:
-                await self._memory.record_interaction(
+                updated = await self._memory.process_turn_outcome(
                     user_id=user_id,
-                    interaction_type=InteractionType.CHAT,
-                    outcome=analysis.outcome_str,
-                    sentiment=analysis.sentiment,
-                    notes=f"Message: {user_message[:100]}...",
+                    user_message=user_message,
+                    analysis=analysis,
+                    stp_rules=stp_rules,
+                    milestone_conditions=milestone_conditions,
                 )
-                await self._memory.update_after_interaction(
-                    outcome=analysis.outcome,
-                    user_engagement=analysis.engagement,
-                    complexity=analysis.complexity,
-                )
-                await self._memory.record_task_outcome(
-                    task_id=f"chat_{int(time.time())}_{user_id}",
-                    task_category="chat",
-                    user_satisfaction=analysis.satisfaction,
-                    accepted=analysis.outcome != InteractionOutcome.FAILURE,
-                    task_complexity=analysis.complexity,
-                    task_duration=0.0,
-                )
-                updated = True
             except Exception as exc:
-                logger.warning("Failed to update self memory: %s", exc)
-
-        # Persist detected STP trigger into emotional state for the next turn.
-        if self._memory is not None:
-            try:
-                trigger = analysis.trigger_type or ""
-                state_name = ""
-                if trigger and stp_rules:
-                    # Look up the matching rule's target_state_name from full config.
-                    config = await self._memory.get_core_personality()
-                    for item in getattr(config, "state_transition_protocol", []):
-                        if getattr(item, "trigger_type", "") == trigger:
-                            state_name = getattr(item, "target_state_name", "")
-                            break
-                await self._memory.update_stp_trigger(trigger, state_name)
-            except Exception as exc:
-                logger.warning("Failed to update STP trigger: %s", exc)
-
-        # Record detected persona-layer milestones.
-        if self._memory is not None and analysis.milestone_keys:
-            try:
-                from ....personality.growth_memory import MilestoneType
-                growth = self._memory._growth_engine
-                if growth is not None:
-                    existing = await self._memory.get_milestones(milestone_type="special", limit=500)
-                    existing_titles = {m.get("title", "") for m in existing}
-                    for key in analysis.milestone_keys:
-                        if key in existing_titles:
-                            continue
-                        desc = (milestone_conditions or {}).get(key, key)
-                        await growth.record_milestone(
-                            milestone_type=MilestoneType.SPECIAL,
-                            title=key,
-                            description=f"Persona milestone: {desc}",
-                        )
-                        logger.info("Persona milestone recorded: %s", key)
-            except Exception as exc:
-                logger.warning("Failed to record persona milestones: %s", exc)
+                logger.warning("Failed to process turn outcome: %s", exc)
 
         return updated
 

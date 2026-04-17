@@ -11,6 +11,7 @@ Internal note.
 Internal note.
 """
 import logging
+import time
 from typing import Dict, Any, Optional, List
 from dataclasses import asdict
 
@@ -21,6 +22,7 @@ from .loader import PersonalityLoader, PersonalityConfig
 from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
 from .emotional_state import EmotionalStateEngine, InteractionOutcome, EngagementLevel
 from .growth_memory import GrowthMemoryEngine, InteractionType, MilestoneType
+from .interaction_analyzer import InteractionAnalysis
 from ..utils.runtime import get_runtime_paths
 
 logger = logging.getLogger(__name__)
@@ -242,10 +244,89 @@ class SelfMemory:
             return asdict(profile)
         return None
 
-    async def get_milestones(self, milestone_type: str | None = None, limit: int = 100) -> List[Dict]:
-        """Deprecated: kept for compatibility, forwards to growth engine if available."""
+    async def get_milestones(self, milestone_type: MilestoneType | None = None, limit: int = 100) -> List[Dict]:
+        """Get milestones, optionally filtered by type."""
         if not self.enable_evolution or self._growth_engine is None:
             return []
 
         milestones = await self._growth_engine.get_milestones(milestone_type, limit)
         return [asdict(m) for m in milestones]
+
+    async def record_persona_milestone(self, key: str, description: str) -> None:
+        """Record a persona-layer milestone, skipping if already recorded."""
+        if not self.enable_evolution or self._growth_engine is None:
+            return
+        existing = await self._growth_engine.get_milestones(MilestoneType.SPECIAL, limit=500)
+        if any(m.title == key for m in existing):
+            return
+        await self._growth_engine.record_milestone(
+            milestone_type=MilestoneType.SPECIAL,
+            title=key,
+            description=f"Persona milestone: {description}",
+        )
+        logger.info("Persona milestone recorded: %s", key)
+
+    async def process_turn_outcome(
+        self,
+        user_id: str,
+        user_message: str,
+        analysis: InteractionAnalysis,
+        stp_rules: list | None = None,
+        milestone_conditions: dict[str, str] | None = None,
+    ) -> bool:
+        """Consolidate all per-turn personality updates behind the facade.
+
+        Performs: record_interaction, update_after_interaction,
+        record_task_outcome, update_stp_trigger, and milestone recording.
+        Returns True if any update succeeded.
+        """
+        updated = False
+        try:
+            await self.record_interaction(
+                user_id=user_id,
+                interaction_type=InteractionType.CHAT,
+                outcome=analysis.outcome_str,
+                sentiment=analysis.sentiment,
+                notes=f"Message: {user_message[:100]}...",
+            )
+            await self.update_after_interaction(
+                outcome=analysis.outcome,
+                user_engagement=analysis.engagement,
+                complexity=analysis.complexity,
+            )
+            await self.record_task_outcome(
+                task_id=f"chat_{int(time.time())}_{user_id}",
+                task_category="chat",
+                user_satisfaction=analysis.satisfaction,
+                accepted=analysis.outcome != InteractionOutcome.FAILURE,
+                task_complexity=analysis.complexity,
+                task_duration=0.0,
+            )
+            updated = True
+        except Exception as exc:
+            logger.warning("Failed to update self memory: %s", exc)
+
+        # Persist detected STP trigger into emotional state.
+        try:
+            trigger = analysis.trigger_type or ""
+            state_name = ""
+            if trigger and stp_rules:
+                config = await self.get_core_personality()
+                for item in getattr(config, "state_transition_protocol", []):
+                    if getattr(item, "trigger_type", "") == trigger:
+                        state_name = getattr(item, "target_state_name", "")
+                        break
+            await self.update_stp_trigger(trigger, state_name)
+        except Exception as exc:
+            logger.warning("Failed to update STP trigger: %s", exc)
+
+        # Record detected persona-layer milestones.
+        if analysis.milestone_keys:
+            try:
+                for key in analysis.milestone_keys:
+                    desc = (milestone_conditions or {}).get(key, key)
+                    await self.record_persona_milestone(key, desc)
+            except Exception as exc:
+                logger.warning("Failed to record persona milestones: %s", exc)
+
+        return updated
