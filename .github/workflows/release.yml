@@ -186,6 +186,16 @@ jobs:
           {
             echo "title=Magi ${current_tag}"
             echo "body<<EOF"
+            echo "## Download"
+            echo
+            echo "| Platform | File |"
+            echo "|----------|------|"
+            echo "| macOS (Apple Silicon) | \`Magi_aarch64.dmg\` |"
+            echo "| macOS (Intel) | \`Magi_x64.dmg\` |"
+            echo "| Windows | \`Magi_${current_tag#v}_x64-setup.exe\` |"
+            echo
+            echo "> Other assets (\`.app.tar.gz\`, \`.sig\`, \`.json\`) are for the built-in auto-updater. No manual download needed."
+            echo
             echo "${heading}"
             echo
             echo "${commit_lines}"
