@@ -91,12 +91,14 @@ class SelfMemory:
             await self._emotion_engine.init()
             await self._growth_engine.init()
 
-            # recordinitializemilestone
-            await self._growth_engine.record_milestone(
-                milestone_type=MilestoneType.FIRST_USE,
-                title=f"initialized as {self._personality_config.name}",
-                description=f"Personality {self.personality_name} loaded and initialized"
-            )
+            # Record first-use milestone only if no milestones exist yet
+            existing = await self._growth_engine.get_milestones(limit=1)
+            if not existing:
+                await self._growth_engine.record_milestone(
+                    milestone_type=MilestoneType.FIRST_USE,
+                    title=f"initialized as {self._personality_config.name}",
+                    description=f"Personality {self.personality_name} loaded and initialized"
+                )
 
         logger.info(f"SelfMemory initialized with personality: {self.personality_name}")
 

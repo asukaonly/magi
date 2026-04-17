@@ -279,7 +279,7 @@ class BootstrapDialogueService:
             return
 
         now = time.time()
-        entity_id = f"user_{user_id}"
+        entity_id = f"user:{user_id}"
         for facet_name, facet_value in extracted.items():
             if facet_value is None:
                 continue

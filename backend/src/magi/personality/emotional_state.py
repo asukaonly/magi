@@ -497,10 +497,34 @@ class EmotionalStateEngine:
 
         return 0.05 * complexity
 
+    _MOOD_POSITIVE_TRANSITION: dict[str, MoodType] = {
+        MoodType.STRESSED.value: MoodType.NEUTRAL,
+        MoodType.TIRED.value: MoodType.NEUTRAL,
+        MoodType.CONFUSED.value: MoodType.NEUTRAL,
+        MoodType.NEUTRAL.value: MoodType.HAPPY,
+        MoodType.HAPPY.value: MoodType.EXCITED,
+        MoodType.CURIOUS.value: MoodType.EXCITED,
+        MoodType.SATISFIED.value: MoodType.EXCITED,
+        MoodType.FOCUSED.value: MoodType.SATISFIED,
+        MoodType.PLAYFUL.value: MoodType.EXCITED,
+        MoodType.EXCITED.value: MoodType.EXCITED,
+    }
+
+    _MOOD_NEGATIVE_TRANSITION: dict[str, MoodType] = {
+        MoodType.EXCITED.value: MoodType.HAPPY,
+        MoodType.HAPPY.value: MoodType.NEUTRAL,
+        MoodType.SATISFIED.value: MoodType.NEUTRAL,
+        MoodType.PLAYFUL.value: MoodType.NEUTRAL,
+        MoodType.FOCUSED.value: MoodType.TIRED,
+        MoodType.CURIOUS.value: MoodType.CONFUSED,
+        MoodType.NEUTRAL.value: MoodType.TIRED,
+        MoodType.TIRED.value: MoodType.STRESSED,
+        MoodType.CONFUSED.value: MoodType.STRESSED,
+        MoodType.STRESSED.value: MoodType.STRESSED,
+    }
+
     def _apply_mood_change(self, current_mood: str, change: float) -> str:
         """Apply mood change, return new mood"""
-        moods = list(MoodType)
-
         # Internal note.
         if current_mood == MoodType.NEUTRAL.value:
             if change > 0.2:
@@ -513,22 +537,19 @@ class EmotionalStateEngine:
                 return MoodType.TIRED.value
             return MoodType.NEUTRAL.value
 
-        # Internal note.
-        try:
-            current_idx = moods.index(MoodType(current_mood))
-        except ValueError:
-            current_idx = 0
-
+        # Use explicit mood transition maps instead of enum index arithmetic
         if change > 0.15:
-            # Internal note.
-            new_idx = min(len(moods) - 1, current_idx + 1)
+            target = self._MOOD_POSITIVE_TRANSITION.get(
+                current_mood, MoodType.NEUTRAL
+            )
         elif change < -0.1:
-            # Internal note.
-            new_idx = max(0, current_idx - 1)
+            target = self._MOOD_NEGATIVE_TRANSITION.get(
+                current_mood, MoodType.NEUTRAL
+            )
         else:
-            new_idx = current_idx
+            return current_mood
 
-        return moods[new_idx].value
+        return target.value
 
     def _determine_focus_state(self, state: EmotionalState) -> str:
         """Determine focus state from current state"""
