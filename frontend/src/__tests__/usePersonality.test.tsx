@@ -40,18 +40,11 @@ const mockPersonasApi = vi.hoisted(() => ({
   delete: vi.fn(),
 }));
 
-vi.mock('@/api/modules/personas', () => ({
-  personasApi: mockPersonasApi,
-}));
-
-vi.mock('@/api', async () => {
-  const actual = await vi.importActual<typeof import('@/api')>('@/api');
+vi.mock('@/api/modules/personas', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/personas')>('@/api/modules/personas');
   return {
     ...actual,
-    personalityApi: {
-      ...actual.personalityApi,
-      generate: vi.fn(),
-    },
+    personasApi: mockPersonasApi,
   };
 });
 

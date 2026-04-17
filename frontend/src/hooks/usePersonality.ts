@@ -12,12 +12,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import {
-  personalityApi,
+  personasApi,
   DEFAULT_PERSONALITY_CONFIG,
   type PersonalityConfig,
+  type PersonaSummary,
   type StateTransitionProtocolItem,
-} from '@/api';
-import { personasApi, type PersonaSummary } from '@/api/modules/personas';
+} from '@/api/modules/personas';
 import { handleError } from '@/utils/error-handler';
 
 // ============================================================================
@@ -325,7 +325,7 @@ export function usePersonality(
 
     setGenerating(true);
     try {
-      const response = await personalityApi.generate({
+      const response = await personasApi.generate({
         description: prompt,
         target_language: targetLanguage,
       });

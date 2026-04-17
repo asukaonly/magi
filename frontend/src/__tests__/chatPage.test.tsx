@@ -49,12 +49,12 @@ vi.mock('@/runtime/config', () => ({
   }),
 }));
 
-vi.mock('@/api/modules/personality', async () => {
-  const actual = await vi.importActual<typeof import('@/api/modules/personality')>('@/api/modules/personality');
+vi.mock('@/api/modules/personas', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/personas')>('@/api/modules/personas');
   return {
     ...actual,
-    personalityApi: {
-      ...actual.personalityApi,
+    personasApi: {
+      ...actual.personasApi,
       getGreeting: vi.fn().mockResolvedValue({ success: true, data: { name: 'AI', greeting: '', needs_bootstrap: false } }),
       bootstrapInit: vi.fn().mockResolvedValue({ success: true, data: { bootstrap_active: false, opening: null } }),
       bootstrapMessage: vi.fn().mockResolvedValue({ success: true, data: { reply: '', is_complete: true } }),

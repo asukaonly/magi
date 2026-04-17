@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import PersonalityModern from '@/pages/PersonalityModern';
 import { usePersonality } from '@/hooks';
-import { personalitiesApi } from '@/api';
+import { personasApi } from '@/api/modules/personas';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -11,12 +11,17 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@/api', () => ({
-  personalitiesApi: {
-    uploadAvatar: vi.fn(),
-    getAvatarUrl: vi.fn((avatar?: string) => avatar || ''),
-  },
-}));
+vi.mock('@/api/modules/personas', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/personas')>('@/api/modules/personas');
+  return {
+    ...actual,
+    personasApi: {
+      ...actual.personasApi,
+      uploadAvatar: vi.fn(),
+      getAvatarUrl: vi.fn((avatar?: string) => avatar || ''),
+    },
+  };
+});
 
 vi.mock('@/hooks', () => ({
   usePersonality: vi.fn(),
@@ -224,7 +229,7 @@ describe('PersonalityModern', () => {
   it('uploads an avatar and patches the personality profile', async () => {
     const patch = vi.fn();
     vi.mocked(usePersonality).mockReturnValue(buildHookState({ patch }) as any);
-    vi.mocked(personalitiesApi.uploadAvatar).mockResolvedValue({
+    vi.mocked(personasApi.uploadAvatar).mockResolvedValue({
       data: {
         url: '/static/user-avatars/test-avatar.png',
       },
@@ -237,7 +242,7 @@ describe('PersonalityModern', () => {
 
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    await waitFor(() => expect(personalitiesApi.uploadAvatar).toHaveBeenCalledWith(file));
+    await waitFor(() => expect(personasApi.uploadAvatar).toHaveBeenCalledWith(file));
     expect(patch).toHaveBeenCalledTimes(1);
     const draft = buildHookState().config;
     const updater = patch.mock.calls[0][0] as (value: typeof draft) => void;

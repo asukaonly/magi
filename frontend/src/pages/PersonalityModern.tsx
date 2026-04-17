@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { personalitiesApi } from '@/api';
+import { personasApi } from '@/api/modules/personas';
 import {
   usePersonality,
   parseLines,
@@ -87,7 +87,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     ? t('personality.newPersonalityDesc')
     : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
   const avatarValue = config.persona_entity.basic_profile.avatar || '';
-  const avatarUrl = avatarValue && !avatarBroken ? personalitiesApi.getAvatarUrl(avatarValue) : '';
+  const avatarUrl = avatarValue && !avatarBroken ? personasApi.getAvatarUrl(avatarValue) : '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -95,7 +95,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
     setUploadingAvatar(true);
     try {
-      const response = await personalitiesApi.uploadAvatar(file);
+      const response = await personasApi.uploadAvatar(file);
       const nextAvatar = response.data?.url || response.data?.filename;
       if (!nextAvatar) {
         return;
@@ -176,7 +176,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               item.id === selectedId ? (avatarValue || item.avatar || '') : (item.avatar || '');
             const selectorAvatarUrl =
               selectorAvatarValue && !(item.id === selectedId && avatarBroken)
-                ? personalitiesApi.getAvatarUrl(selectorAvatarValue)
+                ? personasApi.getAvatarUrl(selectorAvatarValue)
                 : '';
 
             return (

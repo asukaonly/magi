@@ -9,15 +9,14 @@ import { cn } from '@/lib/utils';
 import { FormContext, SimpleForm as Form } from '../onboarding/simple-form';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
+import type { LLMConfig } from '../../api/modules/config';
 import {
+  personasApi,
   DEFAULT_PERSONALITY_CONFIG,
-  personalityApi,
-  personalitiesApi,
-  type LLMConfig,
-  PersonalityConfig,
+  type PersonalityConfig,
+  type SeedPreview,
   type StateTransitionProtocolItem,
-} from '../../api';
-import { personasApi, type SeedPreview } from '../../api/modules/personas';
+} from '../../api/modules/personas';
 
 interface PersonalityFormProps {
   quickMode?: boolean;
@@ -116,7 +115,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       setLoadingConfig(true);
       setConfigLoaded(false);
       try {
-        const result = await personalitiesApi.get(defaultPreset.seed_slug, language);
+        const result = await personasApi.getPresetConfig(defaultPreset.seed_slug, language);
         if (cancelled) return;
         const data = (result.data || {}) as Partial<PersonalityConfig>;
         const mergedConfig = mergeConfig(data);
@@ -212,7 +211,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     });
   };
 
-  const resolveAvatarUrl = (avatar?: string): string => personalitiesApi.getAvatarUrl(avatar || '');
+  const resolveAvatarUrl = (avatar?: string): string => personasApi.getAvatarUrl(avatar || '');
   const avatarLabel = (avatar?: string): string => (avatar || '').split('/').pop() || '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -220,7 +219,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     if (!file) return;
     setUploadingAvatar(true);
     try {
-      const response = await personalitiesApi.uploadAvatar(file);
+      const response = await personasApi.uploadAvatar(file);
       const avatarValue = response.data?.url || response.data?.filename;
       if (!avatarValue) return;
       patch((d) => {
@@ -244,7 +243,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
 
     try {
       // Fetch full config from preset API using seed_slug
-      const result = await personalitiesApi.get(item.seed_slug, language);
+      const result = await personasApi.getPresetConfig(item.seed_slug, language);
       const data = (result.data || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
@@ -275,7 +274,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     setGenerating(true);
     try {
       const llmOverride = getFieldValue(['llm']) as LLMConfig | undefined;
-      const generated = await personalityApi.generate({
+      const generated = await personasApi.generate({
         description: oneLiner.trim(),
         target_language: language === 'zh' ? 'Chinese' : 'English',
         llm_override: llmOverride,
