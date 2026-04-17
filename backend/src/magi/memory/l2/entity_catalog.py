@@ -76,6 +76,25 @@ class L2EntityCatalog:
         )
         self._initialized = False
 
+    @property
+    def embedding_service(self) -> MemoryEmbeddingService | None:
+        """Public access to the embedding service used by this catalog."""
+        return self._embedding_service
+
+    @property
+    def edge_vector_index(self) -> SqliteVecIndex | None:
+        """Return a vector index for L2 edge embeddings, or None."""
+        if self._embedding_service is None:
+            return None
+        if not hasattr(self, "_edge_vector_index"):
+            self._edge_vector_index = SqliteVecIndex(
+                db_path=self.db_path,
+                registry_table="l2_edge_vectors",
+                entity_column="entity_id",
+                vec_table_prefix="l2_edge_vec",
+            )
+        return self._edge_vector_index
+
     async def initialize(self) -> None:
         if self._initialized:
             return

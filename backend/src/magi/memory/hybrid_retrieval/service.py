@@ -432,7 +432,7 @@ class HybridRetrievalService:
         elif not l1_store:
             self._l1 = None
 
-        if l2_store and (self._l2 is None):
+        if l2_store and (self._l2 is None or self._l2.store is not l2_store):
             self._l2 = self._build_l2_handler(self._memory)
         elif not l2_store:
             self._l2 = None
@@ -451,22 +451,13 @@ class HybridRetrievalService:
     def _build_l2_handler(memory: Any) -> L2Handler:
         """Construct L2Handler with embedding infra when available."""
         catalog = getattr(memory, "l2_entity_catalog", None)
-        embedding_service = getattr(catalog, "_embedding_service", None) if catalog else None
+        embedding_service = getattr(catalog, "embedding_service", None) if catalog else None
         edge_vector_index = None
         if embedding_service is not None:
-            from ..embedding.sqlite_vec_index import SqliteVecIndex
-
-            db_path = str(getattr(catalog, "db_path", ""))
-            if db_path:
-                try:
-                    edge_vector_index = SqliteVecIndex(
-                        db_path=db_path,
-                        registry_table="l2_edge_vectors",
-                        entity_column="entity_id",
-                        vec_table_prefix="l2_edge_vec",
-                    )
-                except Exception:
-                    logger.warning("Failed to create L2 edge vector index", exc_info=True)
+            try:
+                edge_vector_index = catalog.edge_vector_index
+            except Exception:
+                logger.warning("Failed to get L2 edge vector index", exc_info=True)
         return L2Handler(
             memory.l2,
             entity_catalog=catalog,

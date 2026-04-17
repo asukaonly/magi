@@ -40,6 +40,11 @@ class L2Handler:
         self._embedding_service = embedding_service
         self._edge_vector_index = edge_vector_index
 
+    @property
+    def store(self) -> L2StoreProtocol:
+        """Read-only access to the underlying L2 store instance."""
+        return self._store
+
     @staticmethod
     def _filter_by_time_range(
         items: List[Dict[str, Any]],
