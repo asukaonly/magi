@@ -1299,22 +1299,40 @@ async def get_l1_events(
 
     start_time = _parse_day_boundary(start_date, end_of_day=False)
     end_time = _parse_day_boundary(end_date, end_of_day=True)
-    events = await unified_memory.l1.query_events(
-        session_id=session_id,
-        user_id=user_id,
-        event_type=event_type,
-        query=str(query or "").strip() or None,
-        source_filters=[str(source).strip()] if str(source or "").strip() else None,
-        source_item_id=str(source_item_id or "").strip() or None,
-        idempotency_key=str(idempotency_key or "").strip() or None,
-        start_time=start_time,
-        end_time=end_time,
-        limit=limit,
-        offset=offset,
-        include_metadata_json=False,
-        include_embedding_fields=False,
+
+    source_filters = [str(source).strip()] if str(source or "").strip() else None
+    cleaned_query = str(query or "").strip() or None
+    cleaned_source_item_id = str(source_item_id or "").strip() or None
+    cleaned_idempotency_key = str(idempotency_key or "").strip() or None
+
+    events, total = await asyncio.gather(
+        unified_memory.l1.query_events(
+            session_id=session_id,
+            user_id=user_id,
+            event_type=event_type,
+            query=cleaned_query,
+            source_filters=source_filters,
+            source_item_id=cleaned_source_item_id,
+            idempotency_key=cleaned_idempotency_key,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+            offset=offset,
+            include_metadata_json=False,
+            include_embedding_fields=False,
+        ),
+        unified_memory.l1.count_events(
+            session_id=session_id,
+            user_id=user_id,
+            event_type=event_type,
+            query=cleaned_query,
+            source_filters=source_filters,
+            source_item_id=cleaned_source_item_id,
+            idempotency_key=cleaned_idempotency_key,
+            start_time=start_time,
+            end_time=end_time,
+        ),
     )
-    total = await unified_memory.l1.count_events()
     return {"items": [_serialize_l1_event_list_item(event) for event in events], "total": total, "limit": limit, "offset": offset}
 
 

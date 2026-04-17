@@ -827,44 +827,13 @@ class L1EventStore:
     ) -> List[Dict[str, Any]]:
         """Query events with SQL-level filters."""
         await self.initialize()
-        sql = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
-        args: List[Any] = []
-
-        if session_id:
-            sql += " AND session_id = ?"
-            args.append(session_id)
-        if user_id:
-            sql += " AND user_id = ?"
-            args.append(user_id)
-        if memory_domain:
-            sql += " AND memory_domain = ?"
-            args.append(int(MemoryDomain.from_value(memory_domain)))
-        if event_type:
-            sql += " AND event_type = ?"
-            args.append(event_type)
-        if query:
-            sql += " AND LOWER(content) LIKE ?"
-            args.append(f"%{str(query).strip().lower()}%")
-        if source_filters:
-            placeholders = ", ".join("?" for _ in source_filters)
-            sql += f" AND source IN ({placeholders})"
-            args.extend(source_filters)
-        if source_item_id:
-            sql += " AND source_item_id = ?"
-            args.append(source_item_id)
-        if idempotency_key:
-            sql += " AND idempotency_key = ?"
-            args.append(idempotency_key)
-        if cognition_eligible is not None:
-            sql += " AND cognition_eligible = ?"
-            args.append(1 if cognition_eligible else 0)
-        if start_time is not None:
-            sql += " AND timestamp >= ?"
-            args.append(float(start_time))
-        if end_time is not None:
-            sql += " AND timestamp <= ?"
-            args.append(float(end_time))
-
+        where_clause, args = self._build_event_filters(
+            session_id=session_id, user_id=user_id, memory_domain=memory_domain,
+            event_type=event_type, query=query, source_filters=source_filters,
+            source_item_id=source_item_id, idempotency_key=idempotency_key,
+            cognition_eligible=cognition_eligible, start_time=start_time, end_time=end_time,
+        )
+        sql = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
         sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
@@ -888,6 +857,60 @@ class L1EventStore:
         ]
         return items
 
+    @staticmethod
+    def _build_event_filters(
+        *,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        memory_domain: Optional[str] = None,
+        event_type: Optional[str] = None,
+        query: Optional[str] = None,
+        source_filters: Optional[List[str]] = None,
+        source_item_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        cognition_eligible: Optional[bool] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ) -> tuple:
+        """Build WHERE clause and args for event queries."""
+        parts = ["deleted_at IS NULL"]
+        args: List[Any] = []
+        if session_id:
+            parts.append("session_id = ?")
+            args.append(session_id)
+        if user_id:
+            parts.append("user_id = ?")
+            args.append(user_id)
+        if memory_domain:
+            parts.append("memory_domain = ?")
+            args.append(int(MemoryDomain.from_value(memory_domain)))
+        if event_type:
+            parts.append("event_type = ?")
+            args.append(event_type)
+        if query:
+            parts.append("LOWER(content) LIKE ?")
+            args.append(f"%{str(query).strip().lower()}%")
+        if source_filters:
+            placeholders = ", ".join("?" for _ in source_filters)
+            parts.append(f"source IN ({placeholders})")
+            args.extend(source_filters)
+        if source_item_id:
+            parts.append("source_item_id = ?")
+            args.append(source_item_id)
+        if idempotency_key:
+            parts.append("idempotency_key = ?")
+            args.append(idempotency_key)
+        if cognition_eligible is not None:
+            parts.append("cognition_eligible = ?")
+            args.append(1 if cognition_eligible else 0)
+        if start_time is not None:
+            parts.append("timestamp >= ?")
+            args.append(float(start_time))
+        if end_time is not None:
+            parts.append("timestamp <= ?")
+            args.append(float(end_time))
+        return " AND ".join(parts), args
+
     async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Return a minimal timeline-shaped view from canonical L1 columns."""
         event = await self.get_event(event_id)
@@ -908,13 +931,30 @@ class L1EventStore:
                 break
         return items
 
-    async def count_events(self) -> int:
-        """Count all non-deleted events."""
+    async def count_events(
+        self,
+        *,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        query: Optional[str] = None,
+        source_filters: Optional[List[str]] = None,
+        source_item_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ) -> int:
+        """Count events, optionally filtered."""
         await self.initialize()
+        where_clause, args = self._build_event_filters(
+            session_id=session_id, user_id=user_id, event_type=event_type,
+            query=query, source_filters=source_filters,
+            source_item_id=source_item_id, idempotency_key=idempotency_key,
+            start_time=start_time, end_time=end_time,
+        )
+        sql = f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            async with db.execute(
-                f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
-            ) as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 

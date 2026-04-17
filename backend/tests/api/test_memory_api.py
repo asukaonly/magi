@@ -35,7 +35,7 @@ class _FakeL1Store:
     def __init__(self):
         self.last_query_kwargs = None
 
-    async def count_events(self):
+    async def count_events(self, **kwargs):
         return 12
 
     async def query_events(

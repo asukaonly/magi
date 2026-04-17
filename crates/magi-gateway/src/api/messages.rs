@@ -488,6 +488,17 @@ fn do_set_label(session_id: &str, message_id: &str, body: &MessageLabelBody) -> 
         .as_deref()
         .unwrap_or(DEFAULT_USER_ID);
 
+    db::emit_notification(
+        "chat_message_upserted",
+        user_id,
+        session_id,
+        &json!({
+            "user_id": user_id,
+            "session_id": session_id,
+            "message_id": message_id,
+        }),
+    );
+
     Some(json!({
         "success": true,
         "message": "Message label updated",
@@ -516,7 +527,7 @@ pub async fn hide_message(
     let sid = session_id.clone();
     let mid = message_id.clone();
     let uid = user_id.clone();
-    let result = tokio::task::spawn_blocking(move || do_hide_message(&sid, &mid))
+    let result = tokio::task::spawn_blocking(move || do_hide_message(&sid, &mid, &uid))
         .await
         .unwrap_or(false);
     if result {
@@ -524,7 +535,7 @@ pub async fn hide_message(
             StatusCode::OK,
             Json(json!({
                 "success": true,
-                "user_id": uid,
+                "user_id": user_id,
                 "session_id": session_id,
                 "deleted_message_id": message_id,
             })),
@@ -537,7 +548,7 @@ pub async fn hide_message(
     }
 }
 
-fn do_hide_message(session_id: &str, message_id: &str) -> bool {
+fn do_hide_message(session_id: &str, message_id: &str, user_id: &str) -> bool {
     let conn = match open_chat_db_rw() {
         Some(c) => c,
         None => return false,
@@ -555,6 +566,16 @@ fn do_hide_message(session_id: &str, message_id: &str) -> bool {
             rusqlite::params![session_id],
         )
         .ok();
+        db::emit_notification(
+            "chat_message_hidden",
+            user_id,
+            session_id,
+            &json!({
+                "user_id": user_id,
+                "session_id": session_id,
+                "message_id": message_id,
+            }),
+        );
         true
     } else {
         false

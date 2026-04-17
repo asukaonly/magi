@@ -145,6 +145,23 @@ pub fn count_rows(conn: &Connection, sql: &str, params: &[&dyn rusqlite::types::
         .unwrap_or(0)
 }
 
+/// Insert a row into `runtime_notifications` so the notification bridge
+/// picks it up and emits it to the frontend via Tauri events.
+pub fn emit_notification(channel: &str, user_id: &str, session_id: &str, payload: &Value) {
+    let path = runtime_trace_db_path();
+    let conn = match open_readwrite(&path) {
+        Some(c) => c,
+        None => return,
+    };
+    let payload_json = serde_json::to_string(payload).unwrap_or_default();
+    conn.execute(
+        "INSERT INTO runtime_notifications (channel, user_id, session_id, payload_json) \
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![channel, user_id, session_id, payload_json],
+    )
+    .ok();
+}
+
 /// Ensure performance-critical indexes exist on memory databases.
 /// Called once at startup; uses `CREATE INDEX IF NOT EXISTS` so it is idempotent.
 pub fn ensure_indexes() {
