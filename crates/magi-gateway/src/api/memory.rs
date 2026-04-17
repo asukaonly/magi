@@ -22,8 +22,19 @@ pub async fn get_memory_statistics() -> Json<Value> {
 fn build_memory_statistics() -> Value {
     let mut stats = json!({});
 
+    let mut l1_count: i64 = 0;
+    let mut l2_rel_count: i64 = 0;
+    let mut l2_tom_count: i64 = 0;
+    let mut l3_count: i64 = 0;
+    let mut l4_count: i64 = 0;
+    let mut open_cb_count: i64 = 0;
+    let mut pending_assertions: i64 = 0;
+
+    let memory_db = db::memory_db_path();
+    let l1_db = db::l1_events_db_path();
+
     // L0 — from memory.db checkpoint tables
-    if let Some(conn) = db::open_readonly(&db::memory_db_path()) {
+    if let Some(conn) = db::open_readonly(&memory_db) {
         let active_sessions = db::count_rows(
             &conn,
             "SELECT COUNT(*) FROM l0_sessions WHERE status = 'active'",
@@ -40,35 +51,67 @@ fn build_memory_statistics() -> Value {
         });
 
         // L2
-        let rel_count = db::count_rows(
+        l2_rel_count = db::count_rows(
             &conn,
             "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'",
             &[],
         );
-        let tom_count = db::count_rows(&conn, "SELECT COUNT(*) FROM tom_trait_assertions", &[]);
+        l2_tom_count = db::count_rows(&conn, "SELECT COUNT(*) FROM tom_trait_assertions", &[]);
         stats["l2"] = json!({
-            "relation_count": rel_count,
-            "assertion_count": tom_count,
+            "relation_count": l2_rel_count,
+            "assertion_count": l2_tom_count,
         });
 
+        // Pending assertions (tentative / contradicted)
+        pending_assertions = db::count_rows(
+            &conn,
+            "SELECT COUNT(*) FROM tom_trait_assertions \
+             WHERE validation_state IN ('tentative', 'contradicted') AND status = 'active'",
+            &[],
+        );
+
         // L3
-        let summary_count = db::count_rows(&conn, "SELECT COUNT(*) FROM summaries", &[]);
-        stats["l3"] = json!({ "summary_count": summary_count });
+        l3_count = db::count_rows(&conn, "SELECT COUNT(*) FROM summaries", &[]);
+        stats["l3"] = json!({ "summary_count": l3_count });
 
         // L4
-        let skill_count = db::count_rows(&conn, "SELECT COUNT(*) FROM procedural_skills", &[]);
-        stats["l4"] = json!({ "skill_count": skill_count, "open_circuit_breakers": 0 });
+        l4_count = db::count_rows(&conn, "SELECT COUNT(*) FROM procedural_skills", &[]);
+        open_cb_count = db::count_rows(
+            &conn,
+            "SELECT COUNT(*) FROM procedural_skills WHERE circuit_breaker_state = 'open'",
+            &[],
+        );
+        stats["l4"] = json!({ "skill_count": l4_count, "open_circuit_breakers": open_cb_count });
     }
 
     // L1 — from l1_events.db
-    if let Some(conn) = db::open_readonly(&db::l1_events_db_path()) {
-        let event_count = db::count_rows(
+    if let Some(conn) = db::open_readonly(&l1_db) {
+        l1_count = db::count_rows(
             &conn,
             "SELECT COUNT(*) FROM fact_events WHERE deleted_at IS NULL",
             &[],
         );
-        stats["l1"] = json!({ "event_count": event_count });
+        stats["l1"] = json!({ "event_count": l1_count });
     }
+
+    // Aggregate totals
+    let total_memories = l1_count + l2_rel_count + l2_tom_count + l3_count + l4_count;
+    stats["total_memories"] = json!(total_memories);
+
+    // Disk usage: sum sizes of the two db files
+    let mut disk_usage_bytes: u64 = 0;
+    for path in [&memory_db, &l1_db] {
+        if let Ok(meta) = std::fs::metadata(path) {
+            disk_usage_bytes += meta.len();
+        }
+    }
+    stats["disk_usage_bytes"] = json!(disk_usage_bytes);
+
+    // Attention items
+    stats["attention"] = json!({
+        "pending_assertions": pending_assertions,
+        "open_circuit_breakers": open_cb_count,
+    });
 
     stats
 }
