@@ -102,6 +102,10 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/metrics/llm/usage/timeseries",
             axum::routing::get(metrics::llm_usage_timeseries),
         )
+        .route(
+            "/api/metrics/runtime/overview",
+            axum::routing::get(metrics::runtime_overview),
+        )
         // Memory
         .route(
             "/api/memory/statistics",
