@@ -1575,7 +1575,8 @@
       "attentionTitle": "Needs attention ({{count}})",
       "pendingAssertions": "{{count}} knowledge assertions pending review",
       "openBreakers": "{{count}} skills with open circuit breakers",
-      "allClear": "All clear — nothing needs your attention right now."
+      "allClear": "All clear — nothing needs your attention right now.",
+      "storageSummaryCompact": "{{total}} memories"
     },
     "pages": {
       "workbench": {

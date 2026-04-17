@@ -66,10 +66,12 @@ export const MemoryOverviewPage = () => {
   const totalSearchHits = searchSections.reduce((sum, section) => sum + section.count, 0);
   const hasSearched = searchQuery.trim().length > 0;
 
-  const totalMemories = stats.total_memories ?? 0;
+  const totalMemories = stats.total_memories
+    ?? (stats.l1.event_count + stats.l2.relation_count + stats.l2.assertion_count
+        + stats.l3.summary_count + stats.l4.skill_count);
   const diskUsage = stats.disk_usage_bytes ?? 0;
   const pendingAssertions = stats.attention?.pending_assertions ?? 0;
-  const openBreakers = stats.attention?.open_circuit_breakers ?? 0;
+  const openBreakers = stats.attention?.open_circuit_breakers ?? stats.l4.open_circuit_breakers ?? 0;
   const attentionTotal = pendingAssertions + openBreakers;
 
   return (
@@ -77,10 +79,14 @@ export const MemoryOverviewPage = () => {
       title={t('memory.nav.overview')}
       description={
         totalMemories > 0
-          ? t('memory.overview.storageSummary', {
-              total: totalMemories.toLocaleString(),
-              size: formatBytes(diskUsage),
-            })
+          ? diskUsage > 0
+            ? t('memory.overview.storageSummary', {
+                total: totalMemories.toLocaleString(),
+                size: formatBytes(diskUsage),
+              })
+            : t('memory.overview.storageSummaryCompact', {
+                total: totalMemories.toLocaleString(),
+              })
           : t('memory.overview.subtitle')
       }
       actions={

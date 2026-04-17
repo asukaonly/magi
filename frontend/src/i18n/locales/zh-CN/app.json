@@ -1575,7 +1575,8 @@
       "attentionTitle": "需要你处理 ({{count}})",
       "pendingAssertions": "{{count}} 条知识待确认",
       "openBreakers": "{{count}} 个技能已熔断",
-      "allClear": "一切正常，暂时没有需要处理的事项。"
+      "allClear": "一切正常，暂时没有需要处理的事项。",
+      "storageSummaryCompact": "共 {{total}} 条记忆"
     },
     "pages": {
       "workbench": {
