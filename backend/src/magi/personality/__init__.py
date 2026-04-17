@@ -1,6 +1,5 @@
 """Personality and identity management layer."""
 
-from .adaptive_profile_updater import AdaptiveProfileUpdater
 from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
 from .emotional_state import EmotionalStateEngine, EngagementLevel, InteractionOutcome
 from .growth_memory import GrowthMemoryEngine, InteractionType, MilestoneType
@@ -19,11 +18,10 @@ from .models import (
     ThinkingStyle,
     ValueAlignment,
 )
-from .other_memory import OtherMemory
+from .user_profile_memory import UserProfileMemory, OtherMemory  # OtherMemory is a compat alias
 from .self_memory import SelfMemory
 
 __all__ = [
-    "AdaptiveProfileUpdater",
     "AmbiguityTolerance",
     "BehaviorEvolutionEngine",
     "CognitionProfile",
@@ -40,6 +38,7 @@ __all__ = [
     "LanguageStyle",
     "MilestoneType",
     "OtherMemory",
+    "UserProfileMemory",
     "PersonalityConfig",
     "PersonalityLoader",
     "RiskPreference",

@@ -1,26 +1,21 @@
-"""
-Internal note.
+"""User profile store — lightweight per-user identity and preference cache.
 
-Internal note.
-Internal note.
-- relationshipdepth
-Internal note.
-Internal note.
+This module persists basic user profile data (name, preferences) that the
+prompt assembler injects into context.  Relationship metrics (trust, depth,
+interaction counts) are owned by GrowthMemory and are intentionally *not*
+tracked here to avoid duplication.
 """
 import logging
 import time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
-from .adaptive_profile_updater import AdaptiveProfileUpdater
 
 logger = logging.getLogger(__name__)
 
 
-# Internal note.
-
-class OtherProfile:
-    """Other person profile"""
+class UserProfile:
+    """Per-user profile data."""
 
     def __init__(
         self,
@@ -77,18 +72,16 @@ class OtherProfile:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "OtherProfile":
+    def from_dict(cls, data: Dict[str, Any]) -> "UserProfile":
         """Create from dictionary"""
         return cls(**data)
 
 
-# Internal note.
-
-class OtherProfileFormatter:
-    """Other person profile Markdown formatter"""
+class _UserProfileFormatter:
+    """Markdown serializer for UserProfile."""
 
     @staticmethod
-    def to_markdown(profile: OtherProfile) -> str:
+    def to_markdown(profile: UserProfile) -> str:
         """Convert profile to Markdown format"""
         lines = [
             f"# {profile.name}",
@@ -175,7 +168,7 @@ class OtherProfileFormatter:
         return "\n".join(lines)
 
     @staticmethod
-    def parse_markdown(content: str, user_id: str) -> OtherProfile:
+    def parse_markdown(content: str, user_id: str) -> UserProfile:
         """Parse profile from Markdown content"""
         import re
 
@@ -267,17 +260,15 @@ class OtherProfileFormatter:
                         except:
                             pass
 
-        return OtherProfile.from_dict(data)
+        return UserProfile.from_dict(data)
 
 
-# Internal note.
+# Backward-compatible alias.
+OtherProfile = UserProfile
 
-class OtherMemory:
-    """
-    Internal note.
 
-    Internal note.
-    """
+class UserProfileMemory:
+    """Lightweight per-user profile store (Markdown files)."""
 
     def __init__(self, others_dir: str = None):
         """
@@ -296,10 +287,8 @@ class OtherMemory:
         # Internal note.
         self.others_dir.mkdir(parents=True, exist_ok=True)
 
-        # Internal note.
-        self._cache: Dict[str, OtherProfile] = {}
-
-        self.formatter = OtherProfileFormatter()
+        self._cache: Dict[str, UserProfile] = {}
+        self.formatter = _UserProfileFormatter()
 
     def _get_profile_path(self, user_id: str) -> Path:
         """Get user profile file path"""
@@ -307,7 +296,7 @@ class OtherMemory:
         safe_name = user_id.replace("/", "_").replace("\\", "_").replace(":", "_")
         return self.others_dir / f"{safe_name}.md"
 
-    def get_profile(self, user_id: str) -> Optional[OtherProfile]:
+    def get_profile(self, user_id: str) -> Optional[UserProfile]:
         """
         Internal note.
 
@@ -335,7 +324,7 @@ class OtherMemory:
             logger.error(f"Failed to load profile for {user_id}: {e}")
             return None
 
-    def save_profile(self, profile: OtherProfile) -> bool:
+    def save_profile(self, profile: UserProfile) -> bool:
         """
         Internal note.
 
@@ -362,133 +351,27 @@ class OtherMemory:
         interaction_type: str = "chat",
         outcome: str = "neutral",
         notes: str = "",
-    ) -> OtherProfile:
-        """
-        Internal note.
+    ) -> UserProfile:
+        """Record an interaction and persist the profile.
 
-        Args:
-            user_id: userid
-            Internal note.
-            outcome: Result (positive/negative/neutral)
-            notes: note
-
-        Returns:
-            Internal note.
+        Note: relationship metrics (trust_level, relationship_depth) are
+        intentionally **not** updated here — GrowthMemory owns those.
         """
         profile = self.get_profile(user_id)
 
         if profile is None:
-            # Internal note.
-            profile = OtherProfile(
+            profile = UserProfile(
                 user_id=user_id,
                 name=user_id,
             )
 
-        # Internal note.
         profile.total_interactions += 1
         profile.last_interacted = time.time()
-
-        # Internal note.
-        if outcome == "positive":
-            profile.relationship_depth = min(1.0, profile.relationship_depth + 0.05)
-            profile.trust_level = min(1.0, profile.trust_level + 0.03)
-        elif outcome == "negative":
-            profile.relationship_depth = max(0.0, profile.relationship_depth - 0.02)
-            profile.trust_level = max(0.0, profile.trust_level - 0.01)
-
-        # Internal note.
-        if notes:
-            profile.important_events.append({
-                "timestamp": time.time(),
-                "type": interaction_type,
-                "description": notes,
-            })
-            # Internal note.
-            if len(profile.important_events) > 50:
-                profile.important_events = profile.important_events[-50:]
 
         self.save_profile(profile)
         return profile
 
-    def update_profile_from_conversation(
-        self,
-        user_id: str,
-        conversation_summary: str,
-        extracted_info: Dict[str, Any] = None,
-        significant_change: bool = False,
-        force: bool = False,
-    ) -> OtherProfile:
-        """
-        Internal note.
-
-        Args:
-            user_id: userid
-            conversation_summary: dialoguesummary
-            Internal note.
-
-        Returns:
-            Internal note.
-        """
-        profile = self.get_profile(user_id)
-
-        if profile is None:
-            profile = OtherProfile(
-                user_id=user_id,
-                name=extracted_info.get("name", user_id) if extracted_info else user_id,
-            )
-
-        # Track interaction before adaptive update decision.
-        profile.total_interactions += 1
-        profile.last_interacted = time.time()
-
-        updater_state = {}
-        if isinstance(profile.preferences, dict):
-            updater_state = profile.preferences.get("_adaptive_updater", {}) or {}
-        updater = AdaptiveProfileUpdater.from_dict(updater_state)
-        updater.record_interaction()
-
-        should_update = force or updater.should_update(
-            total_interactions=profile.total_interactions,
-            significant_change=significant_change,
-        )
-
-        if not should_update:
-            profile.preferences["_adaptive_updater"] = updater.to_dict()
-            self.save_profile(profile)
-            return profile
-
-        if extracted_info:
-            if extracted_info.get("interests"):
-                new_interests = [i for i in extracted_info["interests"] if i not in profile.interests]
-                profile.interests.extend(new_interests)
-
-            if extracted_info.get("habits"):
-                new_habits = [h for h in extracted_info["habits"] if h not in profile.habits]
-                profile.habits.extend(new_habits)
-
-            if extracted_info.get("personality_traits"):
-                new_traits = [t for t in extracted_info["personality_traits"] if t not in profile.personality_traits]
-                profile.personality_traits.extend(new_traits)
-
-            if extracted_info.get("name"):
-                profile.name = extracted_info["name"]
-
-            if extracted_info.get("nickname"):
-                profile.nickname = extracted_info["nickname"]
-
-            if extracted_info.get("communication_style"):
-                profile.communication_style = extracted_info["communication_style"]
-
-            # updatepreference
-            if extracted_info.get("preferences"):
-                profile.preferences.update(extracted_info["preferences"])
-        updater.record_update()
-        profile.preferences["_adaptive_updater"] = updater.to_dict()
-
-        self.save_profile(profile)
-        return profile
-
-    def list_profiles(self) -> List[OtherProfile]:
+    def list_profiles(self) -> List[UserProfile]:
         """
         Internal note.
 
@@ -531,5 +414,9 @@ class OtherMemory:
             return False
 
     def clear_cache(self):
-        """clearcache"""
+        """Clear the in-memory profile cache."""
         self._cache.clear()
+
+
+# Backward-compatible alias.
+OtherMemory = UserProfileMemory

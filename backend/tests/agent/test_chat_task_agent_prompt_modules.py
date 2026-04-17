@@ -53,7 +53,7 @@ class _FakeProfile:
         self.preferences = {"locale": "zh-CN"}
 
 
-class _FakeOtherMemory:
+class _FakeUserProfileMemory:
     def get_profile(self, user_id: str):
         _ = user_id
         return _FakeProfile()
@@ -91,7 +91,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             agent_id="u-chat",
             llm_adapter=_FakeLLMAdapter(),
             memory=_FakeSelfMemory(),
-            other_memory=_FakeOtherMemory(),
+            other_memory=_FakeUserProfileMemory(),
             hybrid_retrieval_service=_FakeHybridRetrievalService(),
         )
 
@@ -136,7 +136,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             agent_id="u-chat",
             llm_pool=pool,
             memory=_FakeSelfMemory(),
-            other_memory=_FakeOtherMemory(),
+            other_memory=_FakeUserProfileMemory(),
             hybrid_retrieval_service=_FakeHybridRetrievalService(),
         )
 

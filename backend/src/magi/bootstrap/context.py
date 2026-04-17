@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..plugins import ActionRegistry, PluginManager, SensorRegistry
     from ..personality.self_memory import SelfMemory
-    from ..personality.other_memory import OtherMemory
+    from ..personality.user_profile_memory import UserProfileMemory
     from ..context.scenario_prompts import ScenarioPromptsStore
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
     from ..awareness.sensor_hub import SensorHub
@@ -125,7 +125,7 @@ class PersonalityBootstrapState:
     """L8 Personality Layer state slice."""
 
     self_memory: SelfMemory | None = None
-    other_memory: OtherMemory | None = None
+    other_memory: UserProfileMemory | None = None
 
 
 @dataclass

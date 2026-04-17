@@ -31,7 +31,7 @@ class _FakeProfile:
         self.preferences = {"language": "zh-CN", "style": "concise"}
 
 
-class _FakeOtherMemory:
+class _FakeUserProfileMemory:
     def get_profile(self, user_id: str):
         _ = user_id
         return _FakeProfile()
@@ -57,7 +57,7 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
             task_category="chat",
             user_id="u1",
             self_memory=_FakeSelfMemory(),
-            other_memory=_FakeOtherMemory(),
+            other_memory=_FakeUserProfileMemory(),
             tool_result={"tools": ["weather"]},
             retrieved_memory_payload={
                 "l0_workbench": [{"event": "recent_user_request"}],
@@ -93,7 +93,7 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
             task_category="chat",
             user_id="u1",
             self_memory=_FakeSelfMemory(),
-            other_memory=_FakeOtherMemory(),
+            other_memory=_FakeUserProfileMemory(),
             tool_result={"tools": []},
             retrieved_memory_payload={},
         )

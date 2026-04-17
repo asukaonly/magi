@@ -71,11 +71,6 @@ def require_sensor_scheduler_contrib():
     return _require_binding("sensor_scheduler_contrib")
 
 
-def require_other_memory():
-    """Return the runtime-owned other-memory binding."""
-    return _require_binding("other_memory")
-
-
 def require_user_message_sensor():
     """Return the shared user-message sensor binding."""
     return _require_binding("user_message_sensor")

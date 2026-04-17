@@ -7,7 +7,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from .current_state import get_current_personality
 from .self_memory import SelfMemory
-from .other_memory import OtherMemory
+from .user_profile_memory import UserProfileMemory
 
 logger = get_logger(__name__)
 
@@ -34,7 +34,7 @@ class PersonalityModule(LifecycleModule):
             personalities_path=str(runtime_paths.personalities_dir),
         )
         await self._context.personality.self_memory.init()
-        self._context.personality.other_memory = OtherMemory()
+        self._context.personality.other_memory = UserProfileMemory()
 
     async def shutdown(self) -> None:
         self._context.personality.self_memory = None

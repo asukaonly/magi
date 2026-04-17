@@ -60,7 +60,6 @@ class ChatPostProcessService:
         get_task_agent_manager: Callable[[], Any | None],
         get_sensor_hub: Callable[[], Any | None],
         memory=None,
-        other_memory=None,
         unified_memory=None,
         max_fact_memory: int = 200,
         trace_read_service: "ChatTraceReadService | None" = None,
@@ -76,7 +75,6 @@ class ChatPostProcessService:
         self._get_task_agent_manager = get_task_agent_manager
         self._get_sensor_hub = get_sensor_hub
         self._memory = memory
-        self._other_memory = other_memory
         self._unified_memory = unified_memory
         self._chat_store = chat_store
         self._local_fact_memory: list[FactRecord] = []
@@ -841,22 +839,6 @@ class ChatPostProcessService:
                 updated = True
             except Exception as exc:
                 logger.warning("Failed to update self memory: %s", exc)
-        if self._other_memory is not None:
-            try:
-                other_outcome = (
-                    "positive" if analysis.sentiment > 0.2
-                    else "negative" if analysis.sentiment < -0.2
-                    else "neutral"
-                )
-                self._other_memory.update_interaction(
-                    user_id=user_id,
-                    interaction_type="chat",
-                    outcome=other_outcome,
-                    notes=f"Message: {user_message[:100]}",
-                )
-                updated = True
-            except Exception as exc:
-                logger.warning("Failed to update other memory: %s", exc)
 
         # Persist detected STP trigger into emotional state for the next turn.
         if self._memory is not None:
