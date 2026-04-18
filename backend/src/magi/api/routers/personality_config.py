@@ -20,6 +20,7 @@ from ...llm.draft import resolve_adapter_for_scenario
 from ...personality.bootstrap_service import BootstrapDialogueService
 from ...personality.growth_memory import GrowthMemoryEngine
 from ...personality.persona_journal_service import PersonaJournalService
+from ...personality.persona_repository import PersonaRepository
 from ..avatar_paths import resolve_avatar_public_url
 from ...personality.current_state import (
     get_current_personality as get_current_personality_name,
@@ -185,6 +186,17 @@ async def _get_bootstrap_service() -> BootstrapDialogueService:
         personality_loader=loader,
         growth_engine=engine,
     )
+
+
+async def _resolve_persona_id(persona_name: str) -> str:
+    """Best-effort resolution of persona_id from the persona registry."""
+    try:
+        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+        await repo.init()
+        record = await repo.get_by_slug(persona_name)
+        return record.persona_id
+    except Exception:
+        return ""
 
 
 async def _get_journal_service() -> PersonaJournalService:
@@ -597,10 +609,11 @@ async def api_get_greeting():
         needs_bootstrap = False
         bootstrap_opening = None
         try:
+            persona_id = await _resolve_persona_id(current_name)
             bootstrap_svc = await _get_bootstrap_service()
-            needs_bootstrap = await bootstrap_svc.needs_bootstrap(current_name)
+            needs_bootstrap = await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id)
             if needs_bootstrap:
-                bootstrap_opening = await bootstrap_svc.get_opening(current_name)
+                bootstrap_opening = await bootstrap_svc.get_opening(current_name, persona_id=persona_id)
         except Exception as exc:
             logger.debug("Bootstrap status check skipped: %s", exc)
 
@@ -856,16 +869,17 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
         import uuid as _uuid
 
         current_name = get_current_personality_name()
+        persona_id = await _resolve_persona_id(current_name)
         bootstrap_svc = await _get_bootstrap_service()
 
-        if not await bootstrap_svc.needs_bootstrap(current_name):
+        if not await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id):
             return PersonalityResponse(
                 success=True,
                 message="Bootstrap already completed",
                 data={"bootstrap_active": False, "opening": None},
             )
 
-        opening = await bootstrap_svc.get_opening(current_name)
+        opening = await bootstrap_svc.get_opening(current_name, persona_id=persona_id)
         if not opening:
             return PersonalityResponse(
                 success=True,
@@ -906,9 +920,10 @@ async def api_bootstrap_message(request: BootstrapMessageRequest):
         from ...core.runtime_bindings import require_chat_store
 
         current_name = get_current_personality_name()
+        persona_id = await _resolve_persona_id(current_name)
         bootstrap_svc = await _get_bootstrap_service()
 
-        if not await bootstrap_svc.needs_bootstrap(current_name):
+        if not await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id):
             return PersonalityResponse(
                 success=True,
                 message="Bootstrap already completed",
@@ -936,9 +951,10 @@ async def api_bootstrap_message(request: BootstrapMessageRequest):
             session_id=request.session_id,
             user_message=request.user_message,
             history=request.history,
+            persona_id=persona_id,
         )
 
-        still_needs = await bootstrap_svc.needs_bootstrap(current_name)
+        still_needs = await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id)
         is_complete = not still_needs
 
         # Persist assistant reply as a real chat message + emit notification

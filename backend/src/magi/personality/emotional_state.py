@@ -226,11 +226,28 @@ class EmotionalStateEngine:
         self,
         trigger_type: str,
         state_name: str,
+        idle_reset_rounds: int = 5,
     ) -> None:
-        """Update the active STP trigger detected from interaction analysis."""
+        """Update the active STP trigger detected from interaction analysis.
+
+        When a matching *trigger_type* is detected the idle counter resets.
+        When no trigger is detected (empty string) and a state is currently
+        active, the idle counter increments. After *idle_reset_rounds*
+        consecutive idle turns the active state is cleared automatically.
+        """
         state = await self.get_current_state()
-        state.active_stp_trigger = trigger_type
-        state.active_stp_state_name = state_name
+        if trigger_type:
+            # Trigger matched – activate / refresh.
+            state.active_stp_trigger = trigger_type
+            state.active_stp_state_name = state_name
+            state.stp_idle_rounds = 0
+        elif state.active_stp_trigger:
+            # No trigger this turn but a state is active – count idle.
+            state.stp_idle_rounds = getattr(state, "stp_idle_rounds", 0) + 1
+            if state.stp_idle_rounds >= idle_reset_rounds:
+                state.active_stp_trigger = ""
+                state.active_stp_state_name = ""
+                state.stp_idle_rounds = 0
         state.updated_at = time.time()
         await self._save_current_state()
 

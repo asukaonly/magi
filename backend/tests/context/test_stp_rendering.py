@@ -38,6 +38,26 @@ class TestStateTransitionRulesRendering:
         lines = renderer._render_state_transition_rules([])
         assert lines == []
 
+    def test_render_state_override_with_behavior_shift(self):
+        renderer = PromptContextRenderer()
+        lines = renderer._render_state_override("Emergency Mode", "Focus and give numbered steps.")
+        text = "\n".join(lines)
+        assert "Active State: Emergency Mode" in text
+        assert "Behavioral Directive: Focus and give numbered steps." in text
+
+    def test_render_state_override_without_behavior_shift(self):
+        renderer = PromptContextRenderer()
+        lines = renderer._render_state_override("Emergency Mode")
+        text = "\n".join(lines)
+        assert "Active State: Emergency Mode" in text
+        assert "Behavioral Directive" not in text
+
+    def test_render_state_override_no_override(self):
+        renderer = PromptContextRenderer()
+        lines = renderer._render_state_override(None)
+        text = "\n".join(lines)
+        assert "N/A (using baseline persona)" in text
+
     def test_stp_in_full_system_prompt(self):
         """STP rules should appear in the final rendered system prompt."""
         from magi.context.schema import (
@@ -154,6 +174,7 @@ class TestStpOnDemandFiltering:
         assert len(ctx.state_transition_rules) == 1
         assert ctx.state_transition_rules[0]["trigger_type"] == "crisis"
         assert ctx.state_transition_override == "Emergency Mode"
+        assert ctx.state_transition_behavior_shift == "Focus, give numbered steps."
 
     @pytest.mark.asyncio
     async def test_active_trigger_no_match_injects_nothing(self):

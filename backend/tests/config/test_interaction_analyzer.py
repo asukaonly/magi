@@ -258,7 +258,20 @@ class TestAnalyzeInteraction:
 
 
 class TestParseAnalysisTriggerType:
-    def test_valid_trigger_type_parsed(self):
+    def test_valid_trigger_type_parsed_with_matching_rules(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "trigger_type": "crisis",
+        })
+        rules = [{"trigger_type": "crisis", "trigger_condition": "User in danger"}]
+        result = parse_analysis(raw, stp_rules=rules)
+        assert result.trigger_type == "crisis"
+
+    def test_valid_trigger_type_ignored_without_rules(self):
         raw = json.dumps({
             "sentiment": 0.0,
             "engagement": "medium",
@@ -268,7 +281,7 @@ class TestParseAnalysisTriggerType:
             "trigger_type": "crisis",
         })
         result = parse_analysis(raw)
-        assert result.trigger_type == "crisis"
+        assert result.trigger_type is None
 
     def test_unknown_trigger_type_ignored(self):
         raw = json.dumps({
@@ -279,7 +292,8 @@ class TestParseAnalysisTriggerType:
             "satisfaction": "neutral",
             "trigger_type": "unknown_type",
         })
-        result = parse_analysis(raw)
+        rules = [{"trigger_type": "crisis", "trigger_condition": "User in danger"}]
+        result = parse_analysis(raw, stp_rules=rules)
         assert result.trigger_type is None
 
     def test_null_trigger_type(self):
@@ -305,7 +319,7 @@ class TestParseAnalysisTriggerType:
         result = parse_analysis(raw)
         assert result.trigger_type is None
 
-    def test_all_four_trigger_types(self):
+    def test_all_four_trigger_types_with_rules(self):
         for tt in ("crisis", "intimacy", "hostility", "absurdity"):
             raw = json.dumps({
                 "sentiment": 0.0,
@@ -315,8 +329,22 @@ class TestParseAnalysisTriggerType:
                 "satisfaction": "neutral",
                 "trigger_type": tt,
             })
-            result = parse_analysis(raw)
+            rules = [{"trigger_type": tt, "trigger_condition": "test"}]
+            result = parse_analysis(raw, stp_rules=rules)
             assert result.trigger_type == tt
+
+    def test_custom_trigger_type_accepted(self):
+        raw = json.dumps({
+            "sentiment": 0.0,
+            "engagement": "medium",
+            "complexity": 0.5,
+            "outcome": "success",
+            "satisfaction": "neutral",
+            "trigger_type": "focus_mode",
+        })
+        rules = [{"trigger_type": "focus_mode", "trigger_condition": "User requests focus"}]
+        result = parse_analysis(raw, stp_rules=rules)
+        assert result.trigger_type == "focus_mode"
 
 
 # ---------- _build_system_prompt ----------

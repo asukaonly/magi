@@ -205,8 +205,14 @@ class PromptContextAssembler:
                     stp_rules.append(rule)
 
             # Promote the detected STP state name as the active override.
+            active_behavior_shift: Optional[str] = None
             if active_stp_trigger and active_stp_state_name and not resolved_override:
                 resolved_override = active_stp_state_name
+                # Find the behavior_shift for the active trigger.
+                for item in config.state_transition_protocol:
+                    if getattr(item, "trigger_type", "") == active_stp_trigger:
+                        active_behavior_shift = getattr(item, "behavior_shift", "") or None
+                        break
 
         # Load recent persona journal entries
         journal_entries: List[Dict[str, Any]] = []
@@ -228,6 +234,7 @@ class PromptContextAssembler:
             dynamic_state=dynamic_state,
             retrieval_memory=retrieval_memory,
             state_transition_override=resolved_override,
+            state_transition_behavior_shift=active_behavior_shift if active_stp_trigger else None,
             state_transition_rules=stp_rules,
             scenario_prompt=scenario_prompt_text,
             active_persona_layers=active_layers,
@@ -420,7 +427,10 @@ class PromptContextRenderer:
         lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
         lines.extend(self._render_scenario_prompt(context.self_memory.scenario_prompt))
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
-        lines.extend(self._render_state_override(context.self_memory.state_transition_override))
+        lines.extend(self._render_state_override(
+            context.self_memory.state_transition_override,
+            context.self_memory.state_transition_behavior_shift,
+        ))
         lines.extend(self._render_profile_memory(context.profile_memory))
         lines.extend(self._render_runtime_system(context.runtime_system))
         lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
@@ -650,11 +660,17 @@ class PromptContextRenderer:
 
         return lines
 
-    def _render_state_override(self, override: Optional[str]) -> List[str]:
+    def _render_state_override(
+        self,
+        override: Optional[str],
+        behavior_shift: Optional[str] = None,
+    ) -> List[str]:
         """Render state transition override as markdown."""
         lines = ["# State Transition Override"]
         if override:
-            lines.append(f"* {override}")
+            lines.append(f"* Active State: {override}")
+            if behavior_shift:
+                lines.append(f"* Behavioral Directive: {behavior_shift}")
         else:
             lines.append("* N/A (using baseline persona)")
         lines.append("")

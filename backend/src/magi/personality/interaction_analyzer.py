@@ -15,8 +15,6 @@ from .emotional_state import EngagementLevel, InteractionOutcome
 
 logger = get_logger(__name__)
 
-_VALID_TRIGGER_TYPES = frozenset({"crisis", "intimacy", "hostility", "absurdity"})
-
 _SYSTEM_PROMPT = """\
 You are an interaction quality classifier. Analyze a user–assistant exchange and output a JSON object with these fields:
 
@@ -185,14 +183,21 @@ async def analyze_interaction(
         )
         elapsed_ms = (time.monotonic() - t0) * 1000
         logger.debug("Interaction analysis completed elapsed_ms=%.1f", elapsed_ms)
-        return parse_analysis(raw)
+        return parse_analysis(raw, stp_rules=stp_rules)
     except Exception:
         logger.warning("Interaction analysis LLM call failed", exc_info=True)
         return DEFAULT_ANALYSIS
 
 
-def parse_analysis(raw: str) -> InteractionAnalysis:
-    """Parse the JSON response from the LLM into an InteractionAnalysis."""
+def parse_analysis(
+    raw: str,
+    stp_rules: List[Dict[str, str]] | None = None,
+) -> InteractionAnalysis:
+    """Parse the JSON response from the LLM into an InteractionAnalysis.
+
+    Valid trigger types are derived dynamically from *stp_rules* so that
+    persona-defined triggers are accepted without a hardcoded whitelist.
+    """
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -220,8 +225,15 @@ def parse_analysis(raw: str) -> InteractionAnalysis:
 
     raw_trigger = data.get("trigger_type")
     trigger_type: Optional[str] = None
-    if isinstance(raw_trigger, str) and raw_trigger in _VALID_TRIGGER_TYPES:
-        trigger_type = raw_trigger
+    if isinstance(raw_trigger, str) and raw_trigger:
+        valid_triggers: frozenset[str] = frozenset()
+        if stp_rules:
+            valid_triggers = frozenset(
+                rule["trigger_type"] for rule in stp_rules
+                if rule.get("trigger_type")
+            )
+        if valid_triggers and raw_trigger in valid_triggers:
+            trigger_type = raw_trigger
 
     raw_milestones = data.get("milestone_keys")
     milestone_keys: List[str] = []
