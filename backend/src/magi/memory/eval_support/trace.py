@@ -38,6 +38,7 @@ def build_eval_query_result(payload: Any) -> EvalMemoryQueryResult:
         l2_entity_cards=[dict(card) for card in (getattr(payload, "l2_entity_cards", []) or [])],
         l2_relationships=[dict(rel) for rel in (getattr(payload, "l2_relationships", []) or [])],
         l2_assertions=[dict(a) for a in (getattr(payload, "l2_assertions", []) or [])],
+        l2_episodes=[dict(ep) for ep in (getattr(payload, "l2_episodes", []) or [])],
         trace=trace,
     )
 

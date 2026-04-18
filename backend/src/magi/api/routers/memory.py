@@ -296,6 +296,7 @@ async def _synthesize_eval_answer(
     l2_entity_cards: list[dict[str, Any]] | None = None,
     l2_relationships: list[dict[str, Any]] | None = None,
     l2_assertions: list[dict[str, Any]] | None = None,
+    l2_episodes: list[dict[str, Any]] | None = None,
     query_timestamp: float | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
@@ -313,6 +314,7 @@ async def _synthesize_eval_answer(
         hits=hits,
         evidence_bundles=evidence_bundles,
         timeline_summary=timeline_summary,
+        l2_episodes=l2_episodes,
     )
     system_prompt = (
         "You are answering a question using retrieved memory evidence only.\n"
@@ -367,6 +369,10 @@ async def _synthesize_eval_answer(
         qdt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
         question_date_line = f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} UTC (timestamp={query_timestamp})\n"
 
+    episode_section = ""
+    if prompt_payload.episode_text:
+        episode_section = f"\nEpisode Summaries:\n{prompt_payload.episode_text}\n"
+
     # For temporal questions, place Timeline Summary AFTER bundles so the LLM
     # reads it last (mitigates lost-in-the-middle attention decay).
     if prompt_payload.prioritize_timeline:
@@ -379,7 +385,8 @@ async def _synthesize_eval_answer(
             f"Question:\n{question}\n\n"
             f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
             f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
-            f"Knowledge Graph Context:\n{l2_context_text}\n\n"
+            f"Knowledge Graph Context:\n{l2_context_text}\n"
+            f"{episode_section}\n"
             f"Timeline Summary (use this for temporal/ordering questions):\n{prompt_payload.timeline_text}\n"
         )
     else:
@@ -394,6 +401,7 @@ async def _synthesize_eval_answer(
             f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
             f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
             f"Knowledge Graph Context:\n{l2_context_text}\n"
+            f"{episode_section}"
         )
     llm_messages = [
         {"role": "system", "content": system_prompt},
@@ -1058,6 +1066,7 @@ async def query_eval_memory(body: EvalQueryRequest):
             l2_entity_cards=list(result.l2_entity_cards),
             l2_relationships=list(result.l2_relationships),
             l2_assertions=list(result.l2_assertions),
+            l2_episodes=list(result.l2_episodes),
             query_timestamp=body.query_timestamp,
             show_prompt=body.show_prompt,
         )
