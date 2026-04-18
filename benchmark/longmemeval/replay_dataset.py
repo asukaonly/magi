@@ -18,10 +18,10 @@ for candidate in (REPO_ROOT, BACKEND_SRC):
         sys.path.insert(0, candidate_text)
 
 from benchmark.common.io import write_jsonl
-from benchmark.common.paths import build_run_output_dir
+from benchmark.common.paths import build_run_output_dir, resolve_backend_url
 from benchmark.longmemeval.adapter import adapt_longmemeval_entry
 from benchmark.longmemeval.backend_client import BackendEvalService
-from benchmark.longmemeval.runner import create_default_runtime, load_longmemeval_rows
+from benchmark.longmemeval.runner import load_longmemeval_rows
 from magi.memory.eval_support.namespace import build_eval_namespace
 
 
@@ -39,52 +39,6 @@ class SupportsReplayService(Protocol):
 
     async def get_background_pending(self) -> dict[str, Any]:
         """Return lightweight backlog stats for background memory workers."""
-
-
-class LocalReplayServiceAdapter:
-    """Bridge the local eval harness with replay finalization hooks."""
-
-    def __init__(self, *, eval_service: Any, unified_memory: Any) -> None:
-        self._eval_service = eval_service
-        self._unified_memory = unified_memory
-
-    async def write_records(self, *, namespace: str, records: list[Any]) -> Any:
-        return await self._eval_service.write_records(namespace=namespace, records=records)
-
-    async def finalize_replay(self) -> dict[str, Any]:
-        summaries: dict[str, Any] = {}
-        for period_type in ("hour", "day", "week", "month"):
-            summaries[period_type] = await self._unified_memory.generate_summary(period_type=period_type)
-        l2_pipeline_stats = (
-            self._unified_memory.get_l2_pipeline_stats()
-            if hasattr(self._unified_memory, "get_l2_pipeline_stats")
-            else {}
-        )
-        return {
-            "summaries": summaries,
-            "l2_pipeline_stats": l2_pipeline_stats,
-        }
-
-    async def get_l2_pipeline_stats(self) -> dict[str, Any]:
-        return (
-            self._unified_memory.get_l2_pipeline_stats()
-            if hasattr(self._unified_memory, "get_l2_pipeline_stats")
-            else {}
-        )
-
-    async def get_background_pending(self) -> dict[str, Any]:
-        l2_pending = describe_l2_pending(await self.get_l2_pipeline_stats())
-        l1_stats = self._unified_memory.l1.get_statistics() if getattr(self._unified_memory, "l1", None) and hasattr(self._unified_memory.l1, "get_statistics") else {}
-        l3_stats = self._unified_memory.l3.get_statistics() if getattr(self._unified_memory, "l3", None) and hasattr(self._unified_memory.l3, "get_statistics") else {}
-        l4_stats = self._unified_memory.l4.get_statistics() if getattr(self._unified_memory, "l4", None) and hasattr(self._unified_memory.l4, "get_statistics") else {}
-        payload = {
-            "l2": l2_pending,
-            "l1_embeddings": build_embedding_pending_payload(l1_stats),
-            "l3_embeddings": build_embedding_pending_payload(l3_stats),
-            "l4_embeddings": build_embedding_pending_payload(l4_stats),
-        }
-        payload["all_idle"] = is_background_idle(payload)
-        return payload
 
 
 @dataclass(slots=True)
@@ -286,34 +240,14 @@ async def wait_for_background_idle(
 
 async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:
     rows = load_longmemeval_rows(args.dataset, limit=args.limit)
-    if args.backend_url:
-        return await replay_longmemeval_rows(
-            rows=rows,
-            eval_service=BackendEvalService(args.backend_url),
-            run_id=args.run_id,
-            output_root=args.output_root,
-            progress_reporter=print_replay_progress,
-        )
-
-    output_dir = build_run_output_dir(
-        root_dir=args.output_root,
-        benchmark_name="longmemeval",
+    backend_url = args.backend_url or resolve_backend_url()
+    return await replay_longmemeval_rows(
+        rows=rows,
+        eval_service=BackendEvalService(backend_url),
         run_id=args.run_id,
+        output_root=args.output_root,
+        progress_reporter=print_replay_progress,
     )
-    runtime = await create_default_runtime(state_dir=output_dir / "state")
-    try:
-        return await replay_longmemeval_rows(
-            rows=rows,
-            eval_service=LocalReplayServiceAdapter(
-                eval_service=runtime.service,
-                unified_memory=runtime.memory,
-            ),
-            run_id=args.run_id,
-            output_root=args.output_root,
-            progress_reporter=print_replay_progress,
-        )
-    finally:
-        await runtime.shutdown()
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -322,7 +256,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-root", default="benchmark/outputs", help="Directory for benchmark outputs.")
     parser.add_argument("--run-id", default="smoke", help="Logical run identifier.")
     parser.add_argument("--limit", type=int, default=None, help="Optional sample limit for quick runs.")
-    parser.add_argument("--backend-url", default=None, help="Optional Magi backend base URL for full-memory eval.")
+    parser.add_argument("--backend-url", default=None, help="Magi backend base URL (auto-detected if omitted).")
     return parser.parse_args(argv)
 
 
