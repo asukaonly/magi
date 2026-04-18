@@ -25,14 +25,17 @@ jobs:
             runner: macos-15-intel
             target: x86_64-apple-darwin
             os_family: macos
+            bundles: dmg
           - label: macOS Apple Silicon
             runner: macos-15
             target: aarch64-apple-darwin
             os_family: macos
+            bundles: dmg
           - label: Windows
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             os_family: windows
+            bundles: nsis
 
     steps:
       - name: Checkout repository
@@ -209,4 +212,4 @@ jobs:
           releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
