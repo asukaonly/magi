@@ -120,6 +120,19 @@ npm install
 npm run dev
 ```
 
+### Desktop Release Build
+
+```bash
+# 1. Build the Python sidecar (--onedir mode)
+./scripts/build-sidecar.sh
+
+# 2. Build the Tauri desktop app
+cd frontend
+npm run tauri:build
+```
+
+The sidecar must be built before Tauri build. The `sidecar-dist/` directory under `frontend/src-tauri/` is gitignored and must be rebuilt after cloning or switching branches.
+
 ### Validation Commands
 
 #### Frontend
@@ -151,7 +164,7 @@ Magi is built as a local-first agent runtime with clear layering and ownership b
   - `WorkerAgentManager` for leaf worker execution
 - Memory model: lifecycle-based `L0` to `L4`
 - Extension model: tools, plugins, skills, sensors/actions
-- Runtime target: desktop-only via Tauri shell + React WebView + Python sidecar backend
+- Runtime target: desktop-only via Tauri + React WebView + Python sidecar backend
 
 ## Repository Layout
 

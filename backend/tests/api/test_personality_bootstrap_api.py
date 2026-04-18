@@ -31,8 +31,8 @@ def _mock_config(*, with_bootstrap: bool = True):
     config.avatar = ""
     config.cached_phrases.on_init = ["Hello."]
     config.persona_entity.basic_profile.name = "TestBot"
-    config.persona_entity.basic_profile.core_background = "A test persona."
-    config.persona_entity.psychological_traits.communication_tone = "Neutral"
+    config.persona_entity.core_identity.inner_narrative = "A test persona."
+    config.persona_entity.core_identity.language_fingerprint = "Neutral"
     if with_bootstrap:
         config.bootstrap = MagicMock()
         config.bootstrap.opening_line = "Hey, first time here."

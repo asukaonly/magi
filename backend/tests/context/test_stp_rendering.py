@@ -1,5 +1,7 @@
 """Tests for state_transition_protocol rendering in PromptContextRenderer."""
 
+import pytest
+
 from magi.context.assembler import PromptContextRenderer
 from magi.context.schema import SelfMemoryContext
 
@@ -35,6 +37,26 @@ class TestStateTransitionRulesRendering:
         renderer = PromptContextRenderer()
         lines = renderer._render_state_transition_rules([])
         assert lines == []
+
+    def test_render_state_override_with_behavior_shift(self):
+        renderer = PromptContextRenderer()
+        lines = renderer._render_state_override("Emergency Mode", "Focus and give numbered steps.")
+        text = "\n".join(lines)
+        assert "Active State: Emergency Mode" in text
+        assert "Behavioral Directive: Focus and give numbered steps." in text
+
+    def test_render_state_override_without_behavior_shift(self):
+        renderer = PromptContextRenderer()
+        lines = renderer._render_state_override("Emergency Mode")
+        text = "\n".join(lines)
+        assert "Active State: Emergency Mode" in text
+        assert "Behavioral Directive" not in text
+
+    def test_render_state_override_no_override(self):
+        renderer = PromptContextRenderer()
+        lines = renderer._render_state_override(None)
+        text = "\n".join(lines)
+        assert "N/A (using baseline persona)" in text
 
     def test_stp_in_full_system_prompt(self):
         """STP rules should appear in the final rendered system prompt."""
@@ -81,3 +103,82 @@ class TestStateTransitionRulesRendering:
         assert "# Contextual Behavior Protocol" in prompt
         assert "## Hostility: Boundary Setting" in prompt
         assert "Stay calm and set boundaries." in prompt
+
+
+class TestStpOnDemandFiltering:
+    """Verify the assembler only injects the active STP rule and sets the override."""
+
+    @staticmethod
+    def _make_config():
+        from magi.personality.loader import (
+            PersonalityConfig,
+            StateTransitionProtocolItem,
+        )
+        config = PersonalityConfig()
+        config.state_transition_protocol = [
+            StateTransitionProtocolItem(
+                trigger_type="crisis",
+                trigger_condition="User faces an emergency",
+                target_state_name="Emergency Mode",
+                behavior_shift="Focus, give numbered steps.",
+            ),
+            StateTransitionProtocolItem(
+                trigger_type="hostility",
+                trigger_condition="User is hostile",
+                target_state_name="Boundary Setting",
+                behavior_shift="Stay calm.",
+            ),
+        ]
+        return config
+
+    @staticmethod
+    def _make_emotion(trigger: str = "", state_name: str = ""):
+        from magi.personality.models import EmotionalState
+        return EmotionalState(
+            active_stp_trigger=trigger,
+            active_stp_state_name=state_name,
+        )
+
+    async def _assemble(self, trigger: str, state_name: str):
+        from unittest.mock import AsyncMock
+        from magi.context.assembler import PromptContextAssembler
+
+        config = self._make_config()
+        emotion = self._make_emotion(trigger, state_name)
+
+        fake_self_memory = AsyncMock()
+        fake_self_memory.get_core_personality = AsyncMock(return_value=config)
+        fake_self_memory.get_emotional_state = AsyncMock(return_value=emotion)
+
+        assembler = PromptContextAssembler(tool_registry=None)
+        ctx = await assembler._build_self_memory_context(
+            self_memory=fake_self_memory,
+            user_id="u1",
+            task_category="chat",
+            retrieved_memory_payload=None,
+            state_transition_override=None,
+            scenario="chat",
+            persona_name="test",
+        )
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_no_active_trigger_injects_all_rules(self):
+        ctx = await self._assemble("", "")
+        assert len(ctx.state_transition_rules) == 2
+        assert ctx.state_transition_override is None
+
+    @pytest.mark.asyncio
+    async def test_active_trigger_filters_to_matching_rule(self):
+        ctx = await self._assemble("crisis", "Emergency Mode")
+        assert len(ctx.state_transition_rules) == 1
+        assert ctx.state_transition_rules[0]["trigger_type"] == "crisis"
+        assert ctx.state_transition_override == "Emergency Mode"
+        assert ctx.state_transition_behavior_shift == "Focus, give numbered steps."
+
+    @pytest.mark.asyncio
+    async def test_active_trigger_no_match_injects_nothing(self):
+        ctx = await self._assemble("absurdity", "Comedy Mode")
+        # No absurdity rule in config — nothing injected.
+        assert len(ctx.state_transition_rules) == 0
+        assert ctx.state_transition_override == "Comedy Mode"

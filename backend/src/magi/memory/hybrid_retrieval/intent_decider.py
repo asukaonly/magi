@@ -33,6 +33,7 @@ from .models import (
     SemanticConstraint,
     TimeRange,
 )
+from .mode_registry import MODE_REGISTRY, VALID_MODES
 
 
 logger = logging.getLogger(__name__)
@@ -69,22 +70,51 @@ _DAY_NUMBER_SUFFIX_RE = re.compile(r"\d+\s*[号日]|\d+(?:st|nd|rd|th)\b", re.IG
 # absorbed into the matched span (e.g. "in a week ago" instead of "a week ago").
 _LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
 
-# Mode -> layer mapping (for query_mode hint)
-_MODE_LAYER_MAP: Dict[str, tuple[str, str]] = {
-    "detail": ("L1", "L3"),
-    "summary": ("L3", "L1"),
-    "experience": ("L4", "L1"),
-    "strategy": ("L4", "L1"),
-    "graph": ("L2", "L1"),
+# ---------------------------------------------------------------------------
+# Mode auto-classification keywords (zh + en)
+# ---------------------------------------------------------------------------
+
+_MODE_KEYWORDS: dict[str, list[str]] = {
+    "current_state": [
+        "现在", "目前", "当前", "最新", "currently", "now", "latest", "present",
+        "住在哪", "在哪里", "在用什么", "状态",
+    ],
+    "summary": [
+        "总结", "概括", "回顾", "summarize", "summary", "recap", "overview",
+    ],
+    "strategy": [
+        "怎么做", "流程", "经验", "上次怎么", "之前怎么",
+        "how to", "workflow", "procedure", "strategy", "best practice",
+    ],
+    "temporal_compare": [
+        "之前还是之后", "先后", "变化", "对比", "比较",
+        "before or after", "changed", "compare", "versus", "vs",
+        "从.*变成", "变了",
+    ],
+    "cross_session": [
+        "哪些", "多少次", "所有", "每次", "一共", "汇总",
+        "which", "how many", "all", "every", "total", "across",
+    ],
+    "episode_recall": [
+        "那次", "那天", "那个时候", "经历", "发生了什么", "怎么回事",
+        "trip", "happened", "experience", "that time", "what did",
+        "昨天", "上周", "yesterday", "last week",
+    ],
 }
 
-_RECALL_INTENT_LAYER_MAP: Dict[str, tuple[str, str]] = {
-    "event_recall": ("L1", "L3"),
-    "preference_recall": ("L2", "L1"),
-    "profile_fact_recall": ("L2", "L1"),
-    "relationship_recall": ("L2", "L1"),
-    "workflow_reuse": ("L4", "L1"),
-}
+
+def classify_query_mode(query: str) -> str:
+    """Classify a query into a query_mode using keyword heuristics.
+
+    Returns ``exact_fact`` as the safe default when no keywords match.
+    """
+    q = query.lower()
+    for mode, keywords in _MODE_KEYWORDS.items():
+        for kw in keywords:
+            if kw in q:
+                return mode
+    return "exact_fact"
+
 
 _VALID_SUBJECT_HINTS = {"self", "explicit", "none"}
 _VALID_PREDICATE_FAMILIES = {"preference", "relationship", "profile_fact", "activity", "unknown"}
@@ -343,32 +373,26 @@ class RuleBasedIntentDecider:
         """Determine which layers to query.
 
         Routing is handled by the LLM intent decider when available.
-        The rule engine only uses explicit hints (recall_intent, query_mode)
-        and falls back to L1 primary + L2 fallback as a safe default.
+        The rule engine uses ``query_mode`` (explicit or auto-classified)
+        and the MODE_REGISTRY for routing.
         """
-        # 1. If recall_intent hint is set, use it as the strongest routing signal.
-        if inp.recall_intent_hint and inp.recall_intent_hint in _RECALL_INTENT_LAYER_MAP:
-            primary_layer, fallback_layer = _RECALL_INTENT_LAYER_MAP[inp.recall_intent_hint]
-            return [
-                self._make_plan(primary_layer, inp, is_fallback=False),
-                self._make_plan(fallback_layer, inp, is_fallback=True),
-            ]
+        # 1. Resolve mode: explicit hint > auto-classification
+        mode = inp.query_mode_hint
+        if mode and mode in MODE_REGISTRY:
+            pass  # use the explicit hint
+        else:
+            mode = classify_query_mode(inp.query)
 
-        # 2. If query_mode hint is set, use it as a strong signal for granularity.
-        if inp.query_mode_hint and inp.query_mode_hint in _MODE_LAYER_MAP:
-            primary_layer, fallback_layer = _MODE_LAYER_MAP[inp.query_mode_hint]
-            return [
-                self._make_plan(primary_layer, inp, is_fallback=False),
-                self._make_plan(fallback_layer, inp, is_fallback=True),
-            ]
+        plan_def = MODE_REGISTRY[mode]
 
-        source_filters, domain_filters = self._infer_source_domain(inp.query.lower(), inp)
+        plans: list[LayerQueryPlan] = []
+        for layer in plan_def.primary_layers:
+            plans.append(self._make_plan(layer, inp, is_fallback=False))
+        for layer in plan_def.fallback_layers:
+            if layer not in plan_def.primary_layers:
+                plans.append(self._make_plan(layer, inp, is_fallback=True))
 
-        # 3. Default: L1 primary + L2 fallback
-        return [
-            self._make_plan("L1", inp, is_fallback=False, source_filters=source_filters, domain_filters=domain_filters),
-            self._make_plan("L2", inp, is_fallback=True, source_filters=source_filters, domain_filters=domain_filters),
-        ]
+        return plans
 
     def _make_plan(
         self,
@@ -400,7 +424,6 @@ class RuleBasedIntentDecider:
             )
             enrich_l2_conditions(
                 conditions, inp.query,
-                recall_intent_hint=inp.recall_intent_hint,
             )
         elif layer == "L3":
             conditions = L3Conditions(
@@ -507,8 +530,6 @@ def _reparse_with_stripped_preposition(
 def enrich_l2_conditions(
     conditions: L2Conditions,
     query: str,
-    *,
-    recall_intent_hint: str | None = None,
 ) -> None:
     """Fill missing L2 structural fields using rule-based inference.
 
@@ -521,19 +542,15 @@ def enrich_l2_conditions(
     if not conditions.subject_hint or conditions.subject_hint == "none":
         family = conditions.predicate_family or "unknown"
         if family == "unknown":
-            family = _infer_predicate_family(query, recall_intent_hint=recall_intent_hint)
+            family = _infer_predicate_family(query)
             conditions.predicate_family = family
         if family in {"preference", "profile_fact"}:
-            conditions.subject_hint = "self"
-        elif recall_intent_hint == "relationship_recall":
             conditions.subject_hint = "self"
         else:
             conditions.subject_hint = "none"
 
     if not conditions.predicate_family or conditions.predicate_family == "unknown":
-        conditions.predicate_family = _infer_predicate_family(
-            query, recall_intent_hint=recall_intent_hint,
-        )
+        conditions.predicate_family = _infer_predicate_family(query)
 
     if conditions.semantic_frame is None:
         conditions.semantic_frame = _infer_semantic_frame(
@@ -545,21 +562,32 @@ def enrich_l2_conditions(
 
 def _infer_predicate_family(
     query: str,
-    *,
-    recall_intent_hint: str | None = None,
 ) -> str:
     """Infer the broad predicate family for L2 graph planning.
 
-    Only uses the explicit *recall_intent_hint* supplied by the caller.
-    Keyword-based inference was removed to avoid brittle whack-a-mole
-    heuristics; the LLM intent decider now handles classification.
+    Uses minimal keyword heuristics.  The LLM intent decider handles
+    richer classification.
     """
-    if recall_intent_hint == "preference_recall":
+    lowered = query.lower()
+    _PREFERENCE_KW = (
+        "喜欢", "讨厌", "偏好", "偏爱", "感兴趣", "关注",
+        "like", "dislike", "prefer", "favorite", "interested",
+        "follow", "hate",
+    )
+    if any(kw in lowered for kw in _PREFERENCE_KW):
         return "preference"
-    if recall_intent_hint == "profile_fact_recall":
-        return "profile_fact"
-    if recall_intent_hint == "relationship_recall":
+    _RELATIONSHIP_KW = (
+        "关系", "约定", "认识",
+        "relationship", "agreement", "know",
+    )
+    if any(kw in lowered for kw in _RELATIONSHIP_KW):
         return "relationship"
+    _PROFILE_KW = (
+        "默认", "设置", "工作目录", "常用",
+        "default", "setting", "workspace", "configuration",
+    )
+    if any(kw in lowered for kw in _PROFILE_KW):
+        return "profile_fact"
     return "unknown"
 
 
@@ -702,8 +730,6 @@ class LLMIntentDecider:
     async def evaluate(self, inp: IntentDeciderInput) -> IntentDecision | None:
         """Call LLM for intent analysis. Returns None on any failure."""
         prompt_lines = [f"user query: {inp.query}"]
-        if inp.recall_intent_hint:
-            prompt_lines.append(f"recall_intent_hint: {inp.recall_intent_hint}")
         if inp.query_mode_hint:
             prompt_lines.append(f"query_mode_hint: {inp.query_mode_hint}")
         if inp.source_filters:
@@ -732,7 +758,7 @@ class LLMIntentDecider:
             decision = self._parse_response(raw)
             if decision is None:
                 return None
-            return self._validate_decision(inp.query, decision, recall_intent_hint=inp.recall_intent_hint)
+            return self._validate_decision(inp.query, decision)
         except Exception:
             elapsed_ms = (time.monotonic() - t0) * 1000
             logger.warning(
@@ -801,8 +827,6 @@ class LLMIntentDecider:
         self,
         original_query: str,
         decision: IntentDecision,
-        *,
-        recall_intent_hint: str | None = None,
     ) -> IntentDecision:
         """Post-process LLM decision: validate L1 queries and enrich L2 conditions."""
         for plan in decision.plans:
@@ -812,10 +836,7 @@ class LLMIntentDecider:
                     content_query=plan.conditions.content_query,
                 )
             elif plan.layer == "L2" and isinstance(plan.conditions, L2Conditions):
-                enrich_l2_conditions(
-                    plan.conditions, original_query,
-                    recall_intent_hint=recall_intent_hint,
-                )
+                enrich_l2_conditions(plan.conditions, original_query)
         return decision
 
     @staticmethod

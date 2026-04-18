@@ -186,17 +186,21 @@ magi/
 │   │   ├── api/            # Product-facing routers and services
 │   │   ├── awareness/      # Sensors, actions, action emission
 │   │   ├── bootstrap/      # Composition root and lifecycle assembly
+│   │   ├── channels/       # External messaging adapters (Telegram, etc.)
+│   │   ├── chat/           # Chat domain persistence and attachments
 │   │   ├── config/         # Runtime and provider config
 │   │   ├── context/        # Prompt and recall shaping
 │   │   ├── core/           # Infrastructure, DI, logging, runtime paths
 │   │   ├── events/         # Message bus and event transport
+│   │   ├── ipc/            # IPC server, dispatcher, protocol
 │   │   ├── llm/            # Provider bridge and scenario model runtime
 │   │   ├── memory/         # Lifecycle-based memory stores and retrieval
 │   │   ├── personality/    # Personality state and subjective modeling
 │   │   ├── plugins/        # Plugin discovery and registration
-│   │   ├── processing/     # Legacy processing modules under review
+│   │   ├── runtime_trace/  # Execution observability persistence
 │   │   ├── scheduler/      # Persistent scheduler and target dispatch
 │   │   ├── skills/         # Shared skill loading and execution
+│   │   ├── tasks/          # User-facing task tracking
 │   │   ├── timeline/       # Timeline domain and sync workflows
 │   │   ├── tools/          # Built-in and provider-backed tools
 │   │   └── transport/      # IPC transport app wiring and middleware

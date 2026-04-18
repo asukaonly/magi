@@ -8,6 +8,7 @@ from pathlib import Path
 from magi.personality.models import EmotionalState, TaskBehaviorProfile
 from magi.personality.loader import PersonalityConfig
 from magi.context.assembler import PromptContextAssembler, PromptContextRenderer
+from magi.context.user_profile_service import UserProfileService
 
 
 class _FakeSelfMemory:
@@ -25,16 +26,20 @@ class _FakeSelfMemory:
         return {"sentiment_score": 0.6, "trust_level": 0.8}
 
 
-class _FakeProfile:
+class _FakeL2EntityCatalog:
+    async def list_entities(self, entity_ids=None, **kwargs):
+        return [{"entity_id": "user:u1", "canonical_name": "Alice", "aliases": []}]
+
+
+class _FakeL2Store:
+    async def get_tom_snapshot(self, entity_id=None, entity_type=None):
+        return {"preferences": {"language": "zh-CN", "style": "concise"}}
+
+
+class _FakeUnifiedMemory:
     def __init__(self):
-        self.name = "Alice"
-        self.preferences = {"language": "zh-CN", "style": "concise"}
-
-
-class _FakeOtherMemory:
-    def get_profile(self, user_id: str):
-        _ = user_id
-        return _FakeProfile()
+        self.l2_entity_catalog = _FakeL2EntityCatalog()
+        self.l2 = _FakeL2Store()
 
 
 class _FakeToolRegistry:
@@ -47,7 +52,10 @@ class _FakeToolRegistry:
 
 class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
     async def test_render_order_and_module_presence(self):
-        assembler = PromptContextAssembler(tool_registry=_FakeToolRegistry())
+        assembler = PromptContextAssembler(
+            tool_registry=_FakeToolRegistry(),
+            user_profile_service=UserProfileService(unified_memory=_FakeUnifiedMemory()),
+        )
         renderer = PromptContextRenderer()
 
         assembled = await assembler.assemble(
@@ -57,7 +65,6 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
             task_category="chat",
             user_id="u1",
             self_memory=_FakeSelfMemory(),
-            other_memory=_FakeOtherMemory(),
             tool_result={"tools": ["weather"]},
             retrieved_memory_payload={
                 "l0_workbench": [{"event": "recent_user_request"}],
@@ -84,7 +91,10 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("weather", prompt)
 
     async def test_profile_emotion_mapping_uses_relationship_scores(self):
-        assembler = PromptContextAssembler(tool_registry=_FakeToolRegistry())
+        assembler = PromptContextAssembler(
+            tool_registry=_FakeToolRegistry(),
+            user_profile_service=UserProfileService(unified_memory=_FakeUnifiedMemory()),
+        )
 
         assembled = await assembler.assemble(
             agent_id="chat-agent",
@@ -93,7 +103,6 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
             task_category="chat",
             user_id="u1",
             self_memory=_FakeSelfMemory(),
-            other_memory=_FakeOtherMemory(),
             tool_result={"tools": []},
             retrieved_memory_payload={},
         )

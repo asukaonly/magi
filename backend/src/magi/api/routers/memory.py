@@ -296,6 +296,7 @@ async def _synthesize_eval_answer(
     l2_entity_cards: list[dict[str, Any]] | None = None,
     l2_relationships: list[dict[str, Any]] | None = None,
     l2_assertions: list[dict[str, Any]] | None = None,
+    l2_episodes: list[dict[str, Any]] | None = None,
     query_timestamp: float | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
@@ -313,6 +314,7 @@ async def _synthesize_eval_answer(
         hits=hits,
         evidence_bundles=evidence_bundles,
         timeline_summary=timeline_summary,
+        l2_episodes=l2_episodes,
     )
     system_prompt = (
         "You are answering a question using retrieved memory evidence only.\n"
@@ -367,6 +369,10 @@ async def _synthesize_eval_answer(
         qdt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
         question_date_line = f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} UTC (timestamp={query_timestamp})\n"
 
+    episode_section = ""
+    if prompt_payload.episode_text:
+        episode_section = f"\nEpisode Summaries:\n{prompt_payload.episode_text}\n"
+
     # For temporal questions, place Timeline Summary AFTER bundles so the LLM
     # reads it last (mitigates lost-in-the-middle attention decay).
     if prompt_payload.prioritize_timeline:
@@ -379,7 +385,8 @@ async def _synthesize_eval_answer(
             f"Question:\n{question}\n\n"
             f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
             f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
-            f"Knowledge Graph Context:\n{l2_context_text}\n\n"
+            f"Knowledge Graph Context:\n{l2_context_text}\n"
+            f"{episode_section}\n"
             f"Timeline Summary (use this for temporal/ordering questions):\n{prompt_payload.timeline_text}\n"
         )
     else:
@@ -394,6 +401,7 @@ async def _synthesize_eval_answer(
             f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
             f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
             f"Knowledge Graph Context:\n{l2_context_text}\n"
+            f"{episode_section}"
         )
     llm_messages = [
         {"role": "system", "content": system_prompt},
@@ -820,6 +828,11 @@ class AssertionFeedbackRequest(BaseModel):
     feedback: Literal["confirmed", "rejected"]
 
 
+class AssertionCorrectionRequest(BaseModel):
+    new_value: str = Field(..., min_length=1, max_length=2000)
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
 @memory_router.patch("/l2/assertions/{assertion_id}/feedback")
 async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRequest):
     """Apply user confirmation or rejection to an L2 assertion."""
@@ -827,6 +840,22 @@ async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRe
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
     result = await unified_memory.l2.apply_user_feedback(assertion_id=assertion_id, feedback=body.feedback)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assertion not found")
+    return result
+
+
+@memory_router.post("/l2/assertions/{assertion_id}/correct")
+async def correct_assertion(assertion_id: str, body: AssertionCorrectionRequest):
+    """User-initiated value correction that supersedes an existing assertion."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+    result = await unified_memory.l2.correct_assertion(
+        assertion_id=assertion_id,
+        new_value=body.new_value,
+        reason=body.reason,
+    )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assertion not found")
     return result
@@ -1037,6 +1066,7 @@ async def query_eval_memory(body: EvalQueryRequest):
             l2_entity_cards=list(result.l2_entity_cards),
             l2_relationships=list(result.l2_relationships),
             l2_assertions=list(result.l2_assertions),
+            l2_episodes=list(result.l2_episodes),
             query_timestamp=body.query_timestamp,
             show_prompt=body.show_prompt,
         )
@@ -1216,7 +1246,7 @@ async def get_memory_statistics():
     if unified_memory.l3:
         stats["l3"]["db_path"] = unified_memory.l3.db_path
 
-    stats["l4"] = {"skill_count": l4_count, "open_circuit_breakers": 0}
+    stats["l4"] = {"skill_count": l4_count}
     if unified_memory.l4:
         stats["l4"]["db_path"] = unified_memory.l4.db_path
 
@@ -1278,22 +1308,40 @@ async def get_l1_events(
 
     start_time = _parse_day_boundary(start_date, end_of_day=False)
     end_time = _parse_day_boundary(end_date, end_of_day=True)
-    events = await unified_memory.l1.query_events(
-        session_id=session_id,
-        user_id=user_id,
-        event_type=event_type,
-        query=str(query or "").strip() or None,
-        source_filters=[str(source).strip()] if str(source or "").strip() else None,
-        source_item_id=str(source_item_id or "").strip() or None,
-        idempotency_key=str(idempotency_key or "").strip() or None,
-        start_time=start_time,
-        end_time=end_time,
-        limit=limit,
-        offset=offset,
-        include_metadata_json=False,
-        include_embedding_fields=False,
+
+    source_filters = [str(source).strip()] if str(source or "").strip() else None
+    cleaned_query = str(query or "").strip() or None
+    cleaned_source_item_id = str(source_item_id or "").strip() or None
+    cleaned_idempotency_key = str(idempotency_key or "").strip() or None
+
+    events, total = await asyncio.gather(
+        unified_memory.l1.query_events(
+            session_id=session_id,
+            user_id=user_id,
+            event_type=event_type,
+            query=cleaned_query,
+            source_filters=source_filters,
+            source_item_id=cleaned_source_item_id,
+            idempotency_key=cleaned_idempotency_key,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+            offset=offset,
+            include_metadata_json=False,
+            include_embedding_fields=False,
+        ),
+        unified_memory.l1.count_events(
+            session_id=session_id,
+            user_id=user_id,
+            event_type=event_type,
+            query=cleaned_query,
+            source_filters=source_filters,
+            source_item_id=cleaned_source_item_id,
+            idempotency_key=cleaned_idempotency_key,
+            start_time=start_time,
+            end_time=end_time,
+        ),
     )
-    total = await unified_memory.l1.count_events()
     return {"items": [_serialize_l1_event_list_item(event) for event in events], "total": total, "limit": limit, "offset": offset}
 
 
@@ -1365,3 +1413,187 @@ async def get_tom_snapshot(entity_id: str, entity_type: str = Query(default="use
     if snapshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
     return snapshot
+
+
+# ── Episode Endpoints ────────────────────────────────────────────
+
+
+@memory_router.get("/l2/episodes")
+async def list_l2_episodes(
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    episode_type: Optional[str] = Query(default=None),
+    time_start: Optional[float] = Query(default=None),
+    time_end: Optional[float] = Query(default=None),
+    parent_episode_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    """List episodes with optional filters."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    items, total = await asyncio.gather(
+        unified_memory.l2.list_episodes(
+            status=status_filter,
+            episode_type=episode_type,
+            time_start=time_start,
+            time_end=time_end,
+            parent_episode_id=parent_episode_id,
+            limit=limit,
+            offset=offset,
+        ),
+        unified_memory.l2.count_episodes(status=status_filter),
+    )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@memory_router.get("/l2/episodes/search")
+async def search_l2_episodes(
+    q: str = Query(..., min_length=1, max_length=500),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """Full-text search over episodes."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return {"items": []}
+    items = await unified_memory.l2.search_episodes_fts(query=q, limit=limit)
+    return {"items": items}
+
+
+@memory_router.get("/l2/episodes/{episode_id}")
+async def get_l2_episode(episode_id: str):
+    """Get a single episode with its event memberships."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+    episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+    if episode is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+    events = await unified_memory.l2.list_episode_events(episode_id=episode_id)
+    return {**episode, "events": events}
+
+
+class EpisodeAnnotationRequest(BaseModel):
+    user_label: Optional[str] = Field(default=None, max_length=500)
+    user_note: Optional[str] = Field(default=None, max_length=2000)
+    user_pinned: Optional[bool] = None
+
+
+@memory_router.patch("/l2/episodes/{episode_id}")
+async def annotate_l2_episode(episode_id: str, body: EpisodeAnnotationRequest):
+    """User annotation on an episode (label, note, pin)."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+    updates: Dict[str, Any] = {}
+    if body.user_label is not None:
+        updates["user_label"] = body.user_label
+    if body.user_note is not None:
+        updates["user_note"] = body.user_note
+    if body.user_pinned is not None:
+        updates["user_pinned"] = 1 if body.user_pinned else 0
+        if body.user_pinned:
+            updates["status"] = "user_pinned"
+    if not updates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
+    ok = await unified_memory.l2.update_episode(episode_id=episode_id, **updates)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+    return await unified_memory.l2.get_episode(episode_id=episode_id)
+
+
+# ── User agency: reject / forget ─────────────────────────────────
+
+
+@memory_router.patch("/l2/edges/{triple_id}/reject")
+async def reject_l2_edge(triple_id: str):
+    """User-initiated rejection of a KG edge."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+    result = await unified_memory.l2.reject_edge(triple_id=triple_id)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Edge not found")
+    return result
+
+
+class ForgetEntityRequest(BaseModel):
+    entity_id: str = Field(..., min_length=1, max_length=500)
+    delete_l1_events: bool = Field(default=False, description="Also soft-delete L1 events mentioning this entity")
+
+
+@memory_router.post("/forget/entity")
+async def forget_entity(body: ForgetEntityRequest):
+    """Cascade forget: invalidate all L2 records derived from an entity."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+
+    l2_counts = await unified_memory.l2.forget_entity(entity_id=body.entity_id)
+
+    l1_deleted = 0
+    if body.delete_l1_events and unified_memory.l1 is not None:
+        entity_events = await unified_memory.l1.get_entity_event_ids([body.entity_id])
+        event_ids = entity_events.get(body.entity_id, [])
+        for eid in event_ids:
+            if await unified_memory.l1.mark_deleted(eid):
+                l1_deleted += 1
+
+    return {"l2_counts": l2_counts, "l1_events_deleted": l1_deleted}
+
+
+class ForgetTimeRangeRequest(BaseModel):
+    start: float = Field(..., description="Range start (epoch seconds)")
+    end: float = Field(..., description="Range end (epoch seconds)")
+    delete_l1_events: bool = Field(default=False, description="Also soft-delete L1 events in this range")
+
+
+@memory_router.post("/forget/time-range")
+async def forget_time_range(body: ForgetTimeRangeRequest):
+    """Cascade forget: invalidate L2 records inferred during a time range."""
+    if body.end <= body.start:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="end must be greater than start")
+
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+
+    l2_counts = await unified_memory.l2.forget_time_range(start=body.start, end=body.end)
+
+    l1_deleted = 0
+    if body.delete_l1_events and unified_memory.l1 is not None:
+        events = await unified_memory.l1.query_events(start_time=body.start, end_time=body.end, limit=10000)
+        for ev in events:
+            eid = ev.get("event_id") or ev.get("id")
+            if eid and await unified_memory.l1.mark_deleted(str(eid)):
+                l1_deleted += 1
+
+    return {"l2_counts": l2_counts, "l1_events_deleted": l1_deleted}
+
+
+class ForgetEpisodeRequest(BaseModel):
+    episode_id: str = Field(..., min_length=1, max_length=500)
+    delete_events: bool = Field(default=False, description="Also soft-delete member L1 events")
+
+
+@memory_router.post("/forget/episode")
+async def forget_episode(body: ForgetEpisodeRequest):
+    """Invalidate a specific episode and optionally its member events."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="L2 store not initialized")
+
+    result = await unified_memory.l2.forget_episode(
+        episode_id=body.episode_id,
+        delete_events=body.delete_events,
+    )
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+
+    l1_deleted = 0
+    if body.delete_events and unified_memory.l1 is not None:
+        for eid in result.get("event_ids", []):
+            if await unified_memory.l1.mark_deleted(eid):
+                l1_deleted += 1
+
+    return {**result, "l1_events_deleted": l1_deleted}

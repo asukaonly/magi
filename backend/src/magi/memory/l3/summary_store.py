@@ -401,7 +401,7 @@ class L3SummaryStore:
             )
         )
         semantic_task = asyncio.ensure_future(
-            self._semantic_search_summaries(
+            self.vector_search(
                 query=query,
                 summary_type=summary_type,
                 summary_category=summary_category,
@@ -409,7 +409,7 @@ class L3SummaryStore:
             )
         )
         keyword_task = asyncio.ensure_future(
-            self._keyword_search_summaries(
+            self.keyword_search(
                 query=query,
                 summary_type=summary_type,
                 summary_category=summary_category,
@@ -421,7 +421,7 @@ class L3SummaryStore:
 
         bm25_ids: List[str] = [summary_id for summary_id, _score in results_or_errors[0]] if isinstance(results_or_errors[0], list) else []
         semantic_ids: List[str] = [item["summary_id"] for item in results_or_errors[1]] if isinstance(results_or_errors[1], list) else []
-        keyword_ids: List[str] = [item["summary_id"] for item in results_or_errors[2]] if isinstance(results_or_errors[2], list) else []
+        keyword_ids: List[str] = list(results_or_errors[2]) if isinstance(results_or_errors[2], list) else []
 
         for index, result in enumerate(results_or_errors):
             if isinstance(result, BaseException):
@@ -438,7 +438,7 @@ class L3SummaryStore:
         summary_ids = [summary_id for summary_id, _score in fused[:fetch_k]]
         if not summary_ids:
             return []
-        summaries = await self._fetch_summaries_by_ids(
+        summaries = await self.fetch_by_ids(
             summary_ids,
             summary_type=summary_type,
             summary_category=summary_category,
@@ -908,13 +908,13 @@ class L3SummaryStore:
             vector_index=self._vector_index,
         )
 
-    async def _semantic_search_summaries(
+    async def vector_search(
         self,
         *,
         query: str,
-        summary_type: Optional[str],
-        summary_category: Optional[str],
-        limit: int,
+        summary_type: Optional[str] = None,
+        summary_category: Optional[str] = None,
+        limit: int = 50,
     ) -> List[Dict[str, Any]]:
         if not self._vectors_enabled() or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
@@ -931,7 +931,7 @@ class L3SummaryStore:
         summary_ids, matched_chunks = await self._fold_summary_chunk_hits(hits)
         if not summary_ids:
             return []
-        summaries = await self._fetch_summaries_by_ids(
+        summaries = await self.fetch_by_ids(
             summary_ids,
             summary_type=summary_type,
             summary_category=summary_category,
@@ -950,16 +950,18 @@ class L3SummaryStore:
                 break
         return ranked
 
-    async def _keyword_search_summaries(
+    async def keyword_search(
         self,
         *,
         query: str,
-        summary_type: Optional[str],
-        summary_category: Optional[str],
-        limit: int,
-    ) -> List[Dict[str, Any]]:
-        sql = "SELECT * FROM summaries WHERE content LIKE ?"
-        args: List[Any] = [f"%{query}%"]
+        summary_type: Optional[str] = None,
+        summary_category: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[str]:
+        """Return summary IDs matching *query* via LIKE keyword search."""
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        sql = "SELECT summary_id FROM summaries WHERE content LIKE ? ESCAPE '\\'"
+        args: List[Any] = [f"%{escaped}%"]
         if summary_type:
             sql += " AND summary_type = ?"
             args.append(summary_type)
@@ -969,17 +971,16 @@ class L3SummaryStore:
         sql += " ORDER BY updated_at DESC LIMIT ?"
         args.append(int(limit))
         async with sqlite_connection_async(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        return [str(row[0]) for row in rows]
 
-    async def _fetch_summaries_by_ids(
+    async def fetch_by_ids(
         self,
         summary_ids: List[str],
         *,
-        summary_type: Optional[str],
-        summary_category: Optional[str],
+        summary_type: Optional[str] = None,
+        summary_category: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         if not summary_ids:
             return []

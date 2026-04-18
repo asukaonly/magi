@@ -1,12 +1,10 @@
-param(
-  [string]$TargetTriple = "x86_64-pc-windows-msvc"
-)
+param()
 
 $ErrorActionPreference = "Stop"
 
 $RootDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $BackendDir = Join-Path $RootDir "backend"
-$TauriBinDir = Join-Path $RootDir "frontend/src-tauri/binaries"
+$SidecarStaging = Join-Path $RootDir "frontend/src-tauri/sidecar-dist"
 
 # Use the project venv Python (3.12) — must match the backend runtime.
 $VenvPython = Join-Path $RootDir ".venv/Scripts/python.exe"
@@ -20,8 +18,6 @@ Write-Host "Using venv Python: $PythonExe"
 if ($LASTEXITCODE -ne 0) {
   throw "PyInstaller is required. Install with: $PythonExe -m pip install pyinstaller"
 }
-
-New-Item -ItemType Directory -Force -Path $TauriBinDir | Out-Null
 
 Push-Location $BackendDir
 $OrigPythonPath = $env:PYTHONPATH
@@ -54,13 +50,16 @@ if ($LASTEXITCODE -ne 0) {
 $env:PYTHONPATH = $OrigPythonPath
 Pop-Location
 
-$SourceBin = Join-Path $BackendDir "dist/magi-backend.exe"
-$TargetBin = Join-Path $TauriBinDir ("magi-backend-{0}.exe" -f $TargetTriple)
+$SourceDir = Join-Path $BackendDir "dist/magi-backend"
+$SourceBin = Join-Path $SourceDir "magi-backend.exe"
 
 if (-not (Test-Path $SourceBin)) {
   throw "Sidecar binary not found at $SourceBin"
 }
 
-Copy-Item -Force $SourceBin $TargetBin
-Write-Host "Built sidecar: $TargetBin"
+# Copy entire --onedir output to Tauri resource staging
+if (Test-Path $SidecarStaging) { Remove-Item -Recurse -Force $SidecarStaging }
+Copy-Item -Recurse -Force $SourceDir $SidecarStaging
+
+Write-Host "Built sidecar (onedir): $SidecarStaging"
 

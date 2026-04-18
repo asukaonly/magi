@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { messagesApi } from '@/api';
 import type { ChatAttachment } from '@/api';
 import { configApi } from '@/api/modules/config';
-import { personalityApi } from '@/api/modules/personality';
+import { personasApi } from '@/api/modules/personas';
 import { DEFAULT_USER_ID } from '@/constants';
 import { getRuntimeConfig } from '@/runtime/config';
 import { pickDirectory } from '@/runtime/desktop';
@@ -717,7 +717,7 @@ export const ChatPage: React.FC = () => {
   const loadPersonality = useCallback(
     async () => {
       try {
-        const response = await personalityApi.getGreeting();
+        const response = await personasApi.getGreeting();
         const data = response.data as {
           greeting?: string;
           name?: string;
@@ -730,7 +730,7 @@ export const ChatPage: React.FC = () => {
 
           if (data.needs_bootstrap && currentSessionId) {
             try {
-              const initResp = await personalityApi.bootstrapInit(currentSessionId, USER_ID);
+              const initResp = await personasApi.bootstrapInit(currentSessionId, USER_ID);
               const initData = initResp.data as { bootstrap_active?: boolean; opening?: string } | undefined;
               if (initData?.bootstrap_active && initData.opening) {
                 setBootstrapActive(true);
@@ -1085,7 +1085,7 @@ export const ChatPage: React.FC = () => {
         setComposerReplyTarget(null);
 
         const bsHistory = [...bootstrapHistoryRef.current];
-        const bsResp = await personalityApi.bootstrapMessage({
+        const bsResp = await personasApi.bootstrapMessage({
           user_message: messageContent,
           history: bsHistory,
           user_id: USER_ID,

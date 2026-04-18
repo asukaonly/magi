@@ -72,6 +72,7 @@ yarn-error.log
 # Build output
 dist/
 build/
+sidecar-dist/
 
 # Cache
 .cache/
@@ -98,3 +99,4 @@ docs/dev/
 
 # Benchmark outputs
 outputs/
+backend/magi-backend.spec

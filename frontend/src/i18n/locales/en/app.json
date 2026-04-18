@@ -552,7 +552,6 @@
       "loopInterval": "Loop Interval (sec)",
       "busBackend": "Message Bus Backend",
       "busQueueSize": "Bus Queue Size",
-
       "logLevel": "Log Level",
       "clearMemory": "Clear All Memory",
       "clearMemoryDesc": "Clear all memory data from L1-L5 layers. This action is irreversible, use with caution.",
@@ -1195,9 +1194,18 @@
         "name": "Photo Library",
         "description": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline",
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval" },
-          "analysis_features": { "exif": "EXIF Metadata", "geocode": "GPS Geocoding" }
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Interval"
+          },
+          "analysis_features": {
+            "exif": "EXIF Metadata",
+            "geocode": "GPS Geocoding"
+          }
         },
         "fields": {
           "enabled": {
@@ -1230,7 +1238,9 @@
             "description": "Metadata extraction capabilities to apply."
           }
         },
-        "sections": { "general": "General" }
+        "sections": {
+          "general": "General"
+        }
       },
       "core-tools": {
         "name": "Core Tools",
@@ -1240,9 +1250,15 @@
         "name": "Core Actions",
         "description": "Built-in actions for agent outbound capabilities",
         "options": {
-          "delivery_mode": { "console": "Console (Debug)", "smtp": "SMTP", "sendgrid": "SendGrid" }
+          "delivery_mode": {
+            "console": "Console (Debug)",
+            "smtp": "SMTP",
+            "sendgrid": "SendGrid"
+          }
         },
-        "sections": { "email": "Email" }
+        "sections": {
+          "email": "Email"
+        }
       },
       "calendar": {
         "name": "Calendar",
@@ -1270,7 +1286,10 @@
           }
         },
         "options": {
-          "sync_mode": { "manual": "Manual", "interval": "Scheduled" },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Scheduled"
+          },
           "sync_interval_minutes": {
             "15": "15 minutes",
             "30": "30 minutes",
@@ -1278,7 +1297,10 @@
             "360": "6 hours"
           }
         },
-        "sections": { "general": "General", "sync": "Sync" },
+        "sections": {
+          "general": "General",
+          "sync": "Sync"
+        },
         "activation": {
           "title": "Connect Calendar",
           "description": "Allow Magi to read your calendar events for timeline sync.",
@@ -1322,16 +1344,31 @@
           }
         },
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
-          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Interval"
+          },
+          "default_retention_mode": {
+            "analyze_only": "Analyze Only",
+            "retain_raw": "Retain Raw"
+          },
+          "storage_mode": {
+            "managed": "Managed",
+            "external_reference": "External Reference"
+          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
             "from_now": "Only new records from now on"
           },
-          "fetch_page_content": { "true": "Yes", "false": "No" }
+          "fetch_page_content": {
+            "true": "Yes",
+            "false": "No"
+          }
         },
         "sections": {
           "general": "General",
@@ -1344,8 +1381,14 @@
         "name": "Git Activity",
         "description": "Git repository activity ingestion for the timeline",
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" },
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "default_retention_mode": {
+            "analyze_only": "Analyze Only",
+            "full": "Full Retention"
+          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
@@ -1357,23 +1400,43 @@
             "include": "Include all content"
           }
         },
-        "sections": { "general": "General", "retention": "Retention", "privacy": "Privacy" }
+        "sections": {
+          "general": "General",
+          "retention": "Retention",
+          "privacy": "Privacy"
+        }
       },
       "netease-music": {
         "name": "NetEase Cloud Music",
         "description": "Sync NetEase Cloud Music play history to timeline (Windows & macOS)",
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
-          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "sync_mode": {
+            "manual": "Manual",
+            "interval": "Interval",
+            "watch": "Watch"
+          },
+          "default_retention_mode": {
+            "analyze_only": "Analyze Only",
+            "retain_raw": "Retain Raw"
+          },
+          "storage_mode": {
+            "managed": "Managed",
+            "external_reference": "External Reference"
+          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
             "from_now": "Only new tracks from now"
           }
         },
-        "sections": { "general": "General", "storage": "Storage" }
+        "sections": {
+          "general": "General",
+          "storage": "Storage"
+        }
       },
       "screen-time": {
         "name": "App Usage",
@@ -1396,7 +1459,10 @@
             "60": "Every 60 minutes"
           }
         },
-        "sections": { "general": "General", "sync": "Sync" }
+        "sections": {
+          "general": "General",
+          "sync": "Sync"
+        }
       },
       "system-media": {
         "name": "Media Playback",
@@ -1426,14 +1492,23 @@
             "15": "Every 15 minutes"
           }
         },
-        "sections": { "general": "General", "sync": "Sync" }
+        "sections": {
+          "general": "General",
+          "sync": "Sync"
+        }
       },
       "terminal-history": {
         "name": "Terminal History",
         "description": "Terminal command history ingestion for the timeline",
         "options": {
-          "enabled": { "true": "Enabled", "false": "Disabled" },
-          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "enabled": {
+            "true": "Enabled",
+            "false": "Disabled"
+          },
+          "default_retention_mode": {
+            "analyze_only": "Analyze Only",
+            "retain_raw": "Retain Raw"
+          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
@@ -1452,8 +1527,7 @@
           "activation": "Activation"
         }
       }
-    },
-    "saving": "Saving..."
+    }
   },
   "memory": {
     "title": "Memory Viewer",
@@ -1468,13 +1542,13 @@
     },
     "overview": {
       "eyebrow": "Memory Atlas",
-      "subtitle": "Start with cross-layer search, overall signals, layer entry cards, and recent changes before choosing where to go deeper.",
+      "subtitle": "View storage status, search memory contents, and handle items that need attention.",
       "searchLabel": "Cross-layer search",
       "searchResultsTitle": "Search results",
       "searchResultsBody": "Cross-layer clues for \"{{query}}\" are collected here first so you can quickly decide which workspace is worth opening next.",
       "searchIdleBody": "Once you enter a keyword, this area gathers the relevant clues into a calmer, easier-to-read surface.",
       "searchIdleHint": "No search results yet. Try a preference, person, place, or skill name, then follow the densest layer.",
-      "noSearchResults": "No matching memory surfaced yet. Try a more specific term, or enter a layer directly from the overview below.",
+      "noSearchResults": "No matching memory found. Try a more specific keyword.",
       "matchesLabel": "matches",
       "workspaceTitle": "Layer entry points",
       "workspaceBody": "Use this area to move into each independent memory page. Every layer keeps its own filtering model and reading rhythm so you can go deeper without losing orientation.",
@@ -1494,7 +1568,15 @@
         "summaryTitle": "Fresh reflections",
         "relationTitle": "Knowledge graph size",
         "skillTitle": "Skill memory entries"
-      }
+      },
+      "storageSummary": "{{total}} memories · {{size}}",
+      "matchCount": "{{count}} matches",
+      "viewAll": "View all",
+      "attentionTitle": "Needs attention ({{count}})",
+      "pendingAssertions": "{{count}} knowledge assertions pending review",
+      "openBreakers": "{{count}} skills with open circuit breakers",
+      "allClear": "All clear — nothing needs your attention right now.",
+      "storageSummaryCompact": "{{total}} memories"
     },
     "pages": {
       "workbench": {
@@ -1855,9 +1937,7 @@
     "saving": "Saving...",
     "sections": {
       "basicInfo": "Basic Profile",
-      "psychologicalTraits": "Psychological Traits",
-      "socialResponses": "Social Responses",
-      "behavioralStrategies": "Behavioral Strategies",
+      "coreIdentity": "Core Identity",
       "cachedPhrases": "Cached Phrases",
       "appearance": "Appearance Prompt",
       "stateTransitionProtocol": "State Transition Protocol"
@@ -1867,16 +1947,9 @@
       "age": "Age",
       "gender": "Gender",
       "occupation": "Occupation",
-      "coreBackground": "Core Background",
-      "communicationTone": "Communication Tone",
-      "confidenceLevel": "Confidence Level",
-      "empathyThreshold": "Empathy Threshold",
-      "highFrequencyKeywords": "High Frequency Keywords (comma separated)",
-      "praiseReaction": "Praise Reaction",
-      "criticismReaction": "Criticism Reaction",
-      "obedienceStrategy": "Obedience Strategy",
-      "errorHandling": "Error Handling",
-      "refusalStyle": "Refusal Style",
+      "innerNarrative": "Inner Narrative",
+      "languageFingerprint": "Language Fingerprint",
+      "attentionBias": "Attention Bias",
       "onInit": "On Init (one per line)",
       "onError": "On Error (one per line)",
       "onSuccess": "On Success (one per line)",

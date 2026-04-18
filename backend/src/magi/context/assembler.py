@@ -21,6 +21,7 @@ from .schema import (
     ToolCatalogContext,
 )
 from .scenario_prompts import ScenarioPromptsStore
+from .user_profile_service import UserProfileService
 from ..personality.persona_journal_service import PersonaJournalService
 
 
@@ -47,10 +48,11 @@ BOUNDARY_TEMPLATE = "\n".join(
 class PromptContextAssembler:
     """Builds reusable modular prompt contexts."""
 
-    def __init__(self, tool_registry=None, scenario_prompts_store=None, persona_journal_service=None):
+    def __init__(self, tool_registry=None, scenario_prompts_store=None, persona_journal_service=None, user_profile_service=None):
         self.tool_registry = tool_registry
         self.scenario_prompts_store = scenario_prompts_store
         self.persona_journal_service: PersonaJournalService | None = persona_journal_service
+        self.user_profile_service: UserProfileService | None = user_profile_service
 
     async def assemble(
         self,
@@ -61,7 +63,6 @@ class PromptContextAssembler:
         task_category: str,
         user_id: str,
         self_memory=None,
-        other_memory=None,
         tool_result: Optional[Dict[str, Any]] = None,
         retrieved_memory_payload: Optional[Dict[str, Any]] = None,
         state_transition_override: Optional[str] = None,
@@ -72,7 +73,6 @@ class PromptContextAssembler:
         identity = self._build_identity_constraints()
         self_mem = await self._build_self_memory_context(
             self_memory=self_memory,
-            other_memory=other_memory,
             user_id=user_id,
             task_category=task_category,
             retrieved_memory_payload=retrieved_memory_payload,
@@ -82,7 +82,6 @@ class PromptContextAssembler:
         )
         profile = await self._build_profile_memory_context(
             self_memory=self_memory,
-            other_memory=other_memory,
             user_id=user_id,
         )
         runtime = self._build_runtime_system_context(
@@ -116,7 +115,6 @@ class PromptContextAssembler:
         self,
         *,
         self_memory,
-        other_memory,
         user_id: str,
         task_category: str,
         retrieved_memory_payload: Optional[Dict[str, Any]],
@@ -126,6 +124,8 @@ class PromptContextAssembler:
     ) -> SelfMemoryContext:
         persona_entity: Dict[str, Any] = {}
         dynamic_state: Dict[str, Any] = {}
+        active_stp_trigger = ""
+        active_stp_state_name = ""
 
         if self_memory is not None:
             config = await self_memory.get_core_personality()
@@ -144,12 +144,12 @@ class PromptContextAssembler:
                 "energy_level": float(getattr(emotion, "energy_level", 0.7)),
                 "stress_level": float(getattr(emotion, "stress_level", 0.2)),
             }
+            active_stp_trigger = getattr(emotion, "active_stp_trigger", "") or ""
+            active_stp_state_name = getattr(emotion, "active_stp_state_name", "") or ""
 
         user_pref_memory: Dict[str, Any] = {}
-        if other_memory is not None and user_id:
-            profile = other_memory.get_profile(user_id)
-            if profile is not None:
-                user_pref_memory = dict(getattr(profile, "preferences", {}) or {})
+        if self.user_profile_service is not None and user_id:
+            user_pref_memory = await self.user_profile_service.get_preference_summary(user_id)
 
         payload = retrieved_memory_payload or {}
         retrieval_memory = RetrievalMemoryContext(
@@ -177,16 +177,22 @@ class PromptContextAssembler:
             user_id=user_id,
         )
 
-        # Load state transition protocol rules
+        # Load state transition protocol rules — only inject the active trigger's
+        # rule (if any) to save tokens and reduce prompt noise.
         stp_rules: List[Dict[str, str]] = []
+        resolved_override = state_transition_override
         if self_memory is not None:
             config = await self_memory.get_core_personality()
             if hasattr(config, "state_transition_protocol") and config.state_transition_protocol:
                 for item in config.state_transition_protocol:
-                    rule: Dict[str, str] = {}
                     trigger_type = getattr(item, "trigger_type", "")
-                    if trigger_type:
-                        rule["trigger_type"] = trigger_type
+                    if not trigger_type:
+                        continue
+                    # When an STP trigger is active, include only its matching rule.
+                    if active_stp_trigger and trigger_type != active_stp_trigger:
+                        continue
+                    rule: Dict[str, str] = {}
+                    rule["trigger_type"] = trigger_type
                     condition = getattr(item, "trigger_condition", "")
                     if condition:
                         rule["trigger_condition"] = condition
@@ -196,8 +202,17 @@ class PromptContextAssembler:
                     shift = getattr(item, "behavior_shift", "")
                     if shift:
                         rule["behavior_shift"] = shift
-                    if rule:
-                        stp_rules.append(rule)
+                    stp_rules.append(rule)
+
+            # Promote the detected STP state name as the active override.
+            active_behavior_shift: Optional[str] = None
+            if active_stp_trigger and active_stp_state_name and not resolved_override:
+                resolved_override = active_stp_state_name
+                # Find the behavior_shift for the active trigger.
+                for item in config.state_transition_protocol:
+                    if getattr(item, "trigger_type", "") == active_stp_trigger:
+                        active_behavior_shift = getattr(item, "behavior_shift", "") or None
+                        break
 
         # Load recent persona journal entries
         journal_entries: List[Dict[str, Any]] = []
@@ -218,7 +233,8 @@ class PromptContextAssembler:
             persona_entity=persona_entity,
             dynamic_state=dynamic_state,
             retrieval_memory=retrieval_memory,
-            state_transition_override=state_transition_override,
+            state_transition_override=resolved_override,
+            state_transition_behavior_shift=active_behavior_shift if active_stp_trigger else None,
             state_transition_rules=stp_rules,
             scenario_prompt=scenario_prompt_text,
             active_persona_layers=active_layers,
@@ -291,15 +307,13 @@ class PromptContextAssembler:
 
         return active_layers
 
-    async def _build_profile_memory_context(self, *, self_memory, other_memory, user_id: str) -> ProfileMemoryContext:
+    async def _build_profile_memory_context(self, *, self_memory, user_id: str) -> ProfileMemoryContext:
         user_name = "unknown"
         preferences: Dict[str, Any] = {}
 
-        if other_memory is not None and user_id:
-            profile = other_memory.get_profile(user_id)
-            if profile is not None:
-                user_name = str(getattr(profile, "name", user_name) or user_name)
-                preferences = dict(getattr(profile, "preferences", {}) or {})
+        if self.user_profile_service is not None and user_id:
+            user_name = await self.user_profile_service.get_display_name(user_id)
+            preferences = await self.user_profile_service.get_preference_summary(user_id)
 
         relation: Dict[str, Any] = {}
         if self_memory is not None and user_id:
@@ -413,7 +427,10 @@ class PromptContextRenderer:
         lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
         lines.extend(self._render_scenario_prompt(context.self_memory.scenario_prompt))
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
-        lines.extend(self._render_state_override(context.self_memory.state_transition_override))
+        lines.extend(self._render_state_override(
+            context.self_memory.state_transition_override,
+            context.self_memory.state_transition_behavior_shift,
+        ))
         lines.extend(self._render_profile_memory(context.profile_memory))
         lines.extend(self._render_runtime_system(context.runtime_system))
         lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
@@ -422,63 +439,47 @@ class PromptContextRenderer:
         return "\n".join(lines).strip()
 
     def _render_persona_entity(self, persona: Dict[str, Any]) -> List[str]:
-        """Render persona entity as markdown."""
+        """Render persona entity as narrative-style markdown."""
         lines = ["# Persona Entity"]
 
         basic = persona.get("basic_profile", {}) or {}
         if basic:
-            lines.append("## Basic Profile")
             name = basic.get("name", "Unknown")
             age = basic.get("age", "Unknown")
             gender = basic.get("gender", "Unknown")
             occupation = basic.get("occupation", "Unknown")
             lines.append(f"* Name: {name} | Age: {age} | Gender: {gender} | Occupation: {occupation}")
-            core_bg = basic.get("core_background", "")
-            if core_bg:
-                lines.append(f"* Core Background: {core_bg}")
             lines.append("")
 
-        traits = persona.get("psychological_traits", {}) or {}
-        if traits:
-            lines.append("## Psychological Traits & Response Mechanisms")
-            tone = traits.get("communication_tone", "")
-            if tone:
-                lines.append(f"* Communication Tone: {tone}")
-            confidence = traits.get("confidence_level", "")
-            if confidence:
-                lines.append(f"* Confidence Level: {confidence}")
-            empathy = traits.get("empathy_threshold", "")
-            if empathy:
-                lines.append(f"* Empathy Threshold: {empathy}")
-            keywords = traits.get("high_frequency_keywords", [])
-            if keywords:
-                lines.append(f"* High-Frequency Keywords: {', '.join(keywords)}")
-            lines.append("")
+        identity = persona.get("core_identity", {}) or {}
+        if identity:
+            lines.append("## Core Identity")
+            narrative = identity.get("inner_narrative", "")
+            if narrative:
+                lines.append(narrative)
+                lines.append("")
+            fingerprint = identity.get("language_fingerprint", "")
+            if fingerprint:
+                lines.append("### Language & Expression")
+                lines.append(fingerprint)
+                lines.append("")
+            bias = identity.get("attention_bias", "")
+            if bias:
+                lines.append("### Attention Bias")
+                lines.append(bias)
+                lines.append("")
 
-        social = persona.get("social_responses", {}) or {}
-        if social:
-            lines.append("## Social Response Mechanisms")
-            praise = social.get("praise_reaction", "")
-            if praise:
-                lines.append(f"* Praise Reaction: {praise}")
-            criticism = social.get("criticism_reaction", "")
-            if criticism:
-                lines.append(f"* Criticism Reaction: {criticism}")
-            obedience = social.get("obedience_strategy", "")
-            if obedience:
-                lines.append(f"* Obedience Strategy: {obedience}")
-            lines.append("")
-
-        behavior = persona.get("behavioral_strategies", {}) or {}
-        if behavior:
-            lines.append("## Behavioral Strategies")
-            error_handling = behavior.get("error_handling", "")
-            if error_handling:
-                lines.append(f"* Error Handling: {error_handling}")
-            refusal = behavior.get("refusal_style", "")
-            if refusal:
-                lines.append(f"* Refusal Style: {refusal}")
-            lines.append("")
+        # Backward compatibility: render legacy fields if core_identity is absent
+        if not identity:
+            traits = persona.get("psychological_traits", {}) or {}
+            if traits:
+                tone = traits.get("communication_tone", "")
+                if tone:
+                    lines.append(f"* Communication Tone: {tone}")
+                keywords = traits.get("high_frequency_keywords", [])
+                if keywords:
+                    lines.append(f"* High-Frequency Keywords: {', '.join(keywords)}")
+                lines.append("")
 
         return lines
 
@@ -659,11 +660,17 @@ class PromptContextRenderer:
 
         return lines
 
-    def _render_state_override(self, override: Optional[str]) -> List[str]:
+    def _render_state_override(
+        self,
+        override: Optional[str],
+        behavior_shift: Optional[str] = None,
+    ) -> List[str]:
         """Render state transition override as markdown."""
         lines = ["# State Transition Override"]
         if override:
-            lines.append(f"* {override}")
+            lines.append(f"* Active State: {override}")
+            if behavior_shift:
+                lines.append(f"* Behavioral Directive: {behavior_shift}")
         else:
             lines.append("* N/A (using baseline persona)")
         lines.append("")

@@ -530,7 +530,6 @@ def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_m
             "data": {
                 "historical_recall": {
                     "status": "found",
-                    "recall_intent": "preference_recall",
                     "query_mode": "detail",
                     "summary": "You like rainy weather.",
                     "findings": [
@@ -571,7 +570,6 @@ def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_m
     assert payload["data"] == {
         "historical_recall": {
             "status": "found",
-            "recall_intent": "preference_recall",
             "query_mode": "detail",
             "summary": "You like rainy weather.",
             "findings": [

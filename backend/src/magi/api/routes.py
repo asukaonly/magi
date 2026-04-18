@@ -119,6 +119,13 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/avatar/upload": {"POST"},
         "/{preset_id}": {"GET"},
     },
+    "personas": {
+        "/": {"GET", "POST"},
+        "/active": {"GET", "PUT"},
+        "/seed-previews": {"GET"},
+        "/seed": {"POST"},
+        "/{persona_id}": {"GET", "PUT", "DELETE"},
+    },
 
 }
 
@@ -148,6 +155,7 @@ def register_api_routes(app: FastAPI) -> None:
         llm_router,
         personality_config_router,
         personality_presets_router,
+        personas_router,
         skills_router,
         sensors_router,
         timeline_router,
@@ -190,6 +198,11 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(personality_presets_router, _PUBLIC_ROUTE_METHODS["personality_presets"]),
         prefix="/api/personalities",
         tags=["Personality Presets"],
+    )
+    app.include_router(
+        _build_public_router(personas_router, _PUBLIC_ROUTE_METHODS["personas"]),
+        prefix="/api/personas",
+        tags=["Personas"],
     )
     app.include_router(
         _build_public_router(skills_router, _PUBLIC_ROUTE_METHODS["skills"]),

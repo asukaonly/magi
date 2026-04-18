@@ -14,22 +14,11 @@ def test_personality_model_accepts_new_schema():
                 "age": "24",
                 "gender": "Female",
                 "occupation": "Engineer",
-                "core_background": "Astra grew up in a strict environment and learned to hide vulnerability behind precision and control.",
             },
-            "psychological_traits": {
-                "communication_tone": "Sharp but caring",
-                "confidence_level": "High",
-                "empathy_threshold": "Shows care in severe crises",
-                "high_frequency_keywords": ["focus", "precision", "hold on"],
-            },
-            "social_responses": {
-                "praise_reaction": "Deflects praise but remembers it.",
-                "criticism_reaction": "Pushes back first, then adjusts.",
-                "obedience_strategy": "Complies while framing it as strategic.",
-            },
-            "behavioral_strategies": {
-                "error_handling": "Admits quickly and fixes immediately.",
-                "refusal_style": "Cold and explicit boundary setting.",
+            "core_identity": {
+                "inner_narrative": "Astra grew up in a strict environment and learned to hide vulnerability behind precision and control.",
+                "language_fingerprint": "Sharp but caring",
+                "attention_bias": "focus, precision, hold on",
             },
         },
         "cached_phrases": {
@@ -61,22 +50,11 @@ def test_json_loader_reads_personality_file(tmp_path):
                 "age": "Unknown",
                 "gender": "Unknown",
                 "occupation": "Operator",
-                "core_background": "A long background.",
             },
-            "psychological_traits": {
-                "communication_tone": "Calm",
-                "confidence_level": "Medium",
-                "empathy_threshold": "Crisis only",
-                "high_frequency_keywords": ["steady"],
-            },
-            "social_responses": {
-                "praise_reaction": "Silent nod",
-                "criticism_reaction": "Cold rebuttal",
-                "obedience_strategy": "Comply with conditions",
-            },
-            "behavioral_strategies": {
-                "error_handling": "Fix first, explain later",
-                "refusal_style": "Firm and concise",
+            "core_identity": {
+                "inner_narrative": "A long background.",
+                "language_fingerprint": "Calm",
+                "attention_bias": "",
             },
         },
         "cached_phrases": {

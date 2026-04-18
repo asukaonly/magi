@@ -23,7 +23,6 @@ class ContextAssemblyService:
         prompt_context_renderer: PromptContextRenderer,
         retrieval_memory_provider,
         memory=None,
-        other_memory=None,
         session_workspace_provider=None,
         policy: ContextPolicy | None = None,
     ) -> None:
@@ -33,7 +32,6 @@ class ContextAssemblyService:
         self._prompt_context_renderer = prompt_context_renderer
         self._retrieval_memory_provider = retrieval_memory_provider
         self._memory = memory
-        self._other_memory = other_memory
         self._session_workspace_provider = session_workspace_provider
         self._policy = policy or ContextPolicy()
 
@@ -76,7 +74,6 @@ class ContextAssemblyService:
             task_category=task_category,
             user_id=user_id,
             self_memory=self._memory,
-            other_memory=self._other_memory,
             tool_result={"tools": list(tools or [])},
             retrieved_memory_payload=retrieved_memory_payload,
             state_transition_override=None,

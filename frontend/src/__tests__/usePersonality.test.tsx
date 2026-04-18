@@ -2,7 +2,6 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePersonality } from '@/hooks';
-import { personalityApi } from '@/api';
 
 const tMock = (key: string, params?: Record<string, string>) => {
   if (key === 'personality.switchConfirm' && params) {
@@ -31,22 +30,21 @@ vi.mock('sonner', () => ({
   },
 }));
 
-vi.mock('@/api', async () => {
-  const actual = await vi.importActual<typeof import('@/api')>('@/api');
+const mockPersonasApi = vi.hoisted(() => ({
+  list: vi.fn(),
+  get: vi.fn(),
+  getActive: vi.fn(),
+  setActive: vi.fn(),
+  create: vi.fn(),
+  update: vi.fn(),
+  delete: vi.fn(),
+}));
+
+vi.mock('@/api/modules/personas', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/personas')>('@/api/modules/personas');
   return {
     ...actual,
-    personalityApi: {
-      ...actual.personalityApi,
-      list: vi.fn(),
-      get: vi.fn(),
-      getCurrent: vi.fn(),
-      setCurrent: vi.fn(),
-      compare: vi.fn(),
-      update: vi.fn(),
-      updateWithAIName: vi.fn(),
-      generate: vi.fn(),
-      delete: vi.fn(),
-    },
+    personasApi: mockPersonasApi,
   };
 });
 
@@ -59,22 +57,11 @@ const buildConfig = (name: string, onSwitchAttempt: string[] = []) => ({
       description: '',
       avatar: '',
       occupation: `${name}-occupation`,
-      core_background: '',
     },
-    psychological_traits: {
-      communication_tone: '',
-      confidence_level: 'Medium',
-      empathy_threshold: '',
-      high_frequency_keywords: [],
-    },
-    social_responses: {
-      praise_reaction: '',
-      criticism_reaction: '',
-      obedience_strategy: '',
-    },
-    behavioral_strategies: {
-      error_handling: '',
-      refusal_style: '',
+    core_identity: {
+      inner_narrative: '',
+      language_fingerprint: '',
+      attention_bias: '',
     },
   },
   cached_phrases: {
@@ -97,7 +84,7 @@ const buildConfig = (name: string, onSwitchAttempt: string[] = []) => ({
 const Harness = () => {
   const {
     list,
-    selectedName,
+    selectedId,
     switchPrompt,
     selectPersonality,
     switchPersonality,
@@ -106,9 +93,9 @@ const Harness = () => {
 
   return (
     <div>
-      <div data-testid="selected-name">{selectedName}</div>
+      <div data-testid="selected-id">{selectedId}</div>
       {list.map((item) => (
-        <button key={item.name} type="button" onClick={() => selectPersonality(item.name)}>
+        <button key={item.id} type="button" onClick={() => selectPersonality(item.id)}>
           {item.displayName}
         </button>
       ))}
@@ -141,38 +128,41 @@ const Harness = () => {
 describe('usePersonality', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(personalityApi.getCurrent).mockResolvedValue({
+    mockPersonasApi.getActive.mockResolvedValue({
       success: true,
-      message: 'ok',
+      persona_id: 'uuid-seven',
+    });
+    mockPersonasApi.list.mockResolvedValue({
+      data: [
+        { persona_id: 'uuid-seven', name: '七号', slug: 'seven', locale: 'zh', avatar_path: '', group_name: 'general', sort_order: 0, is_builtin: true, description: '' },
+        { persona_id: 'uuid-asuka', name: '惣流·明日香·兰格雷', slug: 'asuka', locale: 'zh', avatar_path: '', group_name: 'general', sort_order: 1, is_builtin: true, description: '' },
+      ],
+    });
+    mockPersonasApi.get.mockImplementation(async (id: string) => ({
       data: {
-        current: '七号',
-      },
-    } as any);
-    vi.mocked(personalityApi.list).mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: {
-        personalities: ['七号', '惣流·明日香·兰格雷'],
-      },
-    } as any);
-    vi.mocked(personalityApi.get).mockImplementation(async (name: string) => ({
-      success: true,
-      message: 'ok',
-      data:
-        name === '七号'
+        persona_id: id,
+        name: id === 'uuid-seven' ? '七号' : '惣流·明日香·兰格雷',
+        slug: id === 'uuid-seven' ? 'seven' : 'asuka',
+        locale: 'zh',
+        config: id === 'uuid-seven'
           ? buildConfig('七号', ['别急着走，再给我一次机会。'])
           : buildConfig('惣流·明日香·兰格雷'),
-    }) as any);
-    vi.mocked(personalityApi.setCurrent).mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: {
-        current: '惣流·明日香·兰格雷',
+        avatar_path: '',
+        group_name: 'general',
+        sort_order: 0,
+        is_builtin: true,
+        seed_slug: null,
+        created_at: 0,
+        updated_at: 0,
       },
-    } as any);
+    }));
+    mockPersonasApi.setActive.mockResolvedValue({
+      success: true,
+      persona_id: 'uuid-asuka',
+    });
   });
 
-  it('opens a retention prompt and switches without calling compare', async () => {
+  it('opens a retention prompt and switches via persona registry', async () => {
     const user = userEvent.setup();
 
     render(<Harness />);
@@ -180,14 +170,13 @@ describe('usePersonality', () => {
     await user.click(await screen.findByRole('button', { name: '惣流·明日香·兰格雷' }));
     await user.click(screen.getByRole('button', { name: 'personality.switch' }));
 
-    expect(personalityApi.compare).not.toHaveBeenCalled();
     expect(await screen.findByText('别急着走，再给我一次机会。')).toBeInTheDocument();
     expect(screen.getByText('switch:七号->惣流·明日香·兰格雷')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'personality.confirmSwitch' }));
 
     await waitFor(() =>
-      expect(personalityApi.setCurrent).toHaveBeenCalledWith('惣流·明日香·兰格雷')
+      expect(mockPersonasApi.setActive).toHaveBeenCalledWith('uuid-asuka')
     );
   });
 });

@@ -5,6 +5,7 @@ from .contracts import ContextPolicyDecision, PromptPackage
 from .policy import ContextPolicy
 from .retrieval import ContextRetrievalService
 from .service import ContextAssemblyService
+from .user_profile_service import UserProfileService
 from .scenarios import Scenario
 from .scenario_prompts import (
     DEFAULT_SCENARIO_PROMPTS,
@@ -41,5 +42,6 @@ __all__ = [
     "ScenarioPromptsStore",
     "SelfMemoryContext",
     "ToolCatalogContext",
+    "UserProfileService",
     "initialize_default_prompts",
 ]

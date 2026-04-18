@@ -13,7 +13,6 @@ from ...scheduler.contracts import (
     ScheduledTargetType,
 )
 from ...scheduler.service import SchedulerService
-from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .entity_maintenance import (
     L2EntityMaintenance,
     SCHEDULE_ID_L2_MAINTENANCE,
@@ -44,15 +43,8 @@ async def handle_l2_entity_maintenance(
     l2_cfg = memory_cfg.l2
     catalog = unified.l2_entity_catalog
     db_path = str(catalog.db_path)
-    embedding_service = getattr(catalog, "_embedding_service", None)
-    edge_vector_index: SqliteVecIndex | None = None
-    if embedding_service is not None:
-        edge_vector_index = SqliteVecIndex(
-            db_path=db_path,
-            registry_table="l2_edge_vectors",
-            entity_column="entity_id",
-            vec_table_prefix="l2_edge_vec",
-        )
+    embedding_service = catalog.embedding_service
+    edge_vector_index = catalog.edge_vector_index
     maint = L2EntityMaintenance(
         db_path=db_path,
         embedding_service=embedding_service,

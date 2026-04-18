@@ -11,9 +11,6 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import aiosqlite
-
-from ...core.sqlite import sqlite_connection_async
 from .answerability import (
     extract_query_tokens,
     extract_quoted_spans,
@@ -28,6 +25,7 @@ from .models import (
     TimeRange,
 )
 from .l2_handler import L2Handler
+from .protocols import L1StoreProtocol, L3StoreProtocol, L4StoreProtocol
 from .reranker import build_retrieval_reranker
 
 logger = logging.getLogger(__name__)
@@ -75,6 +73,15 @@ class RRFSearchHandler(abc.ABC):
         self._store = store
         self._config = config or RetrievalConfig()
         self._reranker = build_retrieval_reranker(self._config)
+
+    @property
+    def store(self) -> Any:
+        """Read-only access to the underlying store instance."""
+        return self._store
+
+    def with_config(self, config: RetrievalConfig) -> "RRFSearchHandler":
+        """Return a new handler sharing the same store but with *config*."""
+        return self.__class__(self._store, config)
 
     async def _rrf_execute(
         self,
@@ -159,13 +166,17 @@ class L1Handler(RRFSearchHandler):
 
     def __init__(
         self,
-        l1_store: Any,
+        l1_store: L1StoreProtocol,
         config: Optional[RetrievalConfig] = None,
         *,
         l2_store: Any = None,
     ) -> None:
         super().__init__(l1_store, config)
         self._l2_store = l2_store
+
+    def with_config(self, config: RetrievalConfig) -> "L1Handler":
+        """Return a new L1Handler sharing stores but with *config*."""
+        return L1Handler(self._store, config, l2_store=self._l2_store)
 
     async def execute(
         self,
@@ -333,16 +344,10 @@ class L1Handler(RRFSearchHandler):
             decay=cfg.graph_spreading_decay,
         )
 
-        # Resolve seed event_ids → entity_ids via l1_event_entities
+        # Resolve seed event_ids → entity_ids
         seed_entity_ids: List[str] = []
         try:
-            ph = ", ".join("?" for _ in seed_event_ids)
-            async with sqlite_connection_async(self._store.db_path) as db:
-                async with db.execute(
-                    f"SELECT DISTINCT entity_id FROM l1_event_entities WHERE event_id IN ({ph})",
-                    tuple(seed_event_ids),
-                ) as cursor:
-                    seed_entity_ids = [row[0] for row in await cursor.fetchall()]
+            seed_entity_ids = await self._store.resolve_event_entities(seed_event_ids)
         except Exception as exc:
             logger.warning("Graph spreading seed resolution failed: %s", exc)
             return []
@@ -356,7 +361,7 @@ class L1Handler(RRFSearchHandler):
         )
 
         if not result.scored_event_ids:
-            # Fall back to discovered entities → l1_event_entities lookup
+            # Fall back to discovered entities → event lookup
             if result.discovered_entities:
                 try:
                     top_entities = sorted(
@@ -365,20 +370,12 @@ class L1Handler(RRFSearchHandler):
                         reverse=True,
                     )[:20]
                     entity_ids_to_lookup = [eid for eid, _ in top_entities]
-                    eph = ", ".join("?" for _ in entity_ids_to_lookup)
-                    async with sqlite_connection_async(self._store.db_path) as db:
-                        async with db.execute(
-                            f"SELECT event_id, COUNT(DISTINCT entity_id) AS shared"
-                            f" FROM l1_event_entities"
-                            f" WHERE entity_id IN ({eph})"
-                            f" GROUP BY event_id"
-                            f" ORDER BY shared DESC"
-                            f" LIMIT ?",
-                            (*entity_ids_to_lookup, limit),
-                        ) as cursor:
-                            rows = await cursor.fetchall()
-                    exclude = set(seed_event_ids)
-                    return [r[0] for r in rows if r[0] not in exclude][:limit]
+                    rows = await self._store.find_events_by_entities(
+                        entity_ids_to_lookup,
+                        exclude_event_ids=seed_event_ids,
+                        limit=limit,
+                    )
+                    return [eid for eid, _ in rows]
                 except Exception as exc:
                     logger.warning("Graph spreading entity→event lookup failed: %s", exc)
             return []
@@ -440,7 +437,7 @@ class L1Handler(RRFSearchHandler):
             # With ~10 chunks/event, we need ~10x the desired event count.
             chunk_density_multiplier = 10
             vec_limit = limit * chunk_density_multiplier
-            hits = await self._store._semantic_search_event_hits(
+            hits = await self._store.vector_search(
                 query=query, limit=vec_limit, user_id=user_id,
             )
             if not hits:
@@ -502,19 +499,7 @@ class L1Handler(RRFSearchHandler):
 
     async def _filter_ids_by_user(self, event_ids: List[str], user_id: str) -> List[str]:
         """Return the subset of *event_ids* that belong to *user_id*."""
-        if not event_ids:
-            return []
-        placeholders = ", ".join("?" for _ in event_ids)
-        query = (
-            f"SELECT event_id FROM fact_events"
-            f" WHERE event_id IN ({placeholders}) AND user_id = ? AND deleted_at IS NULL"
-        )
-        args = [*event_ids, user_id]
-        async with sqlite_connection_async(self._store.db_path) as db:
-            async with db.execute(query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        valid = {str(row[0]) for row in rows}
-        return [eid for eid in event_ids if eid in valid]
+        return await self._store.filter_ids_by_user(event_ids, user_id)
 
     async def _fetch_and_filter(
         self,
@@ -531,71 +516,24 @@ class L1Handler(RRFSearchHandler):
         if not event_ids:
             return []
 
-        query = "SELECT * FROM fact_events WHERE deleted_at IS NULL"
-        args: list[Any] = []
-        placeholders = ", ".join("?" for _ in event_ids)
-        query += f" AND event_id IN ({placeholders})"
-        args.extend(event_ids)
-
-        if session_id:
-            query += " AND session_id = ?"
-            args.append(session_id)
-        if user_id:
-            query += " AND user_id = ?"
-            args.append(user_id)
-        if conditions.event_types:
-            et_ph = ", ".join("?" for _ in conditions.event_types)
-            query += f" AND event_type IN ({et_ph})"
-            args.extend(conditions.event_types)
-        if conditions.source_filters:
-            sf_ph = ", ".join("?" for _ in conditions.source_filters)
-            query += f" AND source IN ({sf_ph})"
-            args.extend(conditions.source_filters)
-        if conditions.domain_filters:
-            domain_ints = []
-            for df in conditions.domain_filters:
-                try:
-                    domain_ints.append(int(MemoryDomain.from_value(df)))
-                except (ValueError, KeyError):
-                    pass
-            if domain_ints:
-                df_ph = ", ".join("?" for _ in domain_ints)
-                query += f" AND memory_domain IN ({df_ph})"
-                args.extend(domain_ints)
-        else:
-            query += " AND memory_domain != ?"
-            args.append(int(MemoryDomain.RUNTIME_TELEMETRY))
-
-        # Temporal pre-filter: push time_range into SQL to avoid
-        # wasting hydration slots on out-of-range events.
-        if time_range:
-            if time_range.start is not None:
-                query += " AND timestamp >= ?"
-                args.append(time_range.start)
-            if time_range.end is not None:
-                query += " AND timestamp <= ?"
-                args.append(time_range.end)
-
-        async with sqlite_connection_async(self._store.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-
-        events_by_id = {str(row["event_id"]): self._store._row_to_dict(row) for row in rows}
-
-        # Preserve RRF rank ordering
-        results = [events_by_id[eid] for eid in event_ids if eid in events_by_id]
-
-        # Time range is already enforced via SQL WHERE clauses above;
-        # no redundant Python post-filter needed.
-        return results
+        return await self._store.fetch_events(
+            event_ids,
+            session_id=session_id,
+            user_id=user_id,
+            event_types=conditions.event_types or None,
+            source_filters=conditions.source_filters or None,
+            domain_filters=conditions.domain_filters or None,
+            exclude_domain=MemoryDomain.RUNTIME_TELEMETRY.label if not conditions.domain_filters else None,
+            time_start=time_range.start if time_range else None,
+            time_end=time_range.end if time_range else None,
+        )
 
 class L3Handler(RRFSearchHandler):
     """Execute L3 summary store queries with triple-path RRF fusion."""
 
     layer_name = "L3"
 
-    def __init__(self, l3_store: Any, config: Optional[RetrievalConfig] = None) -> None:
+    def __init__(self, l3_store: L3StoreProtocol, config: Optional[RetrievalConfig] = None) -> None:
         super().__init__(l3_store, config)
 
     async def execute(
@@ -647,7 +585,7 @@ class L3Handler(RRFSearchHandler):
         limit: int,
     ) -> List[str]:
         try:
-            results = await self._store._semantic_search_summaries(
+            results = await self._store.vector_search(
                 query=query,
                 summary_type=summary_type,
                 summary_category=summary_category,
@@ -666,21 +604,12 @@ class L3Handler(RRFSearchHandler):
         limit: int,
     ) -> List[str]:
         try:
-            sql = "SELECT summary_id FROM summaries WHERE content LIKE ? ESCAPE '\\'"
-            escaped_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            args: list[Any] = [f"%{escaped_query}%"]
-            if summary_type:
-                sql += " AND summary_type = ?"
-                args.append(summary_type)
-            if summary_category:
-                sql += " AND summary_category = ?"
-                args.append(summary_category)
-            sql += " ORDER BY updated_at DESC LIMIT ?"
-            args.append(limit)
-            async with sqlite_connection_async(self._store.db_path) as db:
-                async with db.execute(sql, tuple(args)) as cursor:
-                    rows = await cursor.fetchall()
-            return [str(row[0]) for row in rows]
+            return await self._store.keyword_search(
+                query=query,
+                summary_type=summary_type,
+                summary_category=summary_category,
+                limit=limit,
+            )
         except Exception as exc:
             logger.warning("L3 keyword path failed: %s", exc)
             return []
@@ -691,24 +620,11 @@ class L3Handler(RRFSearchHandler):
         summary_type: Optional[str],
         summary_category: Optional[str],
     ) -> List[Dict[str, Any]]:
-        if not summary_ids:
-            return []
-
-        placeholders = ", ".join("?" for _ in summary_ids)
-        sql = f"SELECT * FROM summaries WHERE summary_id IN ({placeholders})"
-        args: list[Any] = list(summary_ids)
-        if summary_type:
-            sql += " AND summary_type = ?"
-            args.append(summary_type)
-        if summary_category:
-            sql += " AND summary_category = ?"
-            args.append(summary_category)
-        async with sqlite_connection_async(self._store.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        by_id = {str(row["summary_id"]): self._store._row_to_dict(row) for row in rows}
-        return [by_id[sid] for sid in summary_ids if sid in by_id]
+        return await self._store.fetch_by_ids(
+            summary_ids,
+            summary_type=summary_type,
+            summary_category=summary_category,
+        )
 
     @staticmethod
     def _filter_by_time(results: List[Dict[str, Any]], time_range: TimeRange) -> List[Dict[str, Any]]:
@@ -732,7 +648,7 @@ class L4Handler(RRFSearchHandler):
 
     layer_name = "L4"
 
-    def __init__(self, l4_store: Any, config: Optional[RetrievalConfig] = None) -> None:
+    def __init__(self, l4_store: L4StoreProtocol, config: Optional[RetrievalConfig] = None) -> None:
         super().__init__(l4_store, config)
 
     async def execute(
@@ -769,38 +685,13 @@ class L4Handler(RRFSearchHandler):
 
     async def _keyword_path(self, query: str, limit: int) -> List[str]:
         try:
-            escaped_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            like_query = f"%{escaped_query}%"
-            async with sqlite_connection_async(self._store.db_path) as db:
-                async with db.execute(
-                    """
-                    SELECT skill_id FROM procedural_skills
-                    WHERE skill_name LIKE ? ESCAPE '\\' OR COALESCE(optimized_prompt, '') LIKE ? ESCAPE '\\'
-                    ORDER BY success_rate DESC, updated_at DESC
-                    LIMIT ?
-                    """,
-                    (like_query, like_query, limit),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-            return [str(row[0]) for row in rows]
+            return await self._store.keyword_search(query, limit=limit)
         except Exception as exc:
             logger.warning("L4 keyword path failed: %s", exc)
             return []
 
     async def _fetch_by_ids(self, skill_ids: List[str]) -> List[Dict[str, Any]]:
-        if not skill_ids:
-            return []
-
-        placeholders = ", ".join("?" for _ in skill_ids)
-        async with sqlite_connection_async(self._store.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",
-                tuple(skill_ids),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        by_id = {str(row["skill_id"]): self._store._row_to_dict(row) for row in rows}
-        return [by_id[sid] for sid in skill_ids if sid in by_id]
+        return await self._store.fetch_by_ids(skill_ids)
 
 
 async def execute_plan(

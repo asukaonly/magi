@@ -143,10 +143,11 @@ def test_build_persona_context_returns_none_for_default() -> None:
 
 def test_build_persona_context_returns_dict_for_valid_personality() -> None:
     fake_persona = SimpleNamespace(
-        basic_profile=SimpleNamespace(name="Melchior", core_background="A wise scholar"),
-        psychological_traits=SimpleNamespace(
-            communication_tone="warm and reflective",
-            high_frequency_keywords=["insight", "growth"],
+        basic_profile=SimpleNamespace(name="Melchior"),
+        core_identity=SimpleNamespace(
+            inner_narrative="A wise scholar",
+            language_fingerprint="warm and reflective",
+            attention_bias="insight, growth",
         ),
     )
     fake_config = SimpleNamespace(persona_entity=fake_persona)

@@ -18,6 +18,10 @@ use state::ApiState;
 use tower_http::cors::{Any, CorsLayer};
 
 pub fn build_router(state: ApiState) -> Router {
+    // Eagerly warm the sysinfo cache in a background thread so the
+    // first /api/metrics/runtime/overview request is fast.
+    metrics::warm_sysinfo_cache();
+
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -101,6 +105,10 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/metrics/llm/usage/timeseries",
             axum::routing::get(metrics::llm_usage_timeseries),
+        )
+        .route(
+            "/api/metrics/runtime/overview",
+            axum::routing::get(metrics::runtime_overview),
         )
         // Memory
         .route(

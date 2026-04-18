@@ -10,6 +10,7 @@ from .config import config_router
 from .llm import llm_router
 from .personality_config import personality_config_router
 from .personality_presets import personality_presets_router
+from .personas import personas_router
 from .skills import skills_router
 from .sensors import sensors_router
 from .timeline import timeline_router
@@ -25,6 +26,7 @@ __all__ = [
     "llm_router",
     "personality_config_router",
     "personality_presets_router",
+    "personas_router",
     "skills_router",
     "sensors_router",
     "timeline_router",

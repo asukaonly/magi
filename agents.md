@@ -38,6 +38,7 @@ Before changing architecture, core flows, product behavior, or module boundaries
 - `docs/product-configuration-guide.md`
 - `docs/layered-agent-architecture.md`
 - `docs/task-agent-runtime-architecture.md`
+- `docs/timeline-domain-architecture.md`
 - `docs/memory-system-design.md`
 - `docs/plugin-extension-architecture.md`
 - `docs/plugin-development-guide.md`
@@ -64,7 +65,7 @@ Magi is a local-first AI agent framework with:
 - Task-agent runtime centered on `ChatTaskAgent`, `ExploreTaskAgent`, `TaskOrchestrator`, and `WorkerAgentManager`
 - Tool registry + builtin/provider tools + skills integration
 - Lifecycle-based memory system (`L0`-`L4`)
-- Desktop runtime target: `Tauri shell + React WebView + Python sidecar backend`
+- Desktop runtime target: `Tauri + React WebView + Python sidecar backend`
 
 Main code locations:
 - Backend core: `backend/src/magi/`
@@ -80,18 +81,28 @@ Main code locations:
 magi/
 ├── backend/
 │   ├── src/magi/
-│   │   ├── api/                # FastAPI app + routers
-│   │   ├── core/               # Agent core lifecycle + loop
-│   │   ├── llm/                # LLM adapters and provider bridge
-│   │   ├── tools/              # Tool registry and builtin/providers
-│   │   ├── memory/             # Memory layers and helpers
-│   │   ├── skills/             # Skill loading/index/execution
-│   │   ├── events/             # Event backends
-│   │   ├── awareness/          # Perception and sensors
-│   │   ├── processing/         # Processing modules
-│   │   ├── plugins/            # Plugin manager and base interfaces
+│   │   ├── agent/              # Task-agent runtime, orchestration, workers
+│   │   ├── api/                # Product-facing routers and services
+│   │   ├── awareness/          # Sensors, actions, action emission
+│   │   ├── bootstrap/          # Composition root and lifecycle assembly
+│   │   ├── channels/           # External messaging adapters
+│   │   ├── chat/               # Chat domain persistence and attachments
 │   │   ├── config/             # Config models/loader/introspection
-│   │   └── websocket/          # WebSocket events/server
+│   │   ├── context/            # Prompt and recall shaping
+│   │   ├── core/               # Infrastructure, DI, logging, runtime paths
+│   │   ├── events/             # Message bus and event transport
+│   │   ├── ipc/                # IPC server, dispatcher, protocol
+│   │   ├── llm/                # LLM adapters and provider bridge
+│   │   ├── memory/             # Lifecycle-based memory stores and retrieval
+│   │   ├── personality/        # Personality state and subjective modeling
+│   │   ├── plugins/            # Plugin discovery and registration
+│   │   ├── runtime_trace/      # Execution observability persistence
+│   │   ├── scheduler/          # Persistent scheduler and target dispatch
+│   │   ├── skills/             # Skill loading/index/execution
+│   │   ├── tasks/              # User-facing task tracking
+│   │   ├── timeline/           # Timeline domain and sync workflows
+│   │   ├── tools/              # Tool registry and builtin/providers
+│   │   └── transport/          # IPC transport app wiring and middleware
 │   ├── tests/                  # Backend tests
 │   ├── configs/                # Runtime/provider configs
 │   └── pyproject.toml
@@ -136,7 +147,7 @@ magi/
 - aiosqlite / redis / chromadb / networkx
 - OpenAI + Anthropic SDKs
 - Socket.IO + aiohttp
-- PyInstaller (desktop sidecar packaging)
+- PyInstaller --onedir (desktop sidecar packaging)
 
 ### Frontend
 - React 18 + TypeScript + Vite
@@ -152,8 +163,8 @@ magi/
 
 ### Desktop Runtime
 - Tauri v2 (Rust host)
-- `@tauri-apps/api` + `@tauri-apps/plugin-shell`
-- Python backend as sidecar process with runtime token handshake
+- `@tauri-apps/api`
+- Python backend as sidecar process (PyInstaller --onedir, bundled via Tauri resources) with runtime token handshake
 
 ---
 
@@ -235,8 +246,7 @@ npm run tauri:build
 cd backend
 pytest
 
-# sidecar build
-cd ..
+# sidecar build (must run before tauri:build)
 ./scripts/build-sidecar.sh
 
 # tauri desktop + backend hot reload

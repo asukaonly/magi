@@ -95,47 +95,47 @@ class MemoryQueryHintResolver:
         if not text:
             return False
         lowered = text.lower()
-        return self._infer_recall_intent(lowered) not in {None, "workflow_reuse"}
+        return self._infer_query_mode(lowered) not in {None, "strategy"}
 
     def resolve(self, user_message: str) -> dict[str, Any]:
         text = str(user_message or "").strip()
         lowered = text.lower()
         hint: dict[str, Any] = {"query": text}
-        recall_intent = self._infer_recall_intent(lowered)
-        if recall_intent:
-            hint["recall_intent"] = recall_intent
-        sources = self._infer_sources(lowered, recall_intent)
-        if sources:
-            hint["sources"] = sources
         query_mode = self._infer_query_mode(lowered)
         if query_mode:
             hint["query_mode"] = query_mode
+        sources = self._infer_sources(lowered, query_mode)
+        if sources:
+            hint["sources"] = sources
         time_range = self._infer_time_range(lowered)
         if time_range is not None:
             hint["time_range"] = time_range
         return hint
 
-    def _infer_recall_intent(self, lowered: str) -> Optional[str]:
+    def _infer_query_mode(self, lowered: str) -> Optional[str]:
         if any(hint in lowered for hint in WORKFLOW_REUSE_HINTS) and any(noun in lowered for noun in WORKFLOW_NOUNS):
-            return "workflow_reuse"
+            return "strategy"
         if any(pattern in lowered for pattern in PREFERENCE_RECALL_PATTERNS):
-            return "preference_recall"
+            return "exact_fact"
         if any(pattern in lowered for pattern in PROFILE_FACT_PATTERNS):
-            return "profile_fact_recall"
+            return "exact_fact"
         if any(pattern in lowered for pattern in RELATIONSHIP_RECALL_PATTERNS):
-            return "relationship_recall"
+            return "exact_fact"
         if any(pattern in lowered for pattern in EVENT_RECALL_PATTERNS):
-            return "event_recall"
+            return "episode_recall"
+        if any(term in lowered for term in ("pattern", "summary", "summarize", "总结", "概括", "聊到哪", "说到哪")):
+            return "summary"
         return None
 
-    def _infer_sources(self, lowered: str, recall_intent: Optional[str]) -> list[str]:
-        if recall_intent == "preference_recall":
-            return ["profile", "chat"]
-        if recall_intent == "profile_fact_recall":
-            return ["profile", "settings"]
-        if recall_intent == "relationship_recall":
-            return ["chat", "relationship"]
-        if recall_intent == "event_recall":
+    def _infer_sources(self, lowered: str, query_mode: Optional[str]) -> list[str]:
+        if query_mode == "exact_fact":
+            if any(pattern in lowered for pattern in PREFERENCE_RECALL_PATTERNS):
+                return ["profile", "chat"]
+            if any(pattern in lowered for pattern in PROFILE_FACT_PATTERNS):
+                return ["profile", "settings"]
+            if any(pattern in lowered for pattern in RELATIONSHIP_RECALL_PATTERNS):
+                return ["chat", "relationship"]
+        if query_mode == "episode_recall":
             if any(term in lowered for term in ["chat", "conversation", "discuss", "聊", "聊天", "对话"]):
                 return ["chat"]
             if any(term in lowered for term in ["browse", "browsing", "visited", "watched", "read", "浏览", "看了", "看过", "读过"]):
@@ -143,13 +143,6 @@ class MemoryQueryHintResolver:
             if any(term in lowered for term in ["how did i", "经验", "怎么做", "上次怎么", "之前怎么"]):
                 return ["worker"]
         return []
-
-    def _infer_query_mode(self, lowered: str) -> Optional[str]:
-        if any(term in lowered for term in ["pattern", "summary", "summarize", "总结", "概括", "聊到哪", "说到哪"]):
-            return "summary"
-        if any(term in lowered for term in ["experience", "经验", "怎么做", "上次怎么", "之前怎么"]):
-            return "experience"
-        return "detail"
 
     def _infer_time_range(self, lowered: str) -> Optional[dict[str, Any]]:
         if "yesterday" in lowered or "昨天" in lowered:

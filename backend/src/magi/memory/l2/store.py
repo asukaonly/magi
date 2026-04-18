@@ -164,9 +164,12 @@ class L2CognitionStore:
                     expires_at REAL,
                     user_feedback TEXT,
                     user_feedback_at REAL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    superseded_by TEXT,
+                    superseded_at REAL,
+                    privacy_scope TEXT NOT NULL DEFAULT 'private',
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
+                    updated_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_tom_assertions_entity_updated
                     ON tom_trait_assertions(entity_id, entity_type, updated_at DESC);
@@ -230,9 +233,66 @@ class L2CognitionStore:
                 CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_owner_status_created
                     ON l2_projection_jobs(batch_owner, status, created_at ASC);
 
+                CREATE TABLE IF NOT EXISTS episodes (
+                    episode_id TEXT PRIMARY KEY,
+                    episode_type TEXT NOT NULL DEFAULT 'activity',
+                    status TEXT NOT NULL DEFAULT 'candidate',
+                    time_start REAL NOT NULL,
+                    time_end REAL NOT NULL,
+                    parent_episode_id TEXT,
+                    label TEXT,
+                    summary TEXT,
+                    dominant_mode TEXT,
+                    primary_entity_ids TEXT NOT NULL DEFAULT '[]',
+                    primary_place_ids TEXT NOT NULL DEFAULT '[]',
+                    primary_topic_keys TEXT NOT NULL DEFAULT '[]',
+                    continuity_signals TEXT NOT NULL DEFAULT '[]',
+                    formation_method TEXT NOT NULL DEFAULT 'time_gap_cluster',
+                    confidence REAL NOT NULL DEFAULT 0.5,
+                    source_event_count INTEGER NOT NULL DEFAULT 0,
+                    privacy_scope TEXT NOT NULL DEFAULT 'private',
+                    user_label TEXT,
+                    user_note TEXT,
+                    user_pinned INTEGER NOT NULL DEFAULT 0,
+                    embedding_status TEXT NOT NULL DEFAULT 'pending',
+                    embedding_profile_id TEXT,
+                    last_embedded_at REAL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    last_recomputed_at REAL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_episodes_status_time
+                    ON episodes(status, time_start DESC);
+                CREATE INDEX IF NOT EXISTS idx_episodes_parent
+                    ON episodes(parent_episode_id)
+                    WHERE parent_episode_id IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS idx_episodes_type_status
+                    ON episodes(episode_type, status);
+
+                CREATE TABLE IF NOT EXISTS episode_events (
+                    episode_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    membership_role TEXT NOT NULL DEFAULT 'member',
+                    membership_confidence REAL NOT NULL DEFAULT 0.5,
+                    added_at REAL NOT NULL,
+                    PRIMARY KEY (episode_id, event_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_episode_events_event
+                    ON episode_events(event_id);
+
+                """
+            )
+            # FTS for episode text search — stores its own content copy.
+            await db.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts
+                USING fts5(episode_id, summary, label, user_label)
                 """
             )
             await self._ensure_knowledge_graph_columns(db)
+            await self._ensure_entity_facet_columns(db)
             await self._ensure_tom_assertion_schema(db)
             await self._ensure_tom_snapshot_schema(db)
             await self._projection_queue.ensure_schema(db)
@@ -285,6 +345,75 @@ class L2CognitionStore:
                 await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN user_feedback TEXT")
             if "user_feedback_at" not in existing_columns:
                 await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN user_feedback_at REAL")
+
+            # P0 state memory columns
+            if "status" not in existing_columns:
+                await db.execute(
+                    "ALTER TABLE tom_trait_assertions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+                )
+            if "superseded_by" not in existing_columns:
+                await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN superseded_by TEXT")
+            if "superseded_at" not in existing_columns:
+                await db.execute("ALTER TABLE tom_trait_assertions ADD COLUMN superseded_at REAL")
+            if "privacy_scope" not in existing_columns:
+                await db.execute(
+                    "ALTER TABLE tom_trait_assertions ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
+                )
+
+            # P2 memory subdomain classification
+            if "memory_subdomain" not in existing_columns:
+                await db.execute(
+                    "ALTER TABLE tom_trait_assertions ADD COLUMN memory_subdomain TEXT NOT NULL DEFAULT 'state'"
+                )
+                # Backfill existing rows: persistent/none → semantic, else state
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions SET memory_subdomain = 'semantic'
+                    WHERE temporal_scope IN ('persistent', 'stable', '')
+                      AND (decay_policy IS NULL OR decay_policy IN ('none', 'evidence_only', ''))
+                    """
+                )
+
+            # Migrate validation_state → status for existing rows
+            if "status" not in existing_columns:
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions SET status = CASE
+                        WHEN validation_state = 'stable' THEN 'stable'
+                        WHEN validation_state = 'corroborated' THEN 'corroborated'
+                        WHEN validation_state = 'tentative' THEN 'tentative'
+                        WHEN validation_state = 'contradicted' THEN 'contradicted'
+                        WHEN validation_state = 'expired' THEN 'expired'
+                        WHEN validation_state = 'user_rejected' THEN 'user_rejected'
+                        ELSE 'active'
+                    END
+                    """
+                )
+
+            # Drop old UNIQUE constraint by recreating the table without it.
+            # Check if the UNIQUE constraint still exists.
+            async with db.execute("PRAGMA index_list(tom_trait_assertions)") as cursor:
+                indexes = await cursor.fetchall()
+            has_old_unique = any(
+                str(idx["origin"]) == "u" for idx in indexes
+            )
+            if has_old_unique:
+                await self._recreate_assertions_without_unique(db)
+
+            # Ensure partial index for active assertions
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_tom_assertions_active_key
+                    ON tom_trait_assertions(entity_id, entity_type, trait_name, target_entity_id, status)
+                    WHERE status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
+                """
+            )
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_tom_assertions_privacy_scope
+                    ON tom_trait_assertions(privacy_scope)
+                """
+            )
             return
 
         await db.executescript(
@@ -315,9 +444,13 @@ class L2CognitionStore:
                 expires_at REAL,
                 user_feedback TEXT,
                 user_feedback_at REAL,
+                status TEXT NOT NULL DEFAULT 'active',
+                superseded_by TEXT,
+                superseded_at REAL,
+                privacy_scope TEXT NOT NULL DEFAULT 'private',
+                memory_subdomain TEXT NOT NULL DEFAULT 'state',
                 created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
+                updated_at REAL NOT NULL
             );
             """
         )
@@ -328,7 +461,7 @@ class L2CognitionStore:
                 confidence_score, evidence_events, volatility_index, source_domain, inference_depth,
                 validation_state, first_inferred_at, last_validated_at, target_entity_id,
                 target_entity_type, target_scope, temporal_scope, decay_policy, decay_anchor_at,
-                context_ref_id, expires_at, created_at, updated_at
+                context_ref_id, expires_at, status, privacy_scope, memory_subdomain, created_at, updated_at
             )
             SELECT
                 assertion_id,
@@ -371,12 +504,91 @@ class L2CognitionStore:
                 last_validated_at,
                 '',
                 expires_at,
+                CASE
+                    WHEN validation_state = 'stable' THEN 'stable'
+                    WHEN validation_state = 'corroborated' THEN 'corroborated'
+                    WHEN validation_state = 'tentative' THEN 'tentative'
+                    WHEN validation_state = 'contradicted' THEN 'contradicted'
+                    WHEN validation_state = 'expired' THEN 'expired'
+                    WHEN validation_state = 'user_rejected' THEN 'user_rejected'
+                    ELSE 'active'
+                END,
+                'private',
+                CASE
+                    WHEN trait_name IN ('annoyance', 'irritation', 'frustration', 'mood', 'engagement', 'stress_level') THEN 'state'
+                    ELSE 'semantic'
+                END,
                 created_at,
                 updated_at
             FROM tom_trait_assertions_legacy
             """
         )
         await db.execute("DROP TABLE tom_trait_assertions_legacy")
+
+    async def _recreate_assertions_without_unique(self, db: aiosqlite.Connection) -> None:
+        """Drop the UNIQUE constraint by recreating the table.
+
+        SQLite does not support ``ALTER TABLE ... DROP CONSTRAINT``, so the
+        only way to remove the old ``UNIQUE(entity_id, entity_type,
+        trait_name, target_entity_id)`` is to recreate the table.
+        """
+        await db.executescript(
+            """
+            ALTER TABLE tom_trait_assertions RENAME TO _tom_assertions_uniq_mig;
+            CREATE TABLE tom_trait_assertions (
+                assertion_id TEXT PRIMARY KEY,
+                entity_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                trait_family TEXT NOT NULL,
+                trait_name TEXT NOT NULL,
+                trait_value TEXT NOT NULL,
+                confidence_score REAL NOT NULL,
+                evidence_events TEXT NOT NULL,
+                volatility_index REAL NOT NULL,
+                source_domain TEXT NOT NULL,
+                inference_depth TEXT NOT NULL,
+                validation_state TEXT NOT NULL,
+                first_inferred_at REAL NOT NULL,
+                last_validated_at REAL NOT NULL,
+                target_entity_id TEXT NOT NULL DEFAULT '',
+                target_entity_type TEXT NOT NULL DEFAULT '',
+                target_scope TEXT NOT NULL DEFAULT 'global',
+                temporal_scope TEXT NOT NULL DEFAULT 'session',
+                decay_policy TEXT,
+                decay_anchor_at REAL,
+                context_ref_id TEXT NOT NULL DEFAULT '',
+                expires_at REAL,
+                user_feedback TEXT,
+                user_feedback_at REAL,
+                status TEXT NOT NULL DEFAULT 'active',
+                superseded_by TEXT,
+                superseded_at REAL,
+                privacy_scope TEXT NOT NULL DEFAULT 'private',
+                memory_subdomain TEXT NOT NULL DEFAULT 'state',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+            INSERT INTO tom_trait_assertions
+                SELECT assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+                       confidence_score, evidence_events, volatility_index, source_domain,
+                       inference_depth, validation_state, first_inferred_at, last_validated_at,
+                       target_entity_id, target_entity_type, target_scope, temporal_scope,
+                       decay_policy, decay_anchor_at, context_ref_id, expires_at,
+                       user_feedback, user_feedback_at,
+                       status, superseded_by, superseded_at, privacy_scope,
+                       COALESCE(memory_subdomain, 'state'),
+                       created_at, updated_at
+                FROM _tom_assertions_uniq_mig;
+            DROP TABLE _tom_assertions_uniq_mig;
+            """
+        )
+        # Re-create the entity+updated index
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_tom_assertions_entity_updated
+                ON tom_trait_assertions(entity_id, entity_type, updated_at DESC)
+            """
+        )
 
     async def _ensure_tom_snapshot_schema(self, db: aiosqlite.Connection) -> None:
         db.row_factory = aiosqlite.Row
@@ -483,6 +695,11 @@ class L2CognitionStore:
         normalized_object_id = _normalize_store_entity_ref(object_id, normalized_object_type) or object_id
         normalized_fact_kind = str(fact_kind).strip() if fact_kind is not None else ""
         now = time.time()
+
+        # ── P2: fact_kind admission check ──
+        normalized_fact_kind = self._validate_fact_kind(
+            normalized_fact_kind, extraction_method, confidence
+        )
 
         # Auto-set TTL for future_intent edges
         effective_expires_at = expires_at
@@ -591,8 +808,8 @@ class L2CognitionStore:
                         fact_kind, confidence, evidence_event_ids, observation_count, first_observed_at,
                         last_observed_at, last_confirmed_at, source_type, extraction_method,
                         evidence_text, natural_summary, embedding_status, expires_at,
-                        status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'active', ?, ?)
+                        status, privacy_scope, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'active', 'private', ?, ?)
                     """,
                     (
                         triple_id,
@@ -932,7 +1149,8 @@ class L2CognitionStore:
             cursor = await db.execute(
                 f"""
                 UPDATE tom_trait_assertions
-                SET validation_state = 'expired', expires_at = ?, updated_at = ?
+                SET validation_state = 'expired', status = 'expired',
+                    expires_at = ?, updated_at = ?
                 WHERE entity_id IN ({placeholders})
                   AND decay_policy = 'session_decay'
                   AND validation_state = 'tentative'
@@ -1013,10 +1231,10 @@ class L2CognitionStore:
                 """
                 UPDATE tom_trait_assertions
                 SET user_feedback = ?, user_feedback_at = ?,
-                    confidence_score = ?, validation_state = ?, updated_at = ?
+                    confidence_score = ?, validation_state = ?, status = ?, updated_at = ?
                 WHERE assertion_id = ?
                 """,
-                (feedback, now, new_confidence, new_state, now, assertion_id),
+                (feedback, now, new_confidence, new_state, new_state, now, assertion_id),
             )
             await db.commit()
 
@@ -1030,6 +1248,316 @@ class L2CognitionStore:
             new_state=new_state,
         )
         return await self.get_tom_assertion(assertion_id=assertion_id)
+
+    async def correct_assertion(
+        self,
+        *,
+        assertion_id: str,
+        new_value: str,
+        reason: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """User-initiated value correction that supersedes the current assertion.
+
+        Creates a new assertion with the corrected value and marks the old one
+        as ``superseded``.  The new assertion starts at ``status='stable'``
+        with high confidence because it comes directly from the user.
+
+        Args:
+            assertion_id: The assertion to correct.
+            new_value: The corrected value.
+            reason: Optional reason for the correction.
+
+        Returns:
+            The newly created assertion dict, or ``None`` if the original was
+            not found.
+        """
+        await self.initialize()
+        now = time.time()
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+                (assertion_id,),
+            ) as cursor:
+                existing = await cursor.fetchone()
+
+            if existing is None:
+                return None
+
+            new_assertion_id = f"assert_{uuid.uuid4().hex}"
+
+            # Supersede the old assertion
+            await db.execute(
+                """
+                UPDATE tom_trait_assertions
+                SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+                WHERE assertion_id = ?
+                """,
+                (new_assertion_id, now, now, assertion_id),
+            )
+
+            # Insert the corrected assertion with high confidence
+            evidence = json.loads(existing["evidence_events"] or "[]")
+            await db.execute(
+                """
+                INSERT INTO tom_trait_assertions(
+                    assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+                    confidence_score, evidence_events, volatility_index, source_domain,
+                    inference_depth, validation_state, first_inferred_at, last_validated_at,
+                    target_entity_id, target_entity_type, target_scope, temporal_scope,
+                    decay_policy, decay_anchor_at, context_ref_id, expires_at,
+                    status, privacy_scope, user_feedback, user_feedback_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_assertion_id,
+                    str(existing["entity_id"]),
+                    str(existing["entity_type"]),
+                    str(existing["trait_family"]),
+                    str(existing["trait_name"]),
+                    new_value,
+                    0.95,  # high confidence — user-provided
+                    json.dumps(evidence, ensure_ascii=False),
+                    float(existing["volatility_index"]),
+                    "user_correction",
+                    "explicit",
+                    "stable",
+                    float(existing["first_inferred_at"]),
+                    now,
+                    str(existing["target_entity_id"] or ""),
+                    str(existing["target_entity_type"] or ""),
+                    str(existing["target_scope"] or "global"),
+                    str(existing["temporal_scope"] or "session"),
+                    existing["decay_policy"],
+                    existing["decay_anchor_at"],
+                    str(existing["context_ref_id"] or ""),
+                    existing["expires_at"],
+                    "stable",
+                    str(existing["privacy_scope"] if "privacy_scope" in existing.keys() else "private"),
+                    "confirmed",
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+
+        logger.info(
+            "L2 user correction applied",
+            old_assertion_id=assertion_id,
+            new_assertion_id=new_assertion_id,
+            entity_id=str(existing["entity_id"]),
+            trait_name=str(existing["trait_name"]),
+            old_value=str(existing["trait_value"]),
+            new_value=new_value,
+            reason=reason,
+        )
+        return await self.get_tom_assertion(assertion_id=new_assertion_id)
+
+    # ── User agency: reject / forget ─────────────────────────────────
+
+    async def reject_edge(
+        self,
+        *,
+        triple_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Mark a KG edge as user-rejected.
+
+        Returns the updated edge dict, or ``None`` if not found.
+        """
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT triple_id FROM knowledge_graph WHERE triple_id = ?",
+                (triple_id,),
+            ) as cursor:
+                existing = await cursor.fetchone()
+            if existing is None:
+                return None
+            await db.execute(
+                "UPDATE knowledge_graph SET status = 'user_rejected', updated_at = ? WHERE triple_id = ?",
+                (now, triple_id),
+            )
+            await db.commit()
+        logger.info("L2 edge rejected by user", triple_id=triple_id)
+        return await self.get_relationship(triple_id=triple_id)
+
+    async def forget_entity(
+        self,
+        *,
+        entity_id: str,
+    ) -> Dict[str, int]:
+        """Cascade soft-delete everything derived from an entity.
+
+        Marks KG edges, assertions, entity facets, and episodes referencing
+        the entity.  Does **not** touch L1 events (caller handles L1).
+
+        Returns counts of affected records per table.
+        """
+        await self.initialize()
+        now = time.time()
+        counts: Dict[str, int] = {}
+
+        async with sqlite_connection_async(self.db_path) as db:
+            # 1. KG edges — subject or object matches
+            cursor = await db.execute(
+                """
+                UPDATE knowledge_graph SET status = 'archived', updated_at = ?
+                WHERE (subject_id = ? OR object_id = ?) AND status NOT IN ('archived', 'user_rejected')
+                """,
+                (now, entity_id, entity_id),
+            )
+            counts["knowledge_graph"] = cursor.rowcount
+
+            # 2. Assertions — entity_id or target_entity_id matches
+            cursor = await db.execute(
+                """
+                UPDATE tom_trait_assertions SET status = 'archived', updated_at = ?
+                WHERE (entity_id = ? OR target_entity_id = ?) AND status NOT IN ('archived', 'user_rejected')
+                """,
+                (now, entity_id, entity_id),
+            )
+            counts["tom_trait_assertions"] = cursor.rowcount
+
+            # 3. Entity facets
+            cursor = await db.execute(
+                """
+                UPDATE entity_facets SET status = 'archived', updated_at = ?
+                WHERE entity_id = ? AND status != 'archived'
+                """,
+                (now, entity_id),
+            )
+            counts["entity_facets"] = cursor.rowcount
+
+            # 4. Episodes — those that list the entity in primary_entity_ids
+            escaped = entity_id.replace('"', '""')
+            pattern = f'%"{escaped}"%'
+            cursor = await db.execute(
+                """
+                UPDATE episodes SET status = 'invalidated', updated_at = ?
+                WHERE primary_entity_ids LIKE ? AND status NOT IN ('invalidated', 'archived')
+                """,
+                (now, pattern),
+            )
+            counts["episodes"] = cursor.rowcount
+
+            await db.commit()
+
+        logger.info("L2 entity forgotten", entity_id=entity_id, counts=counts)
+        return counts
+
+    async def forget_time_range(
+        self,
+        *,
+        start: float,
+        end: float,
+    ) -> Dict[str, int]:
+        """Cascade invalidation for a time range.
+
+        Marks episodes that overlap the range and assertions inferred during it.
+        Does **not** touch L1 events (caller handles L1).
+
+        Returns counts of affected records per table.
+        """
+        if end <= start:
+            raise ValueError("end must be greater than start")
+
+        await self.initialize()
+        now = time.time()
+        counts: Dict[str, int] = {}
+
+        async with sqlite_connection_async(self.db_path) as db:
+            # 1. Episodes overlapping the range
+            cursor = await db.execute(
+                """
+                UPDATE episodes SET status = 'invalidated', updated_at = ?
+                WHERE time_start < ? AND time_end > ? AND status NOT IN ('invalidated', 'archived')
+                """,
+                (now, end, start),
+            )
+            counts["episodes"] = cursor.rowcount
+
+            # 2. Assertions whose first_inferred_at falls in range
+            cursor = await db.execute(
+                """
+                UPDATE tom_trait_assertions SET status = 'archived', updated_at = ?
+                WHERE first_inferred_at >= ? AND first_inferred_at <= ?
+                  AND status NOT IN ('archived', 'user_rejected')
+                """,
+                (now, start, end),
+            )
+            counts["tom_trait_assertions"] = cursor.rowcount
+
+            # 3. KG edges whose first_observed_at falls in range
+            cursor = await db.execute(
+                """
+                UPDATE knowledge_graph SET status = 'archived', updated_at = ?
+                WHERE first_observed_at >= ? AND first_observed_at <= ?
+                  AND status NOT IN ('archived', 'user_rejected')
+                """,
+                (now, start, end),
+            )
+            counts["knowledge_graph"] = cursor.rowcount
+
+            await db.commit()
+
+        logger.info("L2 time range forgotten", start=start, end=end, counts=counts)
+        return counts
+
+    async def forget_episode(
+        self,
+        *,
+        episode_id: str,
+        delete_events: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Mark an episode as invalidated.
+
+        If *delete_events* is ``True``, returns the list of member event IDs
+        so the caller can soft-delete them from L1.
+
+        Returns ``{"episode_id": ..., "event_ids": [...]}`` or ``None`` if
+        the episode was not found.
+        """
+        await self.initialize()
+        now = time.time()
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT episode_id FROM episodes WHERE episode_id = ?",
+                (episode_id,),
+            ) as cursor:
+                existing = await cursor.fetchone()
+            if existing is None:
+                return None
+
+            await db.execute(
+                "UPDATE episodes SET status = 'invalidated', updated_at = ? WHERE episode_id = ?",
+                (now, episode_id),
+            )
+
+            event_ids: list[str] = []
+            if delete_events:
+                async with db.execute(
+                    "SELECT event_id FROM episode_events WHERE episode_id = ?",
+                    (episode_id,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                event_ids = [str(row["event_id"]) for row in rows]
+
+            await db.commit()
+
+        logger.info(
+            "L2 episode forgotten",
+            episode_id=episode_id,
+            delete_events=delete_events,
+            event_count=len(event_ids),
+        )
+        return {"episode_id": episode_id, "event_ids": event_ids}
 
     async def count_tom_snapshots(self) -> int:
         """Count all ToM snapshots."""
@@ -1522,6 +2050,388 @@ class L2CognitionStore:
         await self.initialize()
         return await self._projection_queue.get_backlog_stats()
 
+    # ── Episode Store Methods ────────────────────────────────────────
+
+    async def create_episode(
+        self,
+        *,
+        episode_id: str,
+        episode_type: str = "activity",
+        status: str = "candidate",
+        time_start: float,
+        time_end: float,
+        parent_episode_id: Optional[str] = None,
+        label: Optional[str] = None,
+        summary: Optional[str] = None,
+        dominant_mode: Optional[str] = None,
+        primary_entity_ids: Optional[List[str]] = None,
+        primary_place_ids: Optional[List[str]] = None,
+        primary_topic_keys: Optional[List[str]] = None,
+        continuity_signals: Optional[List[str]] = None,
+        formation_method: str = "time_gap_cluster",
+        confidence: float = 0.5,
+        source_event_count: int = 0,
+        privacy_scope: str = "private",
+    ) -> str:
+        """Create a new episode record."""
+        await self.initialize()
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO episodes(
+                    episode_id, episode_type, status, time_start, time_end,
+                    parent_episode_id, label, summary, dominant_mode,
+                    primary_entity_ids, primary_place_ids, primary_topic_keys,
+                    continuity_signals, formation_method, confidence,
+                    source_event_count, privacy_scope,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    episode_id,
+                    episode_type,
+                    status,
+                    time_start,
+                    time_end,
+                    parent_episode_id,
+                    label,
+                    summary,
+                    dominant_mode,
+                    json.dumps(primary_entity_ids or [], ensure_ascii=False),
+                    json.dumps(primary_place_ids or [], ensure_ascii=False),
+                    json.dumps(primary_topic_keys or [], ensure_ascii=False),
+                    json.dumps(continuity_signals or [], ensure_ascii=False),
+                    formation_method,
+                    confidence,
+                    source_event_count,
+                    privacy_scope,
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+        return episode_id
+
+    async def get_episode(self, *, episode_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single episode by ID."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM episodes WHERE episode_id = ?", (episode_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return None
+        return self._episode_row_to_dict(row)
+
+    async def update_episode(
+        self,
+        *,
+        episode_id: str,
+        **fields: Any,
+    ) -> bool:
+        """Update mutable fields of an episode. Returns True if found."""
+        allowed = {
+            "status", "time_start", "time_end", "label", "summary",
+            "dominant_mode", "primary_entity_ids", "primary_place_ids",
+            "primary_topic_keys", "continuity_signals", "confidence",
+            "source_event_count", "parent_episode_id", "user_label",
+            "user_note", "user_pinned", "embedding_status",
+            "embedding_profile_id", "last_embedded_at", "last_recomputed_at",
+            "privacy_scope",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+
+        # JSON-serialize list fields
+        for list_field in ("primary_entity_ids", "primary_place_ids", "primary_topic_keys", "continuity_signals"):
+            if list_field in updates and isinstance(updates[list_field], list):
+                updates[list_field] = json.dumps(updates[list_field], ensure_ascii=False)
+
+        updates["updated_at"] = time.time()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [episode_id]
+
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"UPDATE episodes SET {set_clause} WHERE episode_id = ?",
+                tuple(values),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def list_episodes(
+        self,
+        *,
+        status: Optional[str] = None,
+        statuses: Optional[List[str]] = None,
+        episode_type: Optional[str] = None,
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None,
+        parent_episode_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List episodes with optional filters."""
+        await self.initialize()
+        query = "SELECT * FROM episodes WHERE 1=1"
+        args: list[Any] = []
+        if status:
+            query += " AND status = ?"
+            args.append(status)
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            query += f" AND status IN ({placeholders})"
+            args.extend(statuses)
+        if episode_type:
+            query += " AND episode_type = ?"
+            args.append(episode_type)
+        if time_start is not None:
+            query += " AND time_end >= ?"
+            args.append(time_start)
+        if time_end is not None:
+            query += " AND time_start <= ?"
+            args.append(time_end)
+        if parent_episode_id is not None:
+            query += " AND parent_episode_id = ?"
+            args.append(parent_episode_id)
+        query += " ORDER BY time_start DESC LIMIT ? OFFSET ?"
+        args.extend([limit, offset])
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._episode_row_to_dict(row) for row in rows]
+
+    async def count_episodes(
+        self,
+        *,
+        status: Optional[str] = None,
+        statuses: Optional[List[str]] = None,
+    ) -> int:
+        """Count episodes with optional status filter."""
+        await self.initialize()
+        query = "SELECT COUNT(*) FROM episodes WHERE 1=1"
+        args: list[Any] = []
+        if status:
+            query += " AND status = ?"
+            args.append(status)
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            query += f" AND status IN ({placeholders})"
+            args.extend(statuses)
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(query, tuple(args)) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def add_episode_events(
+        self,
+        *,
+        episode_id: str,
+        event_ids: List[str],
+        membership_role: str = "member",
+        membership_confidence: float = 0.5,
+    ) -> int:
+        """Add events to an episode. Returns the number of new memberships."""
+        await self.initialize()
+        now = time.time()
+        added = 0
+        async with sqlite_connection_async(self.db_path) as db:
+            for event_id in event_ids:
+                try:
+                    await db.execute(
+                        """
+                        INSERT OR IGNORE INTO episode_events(
+                            episode_id, event_id, membership_role, membership_confidence, added_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (episode_id, event_id, membership_role, membership_confidence, now),
+                    )
+                    added += 1
+                except Exception:
+                    pass
+            await db.commit()
+        return added
+
+    async def list_episode_events(
+        self, *, episode_id: str, limit: int = 500
+    ) -> List[Dict[str, Any]]:
+        """List event memberships for an episode."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM episode_events WHERE episode_id = ? ORDER BY added_at ASC LIMIT ?",
+                (episode_id, limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "episode_id": str(row["episode_id"]),
+                "event_id": str(row["event_id"]),
+                "membership_role": str(row["membership_role"]),
+                "membership_confidence": float(row["membership_confidence"]),
+                "added_at": float(row["added_at"]),
+            }
+            for row in rows
+        ]
+
+    async def find_episode_for_event(self, *, event_id: str) -> Optional[Dict[str, Any]]:
+        """Find the episode that contains a given event."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT e.* FROM episodes e
+                JOIN episode_events ee ON e.episode_id = ee.episode_id
+                WHERE ee.event_id = ?
+                ORDER BY e.time_start DESC
+                LIMIT 1
+                """,
+                (event_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return None
+        return self._episode_row_to_dict(row)
+
+    async def find_recent_candidate_episode(
+        self,
+        *,
+        episode_type: str = "activity",
+        max_gap: float,
+        before_time: float,
+        entity_ids: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Find the most recent candidate episode that ends within max_gap of before_time.
+
+        Used by the streaming episode formation to decide whether to extend
+        an existing candidate or start a new one.
+        """
+        await self.initialize()
+        cutoff = before_time - max_gap
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM episodes
+                WHERE status = 'candidate'
+                  AND episode_type = ?
+                  AND time_end >= ?
+                  AND time_end <= ?
+                ORDER BY time_end DESC
+                LIMIT 5
+                """,
+                (episode_type, cutoff, before_time),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        if not rows:
+            return None
+
+        # If entity_ids provided, prefer episodes with overlapping entities
+        if entity_ids:
+            target_set = set(entity_ids)
+            for row in rows:
+                ep = self._episode_row_to_dict(row)
+                ep_entities = set(ep.get("primary_entity_ids") or [])
+                if ep_entities & target_set:
+                    return ep
+
+        # Fallback: return the most recent
+        return self._episode_row_to_dict(rows[0])
+
+    async def remove_episode_events(
+        self, *, episode_id: str, event_ids: List[str]
+    ) -> int:
+        """Remove events from an episode. Returns the count removed."""
+        if not event_ids:
+            return 0
+        await self.initialize()
+        placeholders = ", ".join("?" for _ in event_ids)
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"DELETE FROM episode_events WHERE episode_id = ? AND event_id IN ({placeholders})",
+                (episode_id, *event_ids),
+            )
+            await db.commit()
+            return cursor.rowcount
+
+    def _episode_row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
+        return {
+            "episode_id": str(row["episode_id"]),
+            "episode_type": str(row["episode_type"]),
+            "status": str(row["status"]),
+            "time_start": float(row["time_start"]),
+            "time_end": float(row["time_end"]),
+            "parent_episode_id": str(row["parent_episode_id"]) if row["parent_episode_id"] else None,
+            "label": str(row["label"]) if row["label"] else None,
+            "summary": str(row["summary"]) if row["summary"] else None,
+            "dominant_mode": str(row["dominant_mode"]) if row["dominant_mode"] else None,
+            "primary_entity_ids": json.loads(row["primary_entity_ids"] or "[]"),
+            "primary_place_ids": json.loads(row["primary_place_ids"] or "[]"),
+            "primary_topic_keys": json.loads(row["primary_topic_keys"] or "[]"),
+            "continuity_signals": json.loads(row["continuity_signals"] or "[]"),
+            "formation_method": str(row["formation_method"]),
+            "confidence": float(row["confidence"]),
+            "source_event_count": int(row["source_event_count"]),
+            "privacy_scope": str(row["privacy_scope"]),
+            "user_label": str(row["user_label"]) if row["user_label"] else None,
+            "user_note": str(row["user_note"]) if row["user_note"] else None,
+            "user_pinned": bool(row["user_pinned"]),
+            "embedding_status": str(row["embedding_status"]),
+            "embedding_profile_id": str(row["embedding_profile_id"]) if row["embedding_profile_id"] else None,
+            "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] else None,
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+            "last_recomputed_at": float(row["last_recomputed_at"]) if row["last_recomputed_at"] else None,
+        }
+
+    async def index_episode_fts(self, *, episode_id: str, summary: str, label: str, user_label: str) -> None:
+        """Insert or replace FTS content for an episode."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            # Delete old entry
+            await db.execute(
+                "DELETE FROM episodes_fts WHERE episode_id = ?",
+                (episode_id,),
+            )
+            # Insert new
+            await db.execute(
+                "INSERT INTO episodes_fts(episode_id, summary, label, user_label) VALUES(?, ?, ?, ?)",
+                (episode_id, summary or "", label or "", user_label or ""),
+            )
+            await db.commit()
+
+    async def search_episodes_fts(
+        self, *, query: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """Full-text search over episode summary/label/user_label."""
+        await self.initialize()
+        # Sanitize FTS5 query: escape double quotes
+        safe_query = query.replace('"', '""')
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT e.* FROM episodes e
+                JOIN episodes_fts f ON e.episode_id = f.episode_id
+                WHERE episodes_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (f'"{safe_query}"', limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._episode_row_to_dict(row) for row in rows]
+
     async def clear(self) -> int:
         """Delete all cognition artifacts."""
         await self.initialize()
@@ -1535,6 +2445,8 @@ class L2CognitionStore:
                 DELETE FROM entity_facets;
                 DELETE FROM tom_trait_assertions;
                 DELETE FROM tom_snapshots;
+                DELETE FROM episodes;
+                DELETE FROM episode_events;
                 """
             )
             await db.commit()
@@ -1703,11 +2615,13 @@ class L2CognitionStore:
                 await db.execute(
                     """
                     UPDATE tom_trait_assertions
-                    SET confidence_score = ?, validation_state = ?, last_validated_at = ?, updated_at = ?
+                    SET confidence_score = ?, validation_state = ?, status = ?,
+                        last_validated_at = ?, updated_at = ?
                     WHERE assertion_id = ?
                     """,
                     (
                         confidence,
+                        status,
                         status,
                         last_seen,
                         now,
@@ -1763,17 +2677,18 @@ class L2CognitionStore:
         superseded_outgoing = [e for e in all_edges if e["subject_id"] == entity_id and e["status"] in _superseded]
         superseded_incoming = [e for e in all_edges if e["object_id"] == entity_id and e["status"] in _superseded]
         expired_assertions = [item for item in assertions if self._is_assertion_expired(item)]
+        _active_statuses = {"stable", "corroborated", "tentative"}
         active_assertions = [
             item
             for item in assertions
-            if item["validation_state"] in {"stable", "corroborated"}
+            if item.get("status", item["validation_state"]) in {"stable", "corroborated"}
             and not self._is_assertion_expired(item)
             and item.get("user_feedback") != "rejected"
         ]
         tentative_assertions = [
             item
             for item in assertions
-            if item["validation_state"] == "tentative"
+            if item.get("status", item["validation_state"]) == "tentative"
             and not self._is_assertion_expired(item)
             and item.get("user_feedback") != "rejected"
         ]
@@ -1901,13 +2816,18 @@ class L2CognitionStore:
             target_entity_id=normalized_candidate["target_entity_id"],
             anchor_at=normalized_candidate["decay_anchor_at"],
         )
+        normalized_candidate["memory_subdomain"] = str(candidate.get("memory_subdomain", "")).strip() or ""
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
+            # Find the active assertion for this key (excluding superseded/archived/expired)
             async with db.execute(
                 """
                 SELECT * FROM tom_trait_assertions
                 WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
+                  AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
+                ORDER BY updated_at DESC
+                LIMIT 1
                 """,
                 (
                     normalized_candidate["entity_id"],
@@ -1927,8 +2847,9 @@ class L2CognitionStore:
                         confidence_score, evidence_events, volatility_index, source_domain,
                         inference_depth, validation_state, first_inferred_at, last_validated_at,
                         target_entity_id, target_entity_type, target_scope, temporal_scope,
-                        decay_policy, decay_anchor_at, context_ref_id, expires_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        decay_policy, decay_anchor_at, context_ref_id, expires_at,
+                        status, privacy_scope, memory_subdomain, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         assertion_id,
@@ -1953,6 +2874,9 @@ class L2CognitionStore:
                         normalized_candidate["decay_anchor_at"],
                         normalized_candidate["context_ref_id"],
                         normalized_candidate["expires_at"],
+                        normalized_candidate["validation_state"],  # status mirrors validation_state
+                        "private",
+                        normalized_candidate["memory_subdomain"],
                         now,
                         now,
                     ),
@@ -1979,43 +2903,153 @@ class L2CognitionStore:
             last_validated_at = float(normalized_candidate["last_validated_at"])
             existing_value = str(existing["trait_value"])
             next_value = str(normalized_candidate["trait_value"])
+            existing_temporal_scope = str(existing["temporal_scope"] or "session")
 
             if existing_value != next_value:
-                confidence = max(0.15, float(existing["confidence_score"]) * 0.35)
-                validation_state = "contradicted"
+                # Value changed — decide: supersede or in-place update
+                if existing_temporal_scope in ("session", "momentary"):
+                    # Session/momentary state: update in place (ephemeral)
+                    confidence = max(0.15, float(existing["confidence_score"]) * 0.35)
+                    validation_state = "contradicted"
+                    status = "contradicted"
+                    await db.execute(
+                        """
+                        UPDATE tom_trait_assertions
+                        SET trait_value = ?, confidence_score = ?, evidence_events = ?,
+                            validation_state = ?, status = ?, last_validated_at = ?,
+                            target_entity_type = ?, target_scope = ?, temporal_scope = ?,
+                            decay_policy = ?, decay_anchor_at = ?, context_ref_id = ?,
+                            expires_at = ?, updated_at = ?
+                        WHERE assertion_id = ?
+                        """,
+                        (
+                            next_value,
+                            confidence,
+                            json.dumps(evidence, ensure_ascii=False),
+                            validation_state,
+                            status,
+                            last_validated_at,
+                            normalized_candidate["target_entity_type"],
+                            normalized_candidate["target_scope"],
+                            normalized_candidate["temporal_scope"],
+                            normalized_candidate["decay_policy"],
+                            normalized_candidate["decay_anchor_at"],
+                            normalized_candidate["context_ref_id"],
+                            normalized_candidate["expires_at"],
+                            now,
+                            str(existing["assertion_id"]),
+                        ),
+                    )
+                    await db.commit()
+                    logger.debug(
+                        "L2 assertion upserted",
+                        assertion_id=str(existing["assertion_id"]),
+                        entity_id=normalized_candidate["entity_id"],
+                        trait_name=normalized_candidate["trait_name"],
+                        validation_state=validation_state,
+                        confidence=confidence,
+                        evidence_count=len(evidence),
+                        action="updated_in_place",
+                    )
+                    return str(existing["assertion_id"])
+                else:
+                    # Persistent/daily/stable scope: supersede the old, insert new
+                    new_assertion_id = f"assert_{uuid.uuid4().hex}"
+                    await db.execute(
+                        """
+                        UPDATE tom_trait_assertions
+                        SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+                        WHERE assertion_id = ?
+                        """,
+                        (new_assertion_id, now, now, str(existing["assertion_id"])),
+                    )
+                    await db.execute(
+                        """
+                        INSERT INTO tom_trait_assertions(
+                            assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+                            confidence_score, evidence_events, volatility_index, source_domain,
+                            inference_depth, validation_state, first_inferred_at, last_validated_at,
+                            target_entity_id, target_entity_type, target_scope, temporal_scope,
+                            decay_policy, decay_anchor_at, context_ref_id, expires_at,
+                            status, privacy_scope, memory_subdomain, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            new_assertion_id,
+                            normalized_candidate["entity_id"],
+                            normalized_candidate["entity_type"],
+                            normalized_candidate["trait_family"],
+                            normalized_candidate["trait_name"],
+                            next_value,
+                            float(normalized_candidate["confidence_score"]),
+                            json.dumps(normalized_candidate["evidence_events"], ensure_ascii=False),
+                            float(normalized_candidate["volatility_index"]),
+                            normalized_candidate["source_domain"],
+                            normalized_candidate["inference_depth"],
+                            "tentative",
+                            float(normalized_candidate["first_inferred_at"]),
+                            last_validated_at,
+                            normalized_candidate["target_entity_id"],
+                            normalized_candidate["target_entity_type"],
+                            normalized_candidate["target_scope"],
+                            normalized_candidate["temporal_scope"],
+                            normalized_candidate["decay_policy"],
+                            normalized_candidate["decay_anchor_at"],
+                            normalized_candidate["context_ref_id"],
+                            normalized_candidate["expires_at"],
+                            "tentative",
+                            str(existing["privacy_scope"] or "private"),
+                            normalized_candidate["memory_subdomain"],
+                            now,
+                            now,
+                        ),
+                    )
+                    await db.commit()
+                    logger.info(
+                        "L2 assertion superseded",
+                        old_assertion_id=str(existing["assertion_id"]),
+                        new_assertion_id=new_assertion_id,
+                        entity_id=normalized_candidate["entity_id"],
+                        trait_name=normalized_candidate["trait_name"],
+                        old_value=existing_value,
+                        new_value=next_value,
+                    )
+                    return new_assertion_id
             else:
+                # Same value — corroborate
                 confidence = min(0.95, 0.3 + 0.25 * max(0, len(evidence) - 1))
                 enough_events = len(evidence) >= 3
                 enough_span = (last_validated_at - first_inferred_at) > 24 * 60 * 60
                 validation_state = "stable" if enough_events and enough_span and confidence >= 0.8 else "corroborated"
+                status = validation_state
 
-            await db.execute(
-                """
-                UPDATE tom_trait_assertions
-                SET trait_value = ?, confidence_score = ?, evidence_events = ?,
-                    validation_state = ?, last_validated_at = ?, target_entity_type = ?,
-                    target_scope = ?, temporal_scope = ?, decay_policy = ?, decay_anchor_at = ?,
-                    context_ref_id = ?, expires_at = ?, updated_at = ?
-                WHERE assertion_id = ?
-                """,
-                (
-                    next_value if existing_value != next_value else existing_value,
-                    confidence,
-                    json.dumps(evidence, ensure_ascii=False),
-                    validation_state,
-                    last_validated_at,
-                    normalized_candidate["target_entity_type"],
-                    normalized_candidate["target_scope"],
-                    normalized_candidate["temporal_scope"],
-                    normalized_candidate["decay_policy"],
-                    normalized_candidate["decay_anchor_at"],
-                    normalized_candidate["context_ref_id"],
-                    normalized_candidate["expires_at"],
-                    now,
-                    str(existing["assertion_id"]),
-                ),
-            )
-            await db.commit()
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions
+                    SET confidence_score = ?, evidence_events = ?,
+                        validation_state = ?, status = ?, last_validated_at = ?, target_entity_type = ?,
+                        target_scope = ?, temporal_scope = ?, decay_policy = ?, decay_anchor_at = ?,
+                        context_ref_id = ?, expires_at = ?, updated_at = ?
+                    WHERE assertion_id = ?
+                    """,
+                    (
+                        confidence,
+                        json.dumps(evidence, ensure_ascii=False),
+                        validation_state,
+                        status,
+                        last_validated_at,
+                        normalized_candidate["target_entity_type"],
+                        normalized_candidate["target_scope"],
+                        normalized_candidate["temporal_scope"],
+                        normalized_candidate["decay_policy"],
+                        normalized_candidate["decay_anchor_at"],
+                        normalized_candidate["context_ref_id"],
+                        normalized_candidate["expires_at"],
+                        now,
+                        str(existing["assertion_id"]),
+                    ),
+                )
+                await db.commit()
         logger.debug(
             "L2 assertion upserted",
             assertion_id=str(existing["assertion_id"]),
@@ -2901,6 +3935,10 @@ class L2CognitionStore:
             "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
             "user_feedback": str(row["user_feedback"]) if "user_feedback" in columns and row["user_feedback"] else None,
             "user_feedback_at": float(row["user_feedback_at"]) if "user_feedback_at" in columns and row["user_feedback_at"] else None,
+            "status": str(row["status"]) if "status" in columns and row["status"] else "active",
+            "superseded_by": str(row["superseded_by"]) if "superseded_by" in columns and row["superseded_by"] else None,
+            "superseded_at": float(row["superseded_at"]) if "superseded_at" in columns and row["superseded_at"] else None,
+            "privacy_scope": str(row["privacy_scope"]) if "privacy_scope" in columns and row["privacy_scope"] else "private",
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
@@ -3001,6 +4039,91 @@ class L2CognitionStore:
             await db.execute("ALTER TABLE knowledge_graph ADD COLUMN embedding_status TEXT DEFAULT 'pending'")
         if "expires_at" not in columns:
             await db.execute("ALTER TABLE knowledge_graph ADD COLUMN expires_at REAL")
+        # P2 semantic memory refinement columns
+        if "valid_from" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN valid_from REAL")
+        if "valid_to" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN valid_to REAL")
+        if "status_reason" not in columns:
+            await db.execute("ALTER TABLE knowledge_graph ADD COLUMN status_reason TEXT")
+        if "privacy_scope" not in columns:
+            await db.execute(
+                "ALTER TABLE knowledge_graph ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
+            )
+
+    async def _ensure_entity_facet_columns(self, db: aiosqlite.Connection) -> None:
+        """Backfill additive columns for older entity_facets schemas."""
+        db.row_factory = aiosqlite.Row
+        async with db.execute("PRAGMA table_info(entity_facets)") as cursor:
+            rows = await cursor.fetchall()
+        columns = {str(row["name"]) for row in rows}
+        if "status" not in columns:
+            await db.execute(
+                "ALTER TABLE entity_facets ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+            )
+        if "privacy_scope" not in columns:
+            await db.execute(
+                "ALTER TABLE entity_facets ADD COLUMN privacy_scope TEXT NOT NULL DEFAULT 'private'"
+            )
+
+    # ── P2: fact_kind admission ──────────────────────────────────────
+
+    # extraction_methods that qualify as explicit/structured sources
+    _EXPLICIT_SOURCES: set[str] = {"rule", "structured_hint", "source_explicit"}
+    _STRUCTURED_SOURCES: set[str] = {"structured_hint", "rule"}
+
+    # fact_kind values that require specific extraction lineage
+    _FACT_KIND_RULES: dict[str, set[str]] = {
+        "public_topology": _EXPLICIT_SOURCES | _STRUCTURED_SOURCES,
+        "stable_preference": _EXPLICIT_SOURCES,
+    }
+
+    @staticmethod
+    def _validate_fact_kind(
+        fact_kind: str,
+        extraction_method: str,
+        confidence: float,
+    ) -> str:
+        """Validate fact_kind against extraction_method, downgrading on mismatch.
+
+        Returns the (possibly adjusted) fact_kind. Empty input is returned as-is
+        so callers can fall back to existing values on update.
+        """
+        if not fact_kind:
+            return ""
+
+        # public_topology: only from explicit/structured sources,
+        # or high-confidence structured
+        if fact_kind == "public_topology":
+            allowed = L2CognitionStore._FACT_KIND_RULES["public_topology"]
+            if extraction_method not in allowed and not (
+                extraction_method in L2CognitionStore._STRUCTURED_SOURCES
+                and confidence >= 0.8
+            ):
+                logger.warning(
+                    "fact_kind_downgraded",
+                    original=fact_kind,
+                    extraction_method=extraction_method,
+                    confidence=confidence,
+                    target="explicit_fact",
+                )
+                return "explicit_fact"
+
+        # stable_preference: only from explicit user statements/configs
+        elif fact_kind == "stable_preference":
+            allowed = L2CognitionStore._FACT_KIND_RULES["stable_preference"]
+            if extraction_method not in allowed:
+                logger.warning(
+                    "fact_kind_downgraded",
+                    original=fact_kind,
+                    extraction_method=extraction_method,
+                    target="explicit_fact",
+                )
+                return "explicit_fact"
+
+        # interaction_evidence: real events can direct-write, no restriction needed
+
+        return fact_kind
 
 
 __all__ = ["L2CognitionStore"]

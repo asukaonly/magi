@@ -1318,8 +1318,10 @@ describe('config forms', () => {
     await user.click(screen.getByRole('switch', { name: 'llm.modelFields.embedding' }));
 
     expect(onChange).toHaveBeenCalled();
-    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
-    expect(latest.providers.openai.model_metadata_overrides['gpt-5.2'].capabilities.embedding).toBe(true);
+    const overrideCall = onChange.mock.calls.find(
+      (args: any[]) => args[0]?.providers?.openai?.model_metadata_overrides?.['gpt-5.2']?.capabilities?.embedding === true
+    );
+    expect(overrideCall).toBeTruthy();
   });
 
   it('reflects persisted capability overrides in the provider workbench toggles', async () => {

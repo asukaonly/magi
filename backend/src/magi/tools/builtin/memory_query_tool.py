@@ -45,16 +45,13 @@ class MemoryQueryTool(Tool):
                     required=False,
                 ),
                 ToolParameter(
-                    name="recall_intent",
-                    type=ParameterType.STRING,
-                    description="Optional recall intent hint (event_recall|preference_recall|profile_fact_recall|relationship_recall|workflow_reuse).",
-                    required=False,
-                    default=None,
-                ),
-                ToolParameter(
                     name="query_mode",
                     type=ParameterType.STRING,
-                    description="Optional routing hint (detail|summary|experience|graph|strategy). When omitted, the intent decider selects the best layers automatically.",
+                    description=(
+                        "Optional query mode hint "
+                        "(exact_fact|current_state|episode_recall|cross_session|temporal_compare|summary|strategy). "
+                        "When omitted, the system auto-detects the best mode from the query."
+                    ),
                     required=False,
                     default=None,
                 ),
@@ -92,7 +89,6 @@ class MemoryQueryTool(Tool):
                 user_id=user_id,
                 session_id=session_id,
                 time_range=parameters.get("time_range", {}),
-                recall_intent=parameters.get("recall_intent"),
                 query_mode=parameters.get("query_mode"),
                 source_filters=parameters.get("sources", []) or [],
                 domain_filters=parameters.get("domains", []) or [],

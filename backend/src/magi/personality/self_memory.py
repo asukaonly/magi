@@ -11,6 +11,7 @@ Internal note.
 Internal note.
 """
 import logging
+import time
 from typing import Dict, Any, Optional, List
 from dataclasses import asdict
 
@@ -21,6 +22,7 @@ from .loader import PersonalityLoader, PersonalityConfig
 from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
 from .emotional_state import EmotionalStateEngine, InteractionOutcome, EngagementLevel
 from .growth_memory import GrowthMemoryEngine, InteractionType, MilestoneType
+from .interaction_analyzer import InteractionAnalysis
 from ..utils.runtime import get_runtime_paths
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,9 @@ class SelfMemory:
         personality_name: str = "default",
         personalities_path: str = None,
         db_path: str = None,
-        enable_evolution: bool = True
+        enable_evolution: bool = True,
+        *,
+        persona_id: str = "",
     ):
         """
         Internal note.
@@ -50,11 +54,13 @@ class SelfMemory:
             Internal note.
             Internal note.
             enable_evolution: is notEnablepersonalityevolution
+            persona_id: Stable persona identity for scoping evolution data.
         """
         # Internal note.
         runtime_paths = get_runtime_paths()
 
         self.personality_name = personality_name
+        self.persona_id = persona_id
         self.personalities_path = personalities_path or str(runtime_paths.personalities_dir)
         self.db_path = db_path or str(runtime_paths.self_memory_db_path)
         self.enable_evolution = enable_evolution
@@ -83,20 +89,22 @@ class SelfMemory:
             emotion_db = str(runtime_paths.emotional_db_path)
             growth_db = str(runtime_paths.growth_db_path)
 
-            self._behavior_engine = BehaviorEvolutionEngine(behavior_db)
-            self._emotion_engine = EmotionalStateEngine(emotion_db)
-            self._growth_engine = GrowthMemoryEngine(growth_db)
+            self._behavior_engine = BehaviorEvolutionEngine(behavior_db, persona_id=self.persona_id)
+            self._emotion_engine = EmotionalStateEngine(emotion_db, persona_id=self.persona_id)
+            self._growth_engine = GrowthMemoryEngine(growth_db, persona_id=self.persona_id)
 
             await self._behavior_engine.init()
             await self._emotion_engine.init()
             await self._growth_engine.init()
 
-            # recordinitializemilestone
-            await self._growth_engine.record_milestone(
-                milestone_type=MilestoneType.FIRST_USE,
-                title=f"initialized as {self._personality_config.name}",
-                description=f"Personality {self.personality_name} loaded and initialized"
-            )
+            # Record first-use milestone only if no milestones exist yet
+            existing = await self._growth_engine.get_milestones(limit=1)
+            if not existing:
+                await self._growth_engine.record_milestone(
+                    milestone_type=MilestoneType.FIRST_USE,
+                    title=f"initialized as {self._personality_config.name}",
+                    description=f"Personality {self.personality_name} loaded and initialized"
+                )
 
         logger.info(f"SelfMemory initialized with personality: {self.personality_name}")
 
@@ -143,7 +151,7 @@ class SelfMemory:
                 description=f"Reloaded personality configuration: {self.personality_name}"
             )
 
-        name = self._personality_config.name if self._personality_config else "Unknotttwn"
+        name = self._personality_config.name if self._personality_config else "Unknown"
         logger.info(f"Personality reloaded: {old_personality_name} -> {self.personality_name} ({name})")
 
     # Internal note.
@@ -203,43 +211,14 @@ class SelfMemory:
                 complexity=complexity,
             )
 
-    async def store_experience(self, perception, action, result):
-        """
-        Internal note.
-
-        Args:
-            perception: Perception
-            action: Action
-            result: Result
-        """
-        # Experience storage is primarily handled by the current memory system.
-        # This hook remains only for legacy callers that still forward experience tuples.
-        logger = logging.getLogger(__name__)
-
-        # Extract interaction information if available
-        user_id = None
-        if hasattr(perception, 'data') and isinstance(perception.data, dict):
-            user_id = perception.data.get('user_id') or perception.data.get('message', {}).get('user_id')
-
-        # Record interaction if evolution is enabled and user_id is available
-        if user_id and self.enable_evolution:
-            from .growth_memory import InteractionType
-
-            # Determine outcome based on result
-            outcome = "positive"
-            if hasattr(result, 'success'):
-                outcome = "positive" if result.success else "negative"
-
-            # Record the interaction
-            await self.record_interaction(
-                user_id=user_id,
-                interaction_type=InteractionType.CHAT,
-                outcome=outcome,
-                notes=f"Action: {type(action).__name__ if action else 'None'}"
-            )
-            logger.debug(f"Experience stored for user {user_id}")
-
-    # Internal note.
+    async def update_stp_trigger(
+        self,
+        trigger_type: str,
+        state_name: str,
+    ) -> None:
+        """Update the active STP trigger detected from interaction analysis."""
+        if self.enable_evolution and self._emotion_engine:
+            await self._emotion_engine.update_stp_trigger(trigger_type, state_name)
 
     async def record_interaction(
         self,
@@ -269,10 +248,89 @@ class SelfMemory:
             return asdict(profile)
         return None
 
-    async def get_milestones(self, milestone_type: str | None = None, limit: int = 100) -> List[Dict]:
-        """Deprecated: kept for compatibility, forwards to growth engine if available."""
+    async def get_milestones(self, milestone_type: MilestoneType | None = None, limit: int = 100) -> List[Dict]:
+        """Get milestones, optionally filtered by type."""
         if not self.enable_evolution or self._growth_engine is None:
             return []
 
         milestones = await self._growth_engine.get_milestones(milestone_type, limit)
         return [asdict(m) for m in milestones]
+
+    async def record_persona_milestone(self, key: str, description: str) -> None:
+        """Record a persona-layer milestone, skipping if already recorded."""
+        if not self.enable_evolution or self._growth_engine is None:
+            return
+        existing = await self._growth_engine.get_milestones(MilestoneType.SPECIAL, limit=500)
+        if any(m.title == key for m in existing):
+            return
+        await self._growth_engine.record_milestone(
+            milestone_type=MilestoneType.SPECIAL,
+            title=key,
+            description=f"Persona milestone: {description}",
+        )
+        logger.info("Persona milestone recorded: %s", key)
+
+    async def process_turn_outcome(
+        self,
+        user_id: str,
+        user_message: str,
+        analysis: InteractionAnalysis,
+        stp_rules: list | None = None,
+        milestone_conditions: dict[str, str] | None = None,
+    ) -> bool:
+        """Consolidate all per-turn personality updates behind the facade.
+
+        Performs: record_interaction, update_after_interaction,
+        record_task_outcome, update_stp_trigger, and milestone recording.
+        Returns True if any update succeeded.
+        """
+        updated = False
+        try:
+            await self.record_interaction(
+                user_id=user_id,
+                interaction_type=InteractionType.CHAT,
+                outcome=analysis.outcome_str,
+                sentiment=analysis.sentiment,
+                notes=f"Message: {user_message[:100]}...",
+            )
+            await self.update_after_interaction(
+                outcome=analysis.outcome,
+                user_engagement=analysis.engagement,
+                complexity=analysis.complexity,
+            )
+            await self.record_task_outcome(
+                task_id=f"chat_{int(time.time())}_{user_id}",
+                task_category="chat",
+                user_satisfaction=analysis.satisfaction,
+                accepted=analysis.outcome != InteractionOutcome.FAILURE,
+                task_complexity=analysis.complexity,
+                task_duration=0.0,
+            )
+            updated = True
+        except Exception as exc:
+            logger.warning("Failed to update self memory: %s", exc)
+
+        # Persist detected STP trigger into emotional state.
+        try:
+            trigger = analysis.trigger_type or ""
+            state_name = ""
+            if trigger and stp_rules:
+                config = await self.get_core_personality()
+                for item in getattr(config, "state_transition_protocol", []):
+                    if getattr(item, "trigger_type", "") == trigger:
+                        state_name = getattr(item, "target_state_name", "")
+                        break
+            await self.update_stp_trigger(trigger, state_name)
+        except Exception as exc:
+            logger.warning("Failed to update STP trigger: %s", exc)
+
+        # Record detected persona-layer milestones.
+        if analysis.milestone_keys:
+            try:
+                for key in analysis.milestone_keys:
+                    desc = (milestone_conditions or {}).get(key, key)
+                    await self.record_persona_milestone(key, desc)
+            except Exception as exc:
+                logger.warning("Failed to record persona milestones: %s", exc)
+
+        return updated

@@ -19,8 +19,7 @@ class RetrievalQuery:
     user_id: Optional[str]
     session_id: Optional[str]
     time_range: Dict[str, Any]
-    recall_intent: Optional[str] = None
-    query_mode: Optional[str] = None  # optional hint; None = IntentDecider auto-routes
+    query_mode: Optional[str] = None  # unified mode; None = auto-detect
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
     limit: int = 10
@@ -39,6 +38,10 @@ class RetrievalPayload:
     l2_assertions: List[Dict[str, Any]] = field(default_factory=list)
     l3_reflections: List[Dict[str, Any]] = field(default_factory=list)
     l4_procedures: List[Dict[str, Any]] = field(default_factory=list)
+    # P3 episodic + state retrieval fields
+    l2_episodes: List[Dict[str, Any]] = field(default_factory=list)
+    l2_state_facts: List[Dict[str, Any]] = field(default_factory=list)
+    l2_state_history: List[Dict[str, Any]] = field(default_factory=list)
     trace: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -47,7 +50,6 @@ class HistoricalRecallPayload:
     """Answer-facing historical recall payload for upper layers."""
 
     status: Literal["found", "not_found", "ambiguous", "conflicted"]
-    recall_intent: Optional[str]
     query_mode: Optional[str]
     summary: str
     findings: List[Dict[str, Any]] = field(default_factory=list)
@@ -71,7 +73,6 @@ class IntentDeciderInput:
     raw_time_range: Optional[Dict[str, Any]] = None
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
-    recall_intent_hint: Optional[str] = None
     query_mode_hint: Optional[str] = None  # from RetrievalQuery.query_mode
     l1_limit: int = 10  # per-plan L1 event limit, forwarded from request
 

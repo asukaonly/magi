@@ -44,6 +44,10 @@ class TimelineViewportBuilder:
         summaries = await self._load_summaries()
         assertions = await self._load_assertions()
         snapshots = await self._load_snapshots()
+        episodes = await self._load_episodes(
+            start=interpreted_query.start,
+            end=interpreted_query.end,
+        ) if scale in ("day", "week") else []
 
         events = self._filter_events(events, interpreted_query)
         summaries = self._filter_summaries(summaries, interpreted_query)
@@ -55,12 +59,17 @@ class TimelineViewportBuilder:
             assertions=assertions,
             snapshots=snapshots,
         )
+        state_transitions = self._build_state_transitions(assertions)
         reflections = self._build_reflections(
             summaries=summaries,
             start=interpreted_query.start,
             end=interpreted_query.end,
         )
-        clusters = self._cluster_builder.build(events, scale=scale) if scale != "hour" else []
+        clusters = (
+            self._cluster_builder.build(events, scale=scale, episodes=episodes)
+            if scale != "hour"
+            else []
+        )
         if clusters:
             self._enrich_cluster_states(clusters, summaries, start=interpreted_query.start, end=interpreted_query.end)
         raw_events = [self._to_raw_event(event) for event in events] if scale == "hour" else []
@@ -81,7 +90,9 @@ class TimelineViewportBuilder:
             },
             "state_bands": state_bands,
             "state_markers": state_markers,
+            "state_transitions": state_transitions,
             "clusters": clusters,
+            "episodes": episodes if scale in ("day", "week") else [],
             "reflections": reflections if scale == "month" else [],
             "raw_events": raw_events,
         }
@@ -136,6 +147,42 @@ class TimelineViewportBuilder:
         if self._l2 is None or not hasattr(self._l2, "list_tom_snapshots"):
             return []
         return await self._l2.list_tom_snapshots(entity_id="user:self", limit=50)
+
+    async def _load_episodes(self, *, start: float, end: float) -> list[dict[str, Any]]:
+        """Load durable L2 episodes that overlap the viewport window."""
+        if self._l2 is None or not hasattr(self._l2, "list_episodes"):
+            return []
+        return await self._l2.list_episodes(
+            statuses=["active", "user_pinned"],
+            time_start=start,
+            time_end=end,
+            limit=200,
+        )
+
+    def _build_state_transitions(self, assertions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Extract state transitions from superseded assertion chains."""
+        transitions: list[dict[str, Any]] = []
+        superseded = [
+            a for a in assertions
+            if str(a.get("status") or "") == "superseded" and a.get("superseded_by")
+        ]
+        active_by_id = {
+            str(a.get("assertion_id")): a for a in assertions
+            if str(a.get("status") or "") not in ("superseded", "archived", "expired")
+        }
+        for old in superseded:
+            new_id = str(old.get("superseded_by") or "")
+            new = active_by_id.get(new_id)
+            transitions.append({
+                "trait_name": str(old.get("trait_name") or ""),
+                "old_value": str(old.get("trait_value") or ""),
+                "new_value": str(new.get("trait_value") or "") if new else "",
+                "changed_at": float(old.get("superseded_at") or old.get("updated_at") or 0),
+                "old_assertion_id": str(old.get("assertion_id") or ""),
+                "new_assertion_id": new_id,
+            })
+        transitions.sort(key=lambda t: t["changed_at"])
+        return transitions
 
     def _build_reflections(self, *, summaries: list[dict[str, Any]], start: float, end: float) -> list[dict[str, Any]]:
         reflections: list[dict[str, Any]] = []

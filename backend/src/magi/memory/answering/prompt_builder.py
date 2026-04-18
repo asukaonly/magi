@@ -95,6 +95,7 @@ class AnswerPromptPayload:
     evidence_text: str
     timeline_text: str
     bundle_text: str
+    episode_text: str
     prioritize_timeline: bool
     timeline_instruction: str
     preference_instruction: str
@@ -129,6 +130,7 @@ def build_answer_prompt_payload(
     hits: list[dict[str, Any]],
     evidence_bundles: list[dict[str, Any]] | None = None,
     timeline_summary: list[dict[str, Any]] | None = None,
+    l2_episodes: list[dict[str, Any]] | None = None,
 ) -> AnswerPromptPayload:
     evidence_blocks: list[tuple[str, dict[str, Any]]] = []
     for index, hit in enumerate(hits, start=1):
@@ -226,10 +228,26 @@ def build_answer_prompt_payload(
             "Do not give generic advice that ignores the user's personal context.\n\n"
         )
 
+    episode_blocks: list[str] = []
+    for ep in l2_episodes or []:
+        label = str(ep.get("label") or "").strip()
+        summary = str(ep.get("summary") or "").strip()
+        if not summary:
+            continue
+        time_start = _format_date(ep.get("time_start"))
+        time_end = _format_date(ep.get("time_end"))
+        time_range = f"{time_start} ~ {time_end}" if time_start and time_end else (time_start or time_end or "")
+        header = f"[{label}]" if label else "[episode]"
+        if time_range:
+            header += f" ({time_range})"
+        episode_blocks.append(f"{header}\n{summary}")
+    episode_text = "\n\n".join(episode_blocks) if episode_blocks else ""
+
     return AnswerPromptPayload(
         evidence_text=evidence_text,
         timeline_text=timeline_text,
         bundle_text=bundle_text,
+        episode_text=episode_text,
         prioritize_timeline=prioritize_timeline,
         timeline_instruction=timeline_instruction,
         preference_instruction=preference_instruction,

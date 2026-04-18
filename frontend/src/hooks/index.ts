@@ -7,7 +7,6 @@ export {
   type UsePersonalityOptions,
   type UsePersonalityReturn,
   type PersonalityInfo,
-  CONFIDENCE_OPTIONS,
   parseLines,
   toLines,
   getInitials,

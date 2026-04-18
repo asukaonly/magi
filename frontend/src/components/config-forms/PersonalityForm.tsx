@@ -9,15 +9,14 @@ import { cn } from '@/lib/utils';
 import { FormContext, SimpleForm as Form } from '../onboarding/simple-form';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
+import type { LLMConfig } from '../../api/modules/config';
 import {
+  personasApi,
   DEFAULT_PERSONALITY_CONFIG,
-  personalityApi,
-  personalitiesApi,
-  type LLMConfig,
-  PersonalityPreset,
-  PersonalityConfig,
+  type PersonalityConfig,
+  type SeedPreview,
   type StateTransitionProtocolItem,
-} from '../../api';
+} from '../../api/modules/personas';
 
 interface PersonalityFormProps {
   quickMode?: boolean;
@@ -26,7 +25,7 @@ interface PersonalityFormProps {
 
 // Group display order
 const GROUP_ORDER = ['magi', 'general'];
-const DEFAULT_PRESET_ID = 'echo_ai_ssistant';
+const DEFAULT_PRESET_SLUG = 'echo_ai_ssistant';
 
 type CachedPhraseKey = 'on_init' | 'on_error_generic' | 'on_success' | 'on_switch_attempt';
 
@@ -45,17 +44,9 @@ const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig =>
     ...next.persona_entity.basic_profile,
     ...(incoming.persona_entity?.basic_profile || {}),
   };
-  next.persona_entity.psychological_traits = {
-    ...next.persona_entity.psychological_traits,
-    ...(incoming.persona_entity?.psychological_traits || {}),
-  };
-  next.persona_entity.social_responses = {
-    ...next.persona_entity.social_responses,
-    ...(incoming.persona_entity?.social_responses || {}),
-  };
-  next.persona_entity.behavioral_strategies = {
-    ...next.persona_entity.behavioral_strategies,
-    ...(incoming.persona_entity?.behavioral_strategies || {}),
+  next.persona_entity.core_identity = {
+    ...next.persona_entity.core_identity,
+    ...(incoming.persona_entity?.core_identity || {}),
   };
   next.cached_phrases = {
     ...next.cached_phrases,
@@ -71,7 +62,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   const { t } = useTranslation('onboarding');
   const formContext = React.useContext(FormContext);
   const formInstance = formContext?.instance;
-  const [presets, setPresets] = useState<PersonalityPreset[]>([]);
+  const [presets, setPresets] = useState<SeedPreview[]>([]);
   const [generating, setGenerating] = useState(false);
   const [oneLiner, setOneLiner] = useState('');
   const [viewMode, setViewMode] = useState<'selection' | 'focus'>('selection');
@@ -87,7 +78,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   useEffect(() => {
     const loadPresets = async () => {
       try {
-        const response = await personalitiesApi.list(language);
+        const response = await personasApi.seedPreviews(language);
         setPresets(response.data || []);
       } catch (error) {
         setPresets([]);
@@ -111,7 +102,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     }
 
     const defaultPreset =
-      presets.find((item) => item.id === DEFAULT_PRESET_ID) ??
+      presets.find((item) => item.seed_slug === DEFAULT_PRESET_SLUG) ??
       presets.find((item) => item.name.toLowerCase() === 'echo-01') ??
       presets.find((item) => item.group === 'general') ??
       presets[0];
@@ -124,7 +115,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       setLoadingConfig(true);
       setConfigLoaded(false);
       try {
-        const result = await personalitiesApi.get(defaultPreset.id, language);
+        const result = await personasApi.getPresetConfig(defaultPreset.seed_slug, language);
         if (cancelled) return;
         const data = (result.data || {}) as Partial<PersonalityConfig>;
         const mergedConfig = mergeConfig(data);
@@ -136,9 +127,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
           persona_entity: {
             basic_profile: {
               name: defaultPreset.name,
-              occupation: defaultPreset.occupation,
               description: defaultPreset.description,
-              core_background: defaultPreset.prompt,
               avatar: defaultPreset.avatar,
             },
           } as Partial<PersonalityConfig['persona_entity']>,
@@ -160,7 +149,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     };
   }, [defaultPresetResolved, formInstance, language, presets]);
 
-  const avatarFor = (item: PersonalityPreset): string => {
+  const avatarFor = (item: SeedPreview): string => {
     const map: Record<string, string> = {
       assistant: '🤖',
       analyst: '🧠',
@@ -169,7 +158,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       writer: '✍️',
       default: '✨',
     };
-    return map[item.id] || item.name.trim().charAt(0).toUpperCase() || '✨';
+    return map[item.seed_slug] || item.name.trim().charAt(0).toUpperCase() || '✨';
   };
 
   const patch = (fn: (draft: PersonalityConfig) => void) => {
@@ -222,7 +211,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     });
   };
 
-  const resolveAvatarUrl = (avatar?: string): string => personalitiesApi.getAvatarUrl(avatar || '');
+  const resolveAvatarUrl = (avatar?: string): string => personasApi.getAvatarUrl(avatar || '');
   const avatarLabel = (avatar?: string): string => (avatar || '').split('/').pop() || '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -230,7 +219,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     if (!file) return;
     setUploadingAvatar(true);
     try {
-      const response = await personalitiesApi.uploadAvatar(file);
+      const response = await personasApi.uploadAvatar(file);
       const avatarValue = response.data?.url || response.data?.filename;
       if (!avatarValue) return;
       patch((d) => {
@@ -244,7 +233,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   };
 
   const handleSelectPreset = async (
-    item: PersonalityPreset,
+    item: SeedPreview,
     setFieldValue: (name: any, value: any) => void
   ) => {
     setViewMode('focus');
@@ -253,8 +242,8 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     setConfigLoaded(false);
 
     try {
-      // Fetch full config from preset API
-      const result = await personalitiesApi.get(item.id, language);
+      // Fetch full config from preset API using seed_slug
+      const result = await personasApi.getPresetConfig(item.seed_slug, language);
       const data = (result.data || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
@@ -285,7 +274,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     setGenerating(true);
     try {
       const llmOverride = getFieldValue(['llm']) as LLMConfig | undefined;
-      const generated = await personalityApi.generate({
+      const generated = await personasApi.generate({
         description: oneLiner.trim(),
         target_language: language === 'zh' ? 'Chinese' : 'English',
         llm_override: llmOverride,
@@ -327,7 +316,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
               : config.persona_entity.basic_profile.description || focusedPreset?.description || '';
             const focusDescription = isCustomSelected
               ? t('personality.blankCardDesc')
-              : config.persona_entity.basic_profile.core_background || focusedPreset?.prompt || focusedPreset?.description || '';
+              : config.persona_entity.core_identity.inner_narrative || focusedPreset?.description || '';
 
             // Group by backend group field
             const groupedPersonalities = GROUP_ORDER.reduce((acc, group) => {
@@ -336,13 +325,13 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                 acc.push({ group, items });
               }
               return acc;
-            }, [] as Array<{ group: string; items: PersonalityPreset[] }>);
+            }, [] as Array<{ group: string; items: SeedPreview[] }>);
 
-            const renderPersonalityCard = (item: PersonalityPreset) => {
+            const renderPersonalityCard = (item: SeedPreview) => {
               const active = selectedPreset === item.name;
-              const expanded = expandedCardId === item.id;
+              const expanded = expandedCardId === item.seed_slug;
               return (
-                <div key={item.id} className="relative">
+                <div key={item.seed_slug} className="relative">
                   <div
                     onClick={() => void handleSelectPreset(item, setFieldValue)}
                     className={cn(
@@ -354,12 +343,12 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-primary/10 text-xl">
-                        {item.avatar && !brokenAvatarKeys[`list:${item.id}:${item.avatar}`] ? (
+                        {item.avatar && !brokenAvatarKeys[`list:${item.seed_slug}:${item.avatar}`] ? (
                           <img
                             src={resolveAvatarUrl(item.avatar)}
                             alt={item.name}
                             className="h-full w-full object-cover"
-                            onError={() => markAvatarBroken(`list:${item.id}:${item.avatar}`)}
+                            onError={() => markAvatarBroken(`list:${item.seed_slug}:${item.avatar}`)}
                           />
                         ) : (
                           avatarFor(item)
@@ -373,7 +362,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setExpandedCardId(expanded ? null : item.id);
+                          setExpandedCardId(expanded ? null : item.seed_slug);
                         }}
                         className={cn(
                           'pointer-events-auto shrink-0 rounded p-1 transition-colors hover:bg-muted',
@@ -388,7 +377,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         />
                       </button>
                     </div>
-                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.prompt || item.description}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.description}</p>
                   </div>
 
                   <AnimatePresence initial={false}>
@@ -401,7 +390,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         className="overflow-hidden"
                       >
                         <div className="mt-1 rounded-xl border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground">
-                          <p className="line-clamp-4">{item.prompt || item.description}</p>
+                          <p className="line-clamp-4">{item.description}</p>
                         </div>
                       </motion.div>
                     )}
@@ -659,117 +648,45 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                   onChange={(e) => patch((d) => { d.persona_entity.basic_profile.occupation = e.target.value; })}
                                 />
                               </label>
-                              <label className="space-y-1.5 md:col-span-3">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.coreBackground')}</span>
-                                <AutoResizeTextarea
-                                  value={config.persona_entity.basic_profile.core_background}
-                                  minHeight={120}
-                                  className="w-full"
-                                  onChange={(e) => patch((d) => { d.persona_entity.basic_profile.core_background = e.target.value; })}
-                                />
-                              </label>
                             </div>
                           </CollapsibleContent>
                         </Collapsible>
 
-                        {/* Psychological Traits */}
+                        {/* Core Identity */}
                         <Collapsible
                           className="space-y-1"
                           defaultOpen
                         >
                           <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-                            {t('personality.sections.psychologicalTraits')}
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="pt-2">
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.communicationTone')}</span>
-                                <Input
-                                  value={config.persona_entity.psychological_traits.communication_tone}
-                                  onChange={(e) => patch((d) => { d.persona_entity.psychological_traits.communication_tone = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.confidenceLevel')}</span>
-                                <Input
-                                  value={config.persona_entity.psychological_traits.confidence_level}
-                                  onChange={(e) => patch((d) => { d.persona_entity.psychological_traits.confidence_level = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.empathyThreshold')}</span>
-                                <Input
-                                  value={config.persona_entity.psychological_traits.empathy_threshold}
-                                  onChange={(e) => patch((d) => { d.persona_entity.psychological_traits.empathy_threshold = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.highFrequencyKeywords')}</span>
-                                <Input
-                                  value={config.persona_entity.psychological_traits.high_frequency_keywords.join(', ')}
-                                  onChange={(e) => patch((d) => {
-                                    d.persona_entity.psychological_traits.high_frequency_keywords = e.target.value
-                                      .split(',')
-                                      .map((s) => s.trim())
-                                      .filter(Boolean);
-                                  })}
-                                />
-                              </label>
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-
-                        {/* Social Responses */}
-                        <Collapsible className="space-y-1">
-                          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-                            {t('personality.sections.socialResponses')}
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="pt-2">
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.praiseReaction')}</span>
-                                <Input
-                                  value={config.persona_entity.social_responses.praise_reaction}
-                                  onChange={(e) => patch((d) => { d.persona_entity.social_responses.praise_reaction = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.criticismReaction')}</span>
-                                <Input
-                                  value={config.persona_entity.social_responses.criticism_reaction}
-                                  onChange={(e) => patch((d) => { d.persona_entity.social_responses.criticism_reaction = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5 md:col-span-2">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.obedienceStrategy')}</span>
-                                <AutoResizeTextarea
-                                  value={config.persona_entity.social_responses.obedience_strategy}
-                                  onChange={(e) => patch((d) => { d.persona_entity.social_responses.obedience_strategy = e.target.value; })}
-                                />
-                              </label>
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-
-                        {/* Behavioral Strategies */}
-                        <Collapsible className="space-y-1">
-                          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-                            {t('personality.sections.behavioralStrategies')}
+                            {t('personality.sections.coreIdentity')}
                           </CollapsibleTrigger>
                           <CollapsibleContent className="pt-2">
                             <div className="grid gap-3">
                               <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.errorHandling')}</span>
+                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.innerNarrative')}</span>
                                 <AutoResizeTextarea
-                                  value={config.persona_entity.behavioral_strategies.error_handling}
-                                  onChange={(e) => patch((d) => { d.persona_entity.behavioral_strategies.error_handling = e.target.value; })}
+                                  value={config.persona_entity.core_identity.inner_narrative}
+                                  minHeight={120}
+                                  className="w-full"
+                                  onChange={(e) => patch((d) => { d.persona_entity.core_identity.inner_narrative = e.target.value; })}
                                 />
                               </label>
                               <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.refusalStyle')}</span>
+                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.languageFingerprint')}</span>
                                 <AutoResizeTextarea
-                                  value={config.persona_entity.behavioral_strategies.refusal_style}
-                                  onChange={(e) => patch((d) => { d.persona_entity.behavioral_strategies.refusal_style = e.target.value; })}
+                                  value={config.persona_entity.core_identity.language_fingerprint}
+                                  minHeight={80}
+                                  className="w-full"
+                                  onChange={(e) => patch((d) => { d.persona_entity.core_identity.language_fingerprint = e.target.value; })}
+                                />
+                              </label>
+                              <label className="space-y-1.5">
+                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.attentionBias')}</span>
+                                <AutoResizeTextarea
+                                  value={config.persona_entity.core_identity.attention_bias}
+                                  minHeight={60}
+                                  className="w-full"
+                                  onChange={(e) => patch((d) => { d.persona_entity.core_identity.attention_bias = e.target.value; })}
                                 />
                               </label>
                             </div>

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
@@ -63,6 +64,8 @@ class InteractionAnalysis:
     complexity: float
     outcome: InteractionOutcome
     satisfaction: SatisfactionLevel
+    trigger_type: Optional[str] = None
+    milestone_keys: List[str] = field(default_factory=list)
 
     @property
     def outcome_str(self) -> str:
@@ -78,11 +81,72 @@ DEFAULT_ANALYSIS = InteractionAnalysis(
 )
 
 
+def _build_system_prompt(
+    stp_rules: List[Dict[str, str]] | None = None,
+    milestone_conditions: Dict[str, str] | None = None,
+) -> str:
+    """Build the system prompt, optionally including STP trigger and milestone detection."""
+    extra = ""
+
+    # STP trigger detection block
+    if stp_rules:
+        rules_lines: list[str] = []
+        trigger_types: list[str] = []
+        for rule in stp_rules:
+            tt = rule.get("trigger_type", "")
+            cond = rule.get("trigger_condition", "")
+            if tt and cond:
+                rules_lines.append(f'- "{tt}": {cond}')
+                trigger_types.append(f'"{tt}"')
+        if rules_lines:
+            extra += (
+                "\n\nAdditionally, determine if the user's message activates any of "
+                "these behavioral triggers:\n"
+                + "\n".join(rules_lines)
+                + "\n\nAdd this field to your JSON output:\n"
+                '- "trigger_type": one of '
+                + ", ".join(trigger_types)
+                + ' if a trigger condition is clearly matched, or null if none applies. '
+                'Only activate a trigger when the conversation clearly matches the described condition.'
+            )
+
+    # Milestone detection block
+    if milestone_conditions:
+        ms_lines: list[str] = []
+        ms_keys: list[str] = []
+        for key, cond in milestone_conditions.items():
+            ms_lines.append(f'- "{key}": {cond}')
+            ms_keys.append(f'"{key}"')
+        if ms_lines:
+            extra += (
+                "\n\nAlso, determine if this exchange represents a significant "
+                "relationship milestone. The following milestones may occur:\n"
+                + "\n".join(ms_lines)
+                + "\n\nAdd this field to your JSON output:\n"
+                '- "milestone_keys": an array of milestone keys ('
+                + ", ".join(ms_keys)
+                + ') that are clearly achieved in this exchange, or an empty array if none. '
+                'Only mark a milestone when the exchange unmistakably demonstrates '
+                'the described condition — do not mark it for vague similarity.'
+            )
+
+    if not extra:
+        return _SYSTEM_PROMPT
+    return _SYSTEM_PROMPT + extra
+
+
 async def analyze_interaction(
     user_message: str,
     assistant_response: str,
+    stp_rules: List[Dict[str, str]] | None = None,
+    milestone_conditions: Dict[str, str] | None = None,
 ) -> InteractionAnalysis:
     """Analyze a single interaction turn using a lightweight LLM call.
+
+    When *stp_rules* are provided the LLM is also asked to detect whether
+    the exchange matches one of the persona's STP trigger conditions.
+    When *milestone_conditions* are provided the LLM also checks whether
+    any persona-layer milestone conditions are met.
 
     Returns DEFAULT_ANALYSIS if the LLM call fails or is unavailable.
     """
@@ -105,10 +169,12 @@ async def analyze_interaction(
         f"Assistant response:\n{assistant_response[:500]}"
     )
 
+    system_prompt = _build_system_prompt(stp_rules, milestone_conditions)
+
     t0 = time.monotonic()
     try:
         raw = await bridge.chat(
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
             max_tokens=256,
             temperature=0.1,
@@ -117,14 +183,21 @@ async def analyze_interaction(
         )
         elapsed_ms = (time.monotonic() - t0) * 1000
         logger.debug("Interaction analysis completed elapsed_ms=%.1f", elapsed_ms)
-        return parse_analysis(raw)
+        return parse_analysis(raw, stp_rules=stp_rules)
     except Exception:
         logger.warning("Interaction analysis LLM call failed", exc_info=True)
         return DEFAULT_ANALYSIS
 
 
-def parse_analysis(raw: str) -> InteractionAnalysis:
-    """Parse the JSON response from the LLM into an InteractionAnalysis."""
+def parse_analysis(
+    raw: str,
+    stp_rules: List[Dict[str, str]] | None = None,
+) -> InteractionAnalysis:
+    """Parse the JSON response from the LLM into an InteractionAnalysis.
+
+    Valid trigger types are derived dynamically from *stp_rules* so that
+    persona-defined triggers are accepted without a hardcoded whitelist.
+    """
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -150,12 +223,31 @@ def parse_analysis(raw: str) -> InteractionAnalysis:
         data.get("satisfaction", ""), SatisfactionLevel.NEUTRAL
     )
 
+    raw_trigger = data.get("trigger_type")
+    trigger_type: Optional[str] = None
+    if isinstance(raw_trigger, str) and raw_trigger:
+        valid_triggers: frozenset[str] = frozenset()
+        if stp_rules:
+            valid_triggers = frozenset(
+                rule["trigger_type"] for rule in stp_rules
+                if rule.get("trigger_type")
+            )
+        if valid_triggers and raw_trigger in valid_triggers:
+            trigger_type = raw_trigger
+
+    raw_milestones = data.get("milestone_keys")
+    milestone_keys: List[str] = []
+    if isinstance(raw_milestones, list):
+        milestone_keys = [k for k in raw_milestones if isinstance(k, str) and k]
+
     return InteractionAnalysis(
         sentiment=sentiment,
         engagement=engagement,
         complexity=complexity,
         outcome=outcome,
         satisfaction=satisfaction,
+        trigger_type=trigger_type,
+        milestone_keys=milestone_keys,
     )
 
 

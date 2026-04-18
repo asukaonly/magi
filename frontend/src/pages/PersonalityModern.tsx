@@ -22,10 +22,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { personalitiesApi } from '@/api';
+import { personasApi } from '@/api/modules/personas';
 import {
   usePersonality,
-  CONFIDENCE_OPTIONS,
   parseLines,
   toLines,
   getInitials,
@@ -48,8 +47,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     // State
     config,
     list,
-    currentName,
-    selectedName,
+    currentId,
+    selectedId,
     isNewMode,
     loading,
     saving,
@@ -88,7 +87,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     ? t('personality.newPersonalityDesc')
     : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
   const avatarValue = config.persona_entity.basic_profile.avatar || '';
-  const avatarUrl = avatarValue && !avatarBroken ? personalitiesApi.getAvatarUrl(avatarValue) : '';
+  const avatarUrl = avatarValue && !avatarBroken ? personasApi.getAvatarUrl(avatarValue) : '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -96,7 +95,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
     setUploadingAvatar(true);
     try {
-      const response = await personalitiesApi.uploadAvatar(file);
+      const response = await personasApi.uploadAvatar(file);
       const nextAvatar = response.data?.url || response.data?.filename;
       if (!nextAvatar) {
         return;
@@ -170,20 +169,20 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
           {/* Personality Avatars */}
           {list.map((item) => {
-            const isSelected = item.name === selectedName;
-            const isCurrent = item.name === currentName;
+            const isSelected = item.id === selectedId;
+            const isCurrent = item.id === currentId;
             const initials = getInitials(item.displayName);
             const selectorAvatarValue =
-              item.name === selectedName ? (avatarValue || item.avatar || '') : (item.avatar || '');
+              item.id === selectedId ? (avatarValue || item.avatar || '') : (item.avatar || '');
             const selectorAvatarUrl =
-              selectorAvatarValue && !(item.name === selectedName && avatarBroken)
-                ? personalitiesApi.getAvatarUrl(selectorAvatarValue)
+              selectorAvatarValue && !(item.id === selectedId && avatarBroken)
+                ? personasApi.getAvatarUrl(selectorAvatarValue)
                 : '';
 
             return (
               <button
-                key={item.name}
-                onClick={() => selectPersonality(item.name)}
+                key={item.id}
+                onClick={() => selectPersonality(item.id)}
                 className="group relative flex shrink-0 flex-col items-center gap-2"
               >
                 <div
@@ -289,7 +288,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   <h2 className="text-2xl font-semibold tracking-tight text-foreground">
                     {detailTitle}
                   </h2>
-                  {!isNewMode && selectedName === currentName ? (
+                  {!isNewMode && selectedId === currentId ? (
                     <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
                       {t('personality.current')}
                     </span>
@@ -303,7 +302,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
               {/* Action Buttons */}
               <div className="flex flex-wrap gap-2">
-                {!isNewMode && selectedName !== currentName && (
+                {!isNewMode && selectedId !== currentId && (
                   <Button onClick={switchPersonality} disabled={switching} className="rounded-2xl">
                     <Check className="mr-2 h-4 w-4" />
                     {switching ? t('personality.switching') : t('personality.switch')}
@@ -341,7 +340,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   <Button
                     variant="outline"
                     onClick={requestDeletePersonality}
-                    disabled={selectedName === 'default'}
+                    disabled={selectedId === currentId}
                     className="rounded-2xl border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
@@ -428,119 +427,39 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                       onChange={(event) => patch((d) => { d.persona_entity.basic_profile.occupation = event.target.value; })}
                     />
                   </label>
-                  <label className="space-y-2 md:col-span-3">
-                    <span className="text-sm font-medium">{t('personality.fields.coreBackground')}</span>
-                    <Textarea
-                      rows={6}
-                      className="rounded-xl"
-                      value={config.persona_entity.basic_profile.core_background}
-                      onChange={(event) => patch((d) => { d.persona_entity.basic_profile.core_background = event.target.value; })}
-                    />
-                  </label>
                 </CardContent>
               </Card>
 
               <Card className={sectionCardClass}>
                 <CardHeader>
-                  <CardTitle>{t('personality.sections.psychologicalTraits')}</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.communicationTone')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.psychological_traits.communication_tone}
-                      onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.communication_tone = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.confidenceLevel')}</span>
-                    <select
-                      className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      value={config.persona_entity.psychological_traits.confidence_level}
-                      onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.confidence_level = event.target.value; })}
-                    >
-                      {CONFIDENCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </label>
-                  <label className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium">{t('personality.fields.empathyThreshold')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.psychological_traits.empathy_threshold}
-                      onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.empathy_threshold = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium">{t('personality.fields.highFrequencyKeywords')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.psychological_traits.high_frequency_keywords.join(', ')}
-                      onChange={(event) => patch((d) => {
-                        d.persona_entity.psychological_traits.high_frequency_keywords = event.target.value
-                          .split(',')
-                          .map((item) => item.trim())
-                          .filter(Boolean);
-                      })}
-                    />
-                  </label>
-                </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.socialResponses')}</CardTitle>
-                </CardHeader>
-                  <CardContent className="grid gap-4">
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.praiseReaction')}</span>
-                      <Input
-                        className="rounded-xl"
-                        value={config.persona_entity.social_responses.praise_reaction}
-                        onChange={(event) => patch((d) => { d.persona_entity.social_responses.praise_reaction = event.target.value; })}
-                      />
-                    </label>
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.criticismReaction')}</span>
-                      <Input
-                        className="rounded-xl"
-                        value={config.persona_entity.social_responses.criticism_reaction}
-                        onChange={(event) => patch((d) => { d.persona_entity.social_responses.criticism_reaction = event.target.value; })}
-                      />
-                    </label>
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.obedienceStrategy')}</span>
-                      <Textarea
-                        rows={4}
-                        className="rounded-xl"
-                        value={config.persona_entity.social_responses.obedience_strategy}
-                        onChange={(event) => patch((d) => { d.persona_entity.social_responses.obedience_strategy = event.target.value; })}
-                      />
-                    </label>
-                  </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.behavioralStrategies')}</CardTitle>
+                  <CardTitle>{t('personality.sections.coreIdentity')}</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4">
                   <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.errorHandling')}</span>
+                    <span className="text-sm font-medium">{t('personality.fields.innerNarrative')}</span>
                     <Textarea
-                      rows={4}
+                      rows={6}
                       className="rounded-xl"
-                      value={config.persona_entity.behavioral_strategies.error_handling}
-                      onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.error_handling = event.target.value; })}
+                      value={config.persona_entity.core_identity.inner_narrative}
+                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.inner_narrative = event.target.value; })}
                     />
                   </label>
                   <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.refusalStyle')}</span>
+                    <span className="text-sm font-medium">{t('personality.fields.languageFingerprint')}</span>
                     <Textarea
                       rows={4}
                       className="rounded-xl"
-                      value={config.persona_entity.behavioral_strategies.refusal_style}
-                      onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.refusal_style = event.target.value; })}
+                      value={config.persona_entity.core_identity.language_fingerprint}
+                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.language_fingerprint = event.target.value; })}
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">{t('personality.fields.attentionBias')}</span>
+                    <Textarea
+                      rows={2}
+                      className="rounded-xl"
+                      value={config.persona_entity.core_identity.attention_bias}
+                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.attention_bias = event.target.value; })}
                     />
                   </label>
                 </CardContent>
@@ -746,7 +665,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
           <DialogHeader>
             <DialogTitle>{t('personality.deleteTitle')}</DialogTitle>
             <DialogDescription>
-              {t('personality.deleteConfirm', { name: selectedName })}
+              {t('personality.deleteConfirm', { name: selectedInfo?.displayName || '' })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

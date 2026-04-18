@@ -85,8 +85,8 @@ class EmotionalConfig:
 # ===== emotionhistory =====
 
 @dataclass
-class Emotionalevent:
-    """emotioneventrecord"""
+class EmotionalEvent:
+    """Emotional event record."""
     timestamp: float
     event_type: str                 # interaction/task/time elapsed
     previous_mood: str
@@ -109,7 +109,9 @@ class EmotionalStateEngine:
     def __init__(
         self,
         db_path: str = "~/.magi/data/memory/emotional_state.db",
-        config: EmotionalConfig = None
+        config: EmotionalConfig = None,
+        *,
+        persona_id: str = "",
     ):
         """
         Internal note.
@@ -117,11 +119,13 @@ class EmotionalStateEngine:
         Args:
             db_path: databasefilepath
             config: evolutionConfigurationParameter
+            persona_id: Stable persona identity for scoping data.
         """
         self.db_path = db_path
         self.config = config or EmotionalConfig()
+        self.persona_id = persona_id
         self._current_state: Optional[EmotionalState] = None
-        self._event_history: List[Emotionalevent] = []
+        self._event_history: List[EmotionalEvent] = []
 
     @property
     def _expanded_db_path(self) -> str:
@@ -154,14 +158,25 @@ class EmotionalStateEngine:
                     mood_delta real NOT NULL,
                     energy_delta real NOT NULL,
                     stress_delta real NOT NULL,
-                    cause TEXT NOT NULL
+                    cause TEXT NOT NULL,
+                    persona_id TEXT NOT NULL DEFAULT ''
                 )
             """)
+
+            # Migration: add persona_id column if missing (existing DBs).
+            try:
+                await db.execute("ALTER TABLE emotional_events ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''")
+            except Exception:
+                pass  # Column already exists
 
             # createindex
             await db.execute("""
                 create index IF NOT EXISTS idx_emotional_events_timestamp
                 ON emotional_events(timestamp DESC)
+            """)
+            await db.execute("""
+                create index IF NOT EXISTS idx_emotional_events_persona
+                ON emotional_events(persona_id, timestamp DESC)
             """)
 
             await db.commit()
@@ -179,9 +194,11 @@ class EmotionalStateEngine:
 
     async def _load_current_state(self) -> None:
         """Load current state from database"""
+        state_key = f"current:{self.persona_id}" if self.persona_id else "current"
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT value FROM emotional_state WHERE key = 'current'"
+                "SELECT value FROM emotional_state WHERE key = ?",
+                (state_key,)
             )
             row = await cursor.fetchone()
 
@@ -194,15 +211,45 @@ class EmotionalStateEngine:
 
     async def _save_current_state(self) -> None:
         """savecurrentState"""
+        state_key = f"current:{self.persona_id}" if self.persona_id else "current"
         async with sqlite_connection_async(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE intO emotional_state (key, value, updated_at)
                    valueS (?, ?, ?)""",
-                ("current", json.dumps(asdict(self._current_state)), time.time())
+                (state_key, json.dumps(asdict(self._current_state)), time.time())
             )
             await db.commit()
 
     # Internal note.
+
+    async def update_stp_trigger(
+        self,
+        trigger_type: str,
+        state_name: str,
+        idle_reset_rounds: int = 5,
+    ) -> None:
+        """Update the active STP trigger detected from interaction analysis.
+
+        When a matching *trigger_type* is detected the idle counter resets.
+        When no trigger is detected (empty string) and a state is currently
+        active, the idle counter increments. After *idle_reset_rounds*
+        consecutive idle turns the active state is cleared automatically.
+        """
+        state = await self.get_current_state()
+        if trigger_type:
+            # Trigger matched – activate / refresh.
+            state.active_stp_trigger = trigger_type
+            state.active_stp_state_name = state_name
+            state.stp_idle_rounds = 0
+        elif state.active_stp_trigger:
+            # No trigger this turn but a state is active – count idle.
+            state.stp_idle_rounds = getattr(state, "stp_idle_rounds", 0) + 1
+            if state.stp_idle_rounds >= idle_reset_rounds:
+                state.active_stp_trigger = ""
+                state.active_stp_state_name = ""
+                state.stp_idle_rounds = 0
+        state.updated_at = time.time()
+        await self._save_current_state()
 
     async def update_after_interaction(
         self,
@@ -485,10 +532,34 @@ class EmotionalStateEngine:
 
         return 0.05 * complexity
 
+    _MOOD_POSITIVE_TRANSITION: dict[str, MoodType] = {
+        MoodType.STRESSED.value: MoodType.NEUTRAL,
+        MoodType.TIRED.value: MoodType.NEUTRAL,
+        MoodType.CONFUSED.value: MoodType.NEUTRAL,
+        MoodType.NEUTRAL.value: MoodType.HAPPY,
+        MoodType.HAPPY.value: MoodType.EXCITED,
+        MoodType.CURIOUS.value: MoodType.EXCITED,
+        MoodType.SATISFIED.value: MoodType.EXCITED,
+        MoodType.FOCUSED.value: MoodType.SATISFIED,
+        MoodType.PLAYFUL.value: MoodType.EXCITED,
+        MoodType.EXCITED.value: MoodType.EXCITED,
+    }
+
+    _MOOD_NEGATIVE_TRANSITION: dict[str, MoodType] = {
+        MoodType.EXCITED.value: MoodType.HAPPY,
+        MoodType.HAPPY.value: MoodType.NEUTRAL,
+        MoodType.SATISFIED.value: MoodType.NEUTRAL,
+        MoodType.PLAYFUL.value: MoodType.NEUTRAL,
+        MoodType.FOCUSED.value: MoodType.TIRED,
+        MoodType.CURIOUS.value: MoodType.CONFUSED,
+        MoodType.NEUTRAL.value: MoodType.TIRED,
+        MoodType.TIRED.value: MoodType.STRESSED,
+        MoodType.CONFUSED.value: MoodType.STRESSED,
+        MoodType.STRESSED.value: MoodType.STRESSED,
+    }
+
     def _apply_mood_change(self, current_mood: str, change: float) -> str:
         """Apply mood change, return new mood"""
-        moods = list(MoodType)
-
         # Internal note.
         if current_mood == MoodType.NEUTRAL.value:
             if change > 0.2:
@@ -501,22 +572,19 @@ class EmotionalStateEngine:
                 return MoodType.TIRED.value
             return MoodType.NEUTRAL.value
 
-        # Internal note.
-        try:
-            current_idx = moods.index(MoodType(current_mood))
-        except ValueError:
-            current_idx = 0
-
+        # Use explicit mood transition maps instead of enum index arithmetic
         if change > 0.15:
-            # Internal note.
-            new_idx = min(len(moods) - 1, current_idx + 1)
+            target = self._MOOD_POSITIVE_TRANSITION.get(
+                current_mood, MoodType.NEUTRAL
+            )
         elif change < -0.1:
-            # Internal note.
-            new_idx = max(0, current_idx - 1)
+            target = self._MOOD_NEGATIVE_TRANSITION.get(
+                current_mood, MoodType.NEUTRAL
+            )
         else:
-            new_idx = current_idx
+            return current_mood
 
-        return moods[new_idx].value
+        return target.value
 
     def _determine_focus_state(self, state: EmotionalState) -> str:
         """Determine focus state from current state"""
@@ -551,31 +619,32 @@ class EmotionalStateEngine:
             await db.execute(
                 """INSERT intO emotional_events
                    (timestamp, event_type, previous_mood, new_mood,
-                    mood_delta, energy_delta, stress_delta, cause)
-                   valueS (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    mood_delta, energy_delta, stress_delta, cause, persona_id)
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (time.time(), event_type, previous_mood, new_mood,
-                 mood_delta, energy_delta, stress_delta, cause)
+                 mood_delta, energy_delta, stress_delta, cause, self.persona_id)
             )
             await db.commit()
 
     # ===== historyquery =====
 
-    async def get_recent_events(self, limit: int = 50) -> List[Emotionalevent]:
+    async def get_recent_events(self, limit: int = 50) -> List[EmotionalEvent]:
         """Get recent emotional events"""
         async with sqlite_connection_async(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT timestamp, event_type, previous_mood, new_mood,
                           mood_delta, energy_delta, stress_delta, cause
                    FROM emotional_events
+                   WHERE persona_id = ?
                    order BY timestamp DESC
                    LIMIT ?""",
-                (limit,)
+                (self.persona_id, limit)
             )
             rows = await cursor.fetchall()
 
             events = []
             for row in rows:
-                events.append(Emotionalevent(
+                events.append(EmotionalEvent(
                     timestamp=row[0],
                     event_type=row[1],
                     previous_mood=row[2],
@@ -597,7 +666,7 @@ class EmotionalStateEngine:
 
         # cleareventhistory
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            await db.execute("delete FROM emotional_events")
+            await db.execute("delete FROM emotional_events WHERE persona_id = ?", (self.persona_id,))
             await db.commit()
 
         logger.info("Emotional state reset to initial values")

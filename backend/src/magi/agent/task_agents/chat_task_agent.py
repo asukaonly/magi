@@ -13,6 +13,7 @@ from ...agent.runtime.contracts import FactRecord
 from ...agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from ...agent.runtime.types import TaskAgentType
 from ...context import ContextAssemblyService, ContextRetrievalService, PromptContextAssembler, PromptContextRenderer
+from ...context.user_profile_service import UserProfileService
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
 from ...runtime_trace import RuntimeTraceStore
@@ -57,7 +58,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         llm_adapter=None,
         llm_pool=None,
         memory=None,
-        other_memory=None,
         unified_memory=None,
         hybrid_retrieval_service=None,
         memory_integration=None,
@@ -73,7 +73,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         self.llm = llm_adapter
         self._llm_pool = llm_pool
         self.memory = memory
-        self.other_memory = other_memory
         self.unified_memory = unified_memory
         self.memory_integration = memory_integration
         self._chat_store = chat_store
@@ -85,6 +84,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         self.prompt_context_assembler = PromptContextAssembler(
             tool_registry=tool_registry,
             scenario_prompts_store=scenario_prompts_store,
+            user_profile_service=UserProfileService(unified_memory=unified_memory),
         )
         self.prompt_context_renderer = PromptContextRenderer()
         self._chat_read_service = get_chat_read_service()
@@ -99,7 +99,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             prompt_context_renderer=self.prompt_context_renderer,
             retrieval_memory_provider=self._context_retrieval_service.build_retrieved_memory_payload,
             memory=memory,
-            other_memory=other_memory,
             session_workspace_provider=self._resolve_session_workspace_path,
         )
 
@@ -156,7 +155,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             get_task_agent_manager=lambda: self._task_agent_manager,
             get_sensor_hub=lambda: self._sensor_hub,
             memory=memory,
-            other_memory=other_memory,
             unified_memory=unified_memory,
             max_fact_memory=self._max_fact_memory,
             trace_read_service=trace_read_service,

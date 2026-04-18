@@ -6,11 +6,9 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-from .models import CognitionProfile, CorePersonality
 
 logger = logging.getLogger(__name__)
 
@@ -23,36 +21,19 @@ class BasicProfile:
     description: str = ""
     avatar: str = ""
     occupation: str = "Assistant"
-    core_background: str = ""
 
 
 @dataclass
-class PsychologicalTraits:
-    communication_tone: str = "Calm and supportive"
-    confidence_level: str = "Medium"
-    empathy_threshold: str = "Shows care when user is stressed"
-    high_frequency_keywords: List[str] = field(default_factory=list)
-
-
-@dataclass
-class SocialResponses:
-    praise_reaction: str = ""
-    criticism_reaction: str = ""
-    obedience_strategy: str = ""
-
-
-@dataclass
-class BehavioralStrategies:
-    error_handling: str = ""
-    refusal_style: str = ""
+class CoreIdentity:
+    inner_narrative: str = ""
+    language_fingerprint: str = ""
+    attention_bias: str = ""
 
 
 @dataclass
 class PersonaEntity:
     basic_profile: BasicProfile = field(default_factory=BasicProfile)
-    psychological_traits: PsychologicalTraits = field(default_factory=PsychologicalTraits)
-    social_responses: SocialResponses = field(default_factory=SocialResponses)
-    behavioral_strategies: BehavioralStrategies = field(default_factory=BehavioralStrategies)
+    core_identity: CoreIdentity = field(default_factory=CoreIdentity)
 
 
 @dataclass
@@ -87,6 +68,53 @@ class BootstrapConfig:
     max_rounds: int = 3
 
 
+def _pick(dc_cls: type, raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Return *raw* filtered to only keys accepted by dataclass *dc_cls*."""
+    allowed = {f.name for f in fields(dc_cls)}
+    return {k: v for k, v in raw.items() if k in allowed}
+
+
+def _synthesize_core_identity(persona: Dict[str, Any]) -> Dict[str, str]:
+    """Build core_identity from legacy psychological_traits / social_responses / behavioral_strategies."""
+    psych = persona.get("psychological_traits", {})
+    social = persona.get("social_responses", {})
+    behavior = persona.get("behavioral_strategies", {})
+    bg = persona.get("basic_profile", {}).get("core_background", "")
+
+    parts_narrative: List[str] = []
+    if bg:
+        parts_narrative.append(bg)
+    tone = psych.get("communication_tone", "")
+    if tone:
+        parts_narrative.append(tone)
+    empathy = psych.get("empathy_threshold", "")
+    if empathy:
+        parts_narrative.append(empathy)
+
+    parts_fingerprint: List[str] = []
+    keywords = psych.get("high_frequency_keywords", [])
+    if keywords:
+        parts_fingerprint.append(f"High-frequency keywords: {', '.join(keywords)}")
+    praise = social.get("praise_reaction", "")
+    if praise:
+        parts_fingerprint.append(f"Praise reaction: {praise}")
+    criticism = social.get("criticism_reaction", "")
+    if criticism:
+        parts_fingerprint.append(f"Criticism reaction: {criticism}")
+    error = behavior.get("error_handling", "")
+    if error:
+        parts_fingerprint.append(f"Error handling: {error}")
+    refusal = behavior.get("refusal_style", "")
+    if refusal:
+        parts_fingerprint.append(f"Refusal style: {refusal}")
+
+    return {
+        "inner_narrative": " ".join(parts_narrative),
+        "language_fingerprint": " | ".join(parts_fingerprint),
+        "attention_bias": "",
+    }
+
+
 @dataclass
 class PersonalityConfig:
     persona_entity: PersonaEntity = field(default_factory=PersonaEntity)
@@ -94,6 +122,7 @@ class PersonalityConfig:
     appearance_prompt: str = ""
     state_transition_protocol: List[StateTransitionProtocolItem] = field(default_factory=list)
     persona_layers: List[PersonaLayerItem] = field(default_factory=list)
+    milestone_conditions: Dict[str, str] = field(default_factory=dict)
     scenario_prompts: Dict[str, str] = field(default_factory=dict)
     bootstrap: Optional[BootstrapConfig] = None
 
@@ -109,26 +138,26 @@ class PersonalityConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "PersonalityConfig":
         persona = data.get("persona_entity", {})
         basic = persona.get("basic_profile", {})
-        psych = persona.get("psychological_traits", {})
-        social = persona.get("social_responses", {})
-        behavior = persona.get("behavioral_strategies", {})
+        identity_raw = persona.get("core_identity", {})
         phrases = data.get("cached_phrases", {})
         transitions = data.get("state_transition_protocol", [])
         layers = data.get("persona_layers", [])
         scenario_prompts_raw = data.get("scenario_prompts", {})
         bootstrap_raw = data.get("bootstrap")
 
+        # Backward-compat: synthesize core_identity from legacy fields
+        if not identity_raw and persona:
+            identity_raw = _synthesize_core_identity(persona)
+
         return cls(
             persona_entity=PersonaEntity(
-                basic_profile=BasicProfile(**{**asdict(BasicProfile()), **basic}),
-                psychological_traits=PsychologicalTraits(**{**asdict(PsychologicalTraits()), **psych}),
-                social_responses=SocialResponses(**{**asdict(SocialResponses()), **social}),
-                behavioral_strategies=BehavioralStrategies(**{**asdict(BehavioralStrategies()), **behavior}),
+                basic_profile=BasicProfile(**{**asdict(BasicProfile()), **_pick(BasicProfile, basic)}),
+                core_identity=CoreIdentity(**{**asdict(CoreIdentity()), **_pick(CoreIdentity, identity_raw)}),
             ),
-            cached_phrases=CachedPhrases(**{**asdict(CachedPhrases()), **phrases}),
+            cached_phrases=CachedPhrases(**{**asdict(CachedPhrases()), **_pick(CachedPhrases, phrases)}),
             appearance_prompt=data.get("appearance_prompt", ""),
             state_transition_protocol=[
-                StateTransitionProtocolItem(**{**asdict(StateTransitionProtocolItem()), **item})
+                StateTransitionProtocolItem(**{**asdict(StateTransitionProtocolItem()), **_pick(StateTransitionProtocolItem, item)})
                 for item in transitions
                 if isinstance(item, dict)
             ],
@@ -142,8 +171,9 @@ class PersonalityConfig:
                 for item in layers
                 if isinstance(item, dict)
             ],
+            milestone_conditions=dict(data.get("milestone_conditions", {})),
             scenario_prompts=dict(scenario_prompts_raw) if isinstance(scenario_prompts_raw, dict) else {},
-            bootstrap=BootstrapConfig(**{**asdict(BootstrapConfig()), **bootstrap_raw})
+            bootstrap=BootstrapConfig(**{**asdict(BootstrapConfig()), **_pick(BootstrapConfig, bootstrap_raw)})
             if isinstance(bootstrap_raw, dict) else None,
         )
 
@@ -221,66 +251,6 @@ class PersonalityLoader:
         if not self.personalities_path.exists():
             return []
         return sorted(path.stem for path in self.personalities_path.glob("*.json"))
-
-    def to_core_personality(self, config: PersonalityConfig) -> CorePersonality:
-        from .models import CommunicationDistance, LanguageStyle, ValueAlignment
-
-        confidence = config.persona_entity.psychological_traits.confidence_level.lower()
-        empathy = config.persona_entity.psychological_traits.empathy_threshold.lower()
-
-        traits: List[str] = []
-        if "extremely high" in confidence or confidence == "high":
-            traits.append("confident")
-        if "low" in confidence:
-            traits.append("cautious")
-        if "severe" in empathy or "crisis" in empathy:
-            traits.append("protective")
-
-        greetings = config.cached_phrases.on_init[:4]
-        return CorePersonality(
-            name=config.persona_entity.basic_profile.name,
-            role=config.persona_entity.basic_profile.occupation,
-            backstory=config.persona_entity.basic_profile.core_background,
-            language_style=LanguageStyle.CASUAL,
-            use_emoji=False,
-            catchphrases=config.persona_entity.psychological_traits.high_frequency_keywords,
-            greetings=greetings,
-            tone=config.persona_entity.psychological_traits.communication_tone,
-            communication_distance=CommunicationDistance.EQUAL,
-            value_alignment=ValueAlignment.NEUTRAL_GOOD,
-            traits=traits,
-            virtues=[],
-            flaws=[],
-            taboos=[],
-            boundaries=[],
-        )
-
-    def to_cognition_profile(self, config: PersonalityConfig) -> CognitionProfile:
-        from .models import RiskPreference, ThinkingStyle
-
-        tone = config.persona_entity.psychological_traits.communication_tone.lower()
-        primary_style = ThinkingStyle.LOGICAL
-        if "intuitive" in tone:
-            primary_style = ThinkingStyle.INTUITIVE
-        elif "creative" in tone:
-            primary_style = ThinkingStyle.CREATIVE
-
-        risk_preference = RiskPreference.BALANCED
-        confidence = config.persona_entity.psychological_traits.confidence_level.lower()
-        if "extremely high" in confidence:
-            risk_preference = RiskPreference.ADVENTUROUS
-        elif "low" in confidence:
-            risk_preference = RiskPreference.CONSERVATIVE
-
-        return CognitionProfile(
-            primary_style=primary_style,
-            secondary_style=ThinkingStyle.INTUITIVE,
-            risk_preference=risk_preference,
-            expertise=[],
-            reasoning_depth="medium",
-            creativity_level=0.5,
-            learning_rate=0.5,
-        )
 
 
 _default_loader: Optional[PersonalityLoader] = None

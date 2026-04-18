@@ -45,6 +45,19 @@ _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
 }
 _STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS = {"public_topology", "interaction_evidence", "explicit_fact"}
 _STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES = {"source_explicit", "source_structured"}
+
+# P2: memory subdomain classification — stable/persistent + evidence-only → semantic
+_SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}
+_SEMANTIC_DECAY_POLICIES = {"none", "evidence_only", ""}
+
+
+def classify_memory_subdomain(temporal_scope: str, decay_policy: str) -> str:
+    """Classify an assertion as 'semantic' or 'state' based on its temporal scope and decay policy."""
+    if temporal_scope in _SEMANTIC_TEMPORAL_SCOPES and (
+        decay_policy in _SEMANTIC_DECAY_POLICIES or not decay_policy
+    ):
+        return "semantic"
+    return "state"
 _STRUCTURED_GRAPH_HINT_FOLLOWS_PAGE_KINDS = {
     "creator_profile",
     "creator_home",
@@ -645,6 +658,7 @@ class L2ValidationMixin:
                 "decay_anchor_at": event.timestamp,
                 "context_ref_id": "",
                 "expires_at": expires_at,
+                "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
             })
         return prepared, rejected_count
 
@@ -963,6 +977,7 @@ class L2ValidationMixin:
             "decay_anchor_at": event.timestamp,
             "context_ref_id": context_ref_id or "",
             "expires_at": expires_at,
+            "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
         }
 
     def _resolve_assertion_target(

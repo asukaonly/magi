@@ -16,8 +16,10 @@ def test_parse_json_preset(tmp_path: Path):
                 "basic_profile": {
                     "name": "Helper",
                     "occupation": "A practical helper",
-                    "core_background": "Use concise and direct responses.",
-                }
+                },
+                "core_identity": {
+                    "inner_narrative": "Use concise and direct responses.",
+                },
             },
         }),
         encoding="utf-8",

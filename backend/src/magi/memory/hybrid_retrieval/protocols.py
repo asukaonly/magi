@@ -4,14 +4,88 @@ These protocols document the interfaces that handler classes expect from
 their injected store objects, replacing bare ``Any`` annotations with
 explicit contracts that can be verified by static type checkers.
 
-NOTE: L1/L3/L4 handlers still depend on store internals (``_row_to_dict``,
-``db_path`` for raw SQL) — those will need store-side refactoring before
-protocols are practical.  Only L2-related interfaces are defined here.
+All layer handlers (L1-L4) now delegate to public store APIs and no
+longer access store internals.  The protocols below cover L1-L4 stores.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+
+
+# ---------------------------------------------------------------------------
+# L1 event store
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class L1StoreProtocol(Protocol):
+    """Interface expected by :class:`L1Handler` from the L1 event store."""
+
+    db_path: str
+
+    async def bm25_search(
+        self,
+        query: str,
+        *,
+        limit: int = ...,
+        user_id: Optional[str] = ...,
+        start_time: Optional[float] = ...,
+        end_time: Optional[float] = ...,
+        strict: bool = ...,
+    ) -> List[Tuple[str, float]]: ...
+
+    async def vector_search(
+        self,
+        *,
+        query: str,
+        limit: int = ...,
+        user_id: Optional[str] = ...,
+    ) -> List[Any]: ...
+
+    async def query_events(
+        self,
+        *,
+        session_id: Optional[str] = ...,
+        user_id: Optional[str] = ...,
+        event_type: Optional[str] = ...,
+        source_filters: Optional[List[str]] = ...,
+        query: Optional[str] = ...,
+        limit: int = ...,
+    ) -> List[Dict[str, Any]]: ...
+
+    async def resolve_event_entities(
+        self,
+        event_ids: List[str],
+    ) -> List[str]: ...
+
+    async def find_events_by_entities(
+        self,
+        entity_ids: List[str],
+        *,
+        exclude_event_ids: Optional[List[str]] = ...,
+        limit: int = ...,
+    ) -> List[Tuple[str, int]]: ...
+
+    async def filter_ids_by_user(
+        self,
+        event_ids: List[str],
+        user_id: str,
+    ) -> List[str]: ...
+
+    async def fetch_events(
+        self,
+        event_ids: List[str],
+        *,
+        session_id: Optional[str] = ...,
+        user_id: Optional[str] = ...,
+        event_types: Optional[List[str]] = ...,
+        source_filters: Optional[List[str]] = ...,
+        domain_filters: Optional[List[str]] = ...,
+        exclude_domain: Optional[str] = ...,
+        time_start: Optional[float] = ...,
+        time_end: Optional[float] = ...,
+    ) -> List[Dict[str, Any]]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -112,3 +186,77 @@ class EmbeddingServiceProtocol(Protocol):
     """Interface expected by :class:`L2Handler` for text embedding."""
 
     async def embed_text(self, text: str) -> Any: ...
+
+
+# ---------------------------------------------------------------------------
+# L3 summary store
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class L3StoreProtocol(Protocol):
+    """Interface expected by :class:`L3Handler` from the L3 summary store."""
+
+    async def bm25_search(
+        self,
+        query: str,
+        *,
+        summary_type: Optional[str] = ...,
+        summary_category: Optional[str] = ...,
+        limit: int = ...,
+    ) -> List[Tuple[str, float]]: ...
+
+    async def vector_search(
+        self,
+        *,
+        query: str,
+        summary_type: Optional[str] = ...,
+        summary_category: Optional[str] = ...,
+        limit: int = ...,
+    ) -> List[Dict[str, Any]]: ...
+
+    async def keyword_search(
+        self,
+        *,
+        query: str,
+        summary_type: Optional[str] = ...,
+        summary_category: Optional[str] = ...,
+        limit: int = ...,
+    ) -> List[str]: ...
+
+    async def fetch_by_ids(
+        self,
+        summary_ids: List[str],
+        *,
+        summary_type: Optional[str] = ...,
+        summary_category: Optional[str] = ...,
+    ) -> List[Dict[str, Any]]: ...
+
+
+# ---------------------------------------------------------------------------
+# L4 procedural memory store
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class L4StoreProtocol(Protocol):
+    """Interface expected by :class:`L4Handler` from the L4 procedural memory store."""
+
+    async def bm25_search(
+        self,
+        query: str,
+        *,
+        limit: int = ...,
+    ) -> List[Tuple[str, float]]: ...
+
+    async def keyword_search(
+        self,
+        query: str,
+        *,
+        limit: int = ...,
+    ) -> List[str]: ...
+
+    async def fetch_by_ids(
+        self,
+        skill_ids: List[str],
+    ) -> List[Dict[str, Any]]: ...

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="${ROOT_DIR}/backend"
-TAURI_BIN_DIR="${ROOT_DIR}/frontend/src-tauri/binaries"
+SIDECAR_STAGING="${ROOT_DIR}/frontend/src-tauri/sidecar-dist"
 
 if ! command -v rustc >/dev/null 2>&1; then
   echo "rustc is required to resolve target triple."
@@ -20,14 +20,6 @@ if ! python -m PyInstaller --version >/dev/null 2>&1; then
   exit 1
 fi
 
-TARGET_TRIPLE="$(rustc -vV | awk '/host:/ {print $2}')"
-if [[ -z "${TARGET_TRIPLE}" ]]; then
-  echo "Failed to detect rust target triple."
-  exit 1
-fi
-
-mkdir -p "${TAURI_BIN_DIR}"
-
 pushd "${BACKEND_DIR}" >/dev/null
 PYTHONPATH="${BACKEND_DIR}/src${PYTHONPATH+:${PYTHONPATH}}" python - <<'PY'
 import subprocess
@@ -38,15 +30,17 @@ subprocess.run(build_pyinstaller_command(), check=True)
 PY
 popd >/dev/null
 
-SOURCE_BIN="${BACKEND_DIR}/dist/magi-backend"
-TARGET_BIN="${TAURI_BIN_DIR}/magi-backend-${TARGET_TRIPLE}"
+SOURCE_DIR="${BACKEND_DIR}/dist/magi-backend"
+SOURCE_BIN="${SOURCE_DIR}/magi-backend"
 
 if [[ ! -f "${SOURCE_BIN}" ]]; then
   echo "Sidecar binary not found at ${SOURCE_BIN}"
   exit 1
 fi
 
-cp "${SOURCE_BIN}" "${TARGET_BIN}"
-chmod +x "${TARGET_BIN}"
+# Copy entire --onedir output to Tauri resource staging directory
+rm -rf "${SIDECAR_STAGING}"
+cp -a "${SOURCE_DIR}" "${SIDECAR_STAGING}"
+chmod +x "${SIDECAR_STAGING}/magi-backend"
 
-echo "Built sidecar: ${TARGET_BIN}"
+echo "Built sidecar (onedir): ${SIDECAR_STAGING}"

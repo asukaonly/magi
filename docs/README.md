@@ -18,10 +18,10 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
   This is the backend boundary and ownership source of truth.
 
 4. [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
-  Read this when working on bootstrap, runtime orchestration, task agents, worker execution, scheduler registration, or service and transport boundaries.
+  Read this when working on bootstrap, runtime orchestration, task agents, worker execution, scheduler registration, sensor sync execution, or service and transport boundaries.
 
-5. [Sensor Sync Execution Architecture](./sensor-sync-execution-architecture.md)
-  Read this when changing pull-sync scheduling, durable sensor execution, queue recovery, or scheduler isolation from sensor work.
+5. [Timeline Domain Architecture](./timeline-domain-architecture.md)
+  Read this when working on timeline viewport assembly, clustering, state bands, insight extraction, or sensor-to-timeline data flow.
 
 6. [Memory System Design](./memory-system-design.md)
   Maintainer-level implementation design for the lifecycle-based memory model.
@@ -44,7 +44,7 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
   Read [Project Overview](./project-overview.md), then [Layered Agent Architecture](./layered-agent-architecture.md), then [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md).
 
 - Runtime and orchestration maintainers
-  Use [Layered Agent Architecture](./layered-agent-architecture.md) for ownership rules, [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md) for the current bootstrap and runtime wiring, and [Sensor Sync Execution Architecture](./sensor-sync-execution-architecture.md) for pull-sync isolation and queue recovery.
+  Use [Layered Agent Architecture](./layered-agent-architecture.md) for ownership rules and [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md) for the current bootstrap and runtime wiring, including pull-sync execution and queue recovery.
 
 - Memory maintainers
   Read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), then [Memory System Design](./memory-system-design.md).

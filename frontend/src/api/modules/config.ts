@@ -2,8 +2,8 @@
  * Config management API and type definitions.
  */
 import { api } from '../client';
-import type { PersonalityConfig } from './personality';
-import { DEFAULT_PERSONALITY_CONFIG } from './personality';
+import type { PersonalityConfig } from './personas';
+import { DEFAULT_PERSONALITY_CONFIG } from './personas';
 
 export type UserMode = 'quick' | 'expert' | null;
 export type LanguageCode = 'zh' | 'en';

@@ -145,6 +145,23 @@ pub fn count_rows(conn: &Connection, sql: &str, params: &[&dyn rusqlite::types::
         .unwrap_or(0)
 }
 
+/// Insert a row into `runtime_notifications` so the notification bridge
+/// picks it up and emits it to the frontend via Tauri events.
+pub fn emit_notification(channel: &str, user_id: &str, session_id: &str, payload: &Value) {
+    let path = runtime_trace_db_path();
+    let conn = match open_readwrite(&path) {
+        Some(c) => c,
+        None => return,
+    };
+    let payload_json = serde_json::to_string(payload).unwrap_or_default();
+    conn.execute(
+        "INSERT INTO runtime_notifications (channel, user_id, session_id, payload_json) \
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![channel, user_id, session_id, payload_json],
+    )
+    .ok();
+}
+
 /// Ensure performance-critical indexes exist on memory databases.
 /// Called once at startup; uses `CREATE INDEX IF NOT EXISTS` so it is idempotent.
 pub fn ensure_indexes() {
@@ -157,6 +174,19 @@ pub fn ensure_indexes() {
              ON tom_trait_assertions(updated_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_summaries_updated \
              ON summaries(updated_at DESC)",
+        ];
+        for sql in &stmts {
+            if let Err(e) = conn.execute_batch(sql) {
+                eprintln!("ensure_indexes: {e}");
+            }
+        }
+    }
+
+    // l1_events.db indexes
+    if let Some(conn) = open_readwrite(&l1_events_db_path()) {
+        let stmts = [
+            "CREATE INDEX IF NOT EXISTS idx_fact_events_deleted_at \
+             ON fact_events(deleted_at) WHERE deleted_at IS NOT NULL",
         ];
         for sql in &stmts {
             if let Err(e) = conn.execute_batch(sql) {

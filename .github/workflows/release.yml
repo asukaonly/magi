@@ -123,7 +123,7 @@ jobs:
       - name: Build Python sidecar (Windows)
         if: matrix.os_family == 'windows'
         shell: pwsh
-        run: ./scripts/build-sidecar.ps1 -TargetTriple ${{ matrix.target }}
+        run: ./scripts/build-sidecar.ps1
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -189,6 +189,16 @@ jobs:
           {
             echo "title=Magi ${current_tag}"
             echo "body<<EOF"
+            echo "## Download"
+            echo
+            echo "| Platform | File |"
+            echo "|----------|------|"
+            echo "| macOS (Apple Silicon) | \`Magi_aarch64.dmg\` |"
+            echo "| macOS (Intel) | \`Magi_x64.dmg\` |"
+            echo "| Windows | \`Magi_${current_tag#v}_x64-setup.exe\` |"
+            echo
+            echo "> Other assets (\`.app.tar.gz\`, \`.sig\`, \`.json\`) are for the built-in auto-updater. No manual download needed."
+            echo
             echo "${heading}"
             echo
             echo "${commit_lines}"
@@ -207,6 +217,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: frontend
+          tauriScript: ${{ matrix.os_family == 'macos' && '../scripts/tauri-build-macos.sh' || '' }}
           tagName: ${{ github.ref_name }}
           releaseName: ${{ steps.release_notes.outputs.title }}
           releaseBody: ${{ steps.release_notes.outputs.body }}

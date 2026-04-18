@@ -29,15 +29,14 @@ def test_project_historical_recall_prefers_l2_relationships_for_preference_recal
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=payload, request=request)
 
     assert projected.status == "found"
-    assert projected.recall_intent == "preference_recall"
-    assert projected.query_mode == "detail"
+    assert projected.query_mode == "exact_fact"
+    assert projected.query_mode == "exact_fact"
     assert projected.summary == "你讨厌潮湿天气。"
     assert projected.insufficient_evidence is False
     assert projected.findings == [
@@ -63,8 +62,7 @@ def test_project_historical_recall_returns_not_found_when_no_results_exist() -> 
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=RetrievalPayload(), request=request)
@@ -96,8 +94,7 @@ def test_project_historical_recall_summarizes_follows_for_preference_recall() ->
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=payload, request=request)
@@ -144,8 +141,7 @@ def test_project_historical_recall_summarizes_top_follows_for_list_preference_qu
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=payload, request=request)
@@ -176,8 +172,7 @@ def test_project_historical_recall_summarizes_uses_for_preference_recall() -> No
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=payload, request=request)
@@ -206,8 +201,7 @@ def test_project_historical_recall_summarizes_topic_affinity_for_preference_reca
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=payload, request=request)
@@ -245,8 +239,7 @@ def test_project_historical_recall_summarizes_top_topics_for_list_preference_que
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=payload, request=request)
@@ -291,8 +284,7 @@ def test_project_historical_recall_prefers_semantic_frame_over_misleading_query_
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=payload, request=request)
@@ -331,8 +323,7 @@ def test_project_historical_recall_infers_answer_kind_from_findings_before_query
         user_id="local_user",
         session_id="session-1",
         time_range={},
-        recall_intent="preference_recall",
-        query_mode="detail",
+        query_mode="exact_fact",
     )
 
     projected = project_historical_recall(payload=payload, request=request)

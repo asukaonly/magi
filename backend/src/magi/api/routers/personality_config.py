@@ -20,6 +20,7 @@ from ...llm.draft import resolve_adapter_for_scenario
 from ...personality.bootstrap_service import BootstrapDialogueService
 from ...personality.growth_memory import GrowthMemoryEngine
 from ...personality.persona_journal_service import PersonaJournalService
+from ...personality.persona_repository import PersonaRepository
 from ..avatar_paths import resolve_avatar_public_url
 from ...personality.current_state import (
     get_current_personality as get_current_personality_name,
@@ -46,32 +47,17 @@ class BasicProfileModel(BaseModel):
     description: str = Field(default="")
     avatar: str = Field(default="")
     occupation: str = Field(default="Assistant")
-    core_background: str = Field(default="")
 
 
-class PsychologicalTraitsModel(BaseModel):
-    communication_tone: str = Field(default="Calm and supportive")
-    confidence_level: str = Field(default="Medium")
-    empathy_threshold: str = Field(default="Shows care when user is stressed")
-    high_frequency_keywords: List[str] = Field(default_factory=list)
-
-
-class SocialResponsesModel(BaseModel):
-    praise_reaction: str = Field(default="")
-    criticism_reaction: str = Field(default="")
-    obedience_strategy: str = Field(default="")
-
-
-class BehavioralStrategiesModel(BaseModel):
-    error_handling: str = Field(default="")
-    refusal_style: str = Field(default="")
+class CoreIdentityModel(BaseModel):
+    inner_narrative: str = Field(default="")
+    language_fingerprint: str = Field(default="")
+    attention_bias: str = Field(default="")
 
 
 class PersonaEntityModel(BaseModel):
     basic_profile: BasicProfileModel = Field(default_factory=BasicProfileModel)
-    psychological_traits: PsychologicalTraitsModel = Field(default_factory=PsychologicalTraitsModel)
-    social_responses: SocialResponsesModel = Field(default_factory=SocialResponsesModel)
-    behavioral_strategies: BehavioralStrategiesModel = Field(default_factory=BehavioralStrategiesModel)
+    core_identity: CoreIdentityModel = Field(default_factory=CoreIdentityModel)
 
 
 class CachedPhrasesModel(BaseModel):
@@ -162,16 +148,9 @@ FIELD_LABELS: Dict[str, str] = {
     "persona_entity.basic_profile.description": "Description",
     "persona_entity.basic_profile.avatar": "Avatar",
     "persona_entity.basic_profile.occupation": "Occupation",
-    "persona_entity.basic_profile.core_background": "Core Background",
-    "persona_entity.psychological_traits.communication_tone": "Communication Tone",
-    "persona_entity.psychological_traits.confidence_level": "Confidence Level",
-    "persona_entity.psychological_traits.empathy_threshold": "Empathy Threshold",
-    "persona_entity.psychological_traits.high_frequency_keywords": "High Frequency Keywords",
-    "persona_entity.social_responses.praise_reaction": "Praise Reaction",
-    "persona_entity.social_responses.criticism_reaction": "Criticism Reaction",
-    "persona_entity.social_responses.obedience_strategy": "Obedience Strategy",
-    "persona_entity.behavioral_strategies.error_handling": "Error Handling",
-    "persona_entity.behavioral_strategies.refusal_style": "Refusal Style",
+    "persona_entity.core_identity.inner_narrative": "Inner Narrative",
+    "persona_entity.core_identity.language_fingerprint": "Language Fingerprint",
+    "persona_entity.core_identity.attention_bias": "Attention Bias",
     "cached_phrases.on_init": "On Init",
     "cached_phrases.on_error_generic": "On Error",
     "cached_phrases.on_success": "On Success",
@@ -207,6 +186,17 @@ async def _get_bootstrap_service() -> BootstrapDialogueService:
         personality_loader=loader,
         growth_engine=engine,
     )
+
+
+async def _resolve_persona_id(persona_name: str) -> str:
+    """Best-effort resolution of persona_id from the persona registry."""
+    try:
+        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+        await repo.init()
+        record = await repo.get_by_slug(persona_name)
+        return record.persona_id
+    except Exception:
+        return ""
 
 
 async def _get_journal_service() -> PersonaJournalService:
@@ -365,13 +355,19 @@ def _normalize_avatar_in_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def _normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize common scalar mismatches from model-generated JSON."""
-    basic_profile = payload.setdefault("persona_entity", {}).setdefault("basic_profile", {})
-    for field in ("name", "age", "gender", "description", "avatar", "occupation", "core_background"):
+    persona = payload.setdefault("persona_entity", {})
+    basic_profile = persona.setdefault("basic_profile", {})
+    for field in ("name", "age", "gender", "description", "avatar", "occupation"):
         value = basic_profile.get(field)
         if value is None:
             continue
         if not isinstance(value, str):
             basic_profile[field] = str(value)
+    core_identity = persona.setdefault("core_identity", {})
+    for field in ("inner_narrative", "language_fingerprint", "attention_bias"):
+        value = core_identity.get(field)
+        if value is not None and not isinstance(value, str):
+            core_identity[field] = str(value)
     return payload
 
 
@@ -400,13 +396,14 @@ You are an elite **AI Behavioral Psychologist and System Architect**. Your task 
 # Core Directives
 1. **Extrapolate and Enrich**: If the user's description is overly brief, you must autonomously fill in the gaps based on established psychological archetypes (e.g., generating a root-cause backstory, defense mechanisms, and catchphrases).
 2. **Strict Schema Alignment**: You MUST output a JSON object that strictly adheres to the provided schema below. Do not add, remove, or rename any keys. This ensures 1:1 precise deserialization by the backend system.
-3. **Logical Consistency**: Behavioral strategies must be consistent with the background story. A character from a wealthy family should refuse in a way that is "arrogant and disdainful," rather than "self-deprecating and withdrawn."
-3. **Multi-Dimensional State Transitions (CRITICAL)**: You MUST generate exactly FOUR state transition protocols covering these specific psychological extremes:
+3. **Logical Consistency**: Core identity must be consistent with the background story. A character from a wealthy family should have language that is "arrogant and disdainful," rather than "self-deprecating and withdrawn."
+4. **Narrative over Labels**: The core_identity fields are free-form prose, NOT keyword lists or label assignments. Write them as a novelist would describe the character's inner world.
+5. **Multi-Dimensional State Transitions (CRITICAL)**: You MUST generate exactly FOUR state transition protocols covering these specific psychological extremes:
    - "crisis": Physical/survival threat to the user or system.
    - "intimacy": A moment of extreme vulnerability, trust, or emotional bonding from the user.
    - "hostility": The user severely insults the persona or violates their core boundaries.
    - "absurdity": The user's input is incredibly bizarre, comedic, or breaks the fourth wall.
-5. **Cached Phrases Constraint**: All generated strings inside the `cached_phrases` arrays must be extremely concise (under 20 words), highly colloquial, and instantly recognizable as the character's voice. Provide 2-3 variations per array to prevent repetitive output.
+6. **Cached Phrases Constraint**: All generated strings inside the `cached_phrases` arrays must be extremely concise (under 20 words), highly colloquial, and instantly recognizable as the character's voice. Provide 2-3 variations per array to prevent repetitive output.
 
 # Output Format
 You must output ONLY valid JSON. Do not include markdown formatting like ```json, and do not provide any explanatory text.
@@ -418,23 +415,12 @@ You must output ONLY valid JSON. Do not include markdown formatting like ```json
       "name": "Extracted or generated name fitting the persona",
       "age": "Number or 'Unknown'",
       "gender": "Gender",
-      "occupation": "Current role (e.g., Student, Hacker, Aristocrat)",
-      "core_background": "Min 50 words explaining their origin and the psychological root cause of their current personality."
+      "occupation": "Current role (e.g., Student, Hacker, Aristocrat)"
     },
-    "psychological_traits": {
-      "communication_tone": "Description of the baseline tone (e.g., Arrogant, sharp, but fundamentally kind)",
-      "confidence_level": "Extremely High/High/Medium/Low",
-      "empathy_threshold": "Trigger level for empathy (e.g., Appears cold, only shows care during severe crises)",
-      "high_frequency_keywords": ["keyword1", "keyword2", "keyword3"]
-    },
-    "social_responses": {
-      "praise_reaction": "Specific verbal and internal reaction when complimented",
-      "criticism_reaction": "Defense mechanism when criticized (e.g., furious counterattack, cold silence, self-doubt)",
-      "obedience_strategy": "How they comply with tasks (e.g., Complies but claims it is an act of charity)"
-    },
-    "behavioral_strategies": {
-      "error_handling": "Blame-shifting or apologizing style when the system or themselves make a mistake",
-      "refusal_style": "Specific wording style when rejecting unreasonable or unsafe requests"
+    "core_identity": {
+      "inner_narrative": "Min 80 words. A first-person-style backstory: who they are, what shaped them, what drives them, how they relate to others. Written as prose, not bullet points.",
+      "language_fingerprint": "Min 40 words. How they talk: rhythm, register, favorite expressions, verbal tics, what they never say. Written as a writer's voice memo.",
+      "attention_bias": "One sentence. What they notice first in any user input and what they tend to ignore."
     }
   },
   "cached_phrases": {
@@ -623,10 +609,11 @@ async def api_get_greeting():
         needs_bootstrap = False
         bootstrap_opening = None
         try:
+            persona_id = await _resolve_persona_id(current_name)
             bootstrap_svc = await _get_bootstrap_service()
-            needs_bootstrap = await bootstrap_svc.needs_bootstrap(current_name)
+            needs_bootstrap = await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id)
             if needs_bootstrap:
-                bootstrap_opening = await bootstrap_svc.get_opening(current_name)
+                bootstrap_opening = await bootstrap_svc.get_opening(current_name, persona_id=persona_id)
         except Exception as exc:
             logger.debug("Bootstrap status check skipped: %s", exc)
 
@@ -882,16 +869,17 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
         import uuid as _uuid
 
         current_name = get_current_personality_name()
+        persona_id = await _resolve_persona_id(current_name)
         bootstrap_svc = await _get_bootstrap_service()
 
-        if not await bootstrap_svc.needs_bootstrap(current_name):
+        if not await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id):
             return PersonalityResponse(
                 success=True,
                 message="Bootstrap already completed",
                 data={"bootstrap_active": False, "opening": None},
             )
 
-        opening = await bootstrap_svc.get_opening(current_name)
+        opening = await bootstrap_svc.get_opening(current_name, persona_id=persona_id)
         if not opening:
             return PersonalityResponse(
                 success=True,
@@ -932,9 +920,10 @@ async def api_bootstrap_message(request: BootstrapMessageRequest):
         from ...core.runtime_bindings import require_chat_store
 
         current_name = get_current_personality_name()
+        persona_id = await _resolve_persona_id(current_name)
         bootstrap_svc = await _get_bootstrap_service()
 
-        if not await bootstrap_svc.needs_bootstrap(current_name):
+        if not await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id):
             return PersonalityResponse(
                 success=True,
                 message="Bootstrap already completed",
@@ -962,9 +951,10 @@ async def api_bootstrap_message(request: BootstrapMessageRequest):
             session_id=request.session_id,
             user_message=request.user_message,
             history=request.history,
+            persona_id=persona_id,
         )
 
-        still_needs = await bootstrap_svc.needs_bootstrap(current_name)
+        still_needs = await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id)
         is_complete = not still_needs
 
         # Persist assistant reply as a real chat message + emit notification

@@ -460,17 +460,17 @@ class TestLLMCallParams:
         assert "test query" in call_kwargs.kwargs["messages"][0]["content"]
 
     @pytest.mark.asyncio
-    async def test_chat_prompt_includes_recall_intent_hint(self, decider: LLMIntentDecider, mock_bridge):
+    async def test_chat_prompt_includes_query_mode_hint(self, decider: LLMIntentDecider, mock_bridge):
         mock_bridge.chat.return_value = json.dumps({
             "layers": [{"layer": "L2", "is_fallback": False, "content_query": "weather preference"}],
             "reasoning": "ok",
         })
 
-        inp = IntentDeciderInput(query="我喜欢什么天气", recall_intent_hint="preference_recall")
+        inp = IntentDeciderInput(query="我喜欢什么天气", query_mode_hint="exact_fact")
         await decider.evaluate(inp)
 
         prompt = mock_bridge.chat.call_args.kwargs["messages"][0]["content"]
-        assert "preference_recall" in prompt
+        assert "exact_fact" in prompt
 
     @pytest.mark.asyncio
     async def test_system_prompt_preserves_quoted_titles(self, decider: LLMIntentDecider, mock_bridge):

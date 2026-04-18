@@ -15,9 +15,6 @@ from ....agent.trace import (
 )
 from ....chat import ChatMessageRecord, ChatProjector, ChatStore
 from ....events.events import EventTypes
-from ....personality.behavior_evolution import SatisfactionLevel
-from ....personality.emotional_state import EngagementLevel, InteractionOutcome
-from ....personality.growth_memory import InteractionType
 from ....personality.interaction_analyzer import analyze_interaction, DEFAULT_ANALYSIS
 from ....memory.l3.models import TaskOutcomePacket
 from ....runtime_trace import (
@@ -60,7 +57,6 @@ class ChatPostProcessService:
         get_task_agent_manager: Callable[[], Any | None],
         get_sensor_hub: Callable[[], Any | None],
         memory=None,
-        other_memory=None,
         unified_memory=None,
         max_fact_memory: int = 200,
         trace_read_service: "ChatTraceReadService | None" = None,
@@ -76,7 +72,6 @@ class ChatPostProcessService:
         self._get_task_agent_manager = get_task_agent_manager
         self._get_sensor_hub = get_sensor_hub
         self._memory = memory
-        self._other_memory = other_memory
         self._unified_memory = unified_memory
         self._chat_store = chat_store
         self._local_fact_memory: list[FactRecord] = []
@@ -791,50 +786,43 @@ class ChatPostProcessService:
     async def _record_memory_updates(
         self, *, user_id: str, user_message: str, response_text: str = "",
     ) -> bool:
-        analysis = await analyze_interaction(user_message, response_text)
+        # Collect STP rules so the analyzer can detect behavioral triggers.
+        stp_rules: list[dict[str, str]] | None = None
+        milestone_conditions: dict[str, str] | None = None
+        if self._memory is not None:
+            try:
+                config = await self._memory.get_core_personality()
+                if hasattr(config, "state_transition_protocol") and config.state_transition_protocol:
+                    stp_rules = []
+                    for item in config.state_transition_protocol:
+                        tt = getattr(item, "trigger_type", "")
+                        cond = getattr(item, "trigger_condition", "")
+                        if tt and cond:
+                            stp_rules.append({"trigger_type": tt, "trigger_condition": cond})
+                if hasattr(config, "milestone_conditions") and config.milestone_conditions:
+                    milestone_conditions = config.milestone_conditions
+            except Exception:
+                pass
+
+        analysis = await analyze_interaction(
+            user_message, response_text,
+            stp_rules=stp_rules,
+            milestone_conditions=milestone_conditions,
+        )
 
         updated = False
         if self._memory is not None:
             try:
-                await self._memory.record_interaction(
+                updated = await self._memory.process_turn_outcome(
                     user_id=user_id,
-                    interaction_type=InteractionType.CHAT,
-                    outcome=analysis.outcome_str,
-                    sentiment=analysis.sentiment,
-                    notes=f"Message: {user_message[:100]}...",
+                    user_message=user_message,
+                    analysis=analysis,
+                    stp_rules=stp_rules,
+                    milestone_conditions=milestone_conditions,
                 )
-                await self._memory.update_after_interaction(
-                    outcome=analysis.outcome,
-                    user_engagement=analysis.engagement,
-                    complexity=analysis.complexity,
-                )
-                await self._memory.record_task_outcome(
-                    task_id=f"chat_{int(time.time())}_{user_id}",
-                    task_category="chat",
-                    user_satisfaction=analysis.satisfaction,
-                    accepted=analysis.outcome != InteractionOutcome.FAILURE,
-                    task_complexity=analysis.complexity,
-                    task_duration=0.0,
-                )
-                updated = True
             except Exception as exc:
-                logger.warning("Failed to update self memory: %s", exc)
-        if self._other_memory is not None:
-            try:
-                other_outcome = (
-                    "positive" if analysis.sentiment > 0.2
-                    else "negative" if analysis.sentiment < -0.2
-                    else "neutral"
-                )
-                self._other_memory.update_interaction(
-                    user_id=user_id,
-                    interaction_type="chat",
-                    outcome=other_outcome,
-                    notes=f"Message: {user_message[:100]}",
-                )
-                updated = True
-            except Exception as exc:
-                logger.warning("Failed to update other memory: %s", exc)
+                logger.warning("Failed to process turn outcome: %s", exc)
+
         return updated
 
     def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None:

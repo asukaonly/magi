@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import PersonalityModern from '@/pages/PersonalityModern';
 import { usePersonality } from '@/hooks';
-import { personalitiesApi } from '@/api';
+import { personasApi } from '@/api/modules/personas';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -11,12 +11,17 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@/api', () => ({
-  personalitiesApi: {
-    uploadAvatar: vi.fn(),
-    getAvatarUrl: vi.fn((avatar?: string) => avatar || ''),
-  },
-}));
+vi.mock('@/api/modules/personas', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/personas')>('@/api/modules/personas');
+  return {
+    ...actual,
+    personasApi: {
+      ...actual.personasApi,
+      uploadAvatar: vi.fn(),
+      getAvatarUrl: vi.fn((avatar?: string) => avatar || ''),
+    },
+  };
+});
 
 vi.mock('@/hooks', () => ({
   usePersonality: vi.fn(),
@@ -43,22 +48,11 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
         description: '赛博乐子人 / 反讽大师',
         avatar: '',
         occupation: '',
-        core_background: '',
       },
-      psychological_traits: {
-        communication_tone: '',
-        confidence_level: 'Medium',
-        empathy_threshold: '',
-        high_frequency_keywords: [],
-      },
-      social_responses: {
-        praise_reaction: '',
-        criticism_reaction: '',
-        obedience_strategy: '',
-      },
-      behavioral_strategies: {
-        error_handling: '',
-        refusal_style: '',
+      core_identity: {
+        inner_narrative: '',
+        language_fingerprint: '',
+        attention_bias: '',
       },
     },
     cached_phrases: {
@@ -78,17 +72,17 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
     ],
   },
   list: [
-    { name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师', avatar: '/static/user-avatars/seven.png' },
-    { name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员', avatar: '' },
+    { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师', avatar: '/static/user-avatars/seven.png' },
+    { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员', avatar: '' },
   ],
-  currentName: '七号',
-  selectedName: '七号',
+  currentId: 'uuid-seven',
+  selectedId: 'uuid-seven',
   isNewMode: false,
   loading: false,
   saving: false,
   generating: false,
   switching: false,
-  selectedInfo: { name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师' },
+  selectedInfo: { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师' },
   switchPrompt: null,
   prompt: '',
   setPrompt: vi.fn(),
@@ -129,8 +123,8 @@ describe('PersonalityModern', () => {
   it('hides the current badge when viewing a non-active personality', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
-        selectedName: '明日香',
-        selectedInfo: { name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员' },
+        selectedId: 'uuid-asuka',
+        selectedInfo: { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员' },
         config: {
           persona_entity: {
             basic_profile: {
@@ -140,22 +134,11 @@ describe('PersonalityModern', () => {
               description: '傲娇驾驶员',
               avatar: '',
               occupation: '',
-              core_background: '',
             },
-            psychological_traits: {
-              communication_tone: '',
-              confidence_level: 'Medium',
-              empathy_threshold: '',
-              high_frequency_keywords: [],
-            },
-            social_responses: {
-              praise_reaction: '',
-              criticism_reaction: '',
-              obedience_strategy: '',
-            },
-            behavioral_strategies: {
-              error_handling: '',
-              refusal_style: '',
+            core_identity: {
+              inner_narrative: '',
+              language_fingerprint: '',
+              attention_bias: '',
             },
           },
           cached_phrases: {
@@ -187,7 +170,7 @@ describe('PersonalityModern', () => {
     vi.mocked(usePersonality).mockReturnValue(
       buildHookState({
         isNewMode: true,
-        selectedName: '',
+        selectedId: '__new__',
         selectedInfo: undefined,
         config: {
           persona_entity: {
@@ -198,22 +181,11 @@ describe('PersonalityModern', () => {
               description: '',
               avatar: '',
               occupation: '',
-              core_background: '',
             },
-            psychological_traits: {
-              communication_tone: '',
-              confidence_level: 'Medium',
-              empathy_threshold: '',
-              high_frequency_keywords: [],
-            },
-            social_responses: {
-              praise_reaction: '',
-              criticism_reaction: '',
-              obedience_strategy: '',
-            },
-            behavioral_strategies: {
-              error_handling: '',
-              refusal_style: '',
+            core_identity: {
+              inner_narrative: '',
+              language_fingerprint: '',
+              attention_bias: '',
             },
           },
           cached_phrases: {
@@ -257,7 +229,7 @@ describe('PersonalityModern', () => {
   it('uploads an avatar and patches the personality profile', async () => {
     const patch = vi.fn();
     vi.mocked(usePersonality).mockReturnValue(buildHookState({ patch }) as any);
-    vi.mocked(personalitiesApi.uploadAvatar).mockResolvedValue({
+    vi.mocked(personasApi.uploadAvatar).mockResolvedValue({
       data: {
         url: '/static/user-avatars/test-avatar.png',
       },
@@ -270,7 +242,7 @@ describe('PersonalityModern', () => {
 
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    await waitFor(() => expect(personalitiesApi.uploadAvatar).toHaveBeenCalledWith(file));
+    await waitFor(() => expect(personasApi.uploadAvatar).toHaveBeenCalledWith(file));
     expect(patch).toHaveBeenCalledTimes(1);
     const draft = buildHookState().config;
     const updater = patch.mock.calls[0][0] as (value: typeof draft) => void;

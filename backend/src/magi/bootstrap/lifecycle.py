@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections import deque
 from typing import Awaitable, Callable, Iterable, Sequence
 
@@ -80,19 +81,26 @@ class ModuleLifecycleOrchestrator:
             return
 
         initialized: list[LifecycleModule] = []
+        startup_start = time.monotonic()
         try:
             for module in self._modules:
-                logger.info("Lifecycle module init", module=module.name)
+                t0 = time.monotonic()
                 await module.init()
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                logger.info("Lifecycle module init", module=module.name, elapsed_ms=round(elapsed_ms, 1))
                 initialized.append(module)
 
             for module in initialized:
-                logger.info("Lifecycle module post-init", module=module.name)
+                t0 = time.monotonic()
                 await module.post_init()
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                if elapsed_ms > 5:
+                    logger.info("Lifecycle module post-init", module=module.name, elapsed_ms=round(elapsed_ms, 1))
 
             self._initialized_modules = initialized
             self._started = True
-            logger.info("Lifecycle startup completed", module_count=len(initialized))
+            total_ms = (time.monotonic() - startup_start) * 1000
+            logger.info("Lifecycle startup completed", module_count=len(initialized), total_ms=round(total_ms, 1))
         except LifecycleInitDeferred:
             # Graceful deferral — keep infrastructure modules alive so that
             # services like heartbeat, settings UI, etc. remain operational.

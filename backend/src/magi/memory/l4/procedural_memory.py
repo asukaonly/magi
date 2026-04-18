@@ -801,6 +801,43 @@ class L4ProceduralMemoryStore:
                 logger.warning("FTS5 BM25 search failed for L4 skills: %s", exc)
                 return []
 
+    async def keyword_search(
+        self,
+        query: str,
+        *,
+        limit: int = 50,
+    ) -> List[str]:
+        """Return skill IDs matching *query* via LIKE keyword search."""
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_q = f"%{escaped}%"
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT skill_id FROM procedural_skills
+                WHERE skill_name LIKE ? ESCAPE '\\' OR COALESCE(optimized_prompt, '') LIKE ? ESCAPE '\\'
+                ORDER BY success_rate DESC, updated_at DESC
+                LIMIT ?
+                """,
+                (like_q, like_q, limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows]
+
+    async def fetch_by_ids(self, skill_ids: List[str]) -> List[Dict[str, Any]]:
+        """Fetch full skill records by IDs, preserving input order."""
+        if not skill_ids:
+            return []
+        placeholders = ", ".join("?" for _ in skill_ids)
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",
+                tuple(skill_ids),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        by_id = {str(row["skill_id"]): self._row_to_dict(row) for row in rows}
+        return [by_id[sid] for sid in skill_ids if sid in by_id]
+
     async def backfill_fts(self, *, batch_size: int = 500) -> int:
         """Backfill FTS5 index from existing procedural_skills rows."""
         await self.initialize()

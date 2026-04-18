@@ -95,6 +95,9 @@ class L2EntityMaintenanceStats:
     edges_purged: int = 0
     edge_embeddings_cleaned: int = 0
     edges_embedded: int = 0
+    episodes_promoted: int = 0
+    episodes_merged: int = 0
+    episodes_invalidated: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -148,6 +151,7 @@ class L2EntityMaintenance:
         archive_stale_edges: bool = True,
         purge_terminal_edges: bool = True,
         embed_edges: bool = True,
+        consolidate_episodes: bool = True,
     ) -> L2EntityMaintenanceStats:
         if self._run_lock.locked():
             logger.info("L2 maintenance already running, skipping")
@@ -166,6 +170,7 @@ class L2EntityMaintenance:
                 archive_stale_edges=archive_stale_edges,
                 purge_terminal_edges=purge_terminal_edges,
                 embed_edges=embed_edges,
+                consolidate_episodes=consolidate_episodes,
             )
 
     async def _run_locked(
@@ -183,6 +188,7 @@ class L2EntityMaintenance:
         archive_stale_edges: bool,
         purge_terminal_edges: bool,
         embed_edges: bool,
+        consolidate_episodes: bool,
     ) -> L2EntityMaintenanceStats:
         stats = L2EntityMaintenanceStats()
         if resolve_ghosts:
@@ -207,6 +213,8 @@ class L2EntityMaintenance:
             await self._purge_terminal_edges(stats)
         if embed_edges:
             await self._embed_pending_edges(stats)
+        if consolidate_episodes:
+            await self._consolidate_episodes(stats)
         if any(
             (
                 stats.ghost_edges_rewritten,
@@ -224,6 +232,9 @@ class L2EntityMaintenance:
                 stats.edges_purged,
                 stats.edge_embeddings_cleaned,
                 stats.edges_embedded,
+                stats.episodes_promoted,
+                stats.episodes_merged,
+                stats.episodes_invalidated,
             )
         ):
             logger.info(
@@ -245,6 +256,9 @@ class L2EntityMaintenance:
                 edges_purged=stats.edges_purged,
                 edge_embeddings_cleaned=stats.edge_embeddings_cleaned,
                 edges_embedded=stats.edges_embedded,
+                episodes_promoted=stats.episodes_promoted,
+                episodes_merged=stats.episodes_merged,
+                episodes_invalidated=stats.episodes_invalidated,
             )
         return stats
 
@@ -771,8 +785,9 @@ class L2EntityMaintenance:
             cursor = await db.execute(
                 """
                 UPDATE tom_trait_assertions
-                SET validation_state = 'expired', updated_at = ?
+                SET validation_state = 'expired', status = 'expired', updated_at = ?
                 WHERE validation_state NOT IN ('expired', 'user_rejected', 'contradicted')
+                  AND status NOT IN ('superseded', 'archived')
                   AND (
                     (expires_at IS NOT NULL AND expires_at < ?)
                     OR (decay_policy = 'fast_decay' AND updated_at < ?)
@@ -799,6 +814,7 @@ class L2EntityMaintenance:
                 WHERE entity_id NOT IN (
                     SELECT DISTINCT entity_id FROM tom_trait_assertions
                     WHERE validation_state IN ('tentative', 'corroborated', 'stable')
+                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
                 )
                 """
             )
@@ -834,6 +850,7 @@ class L2EntityMaintenance:
                     SELECT DISTINCT entity_id, entity_type, MIN(updated_at) AS min_updated
                     FROM tom_trait_assertions
                     WHERE validation_state IN ('tentative', 'corroborated')
+                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected')
                       AND updated_at < ?
                       AND updated_at > ?
                     GROUP BY entity_id, entity_type
@@ -1141,3 +1158,17 @@ class L2EntityMaintenance:
         except Exception as exc:
             logger.warning("Failed to embed pending edges: %s", exc)
             stats.errors.append(f"edge_embedding: {exc}")
+
+    async def _consolidate_episodes(self, stats: L2EntityMaintenanceStats) -> None:
+        if self._cognition_store is None:
+            return
+        try:
+            from .episode_formation import consolidate_episodes
+
+            result = await consolidate_episodes(self._cognition_store)
+            stats.episodes_promoted = result.promoted
+            stats.episodes_merged = result.merged
+            stats.episodes_invalidated = result.invalidated
+        except Exception as exc:
+            logger.warning("Episode consolidation failed: %s", exc)
+            stats.errors.append(f"episode_consolidation: {exc}")

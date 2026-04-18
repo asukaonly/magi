@@ -41,12 +41,14 @@ class BootstrapDialogueService:
         self._growth_engine = growth_engine
         self._l2_store = l2_store
 
-    async def needs_bootstrap(self, persona_name: str) -> bool:
+    async def needs_bootstrap(self, persona_name: str, *, persona_id: str = "") -> bool:
         """Check whether this persona needs a bootstrap dialogue."""
         milestones = await self._growth_engine.get_milestones(
             milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
         )
         for m in milestones:
+            if persona_id and m.metadata.get("persona_id") == persona_id:
+                return False
             if m.metadata.get("persona_name") == persona_name:
                 return False
         return True
@@ -66,7 +68,7 @@ class BootstrapDialogueService:
             max_rounds=3,
         )
 
-    async def get_opening(self, persona_name: str) -> Optional[str]:
+    async def get_opening(self, persona_name: str, *, persona_id: str = "") -> Optional[str]:
         """Generate a bootstrap opening line via LLM, falling back to static config."""
         config = self._personality_loader.load(persona_name)
         bootstrap = self._ensure_bootstrap_config(config)
@@ -83,11 +85,11 @@ class BootstrapDialogueService:
     ) -> Optional[str]:
         """Use LLM to generate a natural in-character first greeting."""
         persona = config.persona_entity.basic_profile
-        psych = config.persona_entity.psychological_traits
+        identity = config.persona_entity.core_identity
 
         system_prompt = (
-            f"You are {persona.name}. {persona.core_background}\n\n"
-            f"Tone: {psych.communication_tone}\n"
+            f"You are {persona.name}. {identity.inner_narrative}\n\n"
+            f"Language style: {identity.language_fingerprint}\n"
         )
         if bootstrap.style_instruction:
             system_prompt += f"Style: {bootstrap.style_instruction}\n"
@@ -127,6 +129,7 @@ class BootstrapDialogueService:
         session_id: str,
         user_message: str,
         history: List[Dict[str, str]],
+        persona_id: str = "",
     ) -> str:
         """Generate the next bootstrap assistant reply.
 
@@ -173,9 +176,14 @@ class BootstrapDialogueService:
             )
             await self._growth_engine.record_milestone(
                 milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
-                title=f"bootstrap_completed_{persona_name}",
+                title=f"bootstrap_completed_{persona_id or persona_name}",
                 description=f"Bootstrap dialogue completed for persona {persona_name}",
-                metadata={"persona_name": persona_name, "user_id": user_id, "rounds": current_round},
+                metadata={
+                    "persona_id": persona_id,
+                    "persona_name": persona_name,
+                    "user_id": user_id,
+                    "rounds": current_round,
+                },
             )
 
         return response
@@ -190,10 +198,11 @@ class BootstrapDialogueService:
     ) -> str:
         """Build the system prompt for a bootstrap round."""
         persona = config.persona_entity.basic_profile
+        identity = config.persona_entity.core_identity
         parts: List[str] = []
 
         parts.append(
-            f"You are {persona.name}. {persona.core_background}\n"
+            f"You are {persona.name}. {identity.inner_narrative}\n"
             f"This is your FIRST conversation with this user. You don't know them yet."
         )
 
@@ -278,7 +287,7 @@ class BootstrapDialogueService:
             return
 
         now = time.time()
-        entity_id = f"user_{user_id}"
+        entity_id = f"user:{user_id}"
         for facet_name, facet_value in extracted.items():
             if facet_value is None:
                 continue

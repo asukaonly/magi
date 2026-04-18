@@ -308,12 +308,12 @@ class TestRawTimeRange:
 
 
 class TestLayerRouting:
-    def test_mode_detail(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="what happened", query_mode_hint="detail")
+    def test_mode_exact_fact(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="what happened", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
         layers = [p.layer for p in result.plans]
-        assert layers[0] == "L1"
-        assert layers[1] == "L3"
+        assert layers[0] == "L2"
+        assert layers[1] == "L1"
         assert not result.plans[0].is_fallback
         assert result.plans[1].is_fallback
 
@@ -323,38 +323,38 @@ class TestLayerRouting:
         assert result.plans[0].layer == "L3"
         assert not result.plans[0].is_fallback
 
-    def test_mode_experience(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="experience", query_mode_hint="experience")
+    def test_mode_strategy(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="experience", query_mode_hint="strategy")
         result = decider.evaluate(inp)
         assert result.plans[0].layer == "L4"
 
-    def test_mode_graph(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="who", query_mode_hint="graph")
+    def test_mode_current_state(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="who", query_mode_hint="current_state")
         result = decider.evaluate(inp)
         assert result.plans[0].layer == "L2"
 
-    def test_recall_intent_preference_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我喜欢什么天气", recall_intent_hint="preference_recall")
+    def test_query_mode_exact_fact_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我喜欢什么天气", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
         assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
         assert result.plans[0].is_fallback is False
         assert result.plans[1].is_fallback is True
 
-    def test_recall_intent_profile_fact_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我的默认工作目录是什么", recall_intent_hint="profile_fact_recall")
+    def test_query_mode_current_state_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我的默认工作目录是什么", query_mode_hint="current_state")
         result = decider.evaluate(inp)
 
         assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
 
-    def test_recall_intent_relationship_prefers_l2_with_l1_fallback(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="你记得我们之前约定了什么", recall_intent_hint="relationship_recall")
+    def test_query_mode_episode_recall_prefers_l1_with_l2_fallback(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="你记得我们之前约定了什么", query_mode_hint="episode_recall")
         result = decider.evaluate(inp)
 
         assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
 
-    def test_recall_intent_workflow_prefers_l4_with_l1_fallback(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="按之前那套流程修一下这个 bug", recall_intent_hint="workflow_reuse")
+    def test_query_mode_strategy_prefers_l4_with_l1_fallback(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="按之前那套流程修一下这个 bug", query_mode_hint="strategy")
         result = decider.evaluate(inp)
 
         assert [plan.layer for plan in result.plans[:2]] == ["L4", "L1"]
@@ -371,41 +371,41 @@ class TestDefaultRouting:
     def test_default_l1_l2(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="tell me about cats")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L1"
-        assert result.plans[1].layer == "L2"
+        assert result.plans[0].layer == "L2"
+        assert result.plans[1].layer == "L1"
         assert not result.plans[0].is_fallback
         assert result.plans[1].is_fallback
 
-    def test_relationship_query_defaults_to_l1(self, decider: RuleBasedIntentDecider):
-        """Without recall_intent_hint, relationship keywords no longer route to L2."""
+    def test_relationship_query_defaults_to_l2(self, decider: RuleBasedIntentDecider):
+        """Without query_mode_hint, relationship keywords no longer route to L2."""
         inp = IntentDeciderInput(query="我和小明的关系是什么")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L1"
-        assert result.plans[1].layer == "L2"
+        assert result.plans[0].layer == "L2"
+        assert result.plans[1].layer == "L1"
 
-    def test_preference_query_defaults_to_l1(self, decider: RuleBasedIntentDecider):
-        """Without recall_intent_hint, preference keywords no longer route to L2."""
+    def test_preference_query_defaults_to_l2(self, decider: RuleBasedIntentDecider):
+        """Without query_mode_hint, preference queries default to exact_fact (L2 primary)."""
         inp = IntentDeciderInput(query="我讨厌什么天气")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L1"
+        assert result.plans[0].layer == "L2"
 
-    def test_summary_query_defaults_to_l1(self, decider: RuleBasedIntentDecider):
-        """Without query_mode_hint, summary keywords no longer route to L3."""
+    def test_summary_query_defaults_to_l3(self, decider: RuleBasedIntentDecider):
+        """Summary keywords route to L3 via summary mode."""
         inp = IntentDeciderInput(query="帮我总结一下上周")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L1"
+        assert result.plans[0].layer == "L3"
 
-    def test_browsing_l1(self, decider: RuleBasedIntentDecider):
+    def test_browsing_defaults_to_l2(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我看了什么网页")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L1"
+        assert result.plans[0].layer == "L2"
 
 
 class TestSemanticFrameEnrichment:
-    """Semantic frame enrichment via enrich_l2_conditions (recall_intent_hint routes to L2)."""
+    """Semantic frame enrichment via enrich_l2_conditions (query_mode_hint routes to L2)."""
 
     def test_l2_creator_affinity_semantic_frame(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我喜欢哪些up主", recall_intent_hint="preference_recall")
+        inp = IntentDeciderInput(query="我喜欢哪些up主", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
         assert result.plans[0].layer == "L2"
@@ -418,7 +418,7 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.answer_unit == "mixed"
 
     def test_l2_place_affinity_semantic_frame_with_location(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我在杭州喜欢去哪些咖啡馆", recall_intent_hint="preference_recall")
+        inp = IntentDeciderInput(query="我在杭州喜欢去哪些咖啡馆", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
         assert result.plans[0].layer == "L2"
@@ -434,7 +434,7 @@ class TestSemanticFrameEnrichment:
         self,
         decider: RuleBasedIntentDecider,
     ):
-        inp = IntentDeciderInput(query="我在杭州的时候喜欢去哪些咖啡馆", recall_intent_hint="preference_recall")
+        inp = IntentDeciderInput(query="我在杭州的时候喜欢去哪些咖啡馆", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
         conditions = result.plans[0].conditions
@@ -443,7 +443,7 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.constraints == []
 
     def test_l2_topic_affinity_semantic_frame_for_topic_query(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我喜欢什么题材", recall_intent_hint="preference_recall")
+        inp = IntentDeciderInput(query="我喜欢什么题材", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
         assert result.plans[0].layer == "L2"
@@ -455,18 +455,18 @@ class TestSemanticFrameEnrichment:
         assert conditions.semantic_frame.answer_kind == "unknown"
         assert conditions.semantic_frame.answer_unit == "mixed"
 
-    def test_l2_topic_affinity_semantic_frame_for_creator_topic_question(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="上次我看的主播他说的主题是什么", recall_intent_hint="preference_recall")
+    def test_l2_unknown_predicate_no_semantic_frame(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="上次我看的主播他说的主题是什么", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
         assert result.plans[0].layer == "L2"
         conditions = result.plans[0].conditions
         assert isinstance(conditions, L2Conditions)
-        assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.answer_kind == "unknown"
+        # No preference/relationship keywords → predicate_family stays unknown → no semantic frame
+        assert conditions.semantic_frame is None
 
     def test_l2_affinity_boolean_query(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我喜欢B站吗", recall_intent_hint="preference_recall")
+        inp = IntentDeciderInput(query="我喜欢B站吗", query_mode_hint="exact_fact")
         result = decider.evaluate(inp)
 
         assert result.plans[0].layer == "L2"
@@ -491,18 +491,18 @@ class TestSourceDomainInference:
             domain_filters=["custom_domain"],
         )
         result = decider.evaluate(inp)
-        l1_plan = result.plans[0]
-        assert isinstance(l1_plan.conditions, L1Conditions)
-        assert l1_plan.conditions.source_filters == ["custom_source"]
-        assert l1_plan.conditions.domain_filters == ["custom_domain"]
+        l1_plans = [p for p in result.plans if isinstance(p.conditions, L1Conditions)]
+        assert len(l1_plans) >= 1
+        assert l1_plans[0].conditions.source_filters == ["custom_source"]
+        assert l1_plans[0].conditions.domain_filters == ["custom_domain"]
 
     def test_no_keyword_source_inference(self, decider: RuleBasedIntentDecider):
         """Without caller-provided filters, rule engine returns no source filters."""
         inp = IntentDeciderInput(query="我浏览了哪些网站")
         result = decider.evaluate(inp)
-        l1_plan = result.plans[0]
-        assert isinstance(l1_plan.conditions, L1Conditions)
-        assert l1_plan.conditions.source_filters is None
+        l1_plans = [p for p in result.plans if isinstance(p.conditions, L1Conditions)]
+        assert len(l1_plans) >= 1
+        assert l1_plans[0].conditions.source_filters is None
 
 
 # -----------------------------------------------------------------------

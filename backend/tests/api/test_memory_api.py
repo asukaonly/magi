@@ -35,7 +35,7 @@ class _FakeL1Store:
     def __init__(self):
         self.last_query_kwargs = None
 
-    async def count_events(self):
+    async def count_events(self, **kwargs):
         return 12
 
     async def query_events(
@@ -1123,7 +1123,7 @@ def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
-            assert request.query_mode == "detail"
+            assert request.query_mode == "exact_fact"
             return SimpleNamespace(
                 l1_events=[
                     {

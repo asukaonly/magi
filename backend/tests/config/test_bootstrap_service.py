@@ -16,7 +16,9 @@ def _make_config(*, with_bootstrap: bool = True) -> PersonalityConfig:
         "persona_entity": {
             "basic_profile": {
                 "name": "TestBot",
-                "core_background": "A test persona.",
+            },
+            "core_identity": {
+                "inner_narrative": "A test persona.",
             },
         },
         "cached_phrases": {"on_init": ["Hello."]},

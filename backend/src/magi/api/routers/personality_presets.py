@@ -66,15 +66,16 @@ def _parse_json_preset(file_path: Path) -> PersonalityPresetItem:
         data = json.loads(content)
         meta = data.get("meta", {})
         basic = data.get("persona_entity", {}).get("basic_profile", {})
-        core_background = basic.get("core_background", "")
-        description = basic.get("description") or basic.get("occupation") or (core_background[:200] if core_background else "")
+        identity = data.get("persona_entity", {}).get("core_identity", {})
+        narrative = identity.get("inner_narrative", "") or basic.get("core_background", "")
+        description = basic.get("description") or basic.get("occupation") or (narrative[:200] if narrative else "")
         return PersonalityPresetItem(
             id=file_path.stem,
             name=basic.get("name", file_path.stem),
             occupation=basic.get("occupation", ""),
             description=description,
             avatar=basic.get("avatar", ""),
-            prompt=core_background,
+            prompt=narrative,
             group=meta.get("group", "general"),
             order=meta.get("order", 999),
         )

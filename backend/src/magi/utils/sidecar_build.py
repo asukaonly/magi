@@ -96,7 +96,7 @@ def build_pyinstaller_command(
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--onefile",
+        "--onedir",
         "--name",
         name,
     ]
