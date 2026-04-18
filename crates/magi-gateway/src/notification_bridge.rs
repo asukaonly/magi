@@ -1,6 +1,6 @@
+use crate::db;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -30,15 +30,7 @@ struct NotificationRow {
     payload_json: String,
 }
 
-fn resolve_db_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home)
-        .join(".magi")
-        .join("runtime")
-        .join("runtime_trace.db")
-}
-
-fn open_db(db_path: &PathBuf) -> Option<Connection> {
+fn open_db(db_path: &std::path::Path) -> Option<Connection> {
     Connection::open_with_flags(
         db_path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -104,7 +96,7 @@ pub async fn run_notification_bridge(
     event_emitter: Option<EventEmitFn>,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let db_path = resolve_db_path();
+    let db_path = db::runtime_trace_db_path();
 
     // Wait for DB file to exist
     loop {
