@@ -3,7 +3,8 @@ use axum::Json;
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Mutex;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 
 use crate::db;
@@ -337,29 +338,65 @@ fn build_runtime_overview() -> Value {
 }
 
 fn build_system_metrics() -> Value {
-    let mut sys = System::new();
-    sys.refresh_memory();
-    // Refresh CPU usage twice with a small gap for meaningful readings.
-    sys.refresh_cpu_usage();
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    sys.refresh_cpu_usage();
+    // Keep a persistent System instance + cached snapshot so we never
+    // pay the full sysinfo initialisation cost on the request path.
+    // The cache is refreshed at most once per REFRESH_INTERVAL.
+    static STATE: std::sync::LazyLock<Mutex<SysMetricsCache>> =
+        std::sync::LazyLock::new(|| Mutex::new(SysMetricsCache::new()));
 
-    let cpu_percent = sys.global_cpu_usage() as f64;
-    let total_mem = sys.total_memory() as f64;
-    let used_mem = sys.used_memory() as f64;
-    let memory_percent = if total_mem > 0.0 {
-        (used_mem / total_mem) * 100.0
-    } else {
-        0.0
-    };
-    let gb = 1024.0 * 1024.0 * 1024.0;
+    const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
-    json!({
-        "cpu_percent": (cpu_percent * 10.0).round() / 10.0,
-        "memory_percent": (memory_percent * 10.0).round() / 10.0,
-        "memory_used_gb": (used_mem / gb * 100.0).round() / 100.0,
-        "memory_total_gb": (total_mem / gb * 100.0).round() / 100.0,
-    })
+    let mut cache = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    if cache.last_refresh.elapsed() >= REFRESH_INTERVAL {
+        cache.refresh();
+    }
+    cache.snapshot.clone()
+}
+
+struct SysMetricsCache {
+    sys: System,
+    snapshot: Value,
+    last_refresh: Instant,
+}
+
+impl SysMetricsCache {
+    fn new() -> Self {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        sys.refresh_cpu_usage();
+        let snapshot = Self::build_snapshot(&sys);
+        Self {
+            sys,
+            snapshot,
+            last_refresh: Instant::now(),
+        }
+    }
+
+    fn refresh(&mut self) {
+        self.sys.refresh_memory();
+        self.sys.refresh_cpu_usage();
+        self.snapshot = Self::build_snapshot(&self.sys);
+        self.last_refresh = Instant::now();
+    }
+
+    fn build_snapshot(sys: &System) -> Value {
+        let cpu_percent = sys.global_cpu_usage() as f64;
+        let total_mem = sys.total_memory() as f64;
+        let used_mem = sys.used_memory() as f64;
+        let memory_percent = if total_mem > 0.0 {
+            (used_mem / total_mem) * 100.0
+        } else {
+            0.0
+        };
+        let gb = 1024.0 * 1024.0 * 1024.0;
+
+        json!({
+            "cpu_percent": (cpu_percent * 10.0).round() / 10.0,
+            "memory_percent": (memory_percent * 10.0).round() / 10.0,
+            "memory_used_gb": (used_mem / gb * 100.0).round() / 100.0,
+            "memory_total_gb": (total_mem / gb * 100.0).round() / 100.0,
+        })
+    }
 }
 
 fn build_runtime_status() -> Value {
