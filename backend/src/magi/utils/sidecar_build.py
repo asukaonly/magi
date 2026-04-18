@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 from pathlib import Path
 
@@ -36,6 +37,8 @@ OPTIONAL_HIDDEN_IMPORTS = (
     "huggingface_hub",
     # channels extra
     "telegram",
+    # Windows media control (Windows only)
+    "winrt.windows.media.control",
 )
 
 PACKAGE_DATA_DIRECTORIES = (
@@ -50,8 +53,11 @@ def _detect_optional_hidden_imports() -> list[str]:
     """Return optional hidden imports that are actually installed."""
     found: list[str] = []
     for module_name in OPTIONAL_HIDDEN_IMPORTS:
-        if importlib.util.find_spec(module_name) is not None:
-            found.append(module_name)
+        try:
+            if importlib.util.find_spec(module_name) is not None:
+                found.append(module_name)
+        except (ModuleNotFoundError, ValueError):
+            pass
     return found
 
 
