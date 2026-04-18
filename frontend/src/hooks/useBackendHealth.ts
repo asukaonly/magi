@@ -4,6 +4,7 @@ import { useBackendHealthStore } from '@/stores/backend-health';
 
 const POLL_INTERVAL_MS = 12_000;
 const FAILURE_THRESHOLD = 2;
+const DEGRADED_THRESHOLD = 2;
 
 const BACKEND_EXIT_EVENT = 'backend-exit';
 
@@ -24,6 +25,7 @@ interface ReadyResponse {
 export function useBackendHealth(): void {
   const setHealth = useBackendHealthStore((s) => s.setHealth);
   const failCount = useRef(0);
+  const degradedCount = useRef(0);
 
   // Tauri backend-exit event listener
   useEffect(() => {
@@ -56,12 +58,17 @@ export function useBackendHealth(): void {
         const data = resp.data?.data;
         failCount.current = 0;
         if (data?.status === 'ready') {
+          degradedCount.current = 0;
           setHealth('healthy', data.runtime_status);
         } else {
-          setHealth('degraded', data?.runtime_status ?? null);
+          degradedCount.current += 1;
+          if (degradedCount.current >= DEGRADED_THRESHOLD) {
+            setHealth('degraded', data?.runtime_status ?? null);
+          }
         }
       } catch {
         failCount.current += 1;
+        degradedCount.current = 0;
         if (failCount.current >= FAILURE_THRESHOLD) {
           // Distinguish: can we still reach the Rust gateway?
           try {

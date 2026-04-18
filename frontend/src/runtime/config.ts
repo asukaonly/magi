@@ -6,14 +6,6 @@ export interface RuntimeConfig {
   runtimeWorkerPid?: number;
 }
 
-interface ReadyCheckResponse {
-  success?: boolean;
-  data?: {
-    ready?: boolean;
-    status?: string;
-  };
-}
-
 interface StartBackendResult {
   ok: boolean;
   baseUrl?: string;
@@ -93,22 +85,21 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function waitForBackendReady(apiBaseUrl: string): Promise<void> {
-  const readyUrl = `${apiBaseUrl.replace(/\/+$/, "")}/ready`;
+  // Poll the gateway liveness endpoint — a plain 200 confirms the Axum
+  // gateway is bound and serving. We do not require the Python worker
+  // heartbeat (ready:true) here; that is monitored separately by the
+  // health-check hook after startup completes.
+  const healthUrl = `${apiBaseUrl.replace(/\/+$/, "").replace(/\/api$/, "")}/api/health`;
   const deadline = Date.now() + READY_CHECK_TIMEOUT_MS;
 
   while (Date.now() <= deadline) {
     try {
-      const response = await fetch(readyUrl, {
+      const response = await fetch(healthUrl, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-        },
+        headers: { Accept: "application/json" },
       });
       if (response.ok) {
-        const payload = (await response.json()) as ReadyCheckResponse;
-        if (payload.data?.ready) {
-          return;
-        }
+        return;
       }
     } catch {
       // Keep polling until timeout while the backend is still starting.
