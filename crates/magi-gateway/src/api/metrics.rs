@@ -341,6 +341,7 @@ fn build_system_metrics() -> Value {
     // Keep a persistent System instance + cached snapshot so we never
     // pay the full sysinfo initialisation cost on the request path.
     // The cache is refreshed at most once per REFRESH_INTERVAL.
+    // Eagerly initialised at startup via warm_sysinfo_cache().
     static STATE: std::sync::LazyLock<Mutex<SysMetricsCache>> =
         std::sync::LazyLock::new(|| Mutex::new(SysMetricsCache::new()));
 
@@ -351,6 +352,15 @@ fn build_system_metrics() -> Value {
         cache.refresh();
     }
     cache.snapshot.clone()
+}
+
+/// Force-initialise the sysinfo cache on a background thread so the
+/// first request never pays the ~4 s macOS IOKit startup cost.
+/// Call once at server startup (non-blocking — spawns its own thread).
+pub fn warm_sysinfo_cache() {
+    std::thread::spawn(|| {
+        let _ = build_system_metrics();
+    });
 }
 
 struct SysMetricsCache {
