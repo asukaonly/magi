@@ -85,12 +85,16 @@ fn build_memory_statistics() -> Value {
     }
 
     // L1 — from l1_events.db
+    // Avoid full-table-scan on large databases: COUNT(*) without WHERE is
+    // O(1) in SQLite, then subtract the (typically tiny) deleted set.
     if let Some(conn) = db::open_readonly(&l1_db) {
-        l1_count = db::count_rows(
+        let total = db::count_rows(&conn, "SELECT COUNT(*) FROM fact_events", &[]);
+        let deleted = db::count_rows(
             &conn,
-            "SELECT COUNT(*) FROM fact_events WHERE deleted_at IS NULL",
+            "SELECT COUNT(*) FROM fact_events WHERE deleted_at IS NOT NULL",
             &[],
         );
+        l1_count = total - deleted;
         stats["l1"] = json!({ "event_count": l1_count });
     }
 

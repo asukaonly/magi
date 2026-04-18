@@ -181,4 +181,17 @@ pub fn ensure_indexes() {
             }
         }
     }
+
+    // l1_events.db indexes
+    if let Some(conn) = open_readwrite(&l1_events_db_path()) {
+        let stmts = [
+            "CREATE INDEX IF NOT EXISTS idx_fact_events_deleted_at \
+             ON fact_events(deleted_at) WHERE deleted_at IS NOT NULL",
+        ];
+        for sql in &stmts {
+            if let Err(e) = conn.execute_batch(sql) {
+                eprintln!("ensure_indexes: {e}");
+            }
+        }
+    }
 }
