@@ -439,7 +439,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
                               max={1}
                               step={0.05}
                               value={(layer.unlock_condition?.trust_level_gte as number) ?? ''}
-                              placeholder="0.0 – 1.0"
+                              placeholder={t('personality.fields.trustLevelGtePlaceholder')}
                               onChange={(e) =>
                                 patch((d) => {
                                   if (!d.persona_layers[index].unlock_condition)
@@ -449,6 +449,14 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
                                     delete d.persona_layers[index].unlock_condition!.trust_level_gte;
                                   } else {
                                     d.persona_layers[index].unlock_condition!.trust_level_gte = parseFloat(v);
+                                  }
+                                })
+                              }
+                              onBlur={() =>
+                                patch((d) => {
+                                  const cond = d.persona_layers[index].unlock_condition;
+                                  if (cond?.trust_level_gte != null) {
+                                    cond.trust_level_gte = Math.min(1, Math.max(0, cond.trust_level_gte as number));
                                   }
                                 })
                               }
@@ -464,7 +472,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
                               min={0}
                               step={1}
                               value={(layer.unlock_condition?.interaction_count_gte as number) ?? ''}
-                              placeholder="0"
+                              placeholder={t('personality.fields.interactionCountGtePlaceholder')}
                               onChange={(e) =>
                                 patch((d) => {
                                   if (!d.persona_layers[index].unlock_condition)

@@ -372,7 +372,9 @@
       "trustLevelGte": "信任度 ≥",
       "interactionCountGte": "互动次数 ≥",
       "milestoneRequired": "需要里程碑",
-      "milestoneRequiredPlaceholder": "如 ember_trust",
+      "trustLevelGtePlaceholder": "不填则不限制",
+      "interactionCountGtePlaceholder": "不填则不限制",
+      "milestoneRequiredPlaceholder": "不填则不限制",
       "personaOverride": "人格覆写",
       "overrideKeyPlaceholder": "键名",
       "behaviorHints": "行为提示"

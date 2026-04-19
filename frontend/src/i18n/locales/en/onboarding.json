@@ -371,7 +371,9 @@
       "trustLevelGte": "Trust Level ≥",
       "interactionCountGte": "Interactions ≥",
       "milestoneRequired": "Milestone Required",
-      "milestoneRequiredPlaceholder": "e.g. ember_trust",
+      "trustLevelGtePlaceholder": "No restriction if empty",
+      "interactionCountGtePlaceholder": "No restriction if empty",
+      "milestoneRequiredPlaceholder": "No restriction if empty",
       "personaOverride": "Persona Override",
       "overrideKeyPlaceholder": "Key",
       "behaviorHints": "Behavior Hints"
