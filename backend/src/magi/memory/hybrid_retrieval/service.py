@@ -15,7 +15,7 @@ from .answerability import (
     has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
-from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, classify_query_mode, enrich_l2_conditions
+from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, enrich_l2_conditions
 from .mode_registry import MODE_REGISTRY, VALID_MODES
 from .router import normalize_query_mode
 from .models import (
@@ -114,7 +114,7 @@ class HybridRetrievalService:
         resolved_mode = normalize_query_mode(request.query_mode)
         mode_explicit = resolved_mode is not None and resolved_mode in VALID_MODES
         if not mode_explicit:
-            resolved_mode = classify_query_mode(request.query)
+            resolved_mode = "exact_fact"
 
         mode_plan = MODE_REGISTRY[resolved_mode]
 

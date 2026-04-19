@@ -70,50 +70,7 @@ _DAY_NUMBER_SUFFIX_RE = re.compile(r"\d+\s*[号日]|\d+(?:st|nd|rd|th)\b", re.IG
 # absorbed into the matched span (e.g. "in a week ago" instead of "a week ago").
 _LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
 
-# ---------------------------------------------------------------------------
-# Mode auto-classification keywords (zh + en)
-# ---------------------------------------------------------------------------
 
-_MODE_KEYWORDS: dict[str, list[str]] = {
-    "current_state": [
-        "现在", "目前", "当前", "最新", "currently", "now", "latest", "present",
-        "住在哪", "在哪里", "在用什么", "状态",
-    ],
-    "summary": [
-        "总结", "概括", "回顾", "summarize", "summary", "recap", "overview",
-    ],
-    "strategy": [
-        "怎么做", "流程", "经验", "上次怎么", "之前怎么",
-        "how to", "workflow", "procedure", "strategy", "best practice",
-    ],
-    "temporal_compare": [
-        "之前还是之后", "先后", "变化", "对比", "比较",
-        "before or after", "changed", "compare", "versus", "vs",
-        "从.*变成", "变了",
-    ],
-    "cross_session": [
-        "哪些", "多少次", "所有", "每次", "一共", "汇总",
-        "which", "how many", "all", "every", "total", "across",
-    ],
-    "episode_recall": [
-        "那次", "那天", "那个时候", "经历", "发生了什么", "怎么回事",
-        "trip", "happened", "experience", "that time", "what did",
-        "昨天", "上周", "yesterday", "last week",
-    ],
-}
-
-
-def classify_query_mode(query: str) -> str:
-    """Classify a query into a query_mode using keyword heuristics.
-
-    Returns ``exact_fact`` as the safe default when no keywords match.
-    """
-    q = query.lower()
-    for mode, keywords in _MODE_KEYWORDS.items():
-        for kw in keywords:
-            if kw in q:
-                return mode
-    return "exact_fact"
 
 
 _VALID_SUBJECT_HINTS = {"self", "explicit", "none"}
@@ -373,15 +330,12 @@ class RuleBasedIntentDecider:
         """Determine which layers to query.
 
         Routing is handled by the LLM intent decider when available.
-        The rule engine uses ``query_mode`` (explicit or auto-classified)
-        and the MODE_REGISTRY for routing.
+        The rule engine uses ``query_mode`` hint from the caller and
+        the MODE_REGISTRY for routing.  Defaults to ``exact_fact``.
         """
-        # 1. Resolve mode: explicit hint > auto-classification
         mode = inp.query_mode_hint
-        if mode and mode in MODE_REGISTRY:
-            pass  # use the explicit hint
-        else:
-            mode = classify_query_mode(inp.query)
+        if not mode or mode not in MODE_REGISTRY:
+            mode = "exact_fact"
 
         plan_def = MODE_REGISTRY[mode]
 
