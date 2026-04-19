@@ -76,7 +76,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-channels = ["python-telegram-bot>=22.0"]
 windows = [
     "winrt-runtime>=2.0",
     "winrt-Windows.Media.Control>=2.0",
