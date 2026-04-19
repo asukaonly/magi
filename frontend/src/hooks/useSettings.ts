@@ -49,7 +49,6 @@ export interface UseSettingsReturn {
   handleNavItemClick: (itemId: string, isGroup: boolean, firstChildId?: string) => void;
 
   // Section helpers
-  isWideSection: boolean;
   usesInnerPaneScroll: boolean;
 
   // Config state (saved/draft)
@@ -165,19 +164,6 @@ export function useSettings(): UseSettingsReturn {
   // ========================================
   // Navigation Helpers
   // ========================================
-
-  const isWideSection = useMemo(
-    () =>
-      activeSection === 'llmProviders'
-      || activeSection === 'llmModels'
-      || activeSection === 'timeline'
-      || activeSection === 'personality'
-      || activeSection === 'statisticsLlm'
-      || activeSection === 'statisticsRuntime'
-      || activeSection === 'memoryGeneral'
-      || activeSection === 'extensions',
-    [activeSection]
-  );
 
   const usesInnerPaneScroll = useMemo(
     () => activeSection === 'llmProviders',
@@ -655,7 +641,6 @@ export function useSettings(): UseSettingsReturn {
     handleNavItemClick,
 
     // Section helpers
-    isWideSection,
     usesInnerPaneScroll,
 
     // Config state

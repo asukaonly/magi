@@ -84,7 +84,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     getGroupExpanded,
     setGroupExpanded,
     handleNavItemClick,
-    isWideSection,
     usesInnerPaneScroll,
     draftConfig,
     patchDraftConfig,
@@ -857,9 +856,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out',
                     usesInnerPaneScroll
                       ? 'flex h-full min-h-0 w-full flex-col overflow-hidden'
-                      : isWideSection || activeSection === 'preferences'
-                        ? 'h-full overflow-y-auto pl-1 pr-2'
-                        : 'h-full max-w-3xl overflow-y-auto pl-1 pr-2'
+                      : 'h-full overflow-y-auto pl-1 pr-2'
                   )}
                 >
                   {renderSectionContent()}

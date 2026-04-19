@@ -36,7 +36,7 @@ function MemoryGroup({
 }) {
   return (
     <section className="space-y-2">
-      <div className="space-y-2">{children}</div>
+      <div>{children}</div>
     </section>
   );
 }
