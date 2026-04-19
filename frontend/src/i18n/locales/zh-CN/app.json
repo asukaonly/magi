@@ -1974,6 +1974,7 @@
     "saving": "保存中...",
     "sections": {
       "basicInfo": "基础档案",
+      "basicProfile": "基础档案",
       "coreIdentity": "核心身份",
       "appearance": "外观提示词",
       "stateTransitionProtocol": "状态切换协议",
@@ -1983,6 +1984,8 @@
       "name": "名称",
       "age": "年龄",
       "gender": "性别",
+      "description": "描述",
+      "avatar": "头像",
       "occupation": "职业",
       "innerNarrative": "内在叙事",
       "languageFingerprint": "语言指纹",
@@ -1995,8 +1998,22 @@
       "personaLayerItem": "人格层 #{{index}}",
       "layerId": "层级标识",
       "unlockCondition": "解锁条件",
+      "trustLevelGte": "信任度 ≥",
+      "interactionCountGte": "互动次数 ≥",
+      "milestoneRequired": "需要里程碑",
+      "milestoneRequiredPlaceholder": "如 ember_trust",
       "personaOverride": "人格覆写",
+      "overrideKeyPlaceholder": "键名",
       "behaviorHints": "行为提示"
+    },
+    "help": {
+      "layerId": "这一层的唯一标识，如 crack、revealed。表示人格解锁的深度阶段。",
+      "unlockCondition": "当所有条件同时满足时，这一层会自动解锁并注入到提示词中。",
+      "trustLevelGte": "信任度范围 0–1，初始值 0.5。每次成功互动 +0.02，失败 −0.01。",
+      "interactionCountGte": "用户与 AI 的对话轮次累计。每轮对话（用户发消息 + AI 回复）计为 1 次。",
+      "milestoneRequired": "里程碑由 AI 在对话中自动检测。填写人格配置中 milestone_conditions 定义的 key。",
+      "personaOverride": "解锁后覆盖角色的属性特质（如语气、共情阈值）。键名可自定义，会以“属性: 值”的形式注入提示词。",
+      "behaviorHints": "解锁后角色会做的具体行为。每行一条，描述角色在这个深度会表现出的动作。"
     },
     "actions": {
       "addTransition": "新增状态切换",
@@ -2005,6 +2022,7 @@
       "uploadingAvatar": "上传中...",
       "addLayer": "新增人格层",
       "removeLayer": "移除该层",
+      "addOverride": "新增覆写项",
       "viewLayersTitle": "查看深层人格",
       "viewLayersConfirm": "深层人格包含角色的隐藏设定和渐进解锁机制。查看后可能影响你与角色互动的发现乐趣。确定要查看吗？",
       "viewLayersReveal": "确定查看"
@@ -2014,6 +2032,7 @@
       "chinese": "中文",
       "english": "English",
       "japanese": "日本語"
-    }
+    },
+    "noAvatar": "未设置头像"
   }
 }

@@ -10,9 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -23,13 +21,11 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { personasApi } from '@/api/modules/personas';
+import PersonalityDetailEditor from '@/components/PersonalityDetailEditor';
 import {
   usePersonality,
   getInitials,
-  normalizeTransition,
 } from '@/hooks';
-
-const sectionCardClass = 'border-border/50 bg-card';
 
 interface PersonalityModernProps {
   embedded?: boolean;
@@ -40,8 +36,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = React.useState(false);
   const [avatarBroken, setAvatarBroken] = React.useState(false);
-  const [layersRevealed, setLayersRevealed] = React.useState(false);
-  const [layersConfirmOpen, setLayersConfirmOpen] = React.useState(false);
 
   const {
     // State
@@ -86,7 +80,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
   const avatarValue = config.persona_entity.basic_profile.avatar || '';
   React.useEffect(() => {
     setAvatarBroken(false);
-    setLayersRevealed(false);
   }, [selectedId, avatarValue]);
 
   const detailTitle = isNewMode
@@ -402,297 +395,13 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
           ) : (
-            <>
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.basicInfo')}</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-3">
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.name')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.basic_profile.name}
-                      onChange={(event) => patch((d) => { d.persona_entity.basic_profile.name = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.age')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.basic_profile.age}
-                      onChange={(event) => patch((d) => { d.persona_entity.basic_profile.age = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.gender')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.basic_profile.gender}
-                      onChange={(event) => patch((d) => { d.persona_entity.basic_profile.gender = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2 md:col-span-3">
-                    <span className="text-sm font-medium">{t('personality.fields.occupation')}</span>
-                    <Input
-                      className="rounded-xl"
-                      value={config.persona_entity.basic_profile.occupation}
-                      onChange={(event) => patch((d) => { d.persona_entity.basic_profile.occupation = event.target.value; })}
-                    />
-                  </label>
-                </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.coreIdentity')}</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.innerNarrative')}</span>
-                    <Textarea
-                      rows={6}
-                      className="rounded-xl"
-                      value={config.persona_entity.core_identity.inner_narrative}
-                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.inner_narrative = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.languageFingerprint')}</span>
-                    <Textarea
-                      rows={4}
-                      className="rounded-xl"
-                      value={config.persona_entity.core_identity.language_fingerprint}
-                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.language_fingerprint = event.target.value; })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.attentionBias')}</span>
-                    <Textarea
-                      rows={2}
-                      className="rounded-xl"
-                      value={config.persona_entity.core_identity.attention_bias}
-                      onChange={(event) => patch((d) => { d.persona_entity.core_identity.attention_bias = event.target.value; })}
-                    />
-                  </label>
-                </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.appearance')}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.appearancePrompt')}</span>
-                    <Textarea
-                      rows={8}
-                      className="rounded-xl"
-                      value={config.appearance_prompt}
-                      onChange={(event) => patch((d) => { d.appearance_prompt = event.target.value; })}
-                    />
-                  </label>
-                </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.stateTransitionProtocol')}</CardTitle>
-                </CardHeader>
-                  <CardContent className="space-y-3">
-                    {config.state_transition_protocol.map((item, index) => (
-                      <div
-                        key={`${index}-${item.target_state_name}`}
-                        className={cn(
-                          'rounded-2xl border border-border/50 bg-muted/30 p-4'
-                        )}
-                      >
-                        <div className="mb-3 text-sm font-medium">{t('personality.fields.stateTransitionItem', { index: index + 1 })}</div>
-                        <div className="grid gap-3">
-                          <label className="space-y-1.5">
-                            <span className="text-xs text-muted-foreground">{t('personality.fields.triggerCondition')}</span>
-                            <Input
-                              className="rounded-xl"
-                              value={item.trigger_condition}
-                              onChange={(event) => patch((d) => {
-                                d.state_transition_protocol[index] = normalizeTransition({
-                                  ...d.state_transition_protocol[index],
-                                  trigger_condition: event.target.value,
-                                });
-                              })}
-                            />
-                          </label>
-                          <label className="space-y-1.5">
-                            <span className="text-xs text-muted-foreground">{t('personality.fields.targetStateName')}</span>
-                            <Input
-                              className="rounded-xl"
-                              value={item.target_state_name}
-                              onChange={(event) => patch((d) => {
-                                d.state_transition_protocol[index] = normalizeTransition({
-                                  ...d.state_transition_protocol[index],
-                                  target_state_name: event.target.value,
-                                });
-                              })}
-                            />
-                          </label>
-                          <label className="space-y-1.5">
-                            <span className="text-xs text-muted-foreground">{t('personality.fields.behaviorShift')}</span>
-                            <Textarea
-                              rows={3}
-                              className="rounded-xl"
-                              value={item.behavior_shift}
-                              onChange={(event) => patch((d) => {
-                                d.state_transition_protocol[index] = normalizeTransition({
-                                  ...d.state_transition_protocol[index],
-                                  behavior_shift: event.target.value,
-                                });
-                              })}
-                            />
-                          </label>
-                          <div className="flex justify-end">
-                            <Button
-                              variant="outline"
-                              onClick={() => patch((d) => {
-                                if (d.state_transition_protocol.length === 1) return;
-                                d.state_transition_protocol.splice(index, 1);
-                              })}
-                              disabled={config.state_transition_protocol.length === 1}
-                              className="rounded-xl"
-                            >
-                              {t('personality.actions.removeTransition')}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    <Button
-                      variant="outline"
-                      onClick={() => patch((d) => {
-                        d.state_transition_protocol.push(normalizeTransition({}));
-                      })}
-                      className="rounded-xl"
-                    >
-                      {t('personality.actions.addTransition')}
-                    </Button>
-                  </CardContent>
-              </Card>
-
-              {/* Persona Layers — hidden behind confirmation */}
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.personaLayers')}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {!layersRevealed ? (
-                    <button
-                      type="button"
-                      onClick={() => setLayersConfirmOpen(true)}
-                      className="w-full rounded-2xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground transition hover:border-primary/40 hover:bg-muted/40 hover:text-foreground"
-                    >
-                      {t('personality.actions.viewLayersTitle')}
-                    </button>
-                  ) : (
-                    <div className="space-y-3">
-                      {(config.persona_layers ?? []).map((layer, index) => (
-                        <div
-                          key={`${index}-${layer.layer_id}`}
-                          className="rounded-2xl border border-border/50 bg-muted/30 p-4"
-                        >
-                          <div className="mb-3 text-sm font-medium">
-                            {t('personality.fields.personaLayerItem', { index: index + 1 })}
-                          </div>
-                          <div className="grid gap-3">
-                            <label className="space-y-1.5">
-                              <span className="text-xs text-muted-foreground">{t('personality.fields.layerId')}</span>
-                              <Input
-                                className="rounded-xl"
-                                value={layer.layer_id}
-                                onChange={(event) => patch((d) => {
-                                  d.persona_layers[index].layer_id = event.target.value;
-                                })}
-                              />
-                            </label>
-                            <label className="space-y-1.5">
-                              <span className="text-xs text-muted-foreground">{t('personality.fields.unlockCondition')}</span>
-                              <Textarea
-                                rows={2}
-                                className="rounded-xl font-mono text-xs"
-                                value={layer.unlock_condition ? JSON.stringify(layer.unlock_condition, null, 2) : ''}
-                                onChange={(event) => patch((d) => {
-                                  try {
-                                    d.persona_layers[index].unlock_condition = event.target.value
-                                      ? JSON.parse(event.target.value) as Record<string, unknown>
-                                      : null;
-                                  } catch {
-                                    // Keep current value while user is editing
-                                  }
-                                })}
-                              />
-                            </label>
-                            <label className="space-y-1.5">
-                              <span className="text-xs text-muted-foreground">{t('personality.fields.personaOverride')}</span>
-                              <Textarea
-                                rows={3}
-                                className="rounded-xl font-mono text-xs"
-                                value={layer.persona_override ? JSON.stringify(layer.persona_override, null, 2) : ''}
-                                onChange={(event) => patch((d) => {
-                                  try {
-                                    d.persona_layers[index].persona_override = event.target.value
-                                      ? JSON.parse(event.target.value) as Record<string, string>
-                                      : null;
-                                  } catch {
-                                    // Keep current value while user is editing
-                                  }
-                                })}
-                              />
-                            </label>
-                            <label className="space-y-1.5">
-                              <span className="text-xs text-muted-foreground">{t('personality.fields.behaviorHints')}</span>
-                              <Textarea
-                                rows={3}
-                                className="rounded-xl"
-                                value={layer.behavior_hints?.join('\n') ?? ''}
-                                onChange={(event) => patch((d) => {
-                                  const val = event.target.value;
-                                  d.persona_layers[index].behavior_hints = val ? val.split('\n') : null;
-                                })}
-                              />
-                            </label>
-                            <div className="flex justify-end">
-                              <Button
-                                variant="outline"
-                                onClick={() => patch((d) => {
-                                  d.persona_layers.splice(index, 1);
-                                })}
-                                className="rounded-xl"
-                              >
-                                {t('personality.actions.removeLayer')}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      <Button
-                        variant="outline"
-                        onClick={() => patch((d) => {
-                          if (!d.persona_layers) d.persona_layers = [];
-                          d.persona_layers.push({
-                            layer_id: '',
-                            unlock_condition: null,
-                            persona_override: null,
-                            behavior_hints: null,
-                          });
-                        })}
-                        className="rounded-xl"
-                      >
-                        {t('personality.actions.addLayer')}
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </>
+            <div className="rounded-xl border border-border bg-background p-2.5">
+              <PersonalityDetailEditor
+                config={config}
+                patch={patch}
+                t={t}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -762,31 +471,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               onClick={() => { void confirmDeletePersonality(); }}
             >
               {t('personality.delete')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={layersConfirmOpen} onOpenChange={setLayersConfirmOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('personality.actions.viewLayersTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('personality.actions.viewLayersConfirm')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setLayersConfirmOpen(false)}>
-              {t('personality.cancel')}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                setLayersRevealed(true);
-                setLayersConfirmOpen(false);
-              }}
-            >
-              {t('personality.actions.viewLayersReveal')}
             </Button>
           </DialogFooter>
         </DialogContent>

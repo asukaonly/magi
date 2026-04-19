@@ -1974,6 +1974,7 @@
     "saving": "Saving...",
     "sections": {
       "basicInfo": "Basic Profile",
+      "basicProfile": "Basic Profile",
       "coreIdentity": "Core Identity",
       "appearance": "Appearance Prompt",
       "stateTransitionProtocol": "State Transition Protocol",
@@ -1983,6 +1984,8 @@
       "name": "Name",
       "age": "Age",
       "gender": "Gender",
+      "description": "Description",
+      "avatar": "Avatar",
       "occupation": "Occupation",
       "innerNarrative": "Inner Narrative",
       "languageFingerprint": "Language Fingerprint",
@@ -1995,8 +1998,22 @@
       "personaLayerItem": "Persona Layer #{{index}}",
       "layerId": "Layer ID",
       "unlockCondition": "Unlock Condition",
+      "trustLevelGte": "Trust Level ≥",
+      "interactionCountGte": "Interactions ≥",
+      "milestoneRequired": "Milestone Required",
+      "milestoneRequiredPlaceholder": "e.g. ember_trust",
       "personaOverride": "Persona Override",
+      "overrideKeyPlaceholder": "Key",
       "behaviorHints": "Behavior Hints"
+    },
+    "help": {
+      "layerId": "Unique identifier for this layer, e.g. crack, revealed. Represents the depth stage of persona unlock.",
+      "unlockCondition": "When all conditions are met simultaneously, this layer activates and its overrides are injected into the prompt.",
+      "trustLevelGte": "Trust ranges from 0 to 1, starting at 0.5. Each successful interaction adds +0.02, failure subtracts −0.01.",
+      "interactionCountGte": "Total chat turns between the user and AI. Each turn (user message + AI reply) counts as 1.",
+      "milestoneRequired": "Milestones are detected by the AI during conversation. Enter a key defined in milestone_conditions of the persona config.",
+      "personaOverride": "Overrides the character's traits (e.g. tone, empathy) when unlocked. Keys are free-form and rendered as 'Attribute: value' in the prompt.",
+      "behaviorHints": "Specific actions the character will take when this layer is unlocked. One per line, describing concrete behaviors at this depth."
     },
     "actions": {
       "addTransition": "Add Transition",
@@ -2005,6 +2022,7 @@
       "uploadingAvatar": "Uploading...",
       "addLayer": "Add Layer",
       "removeLayer": "Remove Layer",
+      "addOverride": "Add Override",
       "viewLayersTitle": "View Deep Persona Layers",
       "viewLayersConfirm": "Deep persona layers contain hidden character settings and progressive unlock mechanics. Viewing them may spoil the discovery experience. Are you sure?",
       "viewLayersReveal": "Reveal"
@@ -2014,6 +2032,7 @@
       "chinese": "Chinese",
       "english": "English",
       "japanese": "Japanese"
-    }
+    },
+    "noAvatar": "No avatar selected"
   }
 }

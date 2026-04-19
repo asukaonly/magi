@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, ChevronRight, PencilLine, Sparkles, Upload } from 'lucide-react';
+import { ArrowLeft, ChevronRight, PencilLine, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { FormContext, SimpleForm as Form } from '../onboarding/simple-form';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
+import PersonalityDetailEditor from '@/components/PersonalityDetailEditor';
 import type { LLMConfig } from '../../api/modules/config';
 import {
   personasApi,
@@ -536,208 +535,14 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                               </div>
                             ) : (
                               <div className="p-2.5">
-                                <div className="space-y-0.5 pr-1">
-                        {/* Basic Profile */}
-                        <Collapsible
-                          className="space-y-1"
-                          defaultOpen
-                        >
-                          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-                            {t('personality.sections.basicProfile')}
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="pt-2">
-                            <div className="grid gap-3 md:grid-cols-3">
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.name')}</span>
-                                <Input
-                                  value={config.persona_entity.basic_profile.name}
-                                  onChange={(e) => patch((d) => { d.persona_entity.basic_profile.name = e.target.value; })}
+                                <PersonalityDetailEditor
+                                  config={config}
+                                  patch={patch}
+                                  t={t}
+                                  onAvatarUpload={(e) => void handleAvatarUpload(e)}
+                                  uploadingAvatar={uploadingAvatar}
+                                  avatarFilename={avatarLabel(config.persona_entity.basic_profile.avatar)}
                                 />
-                              </label>
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.age')}</span>
-                                <Input
-                                  value={config.persona_entity.basic_profile.age}
-                                  onChange={(e) => patch((d) => { d.persona_entity.basic_profile.age = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.gender')}</span>
-                                <Input
-                                  value={config.persona_entity.basic_profile.gender}
-                                  onChange={(e) => patch((d) => { d.persona_entity.basic_profile.gender = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5 md:col-span-3">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.description')}</span>
-                                <Input
-                                  value={config.persona_entity.basic_profile.description}
-                                  onChange={(e) => patch((d) => { d.persona_entity.basic_profile.description = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5 md:col-span-3">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.avatar')}</span>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <input
-                                    id="personality-avatar-upload"
-                                    type="file"
-                                    accept="image/png,image/jpeg,image/webp"
-                                    className="hidden"
-                                    onChange={(e) => void handleAvatarUpload(e)}
-                                  />
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={uploadingAvatar}
-                                    onClick={() => {
-                                      const node = document.getElementById('personality-avatar-upload') as HTMLInputElement | null;
-                                      node?.click();
-                                    }}
-                                  >
-                                    <Upload className="h-4 w-4" />
-                                    {uploadingAvatar ? t('personality.actions.uploadingAvatar') : t('personality.actions.uploadAvatar')}
-                                  </Button>
-                                  {config.persona_entity.basic_profile.avatar ? (
-                                    <span className="text-xs text-muted-foreground">{avatarLabel(config.persona_entity.basic_profile.avatar)}</span>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground">{t('personality.noAvatar')}</span>
-                                  )}
-                                </div>
-                              </label>
-                              <label className="space-y-1.5 md:col-span-3">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.occupation')}</span>
-                                <Input
-                                  value={config.persona_entity.basic_profile.occupation}
-                                  onChange={(e) => patch((d) => { d.persona_entity.basic_profile.occupation = e.target.value; })}
-                                />
-                              </label>
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-
-                        {/* Core Identity */}
-                        <Collapsible
-                          className="space-y-1"
-                          defaultOpen
-                        >
-                          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-                            {t('personality.sections.coreIdentity')}
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="pt-2">
-                            <div className="grid gap-3">
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.innerNarrative')}</span>
-                                <AutoResizeTextarea
-                                  value={config.persona_entity.core_identity.inner_narrative}
-                                  minHeight={120}
-                                  className="w-full"
-                                  onChange={(e) => patch((d) => { d.persona_entity.core_identity.inner_narrative = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.languageFingerprint')}</span>
-                                <AutoResizeTextarea
-                                  value={config.persona_entity.core_identity.language_fingerprint}
-                                  minHeight={80}
-                                  className="w-full"
-                                  onChange={(e) => patch((d) => { d.persona_entity.core_identity.language_fingerprint = e.target.value; })}
-                                />
-                              </label>
-                              <label className="space-y-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.attentionBias')}</span>
-                                <AutoResizeTextarea
-                                  value={config.persona_entity.core_identity.attention_bias}
-                                  minHeight={60}
-                                  className="w-full"
-                                  onChange={(e) => patch((d) => { d.persona_entity.core_identity.attention_bias = e.target.value; })}
-                                />
-                              </label>
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-
-                        {/* Appearance Prompt */}
-                        <Collapsible className="space-y-1">
-                          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-                            {t('personality.sections.appearance')}
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="pt-2">
-                            <label className="space-y-1.5">
-                              <span className="text-xs font-medium text-muted-foreground">{t('personality.fields.appearancePrompt')}</span>
-                              <AutoResizeTextarea
-                                value={config.appearance_prompt}
-                                onChange={(e) => patch((d) => { d.appearance_prompt = e.target.value; })}
-                              />
-                            </label>
-                          </CollapsibleContent>
-                        </Collapsible>
-
-                        {/* State Transition Protocol */}
-                        <Collapsible className="space-y-1">
-                          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-                            {t('personality.sections.stateTransitionProtocol')}
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="pt-2">
-                            <div className="space-y-3">
-                              {config.state_transition_protocol.map((item, index) => (
-                                <div key={index} className="rounded-md border border-border/70 p-2">
-                                  <div className="grid gap-2">
-                                    <label className="space-y-1">
-                                      <span className="text-xs text-muted-foreground">{t('personality.fields.triggerCondition')}</span>
-                                      <Input
-                                        value={item.trigger_condition}
-                                        onChange={(e) => patch((d) => {
-                                          d.state_transition_protocol[index] = normalizeTransition({
-                                            ...d.state_transition_protocol[index],
-                                            trigger_condition: e.target.value,
-                                          });
-                                        })}
-                                      />
-                                    </label>
-                                    <label className="space-y-1">
-                                      <span className="text-xs text-muted-foreground">{t('personality.fields.targetStateName')}</span>
-                                      <Input
-                                        value={item.target_state_name}
-                                        onChange={(e) => patch((d) => {
-                                          d.state_transition_protocol[index] = normalizeTransition({
-                                            ...d.state_transition_protocol[index],
-                                            target_state_name: e.target.value,
-                                          });
-                                        })}
-                                      />
-                                    </label>
-                                    <label className="space-y-1">
-                                      <span className="text-xs text-muted-foreground">{t('personality.fields.behaviorShift')}</span>
-                                      <AutoResizeTextarea
-                                        value={item.behavior_shift}
-                                        minHeight={96}
-                                        className="w-full"
-                                        onChange={(e) => patch((d) => {
-                                          d.state_transition_protocol[index] = normalizeTransition({
-                                            ...d.state_transition_protocol[index],
-                                            behavior_shift: e.target.value,
-                                          });
-                                        })}
-                                      />
-                                    </label>
-                                  </div>
-                                </div>
-                              ))}
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => patch((d) => {
-                                  d.state_transition_protocol.push(normalizeTransition({}));
-                                })}
-                              >
-                                {t('personality.actions.addTransition')}
-                              </Button>
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-                                </div>
                               </div>
                             )}
                           </motion.div>
