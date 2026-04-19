@@ -608,9 +608,9 @@
       },
       "form": {
         "title": "Memory Configuration",
-        "description": "Configure enablement and extraction strategy across L0-L4 memory layers.",
-        "l1DependencyTitle": "Raw event memory is the long-term foundation",
-        "l1DependencyDescription": "When disabled, downstream knowledge, reflection, and strategy memory stay disabled.",
+        "description": "Choose what your AI remembers and how it learns from conversations.",
+        "l1DependencyTitle": "Conversation history is the foundation of all memory",
+        "l1DependencyDescription": "When disabled, knowledge extraction, summaries, and experience learning are all unavailable.",
         "restoreL1": "Re-enable"
       },
       "sections": {
@@ -771,77 +771,77 @@
         },
         "reranker_not_available": "Please enable Cross-Encoder reranking in Memory → General Memory Settings first, then return here to select a model.",
         "enable_l0": {
-          "label": "Enable working context",
-          "description": "Keep short-lived runtime state in memory and checkpoint it for crash recovery."
+          "label": "Enable temporary working memory",
+          "description": "Keep current conversation context in memory with automatic checkpoints for crash recovery."
         },
         "enable_l1": {
-          "label": "Enable raw event memory",
-          "description": "Persist long-term source events that feed later cognition and retrieval."
+          "label": "Enable conversation history",
+          "description": "Save complete conversation records as the data source for all long-term memory."
         },
         "enable_l2": {
-          "label": "Enable knowledge memory",
-          "description": "Extract stable entities, relationships, and defensive ToM assertions from raw events."
+          "label": "Enable knowledge extraction",
+          "description": "Automatically extract people, preferences, and facts you mention to build AI's understanding of you."
         },
         "enable_l3": {
-          "label": "Enable summary & reflection memory",
-          "description": "Generate synthesized summaries and reflective abstractions from accumulated events."
+          "label": "Enable summary & review",
+          "description": "Periodically generate conversation summaries and reviews to help AI grasp long-term trends."
         },
         "enable_l4": {
-          "label": "Enable strategy & execution memory",
-          "description": "Capture repeatable strategies and failure-avoidance heuristics from prior runs."
+          "label": "Enable experience learning",
+          "description": "Learn reusable strategies from successes and failures to make AI increasingly helpful."
         },
         "l0_checkpoint_interval_seconds": {
-          "label": "Checkpoint interval (seconds)"
+          "label": "Auto-save interval (seconds)"
         },
         "retention_days": {
-          "label": "Retention window (days)"
+          "label": "History retention (days)"
         },
         "runtime_replay_include_l0_only": {
-          "label": "Replay working-context-only runtime events",
-          "description": "Include ephemeral execution events when replaying short-term context after recovery."
+          "label": "Replay temporary events on recovery",
+          "description": "After crash recovery, also replay internal events that only existed in temporary memory."
         },
         "enable_t1_importance": {
           "label": "Enable importance scoring",
-          "description": "Score event salience before promoting items into downstream cognition."
+          "description": "Score how important each conversation event is before deciding its processing priority."
         },
         "enable_l1_vectorization": {
-          "label": "Enable vectorization (semantic search)",
-          "description": "Vectorize raw events to enable semantic similarity search.",
+          "label": "Enable semantic search",
+          "description": "Convert conversation records into vectors to enable searching history by meaning.",
           "description_disabled": "Requires an embedding model to be configured first."
         },
         "enable_l2_llm_extraction": {
-          "label": "Enable LLM knowledge extraction",
-          "description": "Use the model to derive entities, relations, and ToM assertions from raw events."
+          "label": "Enable AI knowledge extraction",
+          "description": "Use AI to extract people, preferences, facts, and other structured knowledge from conversations."
         },
         "enable_l2_vectorization": {
-          "label": "Enable vectorization (semantic search)",
-          "description": "Vectorize entity catalog entries to enable semantic similarity matching.",
+          "label": "Enable semantic search",
+          "description": "Convert extracted knowledge entries into vectors for semantic similarity search.",
           "description_disabled": "Requires an embedding model to be configured first."
         },
         "l2_batch_flush_interval_seconds": {
-          "label": "L2 batch flush interval (seconds)",
-          "description": "How long L2 may wait before flushing a staged microbatch. Minimum 30 seconds."
+          "label": "Knowledge extraction batch interval (seconds)",
+          "description": "How long to wait before processing a batch of new conversations for knowledge extraction. Minimum 30 seconds."
         },
         "enable_l2_conflict_arbitration": {
-          "label": "Enable severe conflict arbitration",
-          "description": "Escalate high-confidence, mutually exclusive facts to the deeper arbitration model before rewriting memory."
+          "label": "Enable fact conflict resolution",
+          "description": "When new information highly contradicts existing memory, use AI to analyze deeply before deciding whether to update."
         },
         "l2_conflict_arbitration_min_confidence": {
-          "label": "Arbitration confidence threshold",
-          "description": "Only contradiction hints at or above this confidence trigger L2 arbitration."
+          "label": "Conflict resolution threshold",
+          "description": "Only trigger deep analysis when contradiction confidence reaches this level."
         },
         "enable_l3_llm_summary": {
-          "label": "Enable LLM reflection summary",
-          "description": "Use the model to build reflective summaries from retained memory streams."
+          "label": "Enable AI summaries",
+          "description": "Use AI to condense conversation records into periodic summaries and reviews."
         },
         "enable_l3_vectorization": {
-          "label": "Enable vectorization (semantic search)",
-          "description": "Vectorize reflection summaries to enable semantic similarity search.",
+          "label": "Enable semantic search",
+          "description": "Convert summaries and reviews into vectors for semantic similarity search.",
           "description_disabled": "Requires an embedding model to be configured first."
         },
         "enable_l4_skill_extraction": {
-          "label": "Enable skill extraction",
-          "description": "Promote repeated success or failure patterns into future procedural guidance."
+          "label": "Enable experience extraction",
+          "description": "Identify recurring success patterns and failure lessons to produce reusable action recommendations."
         }
       },
       "options": {

@@ -608,9 +608,9 @@
       },
       "form": {
         "title": "记忆配置",
-        "description": "配置 L0-L4 各层记忆的启用状态与抽取策略。",
-        "l1DependencyTitle": "原始事件记忆是长期记忆的基础",
-        "l1DependencyDescription": "关闭后，下游的知识、反思和策略记忆都会保持停用。",
+        "description": "选择 AI 应该记住哪些内容，以及如何从对话中提炼知识。",
+        "l1DependencyTitle": "对话记录是所有记忆的基础",
+        "l1DependencyDescription": "关闭后，知识提炼、总结回顾和经验学习都将不可用。",
         "restoreL1": "重新启用"
       },
       "sections": {
@@ -771,77 +771,77 @@
         },
         "reranker_not_available": "请先在「记忆 → 通用记忆设置」中启用 Cross-Encoder 精排后，再回到此处选择模型。",
         "enable_l0": {
-          "label": "启用工作上下文",
-          "description": "将短时运行态保存在内存中，并通过 checkpoint 提供异常恢复能力。"
+          "label": "启用临时工作记忆",
+          "description": "在内存中保持当前对话的上下文，并自动存档以便异常恢复。"
         },
         "enable_l1": {
-          "label": "启用原始事件记忆",
-          "description": "持久化长期源事件，作为后续认知和检索的事实基础。"
+          "label": "启用对话记录",
+          "description": "保存完整的对话历史，作为所有长期记忆的数据来源。"
         },
         "enable_l2": {
-          "label": "启用知识记忆",
-          "description": "从原始事件中抽取稳定实体、关系以及防御性 ToM 断言。"
+          "label": "启用知识提炼",
+          "description": "自动从对话中提取你提到的人物、偏好、事实，构建 AI 对你的了解。"
         },
         "enable_l3": {
-          "label": "启用摘要与反思记忆",
-          "description": "基于累计事件生成摘要化、反思化的长期抽象。"
+          "label": "启用总结回顾",
+          "description": "定期生成对话摘要和阶段性回顾，帮助 AI 把握长期趋势。"
         },
         "enable_l4": {
-          "label": "启用策略及执行记忆",
-          "description": "把可复用的成功策略与失败规避经验固化成未来行为准则。"
+          "label": "启用经验学习",
+          "description": "从成功和失败的经验中总结可复用的策略，让 AI 越来越好用。"
         },
         "l0_checkpoint_interval_seconds": {
-          "label": "Checkpoint 间隔（秒）"
+          "label": "自动存档间隔（秒）"
         },
         "retention_days": {
-          "label": "保留窗口（天）"
+          "label": "对话记录保留天数"
         },
         "runtime_replay_include_l0_only": {
-          "label": "回放仅存在于工作上下文的运行时事件",
-          "description": "在异常恢复后的短期上下文回放中，是否纳入纯瞬时执行事件。"
+          "label": "恢复时回放临时事件",
+          "description": "异常恢复后，是否也回放仅存在于临时记忆中的内部事件。"
         },
         "enable_t1_importance": {
           "label": "启用重要度评分",
-          "description": "在事件进入下游认知层之前，先评估其重要程度。"
+          "description": "在记录对话事件时，先评估其重要程度再决定后续处理优先级。"
         },
         "enable_l1_vectorization": {
-          "label": "启用向量化（语义搜索）",
-          "description": "将原始事件向量化以便支持语义相似性搜索。",
+          "label": "启用语义搜索",
+          "description": "将对话记录转为向量，支持按语义相似度搜索历史对话。",
           "description_disabled": "需要先在模型配置中选择向量模型。"
         },
         "enable_l2_llm_extraction": {
-          "label": "启用 LLM 知识抽取",
-          "description": "使用模型从原始事件中抽取实体、关系和 ToM 断言。"
+          "label": "启用 AI 知识提炼",
+          "description": "使用 AI 模型从对话中提取人物、偏好、事实等结构化知识。"
         },
         "enable_l2_vectorization": {
-          "label": "启用向量化（语义搜索）",
-          "description": "将实体目录条目向量化以便支持语义相似性匹配。",
+          "label": "启用语义搜索",
+          "description": "将提炼出的知识条目转为向量，支持按语义相似度搜索。",
           "description_disabled": "需要先在模型配置中选择向量模型。"
         },
         "l2_batch_flush_interval_seconds": {
-          "label": "L2 批次刷新间隔（秒）",
-          "description": "L2 在冲刷暂存微批之前允许等待的时间，最小 30 秒。"
+          "label": "知识提炼批处理间隔（秒）",
+          "description": "新对话进入后，等待多久再统一处理一批知识提炼，最少 30 秒。"
         },
         "enable_l2_conflict_arbitration": {
-          "label": "启用严重冲突仲裁",
-          "description": "当高置信、彼此互斥的新旧事实发生碰撞时，升级到更深度的仲裁模型后再决定是否改写记忆。"
+          "label": "启用事实冲突仲裁",
+          "description": "当新信息与已有记忆产生高可信度矛盾时，交由 AI 深度分析后再决定是否更新记忆。"
         },
         "l2_conflict_arbitration_min_confidence": {
-          "label": "仲裁置信度阈值",
-          "description": "只有达到该置信度的矛盾提示才会触发 L2 仲裁。"
+          "label": "冲突仲裁触发阈值",
+          "description": "只有矛盾程度达到该阈值时才启动深度仲裁。"
         },
         "enable_l3_llm_summary": {
-          "label": "启用 LLM 反思摘要",
-          "description": "使用模型把保留的记忆流压缩成更高层次的反思摘要。"
+          "label": "启用 AI 总结",
+          "description": "使用 AI 模型将对话记录浓缩成阶段性摘要和回顾。"
         },
         "enable_l3_vectorization": {
-          "label": "启用向量化（语义搜索）",
-          "description": "将反思摘要向量化以便支持语义相似性搜索。",
+          "label": "启用语义搜索",
+          "description": "将总结回顾转为向量，支持按语义相似度搜索。",
           "description_disabled": "需要先在模型配置中选择向量模型。"
         },
         "enable_l4_skill_extraction": {
-          "label": "启用技能抽取",
-          "description": "把重复出现的成功或失败模式提升为未来可复用的程序性经验。"
+          "label": "启用经验提炼",
+          "description": "从反复出现的成功模式和失败教训中，总结出可复用的行动建议。"
         }
       },
       "options": {

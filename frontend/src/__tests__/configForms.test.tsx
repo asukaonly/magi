@@ -1577,8 +1577,7 @@ describe('config forms', () => {
     });
   });
 
-  it('memory form warns when l1 is turned off', async () => {
-    const user = userEvent.setup();
+  it('memory form renders L2/L3/L4 layer toggles', async () => {
     render(
       <Form
         initialValues={{
@@ -1608,8 +1607,8 @@ describe('config forms', () => {
         <MemoryForm />
       </Form>
     );
-    const l1Switch = screen.getByRole('checkbox', { name: /settings\.memory\.fields\.enable_l1\.label/i });
-    await user.click(l1Switch);
-    expect(await screen.findByText('settings.memory.form.l1DependencyTitle')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /settings\.memory\.fields\.enable_l2\.label/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /settings\.memory\.fields\.enable_l3\.label/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /settings\.memory\.fields\.enable_l4\.label/i })).toBeInTheDocument();
   });
 });
