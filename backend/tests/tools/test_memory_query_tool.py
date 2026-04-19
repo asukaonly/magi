@@ -33,7 +33,7 @@ class TestMemoryQueryTool:
         assert len(schema.parameters) >= 2
 
     def test_tool_parameters(self):
-        """Should require query while keeping query_mode optional."""
+        """Should require both query and query_mode."""
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
         tool = MemoryQueryTool()
@@ -44,10 +44,13 @@ class TestMemoryQueryTool:
         assert "time_range" in param_names
         assert "sources" in param_names
         assert "query_mode" in param_names
-        assert "query_mode" in param_names
 
         query_param = next(p for p in schema.parameters if p.name == "query")
         assert query_param.required is True
+        query_mode_param = next(p for p in schema.parameters if p.name == "query_mode")
+        assert query_mode_param.required is True
+        assert query_mode_param.enum is not None
+        assert "exact_fact" in query_mode_param.enum
         time_range_param = next(p for p in schema.parameters if p.name == "time_range")
         assert time_range_param.required is False
         assert "user preferences" in schema.description
