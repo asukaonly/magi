@@ -231,8 +231,15 @@ class SqliteVecIndex:
         async with self._db_lock:
             db = self._require_db()
             await self._ensure_registry_schema(db)
+            # Only select the parent virtual tables (not their shadow tables).
+            # Shadow tables are auto-dropped when the virtual table is dropped,
+            # so attempting to drop them individually causes "SQL logic error".
             async with db.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ? AND name != ?",
+                "SELECT name FROM sqlite_master"
+                " WHERE type = 'table'"
+                " AND name LIKE ?"
+                " AND name != ?"
+                " AND sql LIKE 'CREATE VIRTUAL TABLE%'",
                 (f"{self._vec_table_prefix}%", self._registry_table),
             ) as cursor:
                 vec_tables = [str(row[0]) for row in await cursor.fetchall()]
