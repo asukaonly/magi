@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Download,
   ExternalLink,
@@ -20,6 +20,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'action', 'channel'] as const;
+type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
+
 interface PluginMarketplaceProps {
   installedPlugins: PluginPackageState[];
   onInstallComplete: () => Promise<void>;
@@ -34,6 +37,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<ContributionFilter>('all');
   const [processingIds, setProcessingIds] = useState<Record<string, string>>({});
 
   const fetchRegistry = useCallback(async () => {
@@ -58,9 +62,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
 
   const currentPlatform = /mac/i.test(navigator.userAgent) ? 'macos' : 'windows';
 
-  const filteredEntries = registryEntries.filter((entry) => {
+  const filteredEntries = useMemo(() => registryEntries.filter((entry) => {
     // Hide plugins that don't support the current platform.
     if (entry.platforms.length > 0 && !entry.platforms.includes(currentPlatform)) {
+      return false;
+    }
+    // Category filter.
+    if (typeFilter !== 'all' && !entry.contribution_types.includes(typeFilter)) {
       return false;
     }
     if (!searchQuery.trim()) return true;
@@ -71,7 +79,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       entry.description.toLowerCase().includes(query) ||
       entry.author.toLowerCase().includes(query)
     );
-  });
+  }), [registryEntries, currentPlatform, typeFilter, searchQuery]);
 
   const handleInstall = async (pluginId: string) => {
     setProcessingIds((prev) => ({ ...prev, [pluginId]: 'installing' }));
@@ -154,8 +162,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-5 pt-1">
+      {/* Search + Actions */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -201,6 +209,22 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             {t('settings.marketplace.actions.refresh')}
           </Button>
         </div>
+      </div>
+
+      {/* Category filter */}
+      <div className="flex flex-wrap gap-1.5">
+        {CONTRIBUTION_TYPE_FILTERS.map((filter) => (
+          <Button
+            key={filter}
+            type="button"
+            variant={typeFilter === filter ? 'default' : 'outline'}
+            size="sm"
+            className="h-7 text-xs px-3"
+            onClick={() => setTypeFilter(filter)}
+          >
+            {t(`settings.marketplace.filter.${filter}`)}
+          </Button>
+        ))}
       </div>
 
       {/* Content */}
@@ -259,16 +283,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         <div className="flex gap-1">
                           {entry.contribution_types.map((type) => (
                             <Badge key={type} variant="secondary" className="text-xs">
-                              {type}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                      {entry.platforms.length > 0 && (
-                        <div className="flex gap-1">
-                          {entry.platforms.map((platform) => (
-                            <Badge key={platform} variant="outline" className="text-xs">
-                              {platform}
+                              {t(`settings.marketplace.contributionType.${type}`, { defaultValue: type })}
                             </Badge>
                           ))}
                         </div>

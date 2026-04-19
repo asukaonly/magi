@@ -1205,6 +1205,19 @@
         "uninstallFailed": "Failed to uninstall plugin: {{message}}",
         "updateSuccess": "Plugin updated successfully",
         "updateFailed": "Failed to update plugin: {{message}}"
+      },
+      "filter": {
+        "all": "All",
+        "sensor": "Sensor",
+        "tool": "Tool",
+        "action": "Action",
+        "channel": "Channel"
+      },
+      "contributionType": {
+        "sensor": "Sensor",
+        "tool": "Tool",
+        "action": "Action",
+        "channel": "Channel"
       }
     },
     "actionsConfig": {

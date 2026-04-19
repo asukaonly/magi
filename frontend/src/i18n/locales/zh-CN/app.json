@@ -1204,6 +1204,19 @@
         "uninstallFailed": "插件卸载失败：{{message}}",
         "updateSuccess": "插件更新成功",
         "updateFailed": "插件更新失败：{{message}}"
+      },
+      "filter": {
+        "all": "全部",
+        "sensor": "传感器",
+        "tool": "工具",
+        "action": "执行器",
+        "channel": "消息渠道"
+      },
+      "contributionType": {
+        "sensor": "传感器",
+        "tool": "工具",
+        "action": "执行器",
+        "channel": "消息渠道"
       }
     },
     "actionsConfig": {
