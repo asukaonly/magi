@@ -204,7 +204,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     <img
                       src={selectorAvatarUrl}
                       alt={item.displayName}
-                      className="h-full w-full rounded-[14px] object-cover"
+                      className="h-full w-full rounded-[14px] bg-neutral-200 object-cover dark:bg-neutral-700"
                     />
                   ) : (
                     <span
@@ -260,7 +260,12 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   type="button"
                   onClick={() => avatarInputRef.current?.click()}
                   disabled={uploadingAvatar}
-                  className="group relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-border/60 bg-background transition hover:border-primary/50 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-70"
+                  className={cn(
+                    'group relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-border/60 transition hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-70',
+                    avatarUrl
+                      ? 'bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-700 dark:hover:bg-neutral-600'
+                      : 'bg-background hover:bg-primary/5'
+                  )}
                   aria-label={t('personality.actions.uploadAvatar')}
                 >
                   {avatarUrl ? (
