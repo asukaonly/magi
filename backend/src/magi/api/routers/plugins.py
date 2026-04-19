@@ -178,7 +178,10 @@ def _require_package(plugin_id: str):
 
 @plugins_router.get("", response_model=PluginsListResponse)
 async def list_plugins():
-    manager = require_plugin_manager()
+    try:
+        manager = require_plugin_manager()
+    except RuntimeError:
+        return PluginsListResponse(plugins=[], total=0)
     packages = manager.list_packages()
     return PluginsListResponse(
         plugins=[_serialize_package(item) for item in packages],

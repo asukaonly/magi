@@ -87,7 +87,10 @@ async def get_sensor_source_status():
     scheduler_db_path = getattr(runtime_paths, "scheduler_db_path", Path(runtime_paths.base_dir) / "runtime" / "scheduler.db")
     repository = ScheduleRepository(scheduler_db_path)
     await repository.initialize()
-    manager = require_plugin_manager()
+    try:
+        manager = require_plugin_manager()
+    except RuntimeError:
+        return []
     sensor_registry = require_sensor_registry()
     packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
     contributions = sensor_registry.list_contributions()
