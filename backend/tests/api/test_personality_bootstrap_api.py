@@ -56,15 +56,14 @@ class TestGreetingBootstrapStatus:
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
+            patch("magi.api.routers.personality_config.get_current_personality_config", return_value=config),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value=""),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=config),
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = config
 
             resp = await api_get_greeting()
 
@@ -83,15 +82,13 @@ class TestGreetingBootstrapStatus:
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
+            patch("magi.api.routers.personality_config.get_current_personality_config", return_value=config),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value=""),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = config
 
             resp = await api_get_greeting()
 
@@ -105,15 +102,13 @@ class TestGreetingBootstrapStatus:
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
+            patch("magi.api.routers.personality_config.get_current_personality_config", return_value=config),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", side_effect=RuntimeError("DB error")),
             patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value=""),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = config
 
             resp = await api_get_greeting()
 
@@ -145,14 +140,12 @@ class TestBootstrapInitEndpoint:
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=config),
             patch("magi.core.runtime_bindings.require_chat_store", return_value=mock_chat_store),
             patch("magi.core.runtime_bindings.require_runtime_trace_store", return_value=mock_trace_store),
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = config
 
             request = BootstrapInitRequest(session_id="sess_001")
             resp = await api_bootstrap_init(request)
@@ -176,12 +169,9 @@ class TestBootstrapInitEndpoint:
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = _mock_config()
 
             request = BootstrapInitRequest(session_id="sess_001")
             resp = await api_bootstrap_init(request)
@@ -218,15 +208,13 @@ class TestBootstrapMessageEndpoint:
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=config),
             patch("magi.personality.bootstrap_service.require_scenario_llm_pool") as mock_pool,
             patch("magi.core.runtime_bindings.require_chat_store", return_value=mock_chat_store),
             patch("magi.core.runtime_bindings.require_runtime_trace_store", return_value=mock_trace_store),
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = config
             mock_pool.return_value.get.return_value.chat = AsyncMock(return_value="Nice to meet you!")
 
             request = BootstrapMessageRequest(
@@ -257,12 +245,9 @@ class TestBootstrapMessageEndpoint:
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = config
 
             request = BootstrapMessageRequest(user_message="Hi")
             resp = await api_bootstrap_message(request)
@@ -290,14 +275,12 @@ class TestJournalReflectEndpoint:
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
+            patch("magi.personality.persona_journal_service.resolve_persona_config", new_callable=AsyncMock, return_value=config),
             patch("magi.personality.persona_journal_service.PersonaJournalService._call_llm",
                   new_callable=AsyncMock, return_value="I felt calm today."),
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = config
 
             request = JournalReflectRequest()
             resp = await api_journal_reflect(request)
@@ -315,14 +298,12 @@ class TestJournalReflectEndpoint:
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.api.routers.personality_config.get_personality_loader") as mock_loader_fn,
+            patch("magi.personality.persona_journal_service.resolve_persona_config", new_callable=AsyncMock, return_value=None),
             patch("magi.personality.persona_journal_service.PersonaJournalService._call_llm",
                   new_callable=AsyncMock, return_value=None),
         ):
-            mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_loader_fn.return_value.load.return_value = None
 
             request = JournalReflectRequest()
             resp = await api_journal_reflect(request)

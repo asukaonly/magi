@@ -1,5 +1,7 @@
 """Tests for config router extensions."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -854,7 +856,7 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
     )
     monkeypatch.setattr(
         "magi.api.routers.config._save_personality_to_user",
-        lambda _: True,
+        AsyncMock(return_value=True),
     )
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
@@ -883,7 +885,7 @@ def test_complete_onboarding_quick_mode_forces_echo_01_personality(
     monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
-    def _fake_save_personality(personality) -> bool:  # type: ignore[no-untyped-def]
+    async def _fake_save_personality(personality) -> bool:
         captured["name"] = personality.persona_entity.basic_profile.name
         return True
 

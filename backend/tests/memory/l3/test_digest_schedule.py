@@ -154,9 +154,8 @@ def test_build_persona_context_returns_dict_for_valid_personality() -> None:
 
     with (
         patch("magi.memory.l3.digest_schedule.get_current_personality", return_value="melchior"),
-        patch("magi.memory.l3.digest_schedule.get_personality_loader") as mock_loader,
+        patch("magi.memory.l3.digest_schedule.get_current_personality_config", return_value=fake_config),
     ):
-        mock_loader.return_value.load.return_value = fake_config
         result = _build_persona_context()
 
     assert result is not None

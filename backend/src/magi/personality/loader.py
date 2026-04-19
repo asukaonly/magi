@@ -240,17 +240,3 @@ class PersonalityLoader:
         if not self.personalities_path.exists():
             return []
         return sorted(path.stem for path in self.personalities_path.glob("*.json"))
-
-
-_default_loader: Optional[PersonalityLoader] = None
-
-
-def get_personality_loader(path: Optional[str] = None) -> PersonalityLoader:
-    global _default_loader
-    if _default_loader is None or path is not None:
-        _default_loader = PersonalityLoader(path or "./personalities")
-    return _default_loader
-
-
-def load_personality(name: str = "default", path: Optional[str] = None) -> PersonalityConfig:
-    return get_personality_loader(path).load(name)

@@ -65,7 +65,6 @@ class PersonalityModule(LifecycleModule):
 
         self._context.personality.self_memory = SelfMemory(
             personality_name=personality_name,
-            personalities_path=str(runtime_paths.personalities_dir),
             persona_id=persona_id,
             personality_config=personality_config,
         )

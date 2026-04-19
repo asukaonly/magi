@@ -25,13 +25,14 @@ from ..avatar_paths import resolve_avatar_public_url
 from ...personality.current_state import (
     get_current_personality as get_current_personality_name,
     get_current_personality_config,
+    resolve_persona_config,
     set_current_personality as set_current_personality_name,
 )
 from ...config import get_config
 from ...config.models import LLMScenario, LLMSettings
 from ...agent.runtime import TaskAgentType
 from ...llm import create_llm_adapter
-from ...personality.loader import PersonalityLoader
+from ...personality.loader import PersonalityConfig
 from ...utils.runtime import get_runtime_paths
 from ...core.logger import get_logger
 
@@ -149,27 +150,20 @@ FIELD_LABELS: Dict[str, str] = {
 }
 
 
-def get_personality_loader() -> PersonalityLoader:
-    runtime_paths = get_runtime_paths()
-    return PersonalityLoader(str(runtime_paths.personalities_dir))
-
-
-def _load_current_config(slug: str) -> "PersonalityConfig":
+async def _load_current_config(slug: str) -> PersonalityConfig:
     """Return the PersonalityConfig for *slug*.
 
     Prefers the in-memory cache (populated at boot / persona switch),
-    then falls back to ``PersonalityLoader`` (filesystem JSON).
+    then queries the persona registry.
     """
-    from ...personality.loader import PersonalityConfig as _PC  # noqa: avoid circular
-
     cached = get_current_personality_config()
     if cached is not None:
         return cached
-    try:
-        return get_personality_loader().load(slug)
-    except FileNotFoundError:
-        logger.warning("Personality '%s' not found on disk, using default config", slug)
-        return _PC()
+    resolved = await resolve_persona_config(slug)
+    if resolved is not None:
+        return resolved
+    logger.warning("Persona '%s' not found in registry, using default config", slug)
+    return PersonalityConfig()
 
 
 _growth_engine_instance: Optional[GrowthMemoryEngine] = None
@@ -188,9 +182,7 @@ async def _get_growth_engine() -> GrowthMemoryEngine:
 async def _get_bootstrap_service() -> BootstrapDialogueService:
     """Create a BootstrapDialogueService wired to the shared growth engine."""
     engine = await _get_growth_engine()
-    loader = get_personality_loader()
     return BootstrapDialogueService(
-        personality_loader=loader,
         growth_engine=engine,
     )
 
@@ -209,10 +201,8 @@ async def _resolve_persona_id(persona_name: str) -> str:
 async def _get_journal_service() -> PersonaJournalService:
     """Create a PersonaJournalService wired to the shared growth engine."""
     engine = await _get_growth_engine()
-    loader = get_personality_loader()
     return PersonaJournalService(
         growth_engine=engine,
-        personality_loader=loader,
     )
 
 
@@ -311,18 +301,23 @@ def sanitize_filename(name: str) -> str:
     return (name[:50] or "unnamed").strip("_") or "unnamed"
 
 
-def save_personality_file(name: str, config: PersonalityConfigModel) -> bool:
-    """Save personality configuration as JSON."""
+async def save_personality_to_registry(name: str, config: PersonalityConfigModel) -> str:
+    """Save personality configuration to the persona registry.
+
+    Creates a new persona or updates an existing one.  Returns the final slug.
+    """
+    import json as _json
+    config_json = _json.dumps(config.model_dump(), ensure_ascii=False)
+    repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+    await repo.init()
     try:
-        runtime_paths = get_runtime_paths()
-        runtime_paths.personalities_dir.mkdir(parents=True, exist_ok=True)
-        payload = config.model_dump()
-        content = json.dumps(payload, ensure_ascii=False, indent=2)
-        runtime_paths.personality_file(name).write_text(content, encoding="utf-8")
-        return True
-    except Exception as exc:
-        logger.error("Failed to save personality file: %s", exc)
-        return False
+        record = await repo.get_by_slug(name)
+        await repo.update(record.persona_id, config_json=config_json, slug=name)
+        return name
+    except (KeyError, Exception):
+        persona_id = await repo.create(config_json=config_json, slug=name)
+        logger.info("Created new persona in registry: %s (%s)", name, persona_id)
+        return name
 
 
 def _flatten_dict(value: Any, prefix: str = "") -> Dict[str, Any]:
@@ -549,20 +544,15 @@ async def api_set_current_personality(request: Dict[str, str]):
         if not name:
             raise HTTPException(status_code=400, detail="Missing personality name")
 
-        # Try loading from registry first, then filesystem fallback.
+        # Load from registry.
         config = None
         try:
             repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
             await repo.init()
             record = await repo.get_by_slug(name)
             config = record.config
-        except (KeyError, Exception):
-            # Fallback to filesystem loader for legacy installs.
-            loader = get_personality_loader()
-            try:
-                config = loader.load(name)
-            except FileNotFoundError as exc:
-                raise HTTPException(status_code=404, detail=f"Personality '{name}' not found") from exc
+        except (KeyError, Exception) as exc:
+            raise HTTPException(status_code=404, detail=f"Personality '{name}' not found") from exc
 
         if not set_current_personality_name(name, config=config):
             raise HTTPException(status_code=500, detail="Setting failed")
@@ -575,7 +565,7 @@ async def api_set_current_personality(request: Dict[str, str]):
             chat_agent = await manager.ensure_agent(TaskAgentType.CHAT, "default")
             memory = getattr(chat_agent, "memory", None)
             if memory:
-                await memory.reload_personality(name)
+                await memory.reload_personality(name, personality_config=config)
         except Exception as exc:
             logger.warning("Failed to reload agent personality: %s", exc)
 
@@ -599,7 +589,7 @@ async def api_set_current_personality(request: Dict[str, str]):
 async def api_get_greeting():
     try:
         current_name = get_current_personality_name()
-        config = _load_current_config(current_name)
+        config = await _load_current_config(current_name)
 
         # Best-effort bootstrap status
         needs_bootstrap = False
@@ -662,19 +652,15 @@ async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
                     data=_normalize_avatar_in_payload(config.model_dump()),
                 )
 
-        # Fallback to runtime directory, then registry
+        # Fallback to registry
         try:
-            loaded = get_personality_loader().load(name)
-            config = PersonalityConfigModel.model_validate(loaded.to_dict())
-        except FileNotFoundError:
-            # Try persona registry
-            try:
-                repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
-                await repo.init()
-                record = await repo.get_by_slug(name)
-                config = PersonalityConfigModel.model_validate(record.config.to_dict())
-            except (KeyError, Exception):
+            resolved = await resolve_persona_config(name)
+            if resolved is not None:
+                config = PersonalityConfigModel.model_validate(resolved.to_dict())
+            else:
                 config = None
+        except Exception:
+            config = None
 
             if config is None:
                 default_config = PersonalityConfigModel()
@@ -716,19 +702,15 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
         elif name == DEFAULT_PERSONALITY and target_name not in {DEFAULT_PERSONALITY, "AI_Assistant"}:
             actual_name = target_name
         elif name != target_name:
-            old_filepath = runtime_paths.personality_file(name)
-            new_filepath = runtime_paths.personality_file(target_name)
-            if old_filepath.exists() and not new_filepath.exists():
-                old_filepath.rename(new_filepath)
-                actual_name = target_name
+            actual_name = target_name
 
-        if not save_personality_file(actual_name, config):
-            raise HTTPException(status_code=500, detail="Save failed")
+        await save_personality_to_registry(actual_name, config)
 
-        loader = get_personality_loader()
-        loader.reload(actual_name)
-        if actual_name != name:
-            loader.clear_cache(name)
+        # Update in-memory cache if this is the active persona.
+        current = get_current_personality_name()
+        if actual_name == current or name == current:
+            from ...personality.loader import PersonalityConfig as _PC
+            set_current_personality_name(actual_name, config=_PC.from_dict(config.model_dump()))
 
         return PersonalityResponse(
             success=True,
@@ -798,13 +780,11 @@ async def list_personalities(lang: str = ""):
                     if name != DEFAULT_PERSONALITY:
                         personalities.append(name)
         else:
-            # Default behavior: load from runtime directory
-            runtime_paths = get_runtime_paths()
-            if runtime_paths.personalities_dir.exists():
-                for filepath in runtime_paths.personalities_dir.glob("*.json"):
-                    name = filepath.stem
-                    if name != DEFAULT_PERSONALITY:
-                        personalities.append(name)
+            # Default: list from persona registry
+            repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+            await repo.init()
+            summaries = await repo.list_all()
+            personalities = [s.slug for s in summaries if s.slug != DEFAULT_PERSONALITY]
 
         return PersonalityResponse(
             success=True,
@@ -826,10 +806,14 @@ async def delete_personality(name: str):
         if name == DEFAULT_PERSONALITY:
             raise HTTPException(status_code=400, detail="Cannot delete default personality")
 
-        filepath = get_runtime_paths().personality_file(name)
-        if not filepath.exists():
-            raise HTTPException(status_code=404, detail="Personality configuration not found")
-        filepath.unlink()
+        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+        await repo.init()
+        try:
+            record = await repo.get_by_slug(name)
+            await repo.delete(record.persona_id)
+        except (KeyError, Exception) as exc:
+            raise HTTPException(status_code=404, detail="Personality configuration not found") from exc
+
         return PersonalityResponse(
             success=True,
             message=f"Personality configuration deleted: {name}",
@@ -849,9 +833,14 @@ async def delete_personality(name: str):
 )
 async def compare_personalities(from_name: str, to_name: str):
     try:
-        loader = get_personality_loader()
-        from_data = loader.load(from_name).to_dict()
-        to_data = loader.load(to_name).to_dict()
+        from_config = await resolve_persona_config(from_name)
+        to_config = await resolve_persona_config(to_name)
+        if from_config is None:
+            raise HTTPException(status_code=404, detail=f"Personality not found: {from_name}")
+        if to_config is None:
+            raise HTTPException(status_code=404, detail=f"Personality not found: {to_name}")
+        from_data = from_config.to_dict()
+        to_data = to_config.to_dict()
         from_model = PersonalityConfigModel.model_validate(from_data)
         to_model = PersonalityConfigModel.model_validate(to_data)
         diffs = _build_diffs(from_model.model_dump(), to_model.model_dump())
@@ -865,8 +854,8 @@ async def compare_personalities(from_name: str, to_name: str):
             from_config=from_model,
             to_config=to_model,
         )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=f"Personality not found: {exc}") from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

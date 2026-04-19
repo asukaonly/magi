@@ -436,24 +436,16 @@ def _build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
 
 
 def _load_full_personality() -> FullPersonalityConfigModel:
-    """Load full personality config from the in-memory cache or filesystem."""
-    from ...personality.current_state import get_current_personality, get_current_personality_config
-    from ...personality.loader import PersonalityConfig, PersonalityLoader
-    from ...utils.runtime import get_runtime_paths
+    """Load full personality config from the in-memory cache."""
+    from ...personality.current_state import get_current_personality_config
 
     try:
-        personality_name = get_current_personality()
-
-        # Prefer the in-memory config set during boot / persona switch.
         cached = get_current_personality_config()
         if cached is not None:
             return FullPersonalityConfigModel(**cached.to_dict())
 
-        # Filesystem fallback for edge cases.
-        runtime_paths = get_runtime_paths()
-        loader = PersonalityLoader(str(runtime_paths.personalities_dir))
-        personality_obj = loader.load(personality_name)
-        return FullPersonalityConfigModel(**personality_obj.to_dict())
+        logger.warning("No personality config in cache, using default")
+        return FullPersonalityConfigModel()
     except Exception as exc:
         logger.warning("Failed to load personality config, using default: %s", exc)
         return FullPersonalityConfigModel()
@@ -1017,50 +1009,12 @@ async def get_onboarding_template():
     )
 
 
-def _copy_personality_preset_to_user(preset_id: str, lang: str = "zh") -> bool:
-    """Copy a personality preset to user storage and set as current."""
+async def _save_personality_to_user(personality: FullPersonalityConfigModel) -> bool:
+    """Save personality config to the persona registry and set as current."""
     import json
-    from ...utils.runtime import get_runtime_paths
-
-    try:
-        # Load preset from built-in directory
-        builtin_dir = Path(__file__).resolve().parents[3] / "personalities" / lang
-        preset_file = builtin_dir / f"{preset_id}.json"
-
-        if not preset_file.exists():
-            # Try fallback to zh if lang is not found
-            if lang != "zh":
-                builtin_dir = Path(__file__).resolve().parents[3] / "personalities" / "zh"
-                preset_file = builtin_dir / f"{preset_id}.json"
-
-            if not preset_file.exists():
-                logger.warning("Personality preset not found: %s", preset_id)
-                return False
-
-        # Read preset config
-        content = preset_file.read_text(encoding="utf-8")
-        preset_config = json.loads(content)
-
-        # Save to user storage
-        runtime_paths = get_runtime_paths()
-        runtime_paths.personalities_dir.mkdir(parents=True, exist_ok=True)
-        user_file = runtime_paths.personality_file(preset_id)
-        user_file.write_text(json.dumps(preset_config, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        # Set as current personality (in-memory only; registry is source of truth)
-        from ...personality.current_state import set_current_personality
-        set_current_personality(preset_id)
-
-        logger.info("Copied personality preset '%s' to user storage and set as current", preset_id)
-        return True
-    except Exception as exc:
-        logger.error("Failed to copy personality preset: %s", exc)
-        return False
-
-
-def _save_personality_to_user(personality: FullPersonalityConfigModel) -> bool:
-    """Save personality config to user storage and set as current."""
-    import json
+    from ...personality.current_state import set_current_personality
+    from ...personality.loader import PersonalityConfig
+    from ...personality.persona_repository import PersonaRepository
     from ...utils.runtime import get_runtime_paths
 
     try:
@@ -1069,27 +1023,30 @@ def _save_personality_to_user(personality: FullPersonalityConfigModel) -> bool:
         if not name:
             name = "user_personality"
 
-        # Sanitize name for filename
+        # Sanitize name for slug
         safe_name = re.sub(r'[<>:"/\\|?*]', "_", name).replace(" ", "_")
         safe_name = (safe_name[:50] or "user_personality").strip("_") or "user_personality"
 
-        # Save to user storage
-        runtime_paths = get_runtime_paths()
-        runtime_paths.personalities_dir.mkdir(parents=True, exist_ok=True)
-        user_file = runtime_paths.personality_file(safe_name)
-        user_file.write_text(
-            json.dumps(personality.model_dump(), ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
+        # Save to persona registry
+        config_json = json.dumps(personality.model_dump(), ensure_ascii=False)
+        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+        await repo.init()
+        try:
+            record = await repo.get_by_slug(safe_name)
+            await repo.update(record.persona_id, config_json=config_json)
+            await repo.set_active(record.persona_id)
+        except (KeyError, Exception):
+            persona_id = await repo.create(config_json=config_json, slug=safe_name)
+            await repo.set_active(persona_id)
 
-        # Set as current personality (in-memory only; registry is source of truth)
-        from ...personality.current_state import set_current_personality
-        set_current_personality(safe_name)
+        # Set in-memory cache
+        config = PersonalityConfig.from_dict(personality.model_dump())
+        set_current_personality(safe_name, config=config)
 
-        logger.info("Saved personality '%s' to user storage and set as current", safe_name)
+        logger.info("Saved personality '%s' to registry and set as current", safe_name)
         return True
     except Exception as exc:
-        logger.error("Failed to save personality to user: %s", exc)
+        logger.error("Failed to save personality to registry: %s", exc)
         return False
 
 
@@ -1180,9 +1137,9 @@ async def complete_onboarding(config: SystemConfigModel):
             await initialize_agent_runtime()
         await _enqueue_runtime_llm_refresh_command(reason="onboarding_completed")
 
-        # Save the full personality config to user storage and set as current
+        # Save the full personality config to registry and set as current
         if config.personality:
-            _save_personality_to_user(config.personality)
+            await _save_personality_to_user(config.personality)
 
         return ConfigResponse(success=True, message="Onboarding configuration saved", data=_build_system_config())
     except HTTPException:

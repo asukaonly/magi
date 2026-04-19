@@ -53,3 +53,25 @@ def set_current_personality(
     _current_config = config
     logger.debug("In-memory active personality set to '%s'", _current_slug)
     return True
+
+
+async def resolve_persona_config(slug: str) -> Optional["PersonalityConfig"]:
+    """Resolve ``PersonalityConfig`` by slug from cache or registry.
+
+    Returns the in-memory cached config when *slug* matches the active
+    persona, otherwise queries the persona registry (SQLite).
+    """
+    if slug == _current_slug and _current_config is not None:
+        return _current_config
+
+    from .persona_repository import PersonaRepository
+    from ..utils.runtime import get_runtime_paths
+
+    try:
+        repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+        await repo.init()
+        record = await repo.get_by_slug(slug)
+        return record.config
+    except Exception:
+        logger.debug("Could not resolve persona config for slug '%s' from registry", slug)
+        return None

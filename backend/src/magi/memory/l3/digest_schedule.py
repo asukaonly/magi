@@ -8,7 +8,6 @@ from ...config import get_config
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_unified_memory
 from ...personality.current_state import get_current_personality, get_current_personality_config
-from ...personality.loader import get_personality_loader
 from ...scheduler.contracts import (
     ScheduledExecutionContext,
     ScheduledExecutionResult,
@@ -33,11 +32,9 @@ def _build_persona_context() -> dict[str, str] | None:
         if not name or name == "default":
             return None
 
-        # Prefer in-memory cached config, then filesystem fallback.
         config = get_current_personality_config()
         if config is None:
-            loader = get_personality_loader()
-            config = loader.load(name)
+            return None
 
         persona = config.persona_entity
         return {

@@ -3,7 +3,7 @@
 from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
 from .emotional_state import EmotionalStateEngine, EngagementLevel, InteractionOutcome
 from .growth_memory import GrowthMemoryEngine, InteractionType, MilestoneType
-from .loader import PersonalityConfig, PersonalityLoader
+from .loader import PersonalityConfig
 from .models import (
     AmbiguityTolerance,
     EmotionalState,
@@ -22,7 +22,6 @@ __all__ = [
     "InteractionType",
     "MilestoneType",
     "PersonalityConfig",
-    "PersonalityLoader",
     "SatisfactionLevel",
     "SelfMemory",
     "TaskBehaviorProfile",
