@@ -124,13 +124,37 @@ async def get_active_persona():
 
 @personas_router.put("/active", response_model=ActivePersonaResponse)
 async def set_active_persona(payload: ActivePersonaRequest):
-    """Switch the active persona."""
+    """Switch the active persona and sync file-based personality state."""
     repo = _get_repo()
     await repo.init()
     try:
         await repo.set_active(payload.persona_id)
+        record = await repo.get(payload.persona_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Persona not found")
+
+    # Sync file-based current personality so greeting / prompt injection pick it up
+    slug = record.slug
+    try:
+        from ...personality.current_state import set_current_personality
+        set_current_personality(slug)
+    except Exception as exc:
+        logger.warning("Failed to sync current personality file: %s", exc)
+
+    # Reload the live agent's SelfMemory so prompt injection uses the new persona
+    try:
+        from ...core.runtime_bindings import require_agent_runtime
+        from ...agent.runtime import TaskAgentType
+
+        runtime = require_agent_runtime()
+        manager = runtime.get_task_agent_manager()
+        chat_agent = await manager.ensure_agent(TaskAgentType.CHAT, "default")
+        memory = getattr(chat_agent, "memory", None)
+        if memory:
+            await memory.reload_personality(slug)
+    except Exception as exc:
+        logger.warning("Failed to reload agent personality: %s", exc)
+
     return ActivePersonaResponse(persona_id=payload.persona_id)
 
 
