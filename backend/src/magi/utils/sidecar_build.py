@@ -10,6 +10,9 @@ from pathlib import Path
 SIDE_EFFECT_HIDDEN_IMPORTS = (
     # dependency_injector C extensions import this module dynamically at runtime.
     "dependency_injector.errors",
+    # ssl._encode_hostname calls codecs.lookup('idna') dynamically; PyInstaller
+    # cannot detect this so the codec must be listed explicitly.
+    "encodings.idna",
 )
 
 # Packages whose submodules are loaded dynamically and must be collected in

@@ -20,8 +20,12 @@ def append_latest_user_message(
     latest_content = _build_latest_user_message_content(normalized_latest, attachments or [])
     if latest_content is None:
         return messages
-    if not attachments and _is_matching_user_message(messages[-1] if messages else None, normalized_latest):
-        return messages
+    # Remove all trailing user messages that match the current message to
+    # collapse duplicates caused by retried sends that had no assistant
+    # response in between.
+    if not attachments:
+        while messages and _is_matching_user_message(messages[-1], normalized_latest):
+            messages.pop()
     messages.append({"role": "user", "content": latest_content})
     return messages
 
