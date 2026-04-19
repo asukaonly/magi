@@ -1976,7 +1976,8 @@
       "basicInfo": "Basic Profile",
       "coreIdentity": "Core Identity",
       "appearance": "Appearance Prompt",
-      "stateTransitionProtocol": "State Transition Protocol"
+      "stateTransitionProtocol": "State Transition Protocol",
+      "personaLayers": "Deep Persona Layers"
     },
     "fields": {
       "name": "Name",
@@ -1990,13 +1991,23 @@
       "stateTransitionItem": "State Transition #{{index}}",
       "triggerCondition": "Trigger Condition",
       "targetStateName": "Target State Name",
-      "behaviorShift": "Behavior Shift"
+      "behaviorShift": "Behavior Shift",
+      "personaLayerItem": "Persona Layer #{{index}}",
+      "layerId": "Layer ID",
+      "unlockCondition": "Unlock Condition",
+      "personaOverride": "Persona Override",
+      "behaviorHints": "Behavior Hints"
     },
     "actions": {
       "addTransition": "Add Transition",
       "removeTransition": "Remove Transition",
       "uploadAvatar": "Upload avatar",
-      "uploadingAvatar": "Uploading..."
+      "uploadingAvatar": "Uploading...",
+      "addLayer": "Add Layer",
+      "removeLayer": "Remove Layer",
+      "viewLayersTitle": "View Deep Persona Layers",
+      "viewLayersConfirm": "Deep persona layers contain hidden character settings and progressive unlock mechanics. Viewing them may spoil the discovery experience. Are you sure?",
+      "viewLayersReveal": "Reveal"
     },
     "languages": {
       "auto": "Auto Detect",

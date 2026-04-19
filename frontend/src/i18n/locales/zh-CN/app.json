@@ -1976,7 +1976,8 @@
       "basicInfo": "基础档案",
       "coreIdentity": "核心身份",
       "appearance": "外观提示词",
-      "stateTransitionProtocol": "状态切换协议"
+      "stateTransitionProtocol": "状态切换协议",
+      "personaLayers": "深层人格"
     },
     "fields": {
       "name": "名称",
@@ -1990,13 +1991,23 @@
       "stateTransitionItem": "状态切换 #{{index}}",
       "triggerCondition": "触发条件",
       "targetStateName": "目标状态名称",
-      "behaviorShift": "行为变化"
+      "behaviorShift": "行为变化",
+      "personaLayerItem": "人格层 #{{index}}",
+      "layerId": "层级标识",
+      "unlockCondition": "解锁条件",
+      "personaOverride": "人格覆写",
+      "behaviorHints": "行为提示"
     },
     "actions": {
       "addTransition": "新增状态切换",
       "removeTransition": "移除该切换",
       "uploadAvatar": "上传头像",
-      "uploadingAvatar": "上传中..."
+      "uploadingAvatar": "上传中...",
+      "addLayer": "新增人格层",
+      "removeLayer": "移除该层",
+      "viewLayersTitle": "查看深层人格",
+      "viewLayersConfirm": "深层人格包含角色的隐藏设定和渐进解锁机制。查看后可能影响你与角色互动的发现乐趣。确定要查看吗？",
+      "viewLayersReveal": "确定查看"
     },
     "languages": {
       "auto": "自动检测",

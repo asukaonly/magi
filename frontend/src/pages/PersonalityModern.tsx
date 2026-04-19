@@ -40,6 +40,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = React.useState(false);
   const [avatarBroken, setAvatarBroken] = React.useState(false);
+  const [layersRevealed, setLayersRevealed] = React.useState(false);
+  const [layersConfirmOpen, setLayersConfirmOpen] = React.useState(false);
 
   const {
     // State
@@ -84,6 +86,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
   const avatarValue = config.persona_entity.basic_profile.avatar || '';
   React.useEffect(() => {
     setAvatarBroken(false);
+    setLayersRevealed(false);
   }, [selectedId, avatarValue]);
 
   const detailTitle = isNewMode
@@ -574,6 +577,121 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     </Button>
                   </CardContent>
               </Card>
+
+              {/* Persona Layers — hidden behind confirmation */}
+              <Card className={sectionCardClass}>
+                <CardHeader>
+                  <CardTitle>{t('personality.sections.personaLayers')}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {!layersRevealed ? (
+                    <button
+                      type="button"
+                      onClick={() => setLayersConfirmOpen(true)}
+                      className="w-full rounded-2xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground transition hover:border-primary/40 hover:bg-muted/40 hover:text-foreground"
+                    >
+                      {t('personality.actions.viewLayersTitle')}
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      {(config.persona_layers ?? []).map((layer, index) => (
+                        <div
+                          key={`${index}-${layer.layer_id}`}
+                          className="rounded-2xl border border-border/50 bg-muted/30 p-4"
+                        >
+                          <div className="mb-3 text-sm font-medium">
+                            {t('personality.fields.personaLayerItem', { index: index + 1 })}
+                          </div>
+                          <div className="grid gap-3">
+                            <label className="space-y-1.5">
+                              <span className="text-xs text-muted-foreground">{t('personality.fields.layerId')}</span>
+                              <Input
+                                className="rounded-xl"
+                                value={layer.layer_id}
+                                onChange={(event) => patch((d) => {
+                                  d.persona_layers[index].layer_id = event.target.value;
+                                })}
+                              />
+                            </label>
+                            <label className="space-y-1.5">
+                              <span className="text-xs text-muted-foreground">{t('personality.fields.unlockCondition')}</span>
+                              <Textarea
+                                rows={2}
+                                className="rounded-xl font-mono text-xs"
+                                value={layer.unlock_condition ? JSON.stringify(layer.unlock_condition, null, 2) : ''}
+                                onChange={(event) => patch((d) => {
+                                  try {
+                                    d.persona_layers[index].unlock_condition = event.target.value
+                                      ? JSON.parse(event.target.value) as Record<string, unknown>
+                                      : null;
+                                  } catch {
+                                    // Keep current value while user is editing
+                                  }
+                                })}
+                              />
+                            </label>
+                            <label className="space-y-1.5">
+                              <span className="text-xs text-muted-foreground">{t('personality.fields.personaOverride')}</span>
+                              <Textarea
+                                rows={3}
+                                className="rounded-xl font-mono text-xs"
+                                value={layer.persona_override ? JSON.stringify(layer.persona_override, null, 2) : ''}
+                                onChange={(event) => patch((d) => {
+                                  try {
+                                    d.persona_layers[index].persona_override = event.target.value
+                                      ? JSON.parse(event.target.value) as Record<string, string>
+                                      : null;
+                                  } catch {
+                                    // Keep current value while user is editing
+                                  }
+                                })}
+                              />
+                            </label>
+                            <label className="space-y-1.5">
+                              <span className="text-xs text-muted-foreground">{t('personality.fields.behaviorHints')}</span>
+                              <Textarea
+                                rows={3}
+                                className="rounded-xl"
+                                value={layer.behavior_hints?.join('\n') ?? ''}
+                                onChange={(event) => patch((d) => {
+                                  const val = event.target.value;
+                                  d.persona_layers[index].behavior_hints = val ? val.split('\n') : null;
+                                })}
+                              />
+                            </label>
+                            <div className="flex justify-end">
+                              <Button
+                                variant="outline"
+                                onClick={() => patch((d) => {
+                                  d.persona_layers.splice(index, 1);
+                                })}
+                                className="rounded-xl"
+                              >
+                                {t('personality.actions.removeLayer')}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        onClick={() => patch((d) => {
+                          if (!d.persona_layers) d.persona_layers = [];
+                          d.persona_layers.push({
+                            layer_id: '',
+                            unlock_condition: null,
+                            persona_override: null,
+                            behavior_hints: null,
+                          });
+                        })}
+                        className="rounded-xl"
+                      >
+                        {t('personality.actions.addLayer')}
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </>
           )}
         </div>
@@ -644,6 +762,31 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               onClick={() => { void confirmDeletePersonality(); }}
             >
               {t('personality.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={layersConfirmOpen} onOpenChange={setLayersConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('personality.actions.viewLayersTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('personality.actions.viewLayersConfirm')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setLayersConfirmOpen(false)}>
+              {t('personality.cancel')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setLayersRevealed(true);
+                setLayersConfirmOpen(false);
+              }}
+            >
+              {t('personality.actions.viewLayersReveal')}
             </Button>
           </DialogFooter>
         </DialogContent>

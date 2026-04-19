@@ -112,6 +112,7 @@ const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig =>
   const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
   next.state_transition_protocol =
     transitions.length > 0 ? transitions.map(normalizeTransition) : [normalizeTransition({})];
+  next.persona_layers = incoming.persona_layers ?? next.persona_layers;
   return next;
 };
 

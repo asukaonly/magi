@@ -39,10 +39,18 @@ export interface StateTransitionProtocolItem {
   behavior_shift: string;
 }
 
+export interface PersonaLayerItem {
+  layer_id: string;
+  unlock_condition: Record<string, unknown> | null;
+  persona_override: Record<string, string> | null;
+  behavior_hints: string[] | null;
+}
+
 export interface PersonalityConfig {
   persona_entity: PersonaEntity;
   appearance_prompt: string;
   state_transition_protocol: StateTransitionProtocolItem[];
+  persona_layers: PersonaLayerItem[];
 }
 
 export interface AIGenerateRequest {
@@ -89,6 +97,7 @@ export const DEFAULT_PERSONALITY_CONFIG: PersonalityConfig = {
   persona_entity: DEFAULT_PERSONA_ENTITY,
   appearance_prompt: '',
   state_transition_protocol: DEFAULT_STATE_TRANSITION_PROTOCOL,
+  persona_layers: [],
 };
 
 // ---------------------------------------------------------------------------

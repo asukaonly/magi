@@ -47,6 +47,7 @@ const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig =>
   next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
   const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
   next.state_transition_protocol = transitions.length > 0 ? transitions.map(normalizeTransition) : [normalizeTransition({})];
+  next.persona_layers = incoming.persona_layers ?? next.persona_layers;
   return next;
 };
 
@@ -534,7 +535,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                               </div>
                             ) : (
-                              <div className="max-h-[50vh] overflow-y-auto p-2.5">
+                              <div className="p-2.5">
                                 <div className="space-y-0.5 pr-1">
                         {/* Basic Profile */}
                         <Collapsible
