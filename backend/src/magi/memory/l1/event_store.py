@@ -1008,7 +1008,9 @@ class L1EventStore:
         3. Delete the DB file and its WAL/SHM side-files.
         4. Re-run initialize() to recreate the schema and reconnect.
         """
+        logger.info("L1EventStore.clear: counting events before wipe")
         count = await self.count_events()
+        logger.info("L1EventStore.clear: total=%d, stopping embedding workers", count)
 
         # Stop embedding workers cleanly before closing connections.
         if self._embedding_queue is not None and self._embedding_workers:
@@ -1016,9 +1018,11 @@ class L1EventStore:
                 await self._embedding_queue.put(None)
             await asyncio.gather(*self._embedding_workers, return_exceptions=True)
             self._embedding_workers = []
+            logger.info("L1EventStore.clear: embedding workers stopped")
 
         # Close the vec index's persistent connection.
         if self._vector_index is not None:
+            logger.info("L1EventStore.clear: closing vec index connection")
             await self._vector_index.close()
 
         # Delete the DB file and WAL/SHM side-files.
@@ -1026,13 +1030,16 @@ class L1EventStore:
         for suffix in ("", "-wal", "-shm"):
             p = Path(str(db_path) + suffix)
             if p.exists():
+                logger.info("L1EventStore.clear: deleting %s", p)
                 p.unlink()
 
         # Reset initialization flag so initialize() rebuilds the schema.
         self._initialized = False
+        logger.info("L1EventStore.clear: reinitializing schema at %s", db_path)
 
         # Recreate schema and reconnect.
         await self.initialize()
+        logger.info("L1EventStore.clear: done, removed %d events", count)
 
         return count
 
