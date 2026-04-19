@@ -146,6 +146,40 @@ export const buildPluginFieldValueMap = (
 ): Record<string, any> =>
   Object.fromEntries(fields.map((field) => [field.key, getNestedPluginSetting(settings, field.key, field.default)]));
 
+// ---------------------------------------------------------------------------
+// Registry / Marketplace types
+// ---------------------------------------------------------------------------
+
+export interface PluginRegistryEntry {
+  plugin_id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  official: boolean;
+  contribution_types: string[];
+  platforms: string[];
+  min_sdk_version: string;
+  homepage: string;
+  repository: string;
+  path: string;
+  installed: boolean;
+  installed_version: string | null;
+  update_available: boolean;
+}
+
+export interface PluginRegistryResponse {
+  plugins: PluginRegistryEntry[];
+  registry_version: string;
+}
+
+export interface PluginUpdateCheck {
+  plugin_id: string;
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
+}
+
 export const pluginsApi = {
   list: async (): Promise<PluginsListResponse> => {
     const response = await api.get<PluginsListResponse>('/plugins');
@@ -197,6 +231,49 @@ export const pluginsApi = {
     return unwrapPayload(
       response as PluginSettingsResourcePayload | ApiResponse<PluginSettingsResourcePayload>
     );
+  },
+
+  // -----------------------------------------------------------------------
+  // Installation
+  // -----------------------------------------------------------------------
+
+  installFromRegistry: async (pluginId: string): Promise<PluginPackageState> => {
+    const response = await api.post<PluginPackageState>('/plugins/install/registry', {
+      plugin_id: pluginId,
+    });
+    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+  },
+
+  installFromUpload: async (file: File): Promise<PluginPackageState> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post<PluginPackageState>('/plugins/install/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+  },
+
+  uninstall: async (pluginId: string): Promise<void> => {
+    await api.delete(`/plugins/${pluginId}`);
+  },
+
+  // -----------------------------------------------------------------------
+  // Registry / Marketplace
+  // -----------------------------------------------------------------------
+
+  getRegistry: async (): Promise<PluginRegistryResponse> => {
+    const response = await api.get<PluginRegistryResponse>('/plugins/registry');
+    return unwrapPayload(response as PluginRegistryResponse | ApiResponse<PluginRegistryResponse>);
+  },
+
+  checkUpdates: async (): Promise<PluginUpdateCheck[]> => {
+    const response = await api.get<PluginUpdateCheck[]>('/plugins/updates');
+    return unwrapPayload(response as PluginUpdateCheck[] | ApiResponse<PluginUpdateCheck[]>);
+  },
+
+  updatePlugin: async (pluginId: string): Promise<PluginPackageState> => {
+    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/update`, {});
+    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
   },
 };
 

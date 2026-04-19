@@ -29,6 +29,7 @@ import ActionsSection from '@/components/settings/ActionsSection';
 import { ChannelsSection } from '@/components/settings/ChannelsSection';
 import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
+import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import PersonalityModern from '@/pages/PersonalityModern';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
@@ -625,7 +626,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         );
 
-      case 'extensions':
+      case 'extensionsInstalled':
         return (
           <ExtensionsSection
             plugins={plugins}
@@ -639,6 +640,14 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             }}
             onPluginAction={handlePluginAction}
             processingIds={pluginProcessingIds}
+          />
+        );
+
+      case 'extensionsMarketplace':
+        return (
+          <PluginMarketplace
+            installedPlugins={plugins}
+            onInstallComplete={loadPlugins}
           />
         );
 
