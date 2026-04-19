@@ -80,10 +80,13 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     reload,
   } = usePersonality();
 
-  // Reset broken state whenever the selected persona changes.
+  // Reset broken state whenever the selected persona or its avatar changes.
+  // Watching the config avatar handles the race condition where the old
+  // persona's broken avatar fires onError before the new config loads.
+  const avatarValue = config.persona_entity.basic_profile.avatar || '';
   React.useEffect(() => {
     setAvatarBroken(false);
-  }, [selectedId]);
+  }, [selectedId, avatarValue]);
 
   const detailTitle = isNewMode
     ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
@@ -91,7 +94,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
   const detailDescription = isNewMode
     ? t('personality.newPersonalityDesc')
     : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
-  const avatarValue = config.persona_entity.basic_profile.avatar || '';
   const avatarUrl = avatarValue && !avatarBroken ? personasApi.getAvatarUrl(avatarValue) : '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
