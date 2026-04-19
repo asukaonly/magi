@@ -601,6 +601,11 @@
         "runtime": "运行期保留",
         "pipelines": "推理抽取管线"
       },
+      "dangerZone": {
+        "title": "危险操作",
+        "description": "清除所有层级的记忆数据，包括事件流、知识图谱、摘要和技能。此操作不可恢复。",
+        "clearButton": "清除所有记忆"
+      },
       "form": {
         "title": "记忆配置",
         "description": "配置 L0-L4 各层记忆的启用状态与抽取策略。",

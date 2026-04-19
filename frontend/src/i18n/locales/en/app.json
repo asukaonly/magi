@@ -601,6 +601,11 @@
         "runtime": "Runtime Retention",
         "pipelines": "Inference Pipelines"
       },
+      "dangerZone": {
+        "title": "Danger Zone",
+        "description": "Clear all memory data across all layers, including event stream, knowledge graph, summaries and skills. This action is irreversible.",
+        "clearButton": "Clear All Memory"
+      },
       "form": {
         "title": "Memory Configuration",
         "description": "Configure enablement and extraction strategy across L0-L4 memory layers.",

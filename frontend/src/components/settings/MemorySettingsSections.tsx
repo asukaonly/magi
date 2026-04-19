@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import type { SystemConfig } from '@/api/modules/config';
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
+import memoryApi from '@/api/modules/memory';
+import { ClearMemoryDialog } from '@/components/memory/ClearMemoryDialog';
 import { NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -92,6 +95,8 @@ export function MemoryGeneralSettingsSection({
 }: Omit<MemorySettingsSectionProps, 'updateMemoryToggle' | 'hasEmbeddingModel'>) {
   const { t } = useTranslation('app');
   const [pickingMemoryStoragePath, setPickingMemoryStoragePath] = useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const memoryStoragePath = draftConfig.memory.db_path ?? '';
   const rerankerConfig = {
     ...DEFAULT_SYSTEM_CONFIG.memory.reranker,
@@ -116,6 +121,19 @@ export function MemoryGeneralSettingsSection({
       setPickingMemoryStoragePath(false);
     }
   };
+
+  const handleClearConfirm = useCallback(async () => {
+    setClearing(true);
+    try {
+      const result = await memoryApi.clearAll();
+      toast.success(t('settings.memoryCleared', { count: result.results?.l0?.count ?? 0 }));
+      setClearDialogOpen(false);
+    } catch {
+      toast.error(t('settings.memoryClearFailed'));
+    } finally {
+      setClearing(false);
+    }
+  }, [t]);
 
   return (
     <MemorySectionShell>
@@ -181,6 +199,37 @@ export function MemoryGeneralSettingsSection({
           ) : null}
         </div>
       </MemoryGroup>
+
+      {/* Danger zone — clear all memory */}
+      <MemoryGroup>
+        <div className="py-3">
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-destructive">
+              {t('settings.memory.dangerZone.title')}
+            </div>
+            <div className="text-xs leading-6 text-muted-foreground">
+              {t('settings.memory.dangerZone.description')}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="mt-3"
+            onClick={() => setClearDialogOpen(true)}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            {t('settings.memory.dangerZone.clearButton')}
+          </Button>
+        </div>
+      </MemoryGroup>
+
+      <ClearMemoryDialog
+        open={clearDialogOpen}
+        onOpenChange={setClearDialogOpen}
+        clearing={clearing}
+        onConfirm={handleClearConfirm}
+      />
     </MemorySectionShell>
   );
 }
