@@ -36,6 +36,7 @@ class MilestoneType(Enum):
     PERSONALITY_CHANGE = "personality"   # Personality change
     SPECIAL = "special"                  # Special event
     BOOTSTRAP_COMPLETED = "bootstrap_completed"  # Bootstrap dialogue completed
+    BOOTSTRAP_ROUND = "bootstrap_round"          # Single bootstrap dialogue round
     JOURNAL_ENTRY = "journal_entry"              # Persona journal reflection
 
 

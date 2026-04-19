@@ -2,6 +2,10 @@
 
 Manages a short persona-styled dialogue sequence on first interaction with a persona.
 Extracts user information and writes it to L2 memory.
+
+The bootstrap opening is generated via LLM and injected as the first chat message.
+Subsequent messages go through the normal ChatTaskAgent pipeline; the post-process
+hook ``maybe_extract_bootstrap_info`` runs L2 user-info extraction on early turns.
 """
 
 from __future__ import annotations
@@ -308,3 +312,138 @@ class BootstrapDialogueService:
                 )
             except Exception as exc:
                 logger.warning("Failed to persist bootstrap facet %s: %s", facet_name, exc)
+
+
+# ---------------------------------------------------------------------------
+# Post-turn bootstrap hook (called from ChatPostProcessService)
+# ---------------------------------------------------------------------------
+
+async def maybe_extract_bootstrap_info(
+    *,
+    growth_engine: GrowthMemoryEngine,
+    l2_store: Any,
+    persona_name: str,
+    persona_id: str,
+    user_id: str,
+    user_message: str,
+    assistant_response: str,
+) -> None:
+    """Run L2 user-info extraction if the persona is still in its bootstrap phase.
+
+    This is called from the normal chat post-processing pipeline so that
+    early turns with a new persona capture user profile information
+    (name, interests, etc.) into L2 entity facets.
+
+    After ``max_rounds`` turns the bootstrap is marked complete and this
+    function becomes a no-op for subsequent turns.
+    """
+    # Fast check — already bootstrapped?
+    milestones = await growth_engine.get_milestones(
+        milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
+    )
+    for m in milestones:
+        if persona_id and m.metadata.get("persona_id") == persona_id:
+            return
+        if m.metadata.get("persona_name") == persona_name:
+            return
+
+    config = await resolve_persona_config(persona_name)
+    if config is None:
+        config = PersonalityConfig()
+
+    bootstrap = config.bootstrap
+    if bootstrap is None:
+        from .loader import BootstrapConfig as _BC
+        bootstrap = _BC(extract_targets=["name", "interests"], max_rounds=3)
+
+    extract_targets = bootstrap.extract_targets or ["name", "interests"]
+    max_rounds = bootstrap.max_rounds or 3
+
+    # Count existing bootstrap turns from milestones metadata
+    round_milestones = await growth_engine.get_milestones(
+        milestone_type=MilestoneType.BOOTSTRAP_ROUND,
+    )
+    current_round = sum(
+        1 for m in round_milestones
+        if (persona_id and m.metadata.get("persona_id") == persona_id)
+        or m.metadata.get("persona_name") == persona_name
+    ) + 1
+
+    # Record this round
+    await growth_engine.record_milestone(
+        milestone_type=MilestoneType.BOOTSTRAP_ROUND,
+        title=f"bootstrap_round_{current_round}",
+        description=f"Bootstrap round {current_round} for persona {persona_name}",
+        metadata={
+            "persona_id": persona_id,
+            "persona_name": persona_name,
+            "user_id": user_id,
+            "round": current_round,
+        },
+    )
+
+    # Extract user info via LLM
+    if l2_store is not None:
+        targets_str = ", ".join(extract_targets)
+        extraction_prompt = (
+            "Extract user information from this single conversation exchange.\n"
+            f"Target fields: {targets_str}\n\n"
+            f"User: {user_message}\n"
+            f"Assistant: {assistant_response}\n\n"
+            "Return a JSON object with extracted fields. Use null for fields not mentioned or not inferable.\n"
+            "Return ONLY the JSON object."
+        )
+        try:
+            pool = require_scenario_llm_pool()
+            bridge = pool.get(LLMScenario.CORE)
+            raw = await bridge.chat(
+                system_prompt="You are an information extraction assistant. Output valid JSON only.",
+                messages=[{"role": "user", "content": extraction_prompt}],
+                max_tokens=500,
+                temperature=0.1,
+                json_mode=True,
+            )
+            extracted = json.loads(raw)
+            if isinstance(extracted, dict):
+                now = time.time()
+                entity_id = f"user:{user_id}"
+                for facet_name, facet_value in extracted.items():
+                    if facet_value is None:
+                        continue
+                    value_str = (
+                        json.dumps(facet_value, ensure_ascii=False)
+                        if not isinstance(facet_value, str) else facet_value
+                    )
+                    try:
+                        await l2_store.upsert_entity_facet(
+                            entity_id=entity_id,
+                            entity_type="person",
+                            facet_name=facet_name,
+                            facet_value=value_str,
+                            evidence_event_ids=[],
+                            confidence=0.7,
+                            observed_at=now,
+                            source_type="bootstrap_dialogue",
+                        )
+                    except Exception as exc:
+                        logger.warning("Failed to persist bootstrap facet %s: %s", facet_name, exc)
+        except Exception as exc:
+            logger.warning("Bootstrap user-info extraction failed: %s", exc)
+
+    # Mark complete if we've hit max_rounds
+    if current_round >= max_rounds:
+        await growth_engine.record_milestone(
+            milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
+            title=f"bootstrap_completed_{persona_id or persona_name}",
+            description=f"Bootstrap dialogue completed for persona {persona_name}",
+            metadata={
+                "persona_id": persona_id,
+                "persona_name": persona_name,
+                "user_id": user_id,
+                "rounds": current_round,
+            },
+        )
+        logger.info(
+            "Bootstrap completed for persona %s after %d rounds",
+            persona_name, current_round,
+        )

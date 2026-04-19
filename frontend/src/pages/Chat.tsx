@@ -438,13 +438,10 @@ export const ChatPage: React.FC = () => {
   const [allowInterjection, setAllowInterjection] = useState(true);
   const [turnActive, setTurnActive] = useState(false);
   const [pendingResponseTurnId, setPendingResponseTurnId] = useState<string | null>(null);
-  const [bootstrapActive, setBootstrapActive] = useState(false);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastHistoryRequestRef = useRef<string | null>(null);
   const isComposingRef = useRef(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const bootstrapHistoryRef = useRef<Array<{ role: string; content: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const draftAttachmentsRef = useRef<DraftAttachment[]>([]);
@@ -730,15 +727,10 @@ export const ChatPage: React.FC = () => {
 
           if (data.needs_bootstrap && currentSessionId) {
             try {
-              const initResp = await personasApi.bootstrapInit(currentSessionId, USER_ID);
-              const initData = initResp.data as { bootstrap_active?: boolean; opening?: string } | undefined;
-              if (initData?.bootstrap_active && initData.opening) {
-                setBootstrapActive(true);
-                bootstrapHistoryRef.current = [{ role: 'assistant', content: initData.opening }];
-                // Re-fetch history so the persisted opening message appears in the chat
-                lastHistoryRequestRef.current = null;
-                void requestHistory(currentSessionId);
-              }
+              await personasApi.bootstrapInit(currentSessionId, USER_ID);
+              // Re-fetch history so the persisted opening message appears in the chat
+              lastHistoryRequestRef.current = null;
+              void requestHistory(currentSessionId);
             } catch {
               // Bootstrap init failed — proceed without bootstrap
             }
@@ -1075,44 +1067,6 @@ export const ChatPage: React.FC = () => {
     const replyTarget = composerReplyTarget;
     setSendingMessage(true);
     try {
-      // Bootstrap mode: route to bootstrap endpoint
-      if (bootstrapActive) {
-        appendPendingTurn({
-          sessionId: currentSessionId,
-          input: messageContent,
-          turnId,
-          timestamp: now,
-          pendingLabel: t('chat.trace.pending'),
-        });
-        setInputValue('');
-        setComposerReplyTarget(null);
-
-        const bsHistory = [...bootstrapHistoryRef.current];
-        const bsResp = await personasApi.bootstrapMessage({
-          user_message: messageContent,
-          history: bsHistory,
-          user_id: USER_ID,
-          session_id: currentSessionId,
-        });
-        const bsData = bsResp.data as { reply?: string; is_complete?: boolean } | undefined;
-
-        // Update history for next round
-        bootstrapHistoryRef.current = [
-          ...bsHistory,
-          { role: 'user', content: messageContent },
-          ...(bsData?.reply ? [{ role: 'assistant', content: bsData.reply }] : []),
-        ];
-
-        if (bsData?.is_complete) {
-          setBootstrapActive(false);
-          bootstrapHistoryRef.current = [];
-        }
-
-        // The assistant reply arrives via notification channel — no extra action needed
-        window.dispatchEvent(new Event(SESSION_EVENT));
-        return;
-      }
-
       const uploadedAttachments = await uploadDraftAttachments(currentSessionId, turnId, queuedAttachments);
       appendPendingTurn({
         sessionId: currentSessionId,
@@ -1152,7 +1106,6 @@ export const ChatPage: React.FC = () => {
   }, [
     allowInterjection,
     appendPendingTurn,
-    bootstrapActive,
     clearDraftAttachments,
     currentSession?.workspace_path,
     currentSessionId,

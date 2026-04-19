@@ -181,6 +181,14 @@ class ChatPostProcessService:
         )
         memory_updated = memory_updated or task_reflection_updated
 
+        # Bootstrap L2 extraction — runs only during early persona turns
+        if user_message:
+            await self._maybe_run_bootstrap_extraction(
+                user_id=context.user_id,
+                user_message=user_message,
+                response_text=response_text,
+            )
+
         correlation_id = result.correlation_id or latest_fact.correlation_id
         turn_id = result.turn_id or self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
         now_ms = now_wall_ms()
@@ -824,6 +832,30 @@ class ChatPostProcessService:
                 logger.warning("Failed to process turn outcome: %s", exc)
 
         return updated
+
+    async def _maybe_run_bootstrap_extraction(
+        self, *, user_id: str, user_message: str, response_text: str,
+    ) -> None:
+        """Run L2 user-info extraction if the persona is still bootstrapping."""
+        if self._memory is None or self._unified_memory is None:
+            return
+        growth_engine = getattr(self._memory, "_growth_engine", None)
+        if growth_engine is None:
+            return
+        l2_store = getattr(self._unified_memory, "l2", None)
+        try:
+            from ....personality.bootstrap_service import maybe_extract_bootstrap_info
+            await maybe_extract_bootstrap_info(
+                growth_engine=growth_engine,
+                l2_store=l2_store,
+                persona_name=self._memory.personality_name,
+                persona_id=self._memory.persona_id,
+                user_id=user_id,
+                user_message=user_message,
+                assistant_response=response_text,
+            )
+        except Exception as exc:
+            logger.debug("Bootstrap extraction skipped: %s", exc)
 
     def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None:
         latest_payload = context.latest_payload
