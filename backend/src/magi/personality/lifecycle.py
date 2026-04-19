@@ -7,6 +7,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from .current_state import get_current_personality
 from .persona_repository import PersonaRepository
+from .persona_seed import SEED_LOCALES, seed_builtin_personas
 from .self_memory import SelfMemory
 
 logger = get_logger(__name__)
@@ -30,6 +31,16 @@ class PersonalityModule(LifecycleModule):
         personality_name = self._context.core.current_personality
         repo = PersonaRepository(str(runtime_paths.persona_registry_db_path))
         await repo.init()
+
+        # Auto-seed builtin personas when registry is empty (first run or
+        # post-migration installs that completed onboarding before the
+        # persona registry existed).
+        existing = await repo.list_all()
+        if not existing:
+            logger.info("Persona registry empty, auto-seeding builtin personas")
+            for locale in SEED_LOCALES:
+                await seed_builtin_personas(repo, locale)
+
         try:
             active_id = await repo.get_active_id()
             if active_id:
