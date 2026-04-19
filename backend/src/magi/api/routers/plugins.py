@@ -370,7 +370,7 @@ async def list_registry_plugins():
     try:
         index = await registry.fetch_index()
     except Exception as exc:
-        logger.warning("Failed to fetch plugin registry", extra={"error": str(exc)})
+        logger.warning("Failed to fetch plugin registry: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Unable to reach plugin registry",

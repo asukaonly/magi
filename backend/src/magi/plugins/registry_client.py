@@ -37,9 +37,13 @@ class PluginRegistryClient:
         config = get_config()
         configured_url = getattr(config.plugins, "registry_url", None)
         self._registry_url = registry_url or configured_url or DEFAULT_REGISTRY_URL
-        self._proxy_url = config.network.proxy_url()
         self._cached_index: PluginRegistryIndex | None = None
         self._cache_timestamp: float = 0.0
+
+    @property
+    def _proxy_url(self) -> str | None:
+        """Read proxy URL from live config each time so runtime changes apply."""
+        return get_config().network.proxy_url()
 
     def _http_client(self) -> httpx.AsyncClient:
         """Create an httpx client with the configured proxy (if any)."""
