@@ -1938,7 +1938,6 @@
     "sections": {
       "basicInfo": "Basic Profile",
       "coreIdentity": "Core Identity",
-      "cachedPhrases": "Cached Phrases",
       "appearance": "Appearance Prompt",
       "stateTransitionProtocol": "State Transition Protocol"
     },
@@ -1950,10 +1949,6 @@
       "innerNarrative": "Inner Narrative",
       "languageFingerprint": "Language Fingerprint",
       "attentionBias": "Attention Bias",
-      "onInit": "On Init (one per line)",
-      "onError": "On Error (one per line)",
-      "onSuccess": "On Success (one per line)",
-      "onSwitchAttempt": "On Switch Attempt (one per line)",
       "appearancePrompt": "Appearance Prompt (English for image model)",
       "stateTransitionItem": "State Transition #{{index}}",
       "triggerCondition": "Trigger Condition",

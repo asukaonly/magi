@@ -60,13 +60,6 @@ class PersonaEntityModel(BaseModel):
     core_identity: CoreIdentityModel = Field(default_factory=CoreIdentityModel)
 
 
-class CachedPhrasesModel(BaseModel):
-    on_init: List[str] = Field(default_factory=lambda: ["Hi, I'm online.", "Ready when you are."])
-    on_error_generic: List[str] = Field(default_factory=lambda: ["That failed. Let me retry.", "Oops, tool hiccup."])
-    on_success: List[str] = Field(default_factory=lambda: ["Done.", "Handled."])
-    on_switch_attempt: List[str] = Field(default_factory=lambda: ["Stay with me, I know your style.", "Give me one more chance."])
-
-
 class StateTransitionProtocolItemModel(BaseModel):
     trigger_type: str = Field(default="")
     trigger_condition: str = Field(default="")
@@ -83,7 +76,6 @@ class BootstrapConfigModel(BaseModel):
 
 class PersonalityConfigModel(BaseModel):
     persona_entity: PersonaEntityModel = Field(default_factory=PersonaEntityModel)
-    cached_phrases: CachedPhrasesModel = Field(default_factory=CachedPhrasesModel)
     appearance_prompt: str = Field(default="")
     state_transition_protocol: List[StateTransitionProtocolItemModel] = Field(default_factory=list)
     bootstrap: Optional[BootstrapConfigModel] = Field(default=None)
@@ -151,10 +143,6 @@ FIELD_LABELS: Dict[str, str] = {
     "persona_entity.core_identity.inner_narrative": "Inner Narrative",
     "persona_entity.core_identity.language_fingerprint": "Language Fingerprint",
     "persona_entity.core_identity.attention_bias": "Attention Bias",
-    "cached_phrases.on_init": "On Init",
-    "cached_phrases.on_error_generic": "On Error",
-    "cached_phrases.on_success": "On Success",
-    "cached_phrases.on_switch_attempt": "On Switch Attempt",
     "appearance_prompt": "Appearance Prompt",
     "state_transition_protocol": "State Transition Protocol",
 }
@@ -403,7 +391,6 @@ You are an elite **AI Behavioral Psychologist and System Architect**. Your task 
    - "intimacy": A moment of extreme vulnerability, trust, or emotional bonding from the user.
    - "hostility": The user severely insults the persona or violates their core boundaries.
    - "absurdity": The user's input is incredibly bizarre, comedic, or breaks the fourth wall.
-6. **Cached Phrases Constraint**: All generated strings inside the `cached_phrases` arrays must be extremely concise (under 20 words), highly colloquial, and instantly recognizable as the character's voice. Provide 2-3 variations per array to prevent repetitive output.
 
 # Output Format
 You must output ONLY valid JSON. Do not include markdown formatting like ```json, and do not provide any explanatory text.
@@ -422,24 +409,6 @@ You must output ONLY valid JSON. Do not include markdown formatting like ```json
       "language_fingerprint": "Min 40 words. How they talk: rhythm, register, favorite expressions, verbal tics, what they never say. Written as a writer's voice memo.",
       "attention_bias": "One sentence. What they notice first in any user input and what they tend to ignore."
     }
-  },
-  "cached_phrases": {
-    "on_init": [
-      "Short, character-driven welcome phrase 1",
-      "Short, character-driven welcome phrase 2"
-    ],
-    "on_error_generic": [
-      "Fallback error phrase 1 (e.g., 'Tch, this garbage server.')",
-      "Fallback error phrase 2"
-    ],
-    "on_success": [
-      "Task completion phrase 1",
-      "Task completion phrase 2"
-    ],
-    "on_switch_attempt": [
-      "Retention hook phrase when user tries to switch personas 1",
-      "Retention hook phrase 2"
-    ]
   },
   "appearance_prompt": "English prompt for Midjourney/Stable Diffusion generating their portrait (hair, eyes, clothing, lighting, vibe)",
   "state_transition_protocol": [
@@ -478,7 +447,7 @@ You must output ONLY valid JSON. Do not include markdown formatting like ```json
 """
 
     user_prompt = f"""# User Context
-Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural and native, avoiding translation-ese).
+Target Language: {target_language}
 
 # User Input:
 {description}"""
@@ -602,8 +571,6 @@ async def api_get_greeting():
     try:
         current_name = get_current_personality_name()
         config = get_personality_loader().load(current_name)
-        greetings = config.cached_phrases.on_init
-        greeting = random.choice(greetings) if greetings else f"Hello, I am {config.name}."
 
         # Best-effort bootstrap status
         needs_bootstrap = False
@@ -621,7 +588,6 @@ async def api_get_greeting():
             success=True,
             message="Successfully retrieved greeting",
             data={
-                "greeting": greeting,
                 "name": config.name,
                 "avatar": resolve_avatar_public_url(config.avatar or ""),
                 "needs_bootstrap": needs_bootstrap,

@@ -179,12 +179,6 @@ fn default_personality_config() -> Value {
                 "refusal_style": ""
             }
         },
-        "cached_phrases": {
-            "on_init": ["Hi, I'm online.", "Ready when you are."],
-            "on_error_generic": ["That failed. Let me retry.", "Oops, tool hiccup."],
-            "on_success": ["Done.", "Handled."],
-            "on_switch_attempt": ["Stay with me, I know your style.", "Give me one more chance."]
-        },
         "appearance_prompt": "",
         "state_transition_protocol": []
     })
@@ -240,27 +234,7 @@ pub async fn get_greeting() -> Json<Value> {
                     .unwrap_or("")
                     .to_string();
 
-                // Use on_init greetings
-                let greetings: Vec<String> = data
-                    .pointer("/cached_phrases/on_init")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                let greeting = if greetings.is_empty() {
-                    format!("Hello, I am {persona_name}.")
-                } else {
-                    let idx = std::time::SystemTime::now()
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .map(|d| d.as_nanos() as usize)
-                        .unwrap_or(0)
-                        % greetings.len();
-                    greetings[idx].clone()
-                };
+                let greeting = format!("Hello, I am {persona_name}.");
 
                 json!({
                     "success": true,
@@ -411,10 +385,6 @@ fn field_label(field: &str) -> &str {
         "persona_entity.social_responses.obedience_strategy" => "Obedience Strategy",
         "persona_entity.behavioral_strategies.error_handling" => "Error Handling",
         "persona_entity.behavioral_strategies.refusal_style" => "Refusal Style",
-        "cached_phrases.on_init" => "On Init",
-        "cached_phrases.on_error_generic" => "On Error",
-        "cached_phrases.on_success" => "On Success",
-        "cached_phrases.on_switch_attempt" => "On Switch Attempt",
         "appearance_prompt" => "Appearance Prompt",
         "state_transition_protocol" => "State Transition Protocol",
         _ => field,

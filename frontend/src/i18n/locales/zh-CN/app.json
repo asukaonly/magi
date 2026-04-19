@@ -1938,7 +1938,6 @@
     "sections": {
       "basicInfo": "基础档案",
       "coreIdentity": "核心身份",
-      "cachedPhrases": "缓存短语",
       "appearance": "外观提示词",
       "stateTransitionProtocol": "状态切换协议"
     },
@@ -1950,10 +1949,6 @@
       "innerNarrative": "内在叙事",
       "languageFingerprint": "语言指纹",
       "attentionBias": "注意力偏好",
-      "onInit": "初始化短语（每行一条）",
-      "onError": "错误短语（每行一条）",
-      "onSuccess": "成功短语（每行一条）",
-      "onSwitchAttempt": "切换挽留短语（每行一条）",
       "appearancePrompt": "外观提示词（英文）",
       "stateTransitionItem": "状态切换 #{{index}}",
       "triggerCondition": "触发条件",

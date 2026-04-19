@@ -348,7 +348,6 @@
     "sections": {
       "basicProfile": "Basic Profile",
       "coreIdentity": "Core Identity",
-      "cachedPhrases": "Cached Phrases",
       "appearance": "Appearance Prompt",
       "stateTransitionProtocol": "State Transition Protocol"
     },
@@ -362,10 +361,6 @@
       "innerNarrative": "Inner Narrative",
       "languageFingerprint": "Language Fingerprint",
       "attentionBias": "Attention Bias",
-      "onInit": "On Init",
-      "onError": "On Error",
-      "onSuccess": "On Success",
-      "onSwitchAttempt": "On Switch Attempt",
       "appearancePrompt": "Appearance Prompt",
       "triggerCondition": "Trigger Condition",
       "targetStateName": "Target State",

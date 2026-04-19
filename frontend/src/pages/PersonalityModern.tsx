@@ -25,8 +25,6 @@ import { cn } from '@/lib/utils';
 import { personasApi } from '@/api/modules/personas';
 import {
   usePersonality,
-  parseLines,
-  toLines,
   getInitials,
   normalizeTransition,
 } from '@/hooks';
@@ -472,50 +470,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                       className="rounded-xl"
                       value={config.persona_entity.core_identity.attention_bias}
                       onChange={(event) => patch((d) => { d.persona_entity.core_identity.attention_bias = event.target.value; })}
-                    />
-                  </label>
-                </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.cachedPhrases')}</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onInit')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_init)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_init = parseLines(event.target.value); })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onError')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_error_generic)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_error_generic = parseLines(event.target.value); })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onSuccess')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_success)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_success = parseLines(event.target.value); })}
-                    />
-                  </label>
-                  <label className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onSwitchAttempt')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_switch_attempt)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_switch_attempt = parseLines(event.target.value); })}
                     />
                   </label>
                 </CardContent>

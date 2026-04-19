@@ -165,7 +165,7 @@ class BootstrapDialogueService:
             )
         except Exception as exc:
             logger.error("Bootstrap LLM call failed: %s", exc)
-            response = config.cached_phrases.on_init[0] if config.cached_phrases.on_init else "Hi."
+            response = "Hi."
 
         if is_final_round:
             await self._extract_and_persist(

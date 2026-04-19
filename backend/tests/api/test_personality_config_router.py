@@ -28,12 +28,6 @@ class _FakeLLMAdapter:
               "attention_bias": ""
             }
           },
-          "cached_phrases": {
-            "on_init": ["Hi"],
-            "on_error_generic": ["Retrying"],
-            "on_success": ["Done"],
-            "on_switch_attempt": ["Stay here"]
-          },
           "appearance_prompt": "simple",
           "state_transition_protocol": [
             {"trigger_type": "crisis", "trigger_condition": "danger", "target_state_name": "Guardian", "behavior_shift": "protective"},
@@ -64,12 +58,6 @@ class _NumericAgeLLMAdapter(_FakeLLMAdapter):
               "language_fingerprint": "Calm and supportive",
               "attention_bias": ""
             }
-          },
-          "cached_phrases": {
-            "on_init": ["Hi"],
-            "on_error_generic": ["Retrying"],
-            "on_success": ["Done"],
-            "on_switch_attempt": ["Stay here"]
           },
           "appearance_prompt": "simple",
           "state_transition_protocol": [

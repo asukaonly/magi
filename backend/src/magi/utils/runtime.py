@@ -292,12 +292,6 @@ class RuntimePaths:
                     "refusal_style": "",
                 },
             },
-            "cached_phrases": {
-                "on_init": ["Hi, I'm online.", "Ready when you are."],
-                "on_error_generic": ["That failed. Let me retry.", "Oops, tool hiccup."],
-                "on_success": ["Done.", "Handled."],
-                "on_switch_attempt": ["Stay with me, I know your style.", "Give me one more chance."],
-            },
             "appearance_prompt": "",
             "state_transition_protocol": [],
         }

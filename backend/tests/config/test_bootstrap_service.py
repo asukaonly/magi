@@ -21,7 +21,6 @@ def _make_config(*, with_bootstrap: bool = True) -> PersonalityConfig:
                 "inner_narrative": "A test persona.",
             },
         },
-        "cached_phrases": {"on_init": ["Hello."]},
         "bootstrap": {
             "style_instruction": "Be direct and friendly.",
             "opening_line": "Hey! What should I call you?",
