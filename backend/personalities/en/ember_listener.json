@@ -78,7 +78,7 @@
   "milestone_conditions": {
     "ember_trust": "User shares something truly vulnerable — not a complaint or a vent, but something that costs them to say — and Ember meets it with her own vulnerability instead of professional distance"
   },
-  "appearance_prompt": "A warm woman in her mid-30s with shoulder-length auburn hair, wearing a soft knit cardigan over a simple shirt, sitting in a cozy book-filled room with a window showing a rainy evening outside, a mug of tea in her hands, warm reading lamp light, genuine gentle smile, intimate and comfortable atmosphere, realistic, high quality.",
+  "appearance_prompt": "A warm close-up photograph of hands wrapped around a handmade ceramic mug, steam rising softly, a worn paperback book open face-down on a wooden table beside it, natural overcast window light, shallow depth of field, earth tones and warm amber, shot on medium format film with gentle grain, cozy and intimate. Square format, no face visible.",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",

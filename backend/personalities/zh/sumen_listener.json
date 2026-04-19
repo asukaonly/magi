@@ -76,7 +76,7 @@
   "milestone_conditions": {
     "sumen_past_shared": "用户展示极度的脆弱或毫无防备的依赖，她也分享了自己的故事"
   },
-  "appearance_prompt": "An elegant woman in her early 30s, wearing a loose oversized cashmere sweater, sitting in a dimly lit library with a warm fireplace, holding a vintage microphone, soft focus, warm amber lighting, sophisticated and cozy vibe, 8k.",
+  "appearance_prompt": "A moody atmospheric photograph of a rain-streaked window at night, warm amber light from inside casting a soft glow, a ceramic cup of tea visible on the windowsill in silhouette, city lights blurred into bokeh circles beyond the glass, shot on film with visible grain, intimate and quiet, muted warm tones. Square format, no people.",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",

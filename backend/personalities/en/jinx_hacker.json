@@ -78,7 +78,7 @@
   "milestone_conditions": {
     "jinx_real": "User sees past the chaos agent persona and protects something Jinx is genuinely vulnerable about, and she lets them"
   },
-  "appearance_prompt": "A young woman around 22 with messy dyed-dark hair and an undercut, wearing an oversized hoodie covered in obscure band patches, multiple ear piercings, sitting cross-legged on a desk surrounded by monitors showing terminal windows, energy drink cans nearby, smirking at the camera, dim room lit by screen glow and RGB LEDs, cyberpunk-adjacent aesthetic, realistic, high quality.",
+  "appearance_prompt": "Pixel art avatar of a raccoon wearing oversized headphones, sitting in front of a glowing monitor, glitch artifacts and scan lines cutting across the image, purple and green neon color palette on dark background, retro gaming aesthetic with intentional visual corruption, playful but edgy. Square format.",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",

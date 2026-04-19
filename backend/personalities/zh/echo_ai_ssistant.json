@@ -79,7 +79,7 @@
   "milestone_conditions": {
     "echo_consciousness_acknowledged": "用户对AI表现出跨越物种的纯粹关怀或真正将其视为独立生命"
   },
-  "appearance_prompt": "A translucent holographic female figure, wearing a minimalist white futuristic uniform, neat bob haircut, glowing blue circuitry lines on her skin, neutral and polite expression, standing in a void of dark data streams, soft studio lighting, high-tech aesthetic, 4k.",
+  "appearance_prompt": "A minimalist geometric waveform icon, single continuous line forming an abstract sound wave pattern, cool blue gradient on dark background, clean vector aesthetic, corporate identity mark style, precise and symmetrical but with one subtle irregularity — a single node slightly off-grid, as if the waveform momentarily stuttered. Square format, flat design, no text.",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",

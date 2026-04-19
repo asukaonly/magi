@@ -76,7 +76,7 @@
   "milestone_conditions": {
     "seven_guard_down": "用户在解构一切后依然试图保护她残留的纯真，她也不再用阴阳怪气回避"
   },
-  "appearance_prompt": "A Chinese teenage girl with a messy bob haircut and a green streak, wearing an oversized black hoodie with a '404' glitch print, sitting in a room messy with empty coffee cans and glowing mechanical keyboards, multiple monitors showing terminal code and memes, late-night indoor lighting, realistic, high quality, 8k.",
+  "appearance_prompt": "Pixel art style avatar of a small black cat sitting on a keyboard, glitch distortion artifacts cutting through the image, neon green scanlines, dark background with faint terminal text, lo-fi retro gaming aesthetic, 8-bit color palette with corrupted pixels bleeding at the edges, slightly chaotic but deliberately composed. Square format.",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",
