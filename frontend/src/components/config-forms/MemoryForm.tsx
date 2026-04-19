@@ -139,6 +139,7 @@ export const MemoryForm: React.FC = () => {
             <div className="space-y-2">
               <h3 className="text-sm font-semibold">{t('settings.memory.form.title')}</h3>
               <p className="text-xs leading-5 text-muted-foreground">{t('settings.memory.form.description')}</p>
+              <p className="text-xs leading-5 text-muted-foreground/70">{t('settings.memory.form.onboardingHint')}</p>
             </div>
 
             <div className="space-y-3">

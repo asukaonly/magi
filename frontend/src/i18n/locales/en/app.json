@@ -609,6 +609,7 @@
       "form": {
         "title": "Memory Configuration",
         "description": "Choose what your AI remembers and how it learns from conversations.",
+        "onboardingHint": "Only common options are shown here. After setup, go to Settings → Memory for full configuration.",
         "l1DependencyTitle": "Conversation history is the foundation of all memory",
         "l1DependencyDescription": "When disabled, knowledge extraction, summaries, and experience learning are all unavailable.",
         "restoreL1": "Re-enable"

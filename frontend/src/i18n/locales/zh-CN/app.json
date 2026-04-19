@@ -609,6 +609,7 @@
       "form": {
         "title": "记忆配置",
         "description": "选择 AI 应该记住哪些内容，以及如何从对话中提炼知识。",
+        "onboardingHint": "这里仅显示常用选项，完成引导后可在「设置 → 记忆」中调整全部参数。",
         "l1DependencyTitle": "对话记录是所有记忆的基础",
         "l1DependencyDescription": "关闭后，知识提炼、总结回顾和经验学习都将不可用。",
         "restoreL1": "重新启用"
