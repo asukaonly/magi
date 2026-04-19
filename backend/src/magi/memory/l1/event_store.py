@@ -999,15 +999,41 @@ class L1EventStore:
         return [str(row[0]) for row in rows]
 
     async def clear(self) -> int:
-        """Delete all events and return the removed count."""
+        """Delete all events by dropping and recreating the DB file.
+
+        This is significantly faster than DELETE + VACUUM on large databases
+        because it avoids scanning and journaling every row.  The sequence is:
+        1. Count events for the return value.
+        2. Stop embedding workers and close all open connections (vec index).
+        3. Delete the DB file and its WAL/SHM side-files.
+        4. Re-run initialize() to recreate the schema and reconnect.
+        """
         count = await self.count_events()
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await db.execute(f"DELETE FROM {FACT_EVENTS_TABLE}")
-            await db.execute(f"DELETE FROM {EVENT_CHUNKS_TABLE}")
-            await db.execute("DELETE FROM l1_events_fts")
-            await db.commit()
+
+        # Stop embedding workers cleanly before closing connections.
+        if self._embedding_queue is not None and self._embedding_workers:
+            for _ in self._embedding_workers:
+                await self._embedding_queue.put(None)
+            await asyncio.gather(*self._embedding_workers, return_exceptions=True)
+            self._embedding_workers = []
+
+        # Close the vec index's persistent connection.
         if self._vector_index is not None:
-            await self._vector_index.clear()
+            await self._vector_index.close()
+
+        # Delete the DB file and WAL/SHM side-files.
+        db_path = Path(self.db_path)
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(db_path) + suffix)
+            if p.exists():
+                p.unlink()
+
+        # Reset initialization flag so initialize() rebuilds the schema.
+        self._initialized = False
+
+        # Recreate schema and reconnect.
+        await self.initialize()
+
         return count
 
     async def rebuild_embeddings(self, *, batch_size: int = 100) -> int:
