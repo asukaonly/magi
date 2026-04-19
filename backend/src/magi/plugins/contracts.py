@@ -14,6 +14,7 @@ class ContributionType(str, Enum):
     TOOL = "tool"
     SENSOR = "sensor"
     ACTION = "action"
+    CHANNEL = "channel"
 
 
 class ExtensionFieldOption(BaseModel):

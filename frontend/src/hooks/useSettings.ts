@@ -135,7 +135,6 @@ export function useSettings(): UseSettingsReturn {
     llm: false,
     memory: false,
     extensions: false,
-    channels: false,
     timeline: false,
   });
 

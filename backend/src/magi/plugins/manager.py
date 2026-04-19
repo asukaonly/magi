@@ -245,6 +245,21 @@ class PluginManager:
             self._registered_action_tools[plugin_id] = action_tool_names
             registered_contributions.extend(self._action_registry.list_contributions(plugin_id))
 
+            channel = plugin_instance.get_channel()
+            if channel is not None:
+                channel_fields = plugin_instance.get_channel_fields()
+                registered_contributions.append(
+                    PluginContribution(
+                        plugin_id=plugin_id,
+                        contribution_id=f"{plugin_id}:channel",
+                        contribution_type=ContributionType.CHANNEL,
+                        display_name=state.manifest.name,
+                        description=state.manifest.description,
+                        surface="extensions",
+                        fields=list(channel_fields),
+                    )
+                )
+
             state.loaded = True
             state.healthy = True
             state.last_error = None
@@ -459,6 +474,12 @@ class PluginManager:
         return plugin_instance
 
     def _placeholder_contributions(self, manifest: PluginManifest) -> list[PluginContribution]:
+        _surface_map = {
+            ContributionType.TOOL: "tools",
+            ContributionType.SENSOR: "timeline",
+            ContributionType.ACTION: "actions",
+            ContributionType.CHANNEL: "extensions",
+        }
         return [
             PluginContribution(
                 plugin_id=manifest.plugin_id,
@@ -466,11 +487,7 @@ class PluginManager:
                 contribution_type=contribution_type,
                 display_name=manifest.name,
                 description=manifest.description,
-                surface={
-                    ContributionType.TOOL: "tools",
-                    ContributionType.SENSOR: "timeline",
-                    ContributionType.ACTION: "actions",
-                }[contribution_type],
+                surface=_surface_map.get(contribution_type, "extensions"),
             )
             for contribution_type in manifest.contribution_types
         ]

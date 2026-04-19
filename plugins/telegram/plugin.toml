@@ -1,0 +1,12 @@
+[plugin]
+id = "telegram"
+name = "Telegram"
+version = "0.1.0"
+description = "Bidirectional Telegram bot channel adapter."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "TelegramPlugin"
+official = true
+contribution_types = ["channel"]
+dependencies = ["python-telegram-bot>=22.0"]
+platforms = ["windows", "macos"]

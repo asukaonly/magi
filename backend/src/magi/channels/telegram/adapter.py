@@ -37,13 +37,16 @@ class TelegramChannel(Channel):
         self,
         *,
         config: TelegramChannelConfig,
-        session_mapper: ChannelSessionMapper,
+        session_mapper: ChannelSessionMapper | None = None,
     ) -> None:
         self._config = config
         self._session_mapper = session_mapper
         self._application: Any = None
         self._bot_username: str = ""
         self._bot_id: int = 0
+
+    def bind_session_mapper(self, session_mapper: Any) -> None:  # type: ignore[override]
+        self._session_mapper = session_mapper
 
     @property
     def channel_type(self) -> str:
