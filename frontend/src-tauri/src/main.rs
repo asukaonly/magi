@@ -277,6 +277,26 @@ fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, Stri
     }))
 }
 
+/// Resolve the builtin avatar directory (repo: backend/personalities/avatar).
+fn resolve_builtin_avatar_dir() -> Option<PathBuf> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // CARGO_MANIFEST_DIR = frontend/src-tauri → project root = ../..
+    let project_root = manifest_dir.parent()?.parent()?;
+    let dir = project_root.join("backend").join("personalities").join("avatar");
+    if dir.is_dir() { Some(dir) } else { None }
+}
+
+/// Resolve the user avatar directory (~/.magi/personalities/avatar).
+fn resolve_user_avatar_dir() -> Option<PathBuf> {
+    let home = env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .ok()
+        .map(PathBuf::from)?;
+    let dir = home.join(".magi").join("personalities").join("avatar");
+    let _ = fs::create_dir_all(&dir);
+    Some(dir)
+}
+
 fn resolve_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
     let resource_dir = app
         .path()
@@ -730,7 +750,11 @@ fn poll_backend_startup(
         }
     };
 
-    let api_state = api::state::ApiState { ipc_client };
+    let api_state = api::state::ApiState {
+        ipc_client,
+        builtin_avatar_dir: resolve_builtin_avatar_dir(),
+        user_avatar_dir: resolve_user_avatar_dir(),
+    };
     let router = api::build_router(api_state);
 
     // Ensure performance-critical indexes exist on SQLite databases

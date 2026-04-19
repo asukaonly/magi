@@ -13,9 +13,12 @@ pub mod state;
 mod tasks;
 mod trace;
 
+use std::path::PathBuf;
+
 use axum::Router;
 use state::ApiState;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 pub fn build_router(state: ApiState) -> Router {
     // Eagerly warm the sysinfo cache in a background thread so the
@@ -221,6 +224,21 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/local-embedding/discovered",
             axum::routing::get(local_embedding::discover_external_models),
+        )
+        // Static avatar files — served directly, bypassing IPC proxy
+        .nest_service(
+            "/static/avatars",
+            ServeDir::new(
+                state.builtin_avatar_dir.clone()
+                    .unwrap_or_else(|| PathBuf::from("/nonexistent")),
+            ),
+        )
+        .nest_service(
+            "/static/user-avatars",
+            ServeDir::new(
+                state.user_avatar_dir.clone()
+                    .unwrap_or_else(|| PathBuf::from("/nonexistent")),
+            ),
         )
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
