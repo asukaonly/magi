@@ -409,7 +409,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                        className="h-7 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         onClick={() =>
                           patch((d) => {
                             d.persona_layers.splice(index, 1);
