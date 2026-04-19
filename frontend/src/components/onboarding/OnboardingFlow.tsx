@@ -334,8 +334,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const hasValidSelections = (): boolean => {
     const llmConfig = form.getFieldValue(['llm']);
     return BUILTIN_SCENARIOS.every((scenario) => {
-      // Skip embedding validation when embedding mode is off
-      if (scenario === 'embedding' && embeddingConfig?.mode === 'off') return true;
+      // Skip embedding validation when embedding mode is off or local
+      if (scenario === 'embedding' && embeddingConfig?.mode !== 'remote') return true;
       const selection = llmConfig?.selections?.[scenario];
       return Boolean(
         selection?.provider_id &&

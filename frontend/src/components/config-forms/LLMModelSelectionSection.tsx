@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Check, Download, FolderOpen, Info, Loader2, Trash2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, Download, FolderOpen, Info, Loader2, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -256,6 +256,19 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       )
     );
   }, [enabledProviders, registry.providers]);
+
+  // Auto-correct: if mode is 'remote' but no remote embedding models are available, switch to 'off'
+  useEffect(() => {
+    if (
+      embeddingConfig?.mode === 'remote' &&
+      allEmbeddingModels.length === 0 &&
+      onEmbeddingConfigChange
+    ) {
+      onEmbeddingConfigChange((emb) => {
+        emb.mode = 'off';
+      });
+    }
+  }, [embeddingConfig?.mode, allEmbeddingModels.length, onEmbeddingConfigChange]);
 
   if (enabledProviders.length === 0) {
     return (
@@ -806,8 +819,11 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
       <Tabs defaultValue="context_decider">
         <TabsList className="w-full justify-start">
           {visibleTabs.map((tab) => (
-            <TabsTrigger key={tab} value={tab}>
+            <TabsTrigger key={tab} value={tab} className="gap-1">
               {t(`llm.scenarios.${tab}.title`)}
+              {tab === 'embedding' && embeddingConfig?.mode === 'off' && (
+                <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+              )}
             </TabsTrigger>
           ))}
         </TabsList>

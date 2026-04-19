@@ -511,7 +511,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   memory: {
     db_path: '~/.magi/data/memories',
     embedding: {
-      mode: 'remote',
+      mode: 'off',
       local: {
         model_source: 'managed',
         managed_model_id: null,
