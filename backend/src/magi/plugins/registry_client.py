@@ -1,14 +1,15 @@
 """Remote plugin registry client.
 
 Fetches plugin metadata from a JSON index hosted alongside plugin source
-code in a single Git repository.  Individual plugins are installed by
-cloning the repository (shallow, depth-1) and copying the relevant
-subdirectory rather than downloading separate release archives.
+code in a single Git repository.  Individual plugins are installed via a
+shared local bare clone of the repository; only the requested plugin
+subdirectory is materialised through sparse checkout.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import tempfile
 import time
@@ -28,6 +29,7 @@ DEFAULT_REPO_URL = "https://github.com/asukaonly/magi-plugins.git"
 INDEX_TIMEOUT = 30
 GIT_CLONE_TIMEOUT = 120  # seconds
 INDEX_CACHE_TTL = 300  # 5 minutes
+REPO_CACHE_DIR = Path("~/.magi/cache/plugin-repo").expanduser()
 
 
 class PluginRegistryClient:
@@ -89,11 +91,49 @@ class PluginRegistryClient:
         """Return env vars for subprocess proxy, or None to inherit."""
         if not self._proxy_url:
             return None
-        import os
         env = os.environ.copy()
         env["http_proxy"] = self._proxy_url
         env["https_proxy"] = self._proxy_url
         return env
+
+    def _git_proxy_args(self) -> list[str]:
+        """Return ``-c http.proxy=...`` args for git commands, or empty list."""
+        proxy = self._proxy_url
+        return ["-c", f"http.proxy={proxy}"] if proxy else []
+
+    async def _ensure_repo_cache(self) -> Path:
+        """Ensure a shared bare clone of the plugin repo exists locally.
+
+        On first call the repo is cloned as a bare repository.  On
+        subsequent calls only ``git fetch`` is executed to pull the
+        latest changes — no full re-clone required.
+        """
+        repo_url = self._resolve_repo_url()
+        proxy_env = self._proxy_env()
+        proxy_args = self._git_proxy_args()
+
+        REPO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        bare_dir = REPO_CACHE_DIR / "repo.git"
+
+        if (bare_dir / "HEAD").exists():
+            # Update existing bare clone.
+            fetch_cmd = ["git", *proxy_args, "-C", str(bare_dir), "fetch", "--depth", "1", "origin", "main"]
+            logger.info("Updating cached plugin repository")
+            await _run_async(fetch_cmd, timeout=GIT_CLONE_TIMEOUT, error_prefix="git fetch failed", env=proxy_env)
+        else:
+            # First time: bare clone.
+            if bare_dir.exists():
+                shutil.rmtree(bare_dir, ignore_errors=True)
+            clone_cmd = [
+                "git", *proxy_args,
+                "clone", "--bare", "--depth", "1",
+                "--filter=blob:none",
+                repo_url, str(bare_dir),
+            ]
+            logger.info("Cloning plugin repository (bare)", extra={"repo": repo_url})
+            await _run_async(clone_cmd, timeout=GIT_CLONE_TIMEOUT, error_prefix="git clone failed", env=proxy_env)
+
+        return bare_dir
 
     async def clone_plugin(
         self,
@@ -101,68 +141,51 @@ class PluginRegistryClient:
         *,
         dest_dir: Path | None = None,
     ) -> Path:
-        """Clone the plugin repo and extract the plugin subdirectory.
+        """Extract a single plugin from the shared repo cache.
 
+        Uses the cached bare clone so that installing multiple plugins
+        from the same registry only requires one network fetch.
         Returns the path to the extracted plugin directory ready for
         installation by *PluginManager.install_plugin_from_directory()*.
         """
         if not entry.path:
             raise ValueError(f"No path defined for plugin: {entry.plugin_id}")
 
-        repo_url = self._resolve_repo_url()
+        bare_dir = await self._ensure_repo_cache()
+        proxy_env = self._proxy_env()
+
         dest = dest_dir or Path(tempfile.mkdtemp(prefix="magi-plugin-clone-"))
         dest.mkdir(parents=True, exist_ok=True)
 
-        clone_dir = dest / "_repo"
+        work_dir = dest / "_work"
+        if work_dir.exists():
+            shutil.rmtree(work_dir, ignore_errors=True)
 
-        # Shallow clone — fast, minimal bandwidth.
-        proxy_env = self._proxy_env()
-        cmd = [
-            "git",
-            "clone",
-            "--depth",
-            "1",
+        # Create a working tree from the bare cache — local clone, no network.
+        local_clone_cmd = [
+            "git", "clone",
+            "--depth", "1",
             "--filter=blob:none",
             "--sparse",
-            repo_url,
-            str(clone_dir),
+            "--reference", str(bare_dir),
+            str(bare_dir), str(work_dir),
         ]
-        if self._proxy_url:
-            cmd[1:1] = ["-c", f"http.proxy={self._proxy_url}"]
-        logger.info(
-            "Cloning plugin repository",
-            extra={"repo": repo_url, "plugin_id": entry.plugin_id},
-        )
-        await _run_async(cmd, timeout=GIT_CLONE_TIMEOUT, error_prefix="git clone failed", env=proxy_env)
+        await _run_async(local_clone_cmd, timeout=30, error_prefix="local clone failed", env=proxy_env)
 
         # Sparse checkout: only materialise the plugin we need.
-        sparse_cmd = [
-            "git",
-            "-C",
-            str(clone_dir),
-            "sparse-checkout",
-            "set",
-            entry.path,
-        ]
+        sparse_cmd = ["git", "-C", str(work_dir), "sparse-checkout", "set", entry.path]
         await _run_async(sparse_cmd, timeout=30, error_prefix="git sparse-checkout failed", env=proxy_env)
 
-        plugin_src = clone_dir / entry.path
+        plugin_src = work_dir / entry.path
         if not plugin_src.is_dir():
-            raise ValueError(
-                f"Plugin path '{entry.path}' not found in cloned repository"
-            )
+            raise ValueError(f"Plugin path '{entry.path}' not found in repository")
 
-        # Copy the plugin directory out of the sparse clone.
+        # Copy the plugin directory out.
         plugin_dest = dest / entry.plugin_id
         shutil.copytree(plugin_src, plugin_dest)
+        shutil.rmtree(work_dir, ignore_errors=True)
 
-        # Clean up the clone.
-        shutil.rmtree(clone_dir, ignore_errors=True)
-
-        logger.info(
-            "Plugin source extracted",
-            extra={"plugin_id": entry.plugin_id, "path": str(plugin_dest)},
-        )
+        logger.info("Plugin source extracted", extra={"plugin_id": entry.plugin_id, "path": str(plugin_dest)})
         return plugin_dest
 
     async def check_updates(
