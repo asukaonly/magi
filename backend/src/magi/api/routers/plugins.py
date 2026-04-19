@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 plugins_router = APIRouter()
 
+_registry_client: PluginRegistryClient | None = None
+
+
+def _get_registry_client() -> PluginRegistryClient:
+    """Return a shared registry client so the TTL cache is effective."""
+    global _registry_client
+    if _registry_client is None:
+        _registry_client = PluginRegistryClient()
+    return _registry_client
+
 
 def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     """Get i18n helper for a plugin, using cached instance if plugin is loaded."""
@@ -318,7 +328,7 @@ async def install_plugin_from_upload(file: UploadFile):
 async def install_plugin_from_registry(request: PluginInstallRequest):
     """Clone and install a plugin from the remote registry."""
     manager = require_plugin_manager()
-    registry = PluginRegistryClient()
+    registry = _get_registry_client()
 
     entry = await registry.fetch_entry(request.plugin_id)
     if entry is None:
@@ -356,7 +366,7 @@ async def uninstall_plugin(plugin_id: str):
 async def list_registry_plugins():
     """List all available plugins from the remote registry."""
     manager = require_plugin_manager()
-    registry = PluginRegistryClient()
+    registry = _get_registry_client()
     try:
         index = await registry.fetch_index()
     except Exception as exc:
@@ -399,7 +409,7 @@ async def list_registry_plugins():
 async def check_plugin_updates():
     """Check all installed plugins for available updates."""
     manager = require_plugin_manager()
-    registry = PluginRegistryClient()
+    registry = _get_registry_client()
 
     installed = {
         state.manifest.plugin_id: state.manifest.version
@@ -436,7 +446,7 @@ async def update_plugin(plugin_id: str):
     if state.manifest.source == "builtin":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot update builtin plugins")
 
-    registry = PluginRegistryClient()
+    registry = _get_registry_client()
     entry = await registry.fetch_entry(plugin_id)
     if entry is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found in registry")

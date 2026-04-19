@@ -7,10 +7,11 @@ subdirectory rather than downloading separate release archives.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
-import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import httpx
@@ -26,6 +27,7 @@ DEFAULT_REGISTRY_URL = (
 DEFAULT_REPO_URL = "https://github.com/asukaonly/magi-plugins.git"
 INDEX_TIMEOUT = 30
 GIT_CLONE_TIMEOUT = 120  # seconds
+INDEX_CACHE_TTL = 300  # 5 minutes
 
 
 class PluginRegistryClient:
@@ -36,15 +38,25 @@ class PluginRegistryClient:
         configured_url = getattr(config.plugins, "registry_url", None)
         self._registry_url = registry_url or configured_url or DEFAULT_REGISTRY_URL
         self._cached_index: PluginRegistryIndex | None = None
+        self._cache_timestamp: float = 0.0
 
-    async def fetch_index(self) -> PluginRegistryIndex:
-        """Fetch the full plugin registry index."""
+    async def fetch_index(self, *, force: bool = False) -> PluginRegistryIndex:
+        """Fetch the full plugin registry index, with TTL caching."""
+        now = time.monotonic()
+        if (
+            not force
+            and self._cached_index is not None
+            and (now - self._cache_timestamp) < INDEX_CACHE_TTL
+        ):
+            return self._cached_index
+
         async with httpx.AsyncClient(timeout=INDEX_TIMEOUT) as client:
             response = await client.get(self._registry_url)
             response.raise_for_status()
             data = response.json()
         index = PluginRegistryIndex.model_validate(data)
         self._cached_index = index
+        self._cache_timestamp = now
         return index
 
     async def fetch_entry(self, plugin_id: str) -> PluginRegistryEntry | None:
@@ -96,16 +108,7 @@ class PluginRegistryClient:
             "Cloning plugin repository",
             extra={"repo": repo_url, "plugin_id": entry.plugin_id},
         )
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=GIT_CLONE_TIMEOUT,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"git clone failed (exit {result.returncode}): {result.stderr.strip()}"
-            )
+        await _run_async(cmd, timeout=GIT_CLONE_TIMEOUT, error_prefix="git clone failed")
 
         # Sparse checkout: only materialise the plugin we need.
         sparse_cmd = [
@@ -116,16 +119,7 @@ class PluginRegistryClient:
             "set",
             entry.path,
         ]
-        result = subprocess.run(
-            sparse_cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"git sparse-checkout failed: {result.stderr.strip()}"
-            )
+        await _run_async(sparse_cmd, timeout=30, error_prefix="git sparse-checkout failed")
 
         plugin_src = clone_dir / entry.path
         if not plugin_src.is_dir():
@@ -163,6 +157,31 @@ class PluginRegistryClient:
             if _version_newer(entry.version, local_version):
                 updates.append(entry)
         return updates
+
+
+async def _run_async(
+    cmd: list[str],
+    *,
+    timeout: int,
+    error_prefix: str,
+) -> str:
+    """Run a subprocess asynchronously without blocking the event loop."""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError(f"{error_prefix}: timed out after {timeout}s")
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{error_prefix} (exit {proc.returncode}): {stderr.decode().strip()}"
+        )
+    return stdout.decode()
 
 
 def _version_newer(remote: str, local: str) -> bool:
