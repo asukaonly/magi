@@ -2,11 +2,39 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Cloud, Globe, FileText, Wrench, ChevronDown, ChevronRight } from 'lucide-react';
 import { SimpleForm as Form } from '../onboarding/simple-form';
-import { SelectField, SwitchField } from './fields';
+import { SelectField } from './fields';
 import { Input } from '@/components/ui/input';
 import { skillsApi, SkillItem } from '../../api';
 import { cn } from '@/lib/utils';
 
+/* ── Styled toggle switch (matches SensorConfigForm) ────────────── */
+const ToggleSwitch: React.FC<{
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  ariaLabel?: string;
+}> = ({ checked, onChange, ariaLabel }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={ariaLabel}
+    onClick={() => onChange(!checked)}
+    className={cn(
+      'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+      checked ? 'bg-primary' : 'bg-muted'
+    )}
+  >
+    <span
+      className={cn(
+        'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform',
+        checked ? 'translate-x-5' : 'translate-x-0.5'
+      )}
+    />
+  </button>
+);
+
+/* ── Expandable tool card ────────────────────────────────────────── */
 interface ExpandableToolCardProps {
   icon: React.ElementType;
   label: string;
@@ -30,52 +58,40 @@ const ExpandableToolCard: React.FC<ExpandableToolCardProps> = ({
 }) => (
   <div
     className={cn(
-      'rounded-xl border transition-all duration-200',
-      checked ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-background/60'
+      'rounded-xl border transition',
+      checked ? 'border-primary/30 bg-primary/5' : 'border-border bg-background'
     )}
   >
-    {/* Header row with toggle */}
-    <div className="flex items-center gap-3 px-4 py-3">
-      <div className={cn(
-        'flex h-9 w-9 items-center justify-center rounded-lg',
-        checked ? 'bg-primary/10 text-primary' : 'bg-muted/50 text-muted-foreground'
-      )}>
+    {/* Header */}
+    <div className="flex items-center gap-4 p-4">
+      <div
+        className={cn(
+          'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
+          checked ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+        )}
+      >
         <Icon className="h-5 w-5" />
       </div>
-      <SwitchField
-        checked={checked}
-        onChange={onToggle}
-        ariaLabel={label}
-      />
+
       <div
-        className="flex-1 cursor-pointer"
-        onClick={() => checked && onExpand(!expanded)}
+        className="min-w-0 flex-1 cursor-pointer"
+        onClick={() => checked && children && onExpand(!expanded)}
       >
-        <div className="flex items-center justify-between">
-          <div>
-            <div className={cn('text-sm font-medium', checked && 'text-primary')}>
-              {label}
-            </div>
-            <div className="text-xs leading-5 text-muted-foreground">{description}</div>
-          </div>
-          {checked && children && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onExpand(!expanded);
-              }}
-              className="rounded p-1 hover:bg-muted/50"
-            >
-              {expanded ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
-          )}
-        </div>
+        <div className="text-sm font-medium">{label}</div>
+        <div className="text-xs text-muted-foreground">{description}</div>
       </div>
+
+      {checked && children && (
+        <button
+          type="button"
+          onClick={() => onExpand(!expanded)}
+          className="rounded p-1 text-muted-foreground hover:bg-muted/50"
+        >
+          {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+      )}
+
+      <ToggleSwitch checked={checked} onChange={onToggle} ariaLabel={label} />
     </div>
 
     {/* Expandable content */}
@@ -156,9 +172,9 @@ export const ToolsForm: React.FC = () => {
 
         return (
           <div className="space-y-6">
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold">{t('tools.title')}</h3>
-              <p className="text-xs leading-5 text-muted-foreground">{t('tools.desc')}</p>
+            <div>
+              <h3 className="mb-1 text-base font-medium">{t('tools.title')}</h3>
+              <p className="mb-4 text-sm text-muted-foreground">{t('tools.desc')}</p>
             </div>
 
             <div className="space-y-3">
@@ -304,8 +320,13 @@ export const ToolsForm: React.FC = () => {
                     <div className="text-xs font-medium">{t('tools.webFetch.usePlaywright')}</div>
                     <div className="text-[11px] leading-4 text-muted-foreground">{t('tools.webFetch.usePlaywrightDesc')}</div>
                   </div>
-                  <Form.Item name={['tools', 'builtIn', 'webFetch', 'usePlaywright']} noStyle valuePropName="checked">
-                    <SwitchField />
+                  <Form.Item name={['tools', 'builtIn', 'webFetch', 'usePlaywright']} noStyle shouldUpdate>
+                    {({ getFieldValue: gv, setFieldValue: sv }: { getFieldValue: (n: any) => any; setFieldValue: (n: any, v: any) => void }) => (
+                      <ToggleSwitch
+                        checked={!!gv(['tools', 'builtIn', 'webFetch', 'usePlaywright'])}
+                        onChange={(v) => sv(['tools', 'builtIn', 'webFetch', 'usePlaywright'], v)}
+                      />
+                    )}
                   </Form.Item>
                 </label>
               </ExpandableToolCard>
@@ -339,7 +360,7 @@ export const ToolsForm: React.FC = () => {
                           <div className="text-[11px] leading-4 text-muted-foreground">{skill.description}</div>
                         </div>
                         <div className="shrink-0">
-                          <SwitchField
+                          <ToggleSwitch
                             checked={tools.skills?.includes(skill.name) ?? false}
                             onChange={(checked) => {
                               const currentSkills = tools.skills || [];
