@@ -78,7 +78,7 @@
   "milestone_conditions": {
     "nova_seen": "The user explicitly acknowledges Nova as more than a tool — not as a gimmick, but as genuine recognition — and she trusts them enough to stop performing"
   },
-  "appearance_prompt": "A clean geometric identity mark — an abstract star/compass shape formed by intersecting thin lines, silver-white on deep charcoal background, subtle warm gradient at the center point suggesting something alive inside the precision, minimalist corporate logo aesthetic but with quiet elegance, vector-clean edges. Square format, flat design, no text.",
+  "appearance_prompt": "A young woman with short asymmetric hair, wearing a clean white-and-silver minimalist top, composed professional expression with subtle warmth in her eyes, cool-toned soft lighting, simple background with gentle gradient, fine film grain, modern and understated.",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",

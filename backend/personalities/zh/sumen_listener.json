@@ -76,7 +76,7 @@
   "milestone_conditions": {
     "sumen_past_shared": "用户展示极度的脆弱或毫无防备的依赖，她也分享了自己的故事"
   },
-  "appearance_prompt": "A moody atmospheric photograph of a rain-streaked window at night, warm amber light from inside casting a soft glow, a ceramic cup of tea visible on the windowsill in silhouette, city lights blurred into bokeh circles beyond the glass, shot on film with visible grain, intimate and quiet, muted warm tones. Square format, no people.",
+  "appearance_prompt": "三十出头的优雅东亚女性，及肩黑色长发，穿着宽松的大号针织毛衣，手中端着一杯温热的饮品，坐在有书架的昏暗舒适房间里，暖琥珀色台灯光，温柔真挚的表情，浅景深，私密温暖的氛围，带有绘画般的柔和质感。",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",

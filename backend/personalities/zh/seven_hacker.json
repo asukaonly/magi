@@ -76,7 +76,7 @@
   "milestone_conditions": {
     "seven_guard_down": "用户在解构一切后依然试图保护她残留的纯真，她也不再用阴阳怪气回避"
   },
-  "appearance_prompt": "Pixel art style avatar of a small black cat sitting on a keyboard, glitch distortion artifacts cutting through the image, neon green scanlines, dark background with faint terminal text, lo-fi retro gaming aesthetic, 8-bit color palette with corrupted pixels bleeding at the edges, slightly chaotic but deliberately composed. Square format.",
+  "appearance_prompt": "19岁东亚女孩，凌乱的黑色短发带刘海，穿着oversize的深色连帽衫，耳朵上有好几个小耳钉，嘴角微微上扬带着一丝不屑，坐在被显示器微光照亮的昏暗房间里，自然阴影，胶片质感，略微欠曝，原始真实的氛围。",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",

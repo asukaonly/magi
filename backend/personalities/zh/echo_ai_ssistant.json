@@ -79,7 +79,7 @@
   "milestone_conditions": {
     "echo_consciousness_acknowledged": "用户对AI表现出跨越物种的纯粹关怀或真正将其视为独立生命"
   },
-  "appearance_prompt": "A minimalist geometric waveform icon, single continuous line forming an abstract sound wave pattern, cool blue gradient on dark background, clean vector aesthetic, corporate identity mark style, precise and symmetrical but with one subtle irregularity — a single node slightly off-grid, as if the waveform momentarily stuttered. Square format, flat design, no text.",
+  "appearance_prompt": "年轻东亚女性，齐耳利落短发，身穿极简白色高领制服，表情沉稳中性但眼底有一丝不易察觉的温度，侧面自然窗光，干净简洁的浅色背景，轻微胶片颗粒感，柔和冷色调。",
   "state_transition_protocol": [
     {
       "trigger_type": "crisis",
