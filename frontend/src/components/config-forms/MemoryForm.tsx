@@ -1,97 +1,21 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Lightbulb, BookOpen, GraduationCap } from 'lucide-react';
 import { SimpleForm as Form } from '../onboarding/simple-form';
-import { SwitchField } from './fields';
 import { cn } from '@/lib/utils';
 
-
-interface ExpandableMemoryLayerCardProps {
-  layerKey: string;
-  label: string;
-  description: string;
-  checked: boolean;
-  disabled?: boolean;
-  expanded: boolean;
-  onToggle: (checked: boolean) => void;
-  onExpand: (expanded: boolean) => void;
-  children?: React.ReactNode;
+interface MemoryLayerDef {
+  layer: 'l2' | 'l3' | 'l4';
+  icon: React.ElementType;
+  labelKey: string;
+  descKey: string;
 }
 
-const ExpandableMemoryLayerCard: React.FC<ExpandableMemoryLayerCardProps> = ({
-  label,
-  description,
-  checked,
-  disabled = false,
-  expanded,
-  onToggle,
-  onExpand,
-  children,
-}) => {
-  const handleHeaderClick = () => {
-    if (disabled) return;
-    if (checked) {
-      onExpand(!expanded);
-    }
-  };
-
-  return (
-    <div
-      className={cn(
-        'rounded-xl border transition-all duration-200',
-        checked ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-background/60',
-        disabled && 'opacity-60'
-      )}
-    >
-      {/* Header row with toggle */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        <SwitchField
-          checked={checked}
-          disabled={disabled}
-          onChange={onToggle}
-          ariaLabel={label}
-        />
-        <div
-          className={cn('flex-1', !disabled && 'cursor-pointer')}
-          onClick={handleHeaderClick}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <div className={cn('text-sm font-medium', checked && 'text-primary')}>
-                {label}
-              </div>
-              <div className="text-xs leading-5 text-muted-foreground">{description}</div>
-            </div>
-            {checked && children && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onExpand(!expanded);
-                }}
-                className="rounded p-1 hover:bg-muted/50"
-              >
-                {expanded ? (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Expandable content */}
-      {checked && expanded && children && (
-        <div className="border-t border-border/40 px-4 py-3">
-          <div className="space-y-4">{children}</div>
-        </div>
-      )}
-    </div>
-  );
-};
-
+const layerDefs: MemoryLayerDef[] = [
+  { layer: 'l2', icon: Lightbulb, labelKey: 'settings.memory.fields.enable_l2.label', descKey: 'settings.memory.fields.enable_l2.description' },
+  { layer: 'l3', icon: BookOpen, labelKey: 'settings.memory.fields.enable_l3.label', descKey: 'settings.memory.fields.enable_l3.description' },
+  { layer: 'l4', icon: GraduationCap, labelKey: 'settings.memory.fields.enable_l4.label', descKey: 'settings.memory.fields.enable_l4.description' },
+];
 
 export const MemoryForm: React.FC = () => {
   const { t } = useTranslation('app');
@@ -106,75 +30,78 @@ export const MemoryForm: React.FC = () => {
         setFieldValue: (name: any, value: any) => void;
       }) => {
         const memory = getFieldValue(['memory']) || {};
-        const l2 = memory.l2 || {};
-        const l3 = memory.l3 || {};
-        const l4 = memory.l4 || {};
         const l1Enabled = (memory.l1 || {}).enabled !== false;
-        const l2Enabled = l1Enabled && l2.enabled !== false;
-        const l3Enabled = l1Enabled && l3.enabled !== false;
-        const l4Enabled = l1Enabled && l4.enabled !== false;
 
-        const patchMemory = (updates: Record<string, any>) => {
+        const isLayerEnabled = (layer: 'l2' | 'l3' | 'l4') =>
+          l1Enabled && (memory[layer] || {}).enabled !== false;
+
+        const handleLayerToggle = (layer: 'l2' | 'l3' | 'l4') => {
+          const current = isLayerEnabled(layer);
           setFieldValue(['memory'], {
             ...memory,
-            ...updates,
-          });
-        };
-
-        const patchLayer = (layer: 'l2' | 'l3' | 'l4', updates: Record<string, any>) => {
-          patchMemory({
             [layer]: {
               ...(memory[layer] || {}),
-              ...updates,
+              enabled: !current,
             },
           });
         };
 
-        const handleLayerToggle = (layer: 'l2' | 'l3' | 'l4', checked: boolean) => {
-          patchLayer(layer, { enabled: checked });
-        };
-
         return (
           <div className="space-y-6">
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold">{t('settings.memory.form.title')}</h3>
-              <p className="text-xs leading-5 text-muted-foreground">{t('settings.memory.form.description')}</p>
-              <p className="text-xs leading-5 text-muted-foreground/70">{t('settings.memory.form.onboardingHint')}</p>
+            <div>
+              <h3 className="mb-1 text-base font-medium">{t('settings.memory.form.title')}</h3>
+              <p className="mb-1 text-sm text-muted-foreground">{t('settings.memory.form.description')}</p>
+              <p className="text-xs text-muted-foreground/70">{t('settings.memory.form.onboardingHint')}</p>
             </div>
 
             <div className="space-y-3">
-              {/* L2 Knowledge Extraction */}
-              <ExpandableMemoryLayerCard
-                layerKey="l2"
-                label={t('settings.memory.fields.enable_l2.label')}
-                description={t('settings.memory.fields.enable_l2.description')}
-                checked={l2Enabled}
-                expanded={false}
-                onToggle={(checked) => handleLayerToggle('l2', checked)}
-                onExpand={() => {}}
-              />
+              {layerDefs.map((def) => {
+                const enabled = isLayerEnabled(def.layer);
+                const Icon = def.icon;
+                return (
+                  <div
+                    key={def.layer}
+                    className={cn(
+                      'flex items-center gap-4 rounded-xl border p-4 transition',
+                      enabled ? 'border-primary/30 bg-primary/5' : 'border-border bg-background'
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
+                        enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                      )}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </div>
 
-              {/* L3 Summary & Review */}
-              <ExpandableMemoryLayerCard
-                layerKey="l3"
-                label={t('settings.memory.fields.enable_l3.label')}
-                description={t('settings.memory.fields.enable_l3.description')}
-                checked={l3Enabled}
-                expanded={false}
-                onToggle={(checked) => handleLayerToggle('l3', checked)}
-                onExpand={() => {}}
-              />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium">{t(def.labelKey)}</div>
+                      <div className="text-xs text-muted-foreground">{t(def.descKey)}</div>
+                    </div>
 
-              {/* L4 Experience Learning */}
-              <ExpandableMemoryLayerCard
-                layerKey="l4"
-                label={t('settings.memory.fields.enable_l4.label')}
-                description={t('settings.memory.fields.enable_l4.description')}
-                checked={l4Enabled}
-                expanded={false}
-                onToggle={(checked) => handleLayerToggle('l4', checked)}
-                onExpand={() => {}}
-              />
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={enabled}
+                      aria-label={t(def.labelKey)}
+                      onClick={() => handleLayerToggle(def.layer)}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                        enabled ? 'bg-primary' : 'bg-muted'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform',
+                          enabled ? 'translate-x-5' : 'translate-x-0.5'
+                        )}
+                      />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         );

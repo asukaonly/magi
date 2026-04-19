@@ -1607,8 +1607,8 @@ describe('config forms', () => {
         <MemoryForm />
       </Form>
     );
-    expect(screen.getByRole('checkbox', { name: /settings\.memory\.fields\.enable_l2\.label/i })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /settings\.memory\.fields\.enable_l3\.label/i })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /settings\.memory\.fields\.enable_l4\.label/i })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l2\.label/i })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l3\.label/i })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l4\.label/i })).toBeInTheDocument();
   });
 });
