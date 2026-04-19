@@ -654,7 +654,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           />
         );
 
-      case 'channels':
+      case 'channelsTelegram':
         return (
           <ChannelsSection
             draftConfig={draftConfig}

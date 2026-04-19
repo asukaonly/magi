@@ -260,12 +260,6 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
         )}
       </section>
 
-      {/* Placeholder for future channels */}
-      <section className="space-y-2 opacity-50">
-        <p className="text-xs text-muted-foreground italic">
-          {t('settings.channels.moreComingSoon')}
-        </p>
-      </section>
     </div>
   );
 };

@@ -433,6 +433,7 @@
       "tools": "Tools",
       "actions": "Actions",
       "channels": "Channels",
+      "channelsTelegram": "Telegram",
       "system": "System"
     },
     "preferencesDesc": "Configure interface language, theme, and desktop behavior",
@@ -463,6 +464,7 @@
     "toolsDesc": "Configure built-in tools and skills",
     "actionsDesc": "Configure outbound action capabilities and their declarative settings.",
     "channelsDesc": "Connect external messaging platforms (e.g. Telegram) to chat with AI via the existing pipeline.",
+    "channelsTelegramDesc": "Configure Telegram Bot integration, supporting both DM and group chat.",
     "channels": {
       "statusOn": "Enabled",
       "statusOff": "Disabled",

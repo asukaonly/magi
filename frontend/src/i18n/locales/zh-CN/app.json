@@ -433,6 +433,7 @@
       "tools": "工具",
       "actions": "执行器",
       "channels": "接入渠道",
+      "channelsTelegram": "Telegram",
       "system": "系统"
     },
     "preferencesDesc": "配置界面语言、主题和桌面行为",
@@ -463,6 +464,7 @@
     "toolsDesc": "配置内置工具和技能",
     "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
     "channelsDesc": "接入外部消息平台（如 Telegram），通过现有聊天链路与 AI 交互。",
+    "channelsTelegramDesc": "配置 Telegram Bot 接入，支持私聊和群聊。",
     "channels": {
       "statusOn": "已启用",
       "statusOff": "未启用",

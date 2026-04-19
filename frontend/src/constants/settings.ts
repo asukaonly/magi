@@ -49,7 +49,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'extensions', icon: PlugZap },
   { id: 'timeline', icon: ScrollText },
   { id: 'actions', icon: Send },
-  { id: 'channels', icon: Radio },
+  { id: 'channels', icon: Radio, children: [{ id: 'channelsTelegram' }] },
   { id: 'tools', icon: Wrench },
   {
     id: 'statistics',
