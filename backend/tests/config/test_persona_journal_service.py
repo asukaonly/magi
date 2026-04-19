@@ -13,17 +13,25 @@ from magi.personality.persona_journal_service import (
 )
 
 
-def _make_loader_with_persona(persona_name="kai"):
-    """Create a mock PersonalityLoader that returns a configured persona."""
+def _make_persona_config():
+    """Create a mock PersonalityConfig for testing."""
     mock_config = MagicMock()
     mock_config.persona_entity = MagicMock()
     mock_config.persona_entity.basic_profile = MagicMock()
     mock_config.persona_entity.basic_profile.name = "小凯"
     mock_config.persona_entity.basic_profile.occupation = "productivity consultant"
+    return mock_config
 
-    loader = MagicMock()
-    loader.load.return_value = mock_config
-    return loader
+
+def _patch_resolve(config=None):
+    """Return a patch context manager for resolve_persona_config."""
+    if config is None:
+        config = _make_persona_config()
+    return patch(
+        "magi.personality.persona_journal_service.resolve_persona_config",
+        new_callable=AsyncMock,
+        return_value=config,
+    )
 
 
 def _make_growth_engine():
@@ -48,11 +56,10 @@ def _make_growth_engine():
 class TestGenerateReflection:
     @pytest.mark.asyncio
     async def test_generates_and_stores_reflection(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
 
-        with patch.object(service, "_call_llm", new=AsyncMock(return_value="Today I reflected on a productive chat.")):
+        with _patch_resolve(), patch.object(service, "_call_llm", new=AsyncMock(return_value="Today I reflected on a productive chat.")):
             entry = await service.generate_reflection(
                 persona_name="kai",
                 emotional_state={"mood": "content", "energy_level": 0.8, "stress_level": 0.1},
@@ -70,21 +77,19 @@ class TestGenerateReflection:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_persona_not_found(self):
-        loader = MagicMock()
-        loader.load.return_value = None
         engine = _make_growth_engine()
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
 
-        entry = await service.generate_reflection(persona_name="nonexistent")
+        with _patch_resolve(config=None):
+            entry = await service.generate_reflection(persona_name="nonexistent")
         assert entry is None
 
     @pytest.mark.asyncio
     async def test_returns_none_when_llm_fails(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
 
-        with patch.object(service, "_call_llm", new=AsyncMock(return_value=None)):
+        with _patch_resolve(), patch.object(service, "_call_llm", new=AsyncMock(return_value=None)):
             entry = await service.generate_reflection(persona_name="kai")
 
         assert entry is None
@@ -92,9 +97,8 @@ class TestGenerateReflection:
 
     @pytest.mark.asyncio
     async def test_includes_relationship_in_prompt(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
 
         captured_prompt = None
 
@@ -103,7 +107,7 @@ class TestGenerateReflection:
             captured_prompt = prompt
             return "A reflection entry."
 
-        with patch.object(service, "_call_llm", new=capture_llm):
+        with _patch_resolve(), patch.object(service, "_call_llm", new=capture_llm):
             await service.generate_reflection(
                 persona_name="kai",
                 relationship={"trust_level": 0.8, "total_interactions": 50, "sentiment_score": 0.6},
@@ -115,9 +119,8 @@ class TestGenerateReflection:
 
     @pytest.mark.asyncio
     async def test_includes_milestones_in_prompt(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
 
         captured_prompt = None
 
@@ -131,7 +134,7 @@ class TestGenerateReflection:
             {"title": "Deep discussion", "description": "Discussed philosophy"},
         ]
 
-        with patch.object(service, "_call_llm", new=capture_llm):
+        with _patch_resolve(), patch.object(service, "_call_llm", new=capture_llm):
             await service.generate_reflection(
                 persona_name="kai",
                 recent_milestones=milestones,
@@ -145,7 +148,6 @@ class TestGenerateReflection:
 class TestGetRecentEntries:
     @pytest.mark.asyncio
     async def test_returns_matching_entries(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
         engine.get_milestones = AsyncMock(return_value=[
             Milestone(
@@ -174,7 +176,7 @@ class TestGetRecentEntries:
             ),
         ])
 
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
         entries = await service.get_recent_entries("kai", limit=5)
 
         assert len(entries) == 2
@@ -184,7 +186,6 @@ class TestGetRecentEntries:
 
     @pytest.mark.asyncio
     async def test_respects_limit(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
         engine.get_milestones = AsyncMock(return_value=[
             Milestone(
@@ -198,18 +199,17 @@ class TestGetRecentEntries:
             for i in range(10)
         ])
 
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
         entries = await service.get_recent_entries("kai", limit=3)
 
         assert len(entries) == 3
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_entries(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
         engine.get_milestones = AsyncMock(return_value=[])
 
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
         entries = await service.get_recent_entries("kai")
 
         assert entries == []
@@ -217,7 +217,6 @@ class TestGetRecentEntries:
     @pytest.mark.asyncio
     async def test_handles_dict_milestones(self):
         """Test when growth engine returns dicts instead of Milestone objects."""
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
         engine.get_milestones = AsyncMock(return_value=[
             {
@@ -230,7 +229,7 @@ class TestGetRecentEntries:
             },
         ])
 
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
         entries = await service.get_recent_entries("kai")
 
         assert len(entries) == 1
@@ -240,9 +239,8 @@ class TestGetRecentEntries:
 class TestCallLlm:
     @pytest.mark.asyncio
     async def test_returns_none_when_pool_unavailable(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
 
         with patch(
             "magi.personality.persona_journal_service.require_scenario_llm_pool",
@@ -254,9 +252,8 @@ class TestCallLlm:
 
     @pytest.mark.asyncio
     async def test_successful_llm_call(self):
-        loader = _make_loader_with_persona()
         engine = _make_growth_engine()
-        service = PersonaJournalService(growth_engine=engine, personality_loader=loader)
+        service = PersonaJournalService(growth_engine=engine)
 
         mock_bridge = MagicMock()
         mock_bridge.chat = AsyncMock(return_value="A thoughtful reflection.")
