@@ -1409,6 +1409,16 @@
       "netease-music": {
         "name": "网易云音乐",
         "description": "自动同步网易云音乐的播放历史到时间线（支持 Windows 和 macOS）",
+        "fields": {
+          "tag_strategy": {
+            "label": "风格标签来源",
+            "description": "从播放记录中提取风格标签的方式。"
+          },
+          "lastfm_api_key": {
+            "label": "Last.fm API Key",
+            "description": "选择 Last.fm 时需填写，免费申请：last.fm/api/account/create"
+          }
+        },
         "options": {
           "enabled": {
             "true": "启用",
@@ -1419,23 +1429,20 @@
             "interval": "定时",
             "watch": "监听"
           },
-          "default_retention_mode": {
-            "analyze_only": "仅分析",
-            "retain_raw": "保留原始"
-          },
-          "storage_mode": {
-            "managed": "托管",
-            "external_reference": "外部引用"
-          },
           "initial_sync_policy": {
             "full": "同步全部历史",
             "lookback_days": "同步最近几天",
             "from_now": "仅同步新曲目"
+          },
+          "tag_strategy": {
+            "off": "关闭",
+            "builtin": "内置（本地别名，覆盖率有限）",
+            "lastfm": "Last.fm"
           }
         },
         "sections": {
           "general": "常规",
-          "storage": "存储"
+          "analysis": "分析"
         }
       },
       "screen-time": {

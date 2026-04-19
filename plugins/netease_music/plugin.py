@@ -78,34 +78,6 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             order=50,
         ),
         ExtensionFieldSpec(
-            key=f"{prefix}.default_retention_mode",
-            type="select",
-            label="Retention Mode",
-            description="How track history should be retained.",
-            default="analyze_only",
-            options=[
-                ExtensionFieldOption(label="Analyze Only", value="analyze_only"),
-                ExtensionFieldOption(label="Full Retention", value="full"),
-            ],
-            section="analysis",
-            surface="timeline",
-            order=60,
-        ),
-        ExtensionFieldSpec(
-            key=f"{prefix}.storage_mode",
-            type="select",
-            label="Storage Mode",
-            description="Where to store ingested track data.",
-            default="managed",
-            options=[
-                ExtensionFieldOption(label="Managed", value="managed"),
-                ExtensionFieldOption(label="Local", value="local"),
-            ],
-            section="analysis",
-            surface="timeline",
-            order=70,
-        ),
-        ExtensionFieldSpec(
             key=f"{prefix}.initial_sync_policy",
             type="select",
             label="Initial Sync Policy",
@@ -123,7 +95,7 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
         ExtensionFieldSpec(
             key=f"{prefix}.tag_strategy",
             type="select",
-            label="Tag Extraction Strategy",
+            label="Genre Tag Source",
             description=(
                 "How to extract genre/style tags for listened tracks. "
                 "'Built-in' reads local alias data (limited coverage). "
@@ -144,13 +116,15 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             type="input",
             label="Last.fm API Key",
             description=(
-                "Required when Tag Extraction Strategy is set to Last.fm. "
+                "Required when Genre Tag Source is set to Last.fm. "
                 "Apply for a free key at last.fm/api/account/create"
             ),
             default="",
             section="analysis",
             surface="timeline",
             order=76,
+            depends_on_key=f"{prefix}.tag_strategy",
+            depends_on_values=["lastfm"],
         ),
     ]
 

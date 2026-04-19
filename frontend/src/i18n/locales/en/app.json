@@ -1409,6 +1409,16 @@
       "netease-music": {
         "name": "NetEase Cloud Music",
         "description": "Sync NetEase Cloud Music play history to timeline (Windows & macOS)",
+        "fields": {
+          "tag_strategy": {
+            "label": "Genre Tag Source",
+            "description": "How to extract genre/style tags for listened tracks."
+          },
+          "lastfm_api_key": {
+            "label": "Last.fm API Key",
+            "description": "Required when Genre Tag Source is set to Last.fm. Apply for a free key at last.fm/api/account/create"
+          }
+        },
         "options": {
           "enabled": {
             "true": "Enabled",
@@ -1419,23 +1429,20 @@
             "interval": "Interval",
             "watch": "Watch"
           },
-          "default_retention_mode": {
-            "analyze_only": "Analyze Only",
-            "retain_raw": "Retain Raw"
-          },
-          "storage_mode": {
-            "managed": "Managed",
-            "external_reference": "External Reference"
-          },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
             "from_now": "Only new tracks from now"
+          },
+          "tag_strategy": {
+            "off": "Off",
+            "builtin": "Built-in (local alias, limited coverage)",
+            "lastfm": "Last.fm"
           }
         },
         "sections": {
           "general": "General",
-          "storage": "Storage"
+          "analysis": "Analysis"
         }
       },
       "screen-time": {
