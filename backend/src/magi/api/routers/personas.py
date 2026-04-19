@@ -6,6 +6,7 @@ Provides UUID-keyed CRUD, active persona management, and seed previews.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -108,7 +109,7 @@ async def list_personas():
     await repo.init()
     summaries = await repo.list_all()
     return PersonaListResponse(
-        data=[PersonaSummaryModel(**s.__dict__) for s in summaries],
+        data=[PersonaSummaryModel(**asdict(s)) for s in summaries],
     )
 
 
