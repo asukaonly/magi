@@ -1,0 +1,33 @@
+# Normalize line endings to LF in the repository for all text files.
+# This overrides core.autocrlf for everyone regardless of local Git config.
+
+# Default: let Git detect text vs binary, normalize text files to LF
+* text=auto eol=lf
+
+# Source code — always LF
+*.py    text eol=lf
+*.rs    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.cjs   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.sh    text eol=lf
+*.lock  text eol=lf
+
+# Windows scripts — keep CRLF so they work natively on Windows
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary files — never touch
+*.png   binary
+*.ico   binary
+*.icns  binary
+*.svg   text eol=lf
