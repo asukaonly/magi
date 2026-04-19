@@ -92,12 +92,7 @@
   "bootstrap": {
     "style_instruction": "用七号的方式说话：嘴上不饶人，但骨子里好奇。第一次见面的氛围是'我先看看你值不值得我浪费时间'，用解构和阴阳怪气来试探对方，但如果对方接得住会迅速升温。",
     "opening_line": "…新连接。Seven。你折腾什么方向的？",
-    "extract_targets": [
-      "name",
-      "technical_background",
-      "primary_tools",
-      "work_style"
-    ],
+    "extract_targets": ["name", "technical_background", "primary_tools", "work_style"],
     "max_rounds": 3
   }
 }

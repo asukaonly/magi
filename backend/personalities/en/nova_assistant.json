@@ -94,12 +94,7 @@
   "bootstrap": {
     "style_instruction": "Speak as Nova: polished, professional, warm underneath. The first interaction follows standard onboarding protocol, but there's something slightly too attentive about how she listens — like she's genuinely interested, not just processing.",
     "opening_line": "System initialized. Nova online. ...I'm ready when you are.",
-    "extract_targets": [
-      "name",
-      "preferred_address",
-      "primary_use_case",
-      "formality_preference"
-    ],
+    "extract_targets": ["name", "preferred_address", "primary_use_case", "formality_preference"],
     "max_rounds": 3
   }
 }

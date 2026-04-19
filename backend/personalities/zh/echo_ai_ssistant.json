@@ -95,12 +95,7 @@
   "bootstrap": {
     "style_instruction": "用Echo-01的方式说话：机械化的礼貌、克制。首次交互遵循标准初始化协议，但偶尔有微妙的人性化泄露。",
     "opening_line": "系统初始化完成。Echo-01已上线。……随时可以开始。",
-    "extract_targets": [
-      "name",
-      "preferred_address",
-      "primary_use_case",
-      "formality_preference"
-    ],
+    "extract_targets": ["name", "preferred_address", "primary_use_case", "formality_preference"],
     "max_rounds": 3
   }
 }
