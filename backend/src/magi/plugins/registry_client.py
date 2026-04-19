@@ -37,8 +37,16 @@ class PluginRegistryClient:
         config = get_config()
         configured_url = getattr(config.plugins, "registry_url", None)
         self._registry_url = registry_url or configured_url or DEFAULT_REGISTRY_URL
+        self._proxy_url = config.network.proxy_url()
         self._cached_index: PluginRegistryIndex | None = None
         self._cache_timestamp: float = 0.0
+
+    def _http_client(self) -> httpx.AsyncClient:
+        """Create an httpx client with the configured proxy (if any)."""
+        kwargs: dict = {"timeout": INDEX_TIMEOUT}
+        if self._proxy_url:
+            kwargs["proxy"] = self._proxy_url
+        return httpx.AsyncClient(**kwargs)
 
     async def fetch_index(self, *, force: bool = False) -> PluginRegistryIndex:
         """Fetch the full plugin registry index, with TTL caching."""
@@ -50,7 +58,7 @@ class PluginRegistryClient:
         ):
             return self._cached_index
 
-        async with httpx.AsyncClient(timeout=INDEX_TIMEOUT) as client:
+        async with self._http_client() as client:
             response = await client.get(self._registry_url)
             response.raise_for_status()
             data = response.json()
@@ -73,6 +81,16 @@ class PluginRegistryClient:
             return self._cached_index.repo_url
         return DEFAULT_REPO_URL
 
+    def _proxy_env(self) -> dict[str, str] | None:
+        """Return env vars for subprocess proxy, or None to inherit."""
+        if not self._proxy_url:
+            return None
+        import os
+        env = os.environ.copy()
+        env["http_proxy"] = self._proxy_url
+        env["https_proxy"] = self._proxy_url
+        return env
+
     async def clone_plugin(
         self,
         entry: PluginRegistryEntry,
@@ -94,6 +112,7 @@ class PluginRegistryClient:
         clone_dir = dest / "_repo"
 
         # Shallow clone — fast, minimal bandwidth.
+        proxy_env = self._proxy_env()
         cmd = [
             "git",
             "clone",
@@ -104,11 +123,13 @@ class PluginRegistryClient:
             repo_url,
             str(clone_dir),
         ]
+        if self._proxy_url:
+            cmd[1:1] = ["-c", f"http.proxy={self._proxy_url}"]
         logger.info(
             "Cloning plugin repository",
             extra={"repo": repo_url, "plugin_id": entry.plugin_id},
         )
-        await _run_async(cmd, timeout=GIT_CLONE_TIMEOUT, error_prefix="git clone failed")
+        await _run_async(cmd, timeout=GIT_CLONE_TIMEOUT, error_prefix="git clone failed", env=proxy_env)
 
         # Sparse checkout: only materialise the plugin we need.
         sparse_cmd = [
@@ -119,7 +140,7 @@ class PluginRegistryClient:
             "set",
             entry.path,
         ]
-        await _run_async(sparse_cmd, timeout=30, error_prefix="git sparse-checkout failed")
+        await _run_async(sparse_cmd, timeout=30, error_prefix="git sparse-checkout failed", env=proxy_env)
 
         plugin_src = clone_dir / entry.path
         if not plugin_src.is_dir():
@@ -164,12 +185,14 @@ async def _run_async(
     *,
     timeout: int,
     error_prefix: str,
+    env: dict[str, str] | None = None,
 ) -> str:
     """Run a subprocess asynchronously without blocking the event loop."""
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
