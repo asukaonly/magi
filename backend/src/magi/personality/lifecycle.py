@@ -30,6 +30,7 @@ class PersonalityModule(LifecycleModule):
         # Resolve active persona from the registry (preferred) or filesystem fallback.
         persona_id = ""
         personality_name = self._context.core.current_personality
+        personality_config = None
         repo = PersonaRepository(str(runtime_paths.persona_registry_db_path))
         await repo.init()
 
@@ -52,19 +53,21 @@ class PersonalityModule(LifecycleModule):
                 record = await repo.get(active_id)
                 persona_id = record.persona_id
                 personality_name = record.slug
+                personality_config = record.config
                 logger.info("Resolved active persona from registry: %s (%s)", persona_id, personality_name)
         except Exception as exc:
             logger.debug("Persona registry lookup skipped: %s", exc)
 
         self._context.core.current_personality = personality_name
-        # Synchronize the in-memory active slug so other modules can
-        # read it synchronously via ``get_current_personality()``.
-        set_current_personality(personality_name)
+        # Synchronize the in-memory active slug and config so other
+        # modules can read it synchronously via ``get_current_personality()``.
+        set_current_personality(personality_name, config=personality_config)
 
         self._context.personality.self_memory = SelfMemory(
             personality_name=personality_name,
             personalities_path=str(runtime_paths.personalities_dir),
             persona_id=persona_id,
+            personality_config=personality_config,
         )
         await self._context.personality.self_memory.init()
 

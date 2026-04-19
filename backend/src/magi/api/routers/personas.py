@@ -133,11 +133,12 @@ async def set_active_persona(payload: ActivePersonaRequest):
     except KeyError:
         raise HTTPException(status_code=404, detail="Persona not found")
 
-    # Synchronize in-memory active slug so sync callers see the change.
+    # Synchronize in-memory active slug and config so sync callers see the change.
     slug = record.slug
+    persona_config = record.config
     try:
         from ...personality.current_state import set_current_personality
-        set_current_personality(slug)
+        set_current_personality(slug, config=persona_config)
     except Exception as exc:
         logger.warning("Failed to sync in-memory personality slug: %s", exc)
 
@@ -151,7 +152,7 @@ async def set_active_persona(payload: ActivePersonaRequest):
         chat_agent = await manager.ensure_agent(TaskAgentType.CHAT, "default")
         memory = getattr(chat_agent, "memory", None)
         if memory:
-            await memory.reload_personality(slug)
+            await memory.reload_personality(slug, personality_config=persona_config)
     except Exception as exc:
         logger.warning("Failed to reload agent personality: %s", exc)
 

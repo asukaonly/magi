@@ -45,6 +45,7 @@ class SelfMemory:
         enable_evolution: bool = True,
         *,
         persona_id: str = "",
+        personality_config: Optional[PersonalityConfig] = None,
     ):
         """
         Internal note.
@@ -72,7 +73,7 @@ class SelfMemory:
         self._growth_engine: Optional[GrowthMemoryEngine] = None
 
         # cache - store parsed personality config
-        self._personality_config: Optional[PersonalityConfig] = None
+        self._personality_config: Optional[PersonalityConfig] = personality_config
 
     async def init(self):
         """initializeallcomponent"""
@@ -109,16 +110,38 @@ class SelfMemory:
         logger.info(f"SelfMemory initialized with personality: {self.personality_name}")
 
     async def _load_personality(self):
-        """Load personality configuration from JSON."""
+        """Load personality configuration.
+
+        Uses the pre-loaded config if available, then tries the
+        in-memory cache, and finally falls back to ``PersonalityLoader``
+        (filesystem JSON).
+        """
+        if self._personality_config is not None:
+            logger.info(f"Using pre-loaded personality config: {self._personality_config.name}")
+            return
+
+        # Try the in-memory config cache populated by lifecycle/persona switch.
+        from .current_state import get_current_personality_config
+        cached = get_current_personality_config()
+        if cached is not None:
+            self._personality_config = cached
+            logger.info(f"Loaded personality from in-memory cache: {cached.name}")
+            return
+
+        # Filesystem fallback for edge cases (e.g. tests, seed loading).
         try:
             config = self._personality_loader.load(self.personality_name)
             self._personality_config = config
-            logger.info(f"Loaded personality: {config.name}")
+            logger.info(f"Loaded personality from file: {config.name}")
         except FileNotFoundError:
             logger.warning(f"Personality {self.personality_name} not found, using default")
             self._personality_config = PersonalityConfig()
 
-    async def reload_personality(self, new_personality_name: str = None):
+    async def reload_personality(
+        self,
+        new_personality_name: str = None,
+        personality_config: Optional[PersonalityConfig] = None,
+    ):
         """
         Internal note.
 
@@ -136,8 +159,9 @@ class SelfMemory:
             if new_personality_name and new_personality_name != old_personality_name:
                 self._personality_loader.clear_cache(new_personality_name)
 
-        # Internal note.
-        self._personality_config = None
+        # Use the explicitly passed config, or clear so _load_personality
+        # re-resolves from cache / filesystem.
+        self._personality_config = personality_config
 
         # Internal note.
         await self._load_personality()

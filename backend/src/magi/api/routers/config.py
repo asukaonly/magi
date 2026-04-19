@@ -436,22 +436,26 @@ def _build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
 
 
 def _load_full_personality() -> FullPersonalityConfigModel:
-    """Load full personality config from personality file, not from agent.yaml."""
-    from ...personality.loader import PersonalityLoader
-    from ...personality.current_state import get_current_personality
+    """Load full personality config from the in-memory cache or filesystem."""
+    from ...personality.current_state import get_current_personality, get_current_personality_config
+    from ...personality.loader import PersonalityConfig, PersonalityLoader
     from ...utils.runtime import get_runtime_paths
 
     try:
-        runtime_paths = get_runtime_paths()
-        loader = PersonalityLoader(str(runtime_paths.personalities_dir))
-
         personality_name = get_current_personality()
 
-        # Load full personality from file
+        # Prefer the in-memory config set during boot / persona switch.
+        cached = get_current_personality_config()
+        if cached is not None:
+            return FullPersonalityConfigModel(**cached.to_dict())
+
+        # Filesystem fallback for edge cases.
+        runtime_paths = get_runtime_paths()
+        loader = PersonalityLoader(str(runtime_paths.personalities_dir))
         personality_obj = loader.load(personality_name)
         return FullPersonalityConfigModel(**personality_obj.to_dict())
     except Exception as exc:
-        logger.warning("Failed to load personality from file, using default: %s", exc)
+        logger.warning("Failed to load personality config, using default: %s", exc)
         return FullPersonalityConfigModel()
 
 

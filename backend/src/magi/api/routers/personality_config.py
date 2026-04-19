@@ -24,6 +24,7 @@ from ...personality.persona_repository import PersonaRepository
 from ..avatar_paths import resolve_avatar_public_url
 from ...personality.current_state import (
     get_current_personality as get_current_personality_name,
+    get_current_personality_config,
     set_current_personality as set_current_personality_name,
 )
 from ...config import get_config
@@ -151,6 +152,24 @@ FIELD_LABELS: Dict[str, str] = {
 def get_personality_loader() -> PersonalityLoader:
     runtime_paths = get_runtime_paths()
     return PersonalityLoader(str(runtime_paths.personalities_dir))
+
+
+def _load_current_config(slug: str) -> "PersonalityConfig":
+    """Return the PersonalityConfig for *slug*.
+
+    Prefers the in-memory cache (populated at boot / persona switch),
+    then falls back to ``PersonalityLoader`` (filesystem JSON).
+    """
+    from ...personality.loader import PersonalityConfig as _PC  # noqa: avoid circular
+
+    cached = get_current_personality_config()
+    if cached is not None:
+        return cached
+    try:
+        return get_personality_loader().load(slug)
+    except FileNotFoundError:
+        logger.warning("Personality '%s' not found on disk, using default config", slug)
+        return _PC()
 
 
 _growth_engine_instance: Optional[GrowthMemoryEngine] = None
@@ -529,13 +548,23 @@ async def api_set_current_personality(request: Dict[str, str]):
         name = request.get("name")
         if not name:
             raise HTTPException(status_code=400, detail="Missing personality name")
-        loader = get_personality_loader()
-        try:
-            loader.load(name)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=f"Personality '{name}' not found") from exc
 
-        if not set_current_personality_name(name):
+        # Try loading from registry first, then filesystem fallback.
+        config = None
+        try:
+            repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+            await repo.init()
+            record = await repo.get_by_slug(name)
+            config = record.config
+        except (KeyError, Exception):
+            # Fallback to filesystem loader for legacy installs.
+            loader = get_personality_loader()
+            try:
+                config = loader.load(name)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=404, detail=f"Personality '{name}' not found") from exc
+
+        if not set_current_personality_name(name, config=config):
             raise HTTPException(status_code=500, detail="Setting failed")
 
         try:
@@ -570,7 +599,7 @@ async def api_set_current_personality(request: Dict[str, str]):
 async def api_get_greeting():
     try:
         current_name = get_current_personality_name()
-        config = get_personality_loader().load(current_name)
+        config = _load_current_config(current_name)
 
         # Best-effort bootstrap status
         needs_bootstrap = False
@@ -633,8 +662,28 @@ async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
                     data=_normalize_avatar_in_payload(config.model_dump()),
                 )
 
-        # Fallback to runtime directory
-        config = PersonalityConfigModel.model_validate(get_personality_loader().load(name).to_dict())
+        # Fallback to runtime directory, then registry
+        try:
+            loaded = get_personality_loader().load(name)
+            config = PersonalityConfigModel.model_validate(loaded.to_dict())
+        except FileNotFoundError:
+            # Try persona registry
+            try:
+                repo = PersonaRepository(str(get_runtime_paths().persona_registry_db_path))
+                await repo.init()
+                record = await repo.get_by_slug(name)
+                config = PersonalityConfigModel.model_validate(record.config.to_dict())
+            except (KeyError, Exception):
+                config = None
+
+            if config is None:
+                default_config = PersonalityConfigModel()
+                return PersonalityResponse(
+                    success=True,
+                    message=f"Personality configuration not found, using default: {name}",
+                    data=_normalize_avatar_in_payload(default_config.model_dump()),
+                )
+
         return PersonalityResponse(
             success=True,
             message=f"Successfully retrieved personality configuration: {name}",
