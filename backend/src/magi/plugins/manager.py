@@ -452,9 +452,11 @@ class PluginManager:
         module_path = Path(manifest.plugin_dir) / f"{manifest.entry_module}.py"
 
         # Add plugin-local .deps/ to sys.path so private dependencies resolve.
+        # Appended (not inserted) so host packages take precedence over
+        # plugin-bundled copies, avoiding accidental version overrides.
         deps_dir = Path(manifest.plugin_dir) / ".deps"
         if deps_dir.is_dir() and str(deps_dir) not in sys.path:
-            sys.path.insert(0, str(deps_dir))
+            sys.path.append(str(deps_dir))
 
         spec = importlib.util.spec_from_file_location(
             f"magi_plugin_{manifest.plugin_id.replace('-', '_')}",
