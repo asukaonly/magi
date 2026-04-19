@@ -600,7 +600,7 @@ class PluginManager:
             self._install_dependencies(new_manifest.dependencies, dest_dir)
 
         self.scan(persist_discovery=True)
-        return self._require_package(plugin_id)
+        return self.enable_plugin(plugin_id)
 
     def uninstall_plugin(self, plugin_id: str) -> None:
         """Uninstall a user-installed plugin and remove its files."""

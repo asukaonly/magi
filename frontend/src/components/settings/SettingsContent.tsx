@@ -102,6 +102,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,
+    loadPluginsAndSensors,
     tools,
     toolsLoading,
     toolsError,
@@ -645,7 +646,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return (
           <PluginMarketplace
             installedPlugins={plugins}
-            onInstallComplete={loadPlugins}
+            onInstallComplete={loadPluginsAndSensors}
           />
         );
 

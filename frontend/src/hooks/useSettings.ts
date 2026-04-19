@@ -76,6 +76,7 @@ export interface UseSettingsReturn {
   handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   handleReloadActionPlugin: (pluginId: string) => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
+  loadPluginsAndSensors: () => Promise<void>;
 
   // Tools
   tools: ToolConfig[];
@@ -272,6 +273,11 @@ export function useSettings(): UseSettingsReturn {
       }
     }
   }, [t]);
+
+  const loadPluginsAndSensors = useCallback(async () => {
+    await loadPlugins();
+    await fetchTimelineStatuses();
+  }, [loadPlugins, fetchTimelineStatuses]);
 
   const loadTools = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) {
@@ -669,6 +675,7 @@ export function useSettings(): UseSettingsReturn {
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,
+    loadPluginsAndSensors,
 
     // Tools
     tools,
