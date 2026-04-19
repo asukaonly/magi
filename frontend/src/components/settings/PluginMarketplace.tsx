@@ -56,7 +56,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
 
   const installedIds = new Set(installedPlugins.map((p) => p.manifest.plugin_id));
 
+  const currentPlatform = /mac/i.test(navigator.userAgent) ? 'macos' : 'windows';
+
   const filteredEntries = registryEntries.filter((entry) => {
+    // Hide plugins that don't support the current platform.
+    if (entry.platforms.length > 0 && !entry.platforms.includes(currentPlatform)) {
+      return false;
+    }
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
     return (
