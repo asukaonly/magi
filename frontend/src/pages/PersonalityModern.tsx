@@ -80,6 +80,11 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     reload,
   } = usePersonality();
 
+  // Reset broken state whenever the selected persona changes.
+  React.useEffect(() => {
+    setAvatarBroken(false);
+  }, [selectedId]);
+
   const detailTitle = isNewMode
     ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
     : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'));
