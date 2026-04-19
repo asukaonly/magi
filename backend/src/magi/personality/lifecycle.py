@@ -6,7 +6,7 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..config.loader import get_user_preference
 from ..core.logger import get_logger
-from .current_state import get_current_personality
+from .current_state import set_current_personality
 from .persona_repository import PersonaRepository
 from .persona_seed import seed_builtin_personas, resolve_locale
 from .self_memory import SelfMemory
@@ -56,14 +56,10 @@ class PersonalityModule(LifecycleModule):
         except Exception as exc:
             logger.debug("Persona registry lookup skipped: %s", exc)
 
-        # Filesystem fallback for pre-migration installs.
-        if not persona_id:
-            try:
-                personality_name = get_current_personality() or personality_name
-            except Exception as exc:
-                logger.warning("Failed to refresh current personality from personality state: %s", exc)
-
         self._context.core.current_personality = personality_name
+        # Synchronize the in-memory active slug so other modules can
+        # read it synchronously via ``get_current_personality()``.
+        set_current_personality(personality_name)
 
         self._context.personality.self_memory = SelfMemory(
             personality_name=personality_name,

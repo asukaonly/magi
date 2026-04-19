@@ -124,7 +124,7 @@ async def get_active_persona():
 
 @personas_router.put("/active", response_model=ActivePersonaResponse)
 async def set_active_persona(payload: ActivePersonaRequest):
-    """Switch the active persona and sync file-based personality state."""
+    """Switch the active persona and reload agent personality state."""
     repo = _get_repo()
     await repo.init()
     try:
@@ -133,13 +133,13 @@ async def set_active_persona(payload: ActivePersonaRequest):
     except KeyError:
         raise HTTPException(status_code=404, detail="Persona not found")
 
-    # Sync file-based current personality so greeting / prompt injection pick it up
+    # Synchronize in-memory active slug so sync callers see the change.
     slug = record.slug
     try:
         from ...personality.current_state import set_current_personality
         set_current_personality(slug)
     except Exception as exc:
-        logger.warning("Failed to sync current personality file: %s", exc)
+        logger.warning("Failed to sync in-memory personality slug: %s", exc)
 
     # Reload the live agent's SelfMemory so prompt injection uses the new persona
     try:

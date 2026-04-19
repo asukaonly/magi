@@ -438,18 +438,14 @@ def _build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
 def _load_full_personality() -> FullPersonalityConfigModel:
     """Load full personality config from personality file, not from agent.yaml."""
     from ...personality.loader import PersonalityLoader
+    from ...personality.current_state import get_current_personality
     from ...utils.runtime import get_runtime_paths
 
     try:
         runtime_paths = get_runtime_paths()
         loader = PersonalityLoader(str(runtime_paths.personalities_dir))
 
-        # Get current personality name from 'current' file or use default
-        current_file = runtime_paths.personalities_dir / "current"
-        if current_file.exists():
-            personality_name = current_file.read_text().strip()
-        else:
-            personality_name = "default"
+        personality_name = get_current_personality()
 
         # Load full personality from file
         personality_obj = loader.load(personality_name)
@@ -1047,9 +1043,9 @@ def _copy_personality_preset_to_user(preset_id: str, lang: str = "zh") -> bool:
         user_file = runtime_paths.personality_file(preset_id)
         user_file.write_text(json.dumps(preset_config, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        # Set as current personality
-        current_file = runtime_paths.personalities_dir / "current"
-        current_file.write_text(preset_id)
+        # Set as current personality (in-memory only; registry is source of truth)
+        from ...personality.current_state import set_current_personality
+        set_current_personality(preset_id)
 
         logger.info("Copied personality preset '%s' to user storage and set as current", preset_id)
         return True
@@ -1082,9 +1078,9 @@ def _save_personality_to_user(personality: FullPersonalityConfigModel) -> bool:
             encoding="utf-8"
         )
 
-        # Set as current personality
-        current_file = runtime_paths.personalities_dir / "current"
-        current_file.write_text(safe_name)
+        # Set as current personality (in-memory only; registry is source of truth)
+        from ...personality.current_state import set_current_personality
+        set_current_personality(safe_name)
 
         logger.info("Saved personality '%s' to user storage and set as current", safe_name)
         return True
