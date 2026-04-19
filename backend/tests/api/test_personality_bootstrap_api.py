@@ -64,6 +64,7 @@ class TestGreetingBootstrapStatus:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = config
 
             resp = await api_get_greeting()
@@ -90,6 +91,7 @@ class TestGreetingBootstrapStatus:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = config
 
             resp = await api_get_greeting()
@@ -111,6 +113,7 @@ class TestGreetingBootstrapStatus:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = config
 
             resp = await api_get_greeting()
@@ -149,6 +152,7 @@ class TestBootstrapInitEndpoint:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = config
 
             request = BootstrapInitRequest(session_id="sess_001")
@@ -177,6 +181,7 @@ class TestBootstrapInitEndpoint:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = _mock_config()
 
             request = BootstrapInitRequest(session_id="sess_001")
@@ -221,6 +226,7 @@ class TestBootstrapMessageEndpoint:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = config
             mock_pool.return_value.get.return_value.chat = AsyncMock(return_value="Nice to meet you!")
 
@@ -256,6 +262,7 @@ class TestBootstrapMessageEndpoint:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = config
 
             request = BootstrapMessageRequest(user_message="Hi")
@@ -290,6 +297,7 @@ class TestJournalReflectEndpoint:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = config
 
             request = JournalReflectRequest()
@@ -314,6 +322,7 @@ class TestJournalReflectEndpoint:
         ):
             mock_paths.return_value.personalities_dir = "/tmp/test"
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
             mock_loader_fn.return_value.load.return_value = None
 
             request = JournalReflectRequest()
