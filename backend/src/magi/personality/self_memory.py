@@ -18,7 +18,7 @@ from dataclasses import asdict
 from .models import (
     EmotionalState,
 )
-from .loader import PersonalityLoader, PersonalityConfig
+from .loader import PersonalityConfig
 from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
 from .emotional_state import EmotionalStateEngine, InteractionOutcome, EngagementLevel
 from .growth_memory import GrowthMemoryEngine, InteractionType, MilestoneType
@@ -40,18 +40,17 @@ class SelfMemory:
     def __init__(
         self,
         personality_name: str = "default",
-        personalities_path: str = None,
         db_path: str = None,
         enable_evolution: bool = True,
         *,
         persona_id: str = "",
+        personality_config: Optional[PersonalityConfig] = None,
     ):
         """
         Internal note.
 
         Args:
             personality_name: Personality name
-            Internal note.
             Internal note.
             enable_evolution: is notEnablepersonalityevolution
             persona_id: Stable persona identity for scoping evolution data.
@@ -61,24 +60,18 @@ class SelfMemory:
 
         self.personality_name = personality_name
         self.persona_id = persona_id
-        self.personalities_path = personalities_path or str(runtime_paths.personalities_dir)
         self.db_path = db_path or str(runtime_paths.self_memory_db_path)
         self.enable_evolution = enable_evolution
 
-        # Internal note.
-        self._personality_loader: Optional[PersonalityLoader] = None
         self._behavior_engine: Optional[BehaviorEvolutionEngine] = None
         self._emotion_engine: Optional[EmotionalStateEngine] = None
         self._growth_engine: Optional[GrowthMemoryEngine] = None
 
         # cache - store parsed personality config
-        self._personality_config: Optional[PersonalityConfig] = None
+        self._personality_config: Optional[PersonalityConfig] = personality_config
 
     async def init(self):
         """initializeallcomponent"""
-        # initializePersonality Loader
-        self._personality_loader = PersonalityLoader(self.personalities_path)
-
         # loadPersonality configuration
         await self._load_personality()
 
@@ -109,16 +102,27 @@ class SelfMemory:
         logger.info(f"SelfMemory initialized with personality: {self.personality_name}")
 
     async def _load_personality(self):
-        """Load personality configuration from JSON."""
-        try:
-            config = self._personality_loader.load(self.personality_name)
-            self._personality_config = config
-            logger.info(f"Loaded personality: {config.name}")
-        except FileNotFoundError:
-            logger.warning(f"Personality {self.personality_name} not found, using default")
-            self._personality_config = PersonalityConfig()
+        """Load personality configuration from pre-loaded config, cache, or registry."""
+        if self._personality_config is not None:
+            logger.info(f"Using pre-loaded personality config: {self._personality_config.name}")
+            return
 
-    async def reload_personality(self, new_personality_name: str = None):
+        # Try the in-memory config cache or registry.
+        from .current_state import resolve_persona_config
+        resolved = await resolve_persona_config(self.personality_name)
+        if resolved is not None:
+            self._personality_config = resolved
+            logger.info(f"Loaded personality from registry/cache: {resolved.name}")
+            return
+
+        logger.warning(f"Personality {self.personality_name} not found in registry, using default")
+        self._personality_config = PersonalityConfig()
+
+    async def reload_personality(
+        self,
+        new_personality_name: str = None,
+        personality_config: Optional[PersonalityConfig] = None,
+    ):
         """
         Internal note.
 
@@ -130,14 +134,9 @@ class SelfMemory:
         if new_personality_name:
             self.personality_name = new_personality_name
 
-        # Internal note.
-        if self._personality_loader:
-            self._personality_loader.clear_cache(old_personality_name)
-            if new_personality_name and new_personality_name != old_personality_name:
-                self._personality_loader.clear_cache(new_personality_name)
-
-        # Internal note.
-        self._personality_config = None
+        # Use the explicitly passed config, or clear so _load_personality
+        # re-resolves from cache / registry.
+        self._personality_config = personality_config
 
         # Internal note.
         await self._load_personality()

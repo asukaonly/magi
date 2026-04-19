@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, ChevronRight, PencilLine, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, ChevronRight, PencilLine, Sparkles, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -27,10 +27,6 @@ interface PersonalityFormProps {
 const GROUP_ORDER = ['magi', 'general'];
 const DEFAULT_PRESET_SLUG = 'echo_ai_ssistant';
 
-type CachedPhraseKey = 'on_init' | 'on_error_generic' | 'on_success' | 'on_switch_attempt';
-
-const normalizePhraseList = (items: string[] = []): string[] => (items.length > 0 ? items : ['']);
-
 const normalizeTransition = (item: Partial<StateTransitionProtocolItem>): StateTransitionProtocolItem => ({
   trigger_type: item.trigger_type || '',
   trigger_condition: item.trigger_condition || '',
@@ -47,10 +43,6 @@ const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig =>
   next.persona_entity.core_identity = {
     ...next.persona_entity.core_identity,
     ...(incoming.persona_entity?.core_identity || {}),
-  };
-  next.cached_phrases = {
-    ...next.cached_phrases,
-    ...(incoming.cached_phrases || {}),
   };
   next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
   const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
@@ -166,35 +158,6 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       const next = structuredClone(prev);
       fn(next);
       return next;
-    });
-  };
-
-  const updatePhraseItem = (key: CachedPhraseKey, index: number, value: string) => {
-    patch((d) => {
-      const next = normalizePhraseList(d.cached_phrases[key]);
-      next[index] = value;
-      d.cached_phrases[key] = next;
-    });
-  };
-
-  const addPhraseItem = (key: CachedPhraseKey) => {
-    patch((d) => {
-      const next = normalizePhraseList(d.cached_phrases[key]);
-      next.push('');
-      d.cached_phrases[key] = next;
-    });
-  };
-
-  const removePhraseItem = (key: CachedPhraseKey, index: number) => {
-    patch((d) => {
-      const next = normalizePhraseList(d.cached_phrases[key]);
-      if (next.length <= 1) {
-        next[0] = '';
-        d.cached_phrases[key] = next;
-        return;
-      }
-      next.splice(index, 1);
-      d.cached_phrases[key] = next;
     });
   };
 
@@ -689,64 +652,6 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                   onChange={(e) => patch((d) => { d.persona_entity.core_identity.attention_bias = e.target.value; })}
                                 />
                               </label>
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-
-                        {/* Cached Phrases */}
-                        <Collapsible className="space-y-1">
-                          <CollapsibleTrigger className="rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted">
-                            {t('personality.sections.cachedPhrases')}
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="pt-2">
-                            <p className="mb-2 text-xs text-muted-foreground">{t('personality.arrayHint')}</p>
-                            <div className="grid gap-3 md:grid-cols-2">
-                              {[
-                                { key: 'on_init', label: t('personality.fields.onInit') },
-                                { key: 'on_error_generic', label: t('personality.fields.onError') },
-                                { key: 'on_success', label: t('personality.fields.onSuccess') },
-                                { key: 'on_switch_attempt', label: t('personality.fields.onSwitchAttempt'), full: true },
-                              ].map((field) => {
-                                const values = normalizePhraseList(config.cached_phrases[field.key as CachedPhraseKey]);
-                                return (
-                                  <div key={field.key} className={cn('space-y-2', field.full && 'md:col-span-2')}>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-xs font-medium text-muted-foreground">{field.label}</span>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => addPhraseItem(field.key as CachedPhraseKey)}
-                                      >
-                                        <Plus className="h-3.5 w-3.5" />
-                                        {t('personality.actions.addItem')}
-                                      </Button>
-                                    </div>
-                                    <div className="space-y-2 rounded-md border border-border/60 bg-muted/10 p-2">
-                                      {values.map((value, index) => (
-                                        <div key={`${field.key}-${index}`} className="flex items-start gap-2">
-                                          <AutoResizeTextarea
-                                            value={value}
-                                            minHeight={56}
-                                            className="w-full"
-                                            onChange={(e) => updatePhraseItem(field.key as CachedPhraseKey, index, e.target.value)}
-                                          />
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            onClick={() => removePhraseItem(field.key as CachedPhraseKey, index)}
-                                            disabled={values.length <= 1}
-                                            aria-label={t('personality.actions.removeItem')}
-                                          >
-                                            <Trash2 className="h-4 w-4" />
-                                          </Button>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                );
-                              })}
                             </div>
                           </CollapsibleContent>
                         </Collapsible>

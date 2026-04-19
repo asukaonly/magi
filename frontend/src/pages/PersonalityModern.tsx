@@ -25,8 +25,6 @@ import { cn } from '@/lib/utils';
 import { personasApi } from '@/api/modules/personas';
 import {
   usePersonality,
-  parseLines,
-  toLines,
   getInitials,
   normalizeTransition,
 } from '@/hooks';
@@ -80,13 +78,20 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     reload,
   } = usePersonality();
 
+  // Reset broken state whenever the selected persona or its avatar changes.
+  // Watching the config avatar handles the race condition where the old
+  // persona's broken avatar fires onError before the new config loads.
+  const avatarValue = config.persona_entity.basic_profile.avatar || '';
+  React.useEffect(() => {
+    setAvatarBroken(false);
+  }, [selectedId, avatarValue]);
+
   const detailTitle = isNewMode
     ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
     : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'));
   const detailDescription = isNewMode
     ? t('personality.newPersonalityDesc')
     : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
-  const avatarValue = config.persona_entity.basic_profile.avatar || '';
   const avatarUrl = avatarValue && !avatarBroken ? personasApi.getAvatarUrl(avatarValue) : '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -197,7 +202,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     <img
                       src={selectorAvatarUrl}
                       alt={item.displayName}
-                      className="h-full w-full rounded-[14px] object-cover"
+                      className="h-full w-full rounded-[14px] bg-neutral-200 object-cover dark:bg-neutral-700"
                     />
                   ) : (
                     <span
@@ -253,7 +258,12 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   type="button"
                   onClick={() => avatarInputRef.current?.click()}
                   disabled={uploadingAvatar}
-                  className="group relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-border/60 bg-background transition hover:border-primary/50 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-70"
+                  className={cn(
+                    'group relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-border/60 transition hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-70',
+                    avatarUrl
+                      ? 'bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-700 dark:hover:bg-neutral-600'
+                      : 'bg-background hover:bg-primary/5'
+                  )}
                   aria-label={t('personality.actions.uploadAvatar')}
                 >
                   {avatarUrl ? (
@@ -460,50 +470,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                       className="rounded-xl"
                       value={config.persona_entity.core_identity.attention_bias}
                       onChange={(event) => patch((d) => { d.persona_entity.core_identity.attention_bias = event.target.value; })}
-                    />
-                  </label>
-                </CardContent>
-              </Card>
-
-              <Card className={sectionCardClass}>
-                <CardHeader>
-                  <CardTitle>{t('personality.sections.cachedPhrases')}</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onInit')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_init)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_init = parseLines(event.target.value); })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onError')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_error_generic)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_error_generic = parseLines(event.target.value); })}
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onSuccess')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_success)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_success = parseLines(event.target.value); })}
-                    />
-                  </label>
-                  <label className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium">{t('personality.fields.onSwitchAttempt')}</span>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl"
-                      value={toLines(config.cached_phrases.on_switch_attempt)}
-                      onChange={(event) => patch((d) => { d.cached_phrases.on_switch_attempt = parseLines(event.target.value); })}
                     />
                   </label>
                 </CardContent>

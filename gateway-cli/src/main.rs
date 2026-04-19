@@ -1,7 +1,18 @@
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use magi_gateway::{api, db, ipc, notification_bridge};
+
+fn resolve_user_avatar_dir() -> Option<PathBuf> {
+    let home = env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .ok()
+        .map(PathBuf::from)?;
+    let dir = home.join(".magi").join("personalities").join("avatar");
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir)
+}
 
 /// Headless Magi gateway — serves HTTP on a given port and connects
 /// to a running Python IPC worker.  No Tauri / desktop chrome required.
@@ -42,6 +53,8 @@ async fn main() {
 
     let state = api::state::ApiState {
         ipc_client,
+        builtin_avatar_dir: None,
+        user_avatar_dir: resolve_user_avatar_dir(),
     };
     let router = api::build_router(state);
 

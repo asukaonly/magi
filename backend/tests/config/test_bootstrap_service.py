@@ -7,7 +7,7 @@ import pytest
 
 from magi.personality.bootstrap_service import BootstrapDialogueService
 from magi.personality.growth_memory import GrowthMemoryEngine, Milestone, MilestoneType
-from magi.personality.loader import BootstrapConfig, PersonalityConfig, PersonalityLoader
+from magi.personality.loader import BootstrapConfig, PersonalityConfig
 
 
 def _make_config(*, with_bootstrap: bool = True) -> PersonalityConfig:
@@ -21,7 +21,6 @@ def _make_config(*, with_bootstrap: bool = True) -> PersonalityConfig:
                 "inner_narrative": "A test persona.",
             },
         },
-        "cached_phrases": {"on_init": ["Hello."]},
         "bootstrap": {
             "style_instruction": "Be direct and friendly.",
             "opening_line": "Hey! What should I call you?",
@@ -58,13 +57,10 @@ class TestBootstrapConfig:
 class TestBootstrapNeedsCheck:
     @pytest.mark.asyncio
     async def test_needs_bootstrap_when_no_milestone(self):
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=False)
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
         growth.get_milestones.return_value = []
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=growth,
         )
 
@@ -73,14 +69,11 @@ class TestBootstrapNeedsCheck:
 
     @pytest.mark.asyncio
     async def test_needs_bootstrap_when_not_completed(self):
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=True)
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
         growth.get_milestones.return_value = []
 
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=growth,
         )
 
@@ -88,8 +81,6 @@ class TestBootstrapNeedsCheck:
 
     @pytest.mark.asyncio
     async def test_no_bootstrap_when_already_completed(self):
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=True)
 
         completed_milestone = Milestone(
             id="m1",
@@ -103,7 +94,6 @@ class TestBootstrapNeedsCheck:
         growth.get_milestones.return_value = [completed_milestone]
 
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=growth,
         )
 
@@ -113,8 +103,6 @@ class TestBootstrapNeedsCheck:
 class TestBootstrapOpening:
     @pytest.mark.asyncio
     async def test_get_opening_llm_success(self):
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=True)
 
         mock_bridge = AsyncMock()
         mock_bridge.chat.return_value = "Hey there, welcome!"
@@ -122,49 +110,44 @@ class TestBootstrapOpening:
         mock_pool.get.return_value = mock_bridge
 
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=AsyncMock(),
         )
-        with patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool):
+        with (
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+        ):
             opening = await service.get_opening("test")
         assert opening == "Hey there, welcome!"
 
     @pytest.mark.asyncio
     async def test_get_opening_llm_fails_uses_static_fallback(self):
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=True)
 
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=AsyncMock(),
         )
         # No LLM pool available → falls back to static opening_line
-        opening = await service.get_opening("test")
+        with patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)):
+            opening = await service.get_opening("test")
         assert opening == "Hey! What should I call you?"
 
     @pytest.mark.asyncio
     async def test_get_opening_no_config_synthesizes_and_falls_back(self):
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=False)
 
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=AsyncMock(),
         )
         # No bootstrap config → synthesized config has empty opening_line → returns None
-        opening = await service.get_opening("test")
+        with patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=False)):
+            opening = await service.get_opening("test")
         assert opening is None
 
 
 class TestBootstrapReply:
     @pytest.mark.asyncio
     async def test_reply_calls_llm(self):
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=True)
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=growth,
         )
 
@@ -174,7 +157,10 @@ class TestBootstrapReply:
         mock_pool = MagicMock()
         mock_pool.get.return_value = mock_bridge
 
-        with patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool):
+        with (
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+        ):
             reply = await service.reply(
                 persona_name="test",
                 user_id="u1",
@@ -189,12 +175,9 @@ class TestBootstrapReply:
     @pytest.mark.asyncio
     async def test_final_round_records_milestone(self):
         """On the final round, bootstrap should record a BOOTSTRAP_COMPLETED milestone."""
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=True)  # max_rounds=2
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=growth,
         )
 
@@ -211,7 +194,10 @@ class TestBootstrapReply:
             {"role": "assistant", "content": "What do you do?"},
         ]
 
-        with patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool):
+        with (
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+        ):
             await service.reply(
                 persona_name="my_persona",
                 user_id="u1",
@@ -228,12 +214,9 @@ class TestBootstrapReply:
     @pytest.mark.asyncio
     async def test_non_final_round_no_milestone(self):
         """Non-final round should not record milestone."""
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=True)  # max_rounds=2
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=growth,
         )
 
@@ -242,7 +225,10 @@ class TestBootstrapReply:
         mock_pool = MagicMock()
         mock_pool.get.return_value = mock_bridge
 
-        with patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool):
+        with (
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+        ):
             await service.reply(
                 persona_name="test",
                 user_id="u1",
@@ -257,14 +243,11 @@ class TestBootstrapReply:
 class TestBootstrapExtraction:
     @pytest.mark.asyncio
     async def test_extraction_writes_to_l2(self):
-        loader = MagicMock(spec=PersonalityLoader)
-        loader.load.return_value = _make_config(with_bootstrap=True)  # max_rounds=2
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
         l2_store = AsyncMock()
 
         service = BootstrapDialogueService(
-            personality_loader=loader,
             growth_engine=growth,
             l2_store=l2_store,
         )
@@ -285,7 +268,10 @@ class TestBootstrapExtraction:
             {"role": "assistant", "content": "Cool!"},
         ]
 
-        with patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool):
+        with (
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+        ):
             await service.reply(
                 persona_name="test",
                 user_id="u1",

@@ -55,12 +55,6 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
         attention_bias: '',
       },
     },
-    cached_phrases: {
-      on_init: [],
-      on_error_generic: [],
-      on_success: [],
-      on_switch_attempt: [],
-    },
     appearance_prompt: '',
     state_transition_protocol: [
       {
@@ -141,12 +135,6 @@ describe('PersonalityModern', () => {
               attention_bias: '',
             },
           },
-          cached_phrases: {
-            on_init: [],
-            on_error_generic: [],
-            on_success: [],
-            on_switch_attempt: [],
-          },
           appearance_prompt: '',
           state_transition_protocol: [
             {
@@ -187,12 +175,6 @@ describe('PersonalityModern', () => {
               language_fingerprint: '',
               attention_bias: '',
             },
-          },
-          cached_phrases: {
-            on_init: [],
-            on_error_generic: [],
-            on_success: [],
-            on_switch_attempt: [],
           },
           appearance_prompt: '',
           state_transition_protocol: [

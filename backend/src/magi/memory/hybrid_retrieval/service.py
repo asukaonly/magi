@@ -15,7 +15,7 @@ from .answerability import (
     has_temporal_anchor,
 )
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
-from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, classify_query_mode, enrich_l2_conditions
+from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider, enrich_l2_conditions
 from .mode_registry import MODE_REGISTRY, VALID_MODES
 from .router import normalize_query_mode
 from .models import (
@@ -112,8 +112,9 @@ class HybridRetrievalService:
 
         # 1. Resolve query mode — normalize legacy names first
         resolved_mode = normalize_query_mode(request.query_mode)
-        if not resolved_mode or resolved_mode not in VALID_MODES:
-            resolved_mode = classify_query_mode(request.query)
+        mode_explicit = resolved_mode is not None and resolved_mode in VALID_MODES
+        if not mode_explicit:
+            resolved_mode = "exact_fact"
 
         mode_plan = MODE_REGISTRY[resolved_mode]
 
@@ -146,8 +147,11 @@ class HybridRetrievalService:
         payload.trace["intent_reasoning"] = decision.reasoning
 
         # 4. Build mode-adapted L1 handler with RRF weights from mode plan
+        #    Only apply RRF overrides when query_mode was explicitly provided
+        #    by the caller (tool call / API). Auto-classified modes use default
+        #    weights to avoid keyword-heuristic errors distorting retrieval.
         effective_l1 = self._l1
-        if mode_plan.rrf_profile and self._l1 is not None:
+        if mode_explicit and mode_plan.rrf_profile and self._l1 is not None:
             from dataclasses import replace as dc_replace
 
             adapted_config = dc_replace(
@@ -157,6 +161,7 @@ class HybridRetrievalService:
             if adapted_config is not self._config:
                 effective_l1 = self._l1.with_config(adapted_config)
                 payload.trace["mode_rrf_applied"] = True
+        payload.trace["mode_explicit"] = mode_explicit
 
         return await self._execute_query(
             request, decision, intent_input, payload,

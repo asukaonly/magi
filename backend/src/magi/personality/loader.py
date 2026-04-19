@@ -37,14 +37,6 @@ class PersonaEntity:
 
 
 @dataclass
-class CachedPhrases:
-    on_init: List[str] = field(default_factory=lambda: ["Hi, I'm online.", "Ready when you are."])
-    on_error_generic: List[str] = field(default_factory=lambda: ["That failed. Let me retry.", "Oops, tool hiccup."])
-    on_success: List[str] = field(default_factory=lambda: ["Done.", "Handled."])
-    on_switch_attempt: List[str] = field(default_factory=lambda: ["Stay with me, I know your style.", "Give me one more chance."])
-
-
-@dataclass
 class StateTransitionProtocolItem:
     trigger_type: str = ""
     trigger_condition: str = ""
@@ -118,7 +110,6 @@ def _synthesize_core_identity(persona: Dict[str, Any]) -> Dict[str, str]:
 @dataclass
 class PersonalityConfig:
     persona_entity: PersonaEntity = field(default_factory=PersonaEntity)
-    cached_phrases: CachedPhrases = field(default_factory=CachedPhrases)
     appearance_prompt: str = ""
     state_transition_protocol: List[StateTransitionProtocolItem] = field(default_factory=list)
     persona_layers: List[PersonaLayerItem] = field(default_factory=list)
@@ -139,7 +130,6 @@ class PersonalityConfig:
         persona = data.get("persona_entity", {})
         basic = persona.get("basic_profile", {})
         identity_raw = persona.get("core_identity", {})
-        phrases = data.get("cached_phrases", {})
         transitions = data.get("state_transition_protocol", [])
         layers = data.get("persona_layers", [])
         scenario_prompts_raw = data.get("scenario_prompts", {})
@@ -154,7 +144,6 @@ class PersonalityConfig:
                 basic_profile=BasicProfile(**{**asdict(BasicProfile()), **_pick(BasicProfile, basic)}),
                 core_identity=CoreIdentity(**{**asdict(CoreIdentity()), **_pick(CoreIdentity, identity_raw)}),
             ),
-            cached_phrases=CachedPhrases(**{**asdict(CachedPhrases()), **_pick(CachedPhrases, phrases)}),
             appearance_prompt=data.get("appearance_prompt", ""),
             state_transition_protocol=[
                 StateTransitionProtocolItem(**{**asdict(StateTransitionProtocolItem()), **_pick(StateTransitionProtocolItem, item)})
@@ -251,17 +240,3 @@ class PersonalityLoader:
         if not self.personalities_path.exists():
             return []
         return sorted(path.stem for path in self.personalities_path.glob("*.json"))
-
-
-_default_loader: Optional[PersonalityLoader] = None
-
-
-def get_personality_loader(path: Optional[str] = None) -> PersonalityLoader:
-    global _default_loader
-    if _default_loader is None or path is not None:
-        _default_loader = PersonalityLoader(path or "./personalities")
-    return _default_loader
-
-
-def load_personality(name: str = "default", path: Optional[str] = None) -> PersonalityConfig:
-    return get_personality_loader(path).load(name)

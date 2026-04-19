@@ -6,6 +6,7 @@ Provides UUID-keyed CRUD, active persona management, and seed previews.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -108,7 +109,7 @@ async def list_personas():
     await repo.init()
     summaries = await repo.list_all()
     return PersonaListResponse(
-        data=[PersonaSummaryModel(**s.__dict__) for s in summaries],
+        data=[PersonaSummaryModel(**asdict(s)) for s in summaries],
     )
 
 
@@ -123,13 +124,38 @@ async def get_active_persona():
 
 @personas_router.put("/active", response_model=ActivePersonaResponse)
 async def set_active_persona(payload: ActivePersonaRequest):
-    """Switch the active persona."""
+    """Switch the active persona and reload agent personality state."""
     repo = _get_repo()
     await repo.init()
     try:
         await repo.set_active(payload.persona_id)
+        record = await repo.get(payload.persona_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Persona not found")
+
+    # Synchronize in-memory active slug and config so sync callers see the change.
+    slug = record.slug
+    persona_config = record.config
+    try:
+        from ...personality.current_state import set_current_personality
+        set_current_personality(slug, config=persona_config)
+    except Exception as exc:
+        logger.warning("Failed to sync in-memory personality slug: %s", exc)
+
+    # Reload the live agent's SelfMemory so prompt injection uses the new persona
+    try:
+        from ...core.runtime_bindings import require_agent_runtime
+        from ...agent.runtime import TaskAgentType
+
+        runtime = require_agent_runtime()
+        manager = runtime.get_task_agent_manager()
+        chat_agent = await manager.ensure_agent(TaskAgentType.CHAT, "default")
+        memory = getattr(chat_agent, "memory", None)
+        if memory:
+            await memory.reload_personality(slug, personality_config=persona_config)
+    except Exception as exc:
+        logger.warning("Failed to reload agent personality: %s", exc)
+
     return ActivePersonaResponse(persona_id=payload.persona_id)
 
 

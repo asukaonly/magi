@@ -601,6 +601,11 @@
         "runtime": "Runtime Retention",
         "pipelines": "Inference Pipelines"
       },
+      "dangerZone": {
+        "title": "Danger Zone",
+        "description": "Clear all memory data across all layers, including event stream, knowledge graph, summaries and skills. This action is irreversible.",
+        "clearButton": "Clear All Memory"
+      },
       "form": {
         "title": "Memory Configuration",
         "description": "Configure enablement and extraction strategy across L0-L4 memory layers.",
@@ -1905,13 +1910,13 @@
     },
     "clearConfirm": {
       "title": "Clear All Memory",
-      "description": "This will permanently delete all memory data from all layers.",
-      "l0": "L0 working context (sessions, goals)",
-      "l1": "L1 event stream",
-      "l2": "L2 cognition (knowledge graph, ToM)",
-      "l3": "L3 reflection summaries",
-      "l4": "L4 procedural skills",
-      "chatContext": "Chat context history",
+      "description": "This will permanently delete all memory data, including:",
+      "l0": "Current session state and goals",
+      "l1": "All conversation history and event records",
+      "l2": "Accumulated knowledge and personal insights",
+      "l3": "Auto-generated periodic summaries",
+      "l4": "Learned skills and operational experience",
+      "chatContext": "Chat context cache",
       "countdownHint": "Please wait {{seconds}} seconds before confirming.",
       "readyHint": "You can confirm the clear action now.",
       "confirmCountdown": "Confirm in {{seconds}}s",
@@ -1970,7 +1975,6 @@
     "sections": {
       "basicInfo": "Basic Profile",
       "coreIdentity": "Core Identity",
-      "cachedPhrases": "Cached Phrases",
       "appearance": "Appearance Prompt",
       "stateTransitionProtocol": "State Transition Protocol"
     },
@@ -1982,10 +1986,6 @@
       "innerNarrative": "Inner Narrative",
       "languageFingerprint": "Language Fingerprint",
       "attentionBias": "Attention Bias",
-      "onInit": "On Init (one per line)",
-      "onError": "On Error (one per line)",
-      "onSuccess": "On Success (one per line)",
-      "onSwitchAttempt": "On Switch Attempt (one per line)",
       "appearancePrompt": "Appearance Prompt (English for image model)",
       "stateTransitionItem": "State Transition #{{index}}",
       "triggerCondition": "Trigger Condition",

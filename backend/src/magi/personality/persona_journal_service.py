@@ -14,8 +14,9 @@ from ..config.models import LLMScenario
 from ..core.logger import get_logger
 from ..core.runtime_bindings import require_scenario_llm_pool
 from ..llm.provider_bridge import LLMProviderBridge
+from .current_state import resolve_persona_config
 from .growth_memory import GrowthMemoryEngine, Milestone, MilestoneType
-from .loader import PersonalityLoader
+from .loader import PersonalityConfig
 
 logger = get_logger(__name__)
 
@@ -49,10 +50,8 @@ class PersonaJournalService:
         self,
         *,
         growth_engine: GrowthMemoryEngine,
-        personality_loader: PersonalityLoader,
     ) -> None:
         self._growth = growth_engine
-        self._loader = personality_loader
 
     async def generate_reflection(
         self,
@@ -73,7 +72,7 @@ class PersonaJournalService:
         Returns:
             The stored JournalEntry, or None if generation failed.
         """
-        config = self._loader.load(persona_name)
+        config = await resolve_persona_config(persona_name)
         if config is None:
             logger.warning("Cannot generate reflection: persona '%s' not found", persona_name)
             return None

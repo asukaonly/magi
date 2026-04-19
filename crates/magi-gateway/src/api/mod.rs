@@ -4,7 +4,6 @@ mod local_embedding;
 mod memory;
 mod messages;
 mod metrics;
-mod personality;
 mod proxy;
 mod ready;
 mod schedules;
@@ -13,9 +12,12 @@ pub mod state;
 mod tasks;
 mod trace;
 
+use std::path::PathBuf;
+
 use axum::Router;
 use state::ApiState;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 pub fn build_router(state: ApiState) -> Router {
     // Eagerly warm the sysinfo cache in a background thread so the
@@ -74,8 +76,7 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/tasks",
-            axum::routing::get(tasks::list_tasks)
-                .post(tasks::create_task),
+            axum::routing::get(tasks::list_tasks).post(tasks::create_task),
         )
         // Schedules
         .route(
@@ -94,8 +95,7 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/schedules",
-            axum::routing::get(schedules::list_schedules)
-                .post(schedules::create_schedule),
+            axum::routing::get(schedules::list_schedules).post(schedules::create_schedule),
         )
         // LLM metrics
         .route(
@@ -179,39 +179,8 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/memory/tom/{entity_id}",
             axum::routing::get(memory::get_tom_snapshot),
         )
-        // Personality config
-        .route(
-            "/api/personality",
-            axum::routing::get(personality::list_personalities),
-        )
-        .route(
-            "/api/personality/current",
-            axum::routing::get(personality::get_current_personality)
-                .put(personality::set_current_personality),
-        )
-        .route(
-            "/api/personality/greeting",
-            axum::routing::get(personality::get_greeting),
-        )
-        .route(
-            "/api/personality/compare/{from_name}/{to_name}",
-            axum::routing::get(personality::compare_personalities),
-        )
-        .route(
-            "/api/personality/{name}",
-            axum::routing::get(personality::get_personality)
-                .put(personality::save_personality)
-                .delete(personality::delete_personality),
-        )
-        // Personality presets
-        .route(
-            "/api/personalities",
-            axum::routing::get(personality::list_presets),
-        )
-        .route(
-            "/api/personalities/{preset_id}",
-            axum::routing::get(personality::get_preset),
-        )
+        // Personality config — proxied to Python backend (registry-based).
+        // Personality presets — proxied to Python backend.
         // LLM
         .route(
             "/api/llm/providers/custom-template",
@@ -221,6 +190,25 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/local-embedding/discovered",
             axum::routing::get(local_embedding::discover_external_models),
+        )
+        // Static avatar files — served directly, bypassing IPC proxy
+        .nest_service(
+            "/static/avatars",
+            ServeDir::new(
+                state
+                    .builtin_avatar_dir
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("/nonexistent")),
+            ),
+        )
+        .nest_service(
+            "/static/user-avatars",
+            ServeDir::new(
+                state
+                    .user_avatar_dir
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("/nonexistent")),
+            ),
         )
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)

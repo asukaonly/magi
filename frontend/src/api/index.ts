@@ -44,7 +44,6 @@ export type {
   BasicProfile,
   CoreIdentity,
   PersonaEntity,
-  CachedPhrases,
   StateTransitionProtocolItem,
   AIGenerateRequest,
 } from './modules/personas';

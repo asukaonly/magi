@@ -14,8 +14,9 @@ from typing import Any, Dict, List, Optional
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
 from ..core.runtime_bindings import require_scenario_llm_pool
+from .current_state import resolve_persona_config
 from .growth_memory import GrowthMemoryEngine, MilestoneType
-from .loader import BootstrapConfig, PersonalityConfig, PersonalityLoader
+from .loader import BootstrapConfig, PersonalityConfig
 
 logger = get_logger(__name__)
 
@@ -33,11 +34,9 @@ class BootstrapDialogueService:
     def __init__(
         self,
         *,
-        personality_loader: PersonalityLoader,
         growth_engine: GrowthMemoryEngine,
         l2_store: Any = None,
     ) -> None:
-        self._personality_loader = personality_loader
         self._growth_engine = growth_engine
         self._l2_store = l2_store
 
@@ -70,7 +69,9 @@ class BootstrapDialogueService:
 
     async def get_opening(self, persona_name: str, *, persona_id: str = "") -> Optional[str]:
         """Generate a bootstrap opening line via LLM, falling back to static config."""
-        config = self._personality_loader.load(persona_name)
+        config = await resolve_persona_config(persona_name)
+        if config is None:
+            config = PersonalityConfig()
         bootstrap = self._ensure_bootstrap_config(config)
 
         generated = await self._generate_opening_via_llm(config, bootstrap)
@@ -143,7 +144,9 @@ class BootstrapDialogueService:
         Returns:
             The assistant reply text.
         """
-        config = self._personality_loader.load(persona_name)
+        config = await resolve_persona_config(persona_name)
+        if config is None:
+            config = PersonalityConfig()
         bootstrap = self._ensure_bootstrap_config(config)
 
         max_rounds = bootstrap.max_rounds or 3
@@ -165,7 +168,7 @@ class BootstrapDialogueService:
             )
         except Exception as exc:
             logger.error("Bootstrap LLM call failed: %s", exc)
-            response = config.cached_phrases.on_init[0] if config.cached_phrases.on_init else "Hi."
+            response = "Hi."
 
         if is_final_round:
             await self._extract_and_persist(

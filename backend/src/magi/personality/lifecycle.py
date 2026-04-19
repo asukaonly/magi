@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
+from ..config.loader import get_user_preference
 from ..core.logger import get_logger
-from .current_state import get_current_personality
+from .current_state import set_current_personality
 from .persona_repository import PersonaRepository
+from .persona_seed import seed_builtin_personas, resolve_locale
 from .self_memory import SelfMemory
 
 logger = get_logger(__name__)
@@ -28,31 +30,43 @@ class PersonalityModule(LifecycleModule):
         # Resolve active persona from the registry (preferred) or filesystem fallback.
         persona_id = ""
         personality_name = self._context.core.current_personality
+        personality_config = None
         repo = PersonaRepository(str(runtime_paths.persona_registry_db_path))
         await repo.init()
+
+        # Auto-seed builtin personas when registry is empty (first run or
+        # post-migration installs that completed onboarding before the
+        # persona registry existed).
+        existing = await repo.list_all()
+        if not existing:
+            user_lang = get_user_preference("language", "zh")
+            locale = resolve_locale(user_lang)
+            logger.info(
+                "Persona registry empty, auto-seeding builtin personas for locale '%s'",
+                locale,
+            )
+            await seed_builtin_personas(repo, locale)
+
         try:
             active_id = await repo.get_active_id()
             if active_id:
                 record = await repo.get(active_id)
                 persona_id = record.persona_id
                 personality_name = record.slug
+                personality_config = record.config
                 logger.info("Resolved active persona from registry: %s (%s)", persona_id, personality_name)
         except Exception as exc:
             logger.debug("Persona registry lookup skipped: %s", exc)
 
-        # Filesystem fallback for pre-migration installs.
-        if not persona_id:
-            try:
-                personality_name = get_current_personality() or personality_name
-            except Exception as exc:
-                logger.warning("Failed to refresh current personality from personality state: %s", exc)
-
         self._context.core.current_personality = personality_name
+        # Synchronize the in-memory active slug and config so other
+        # modules can read it synchronously via ``get_current_personality()``.
+        set_current_personality(personality_name, config=personality_config)
 
         self._context.personality.self_memory = SelfMemory(
             personality_name=personality_name,
-            personalities_path=str(runtime_paths.personalities_dir),
             persona_id=persona_id,
+            personality_config=personality_config,
         )
         await self._context.personality.self_memory.init()
 

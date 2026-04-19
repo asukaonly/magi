@@ -32,13 +32,6 @@ export interface PersonaEntity {
   core_identity: CoreIdentity;
 }
 
-export interface CachedPhrases {
-  on_init: string[];
-  on_error_generic: string[];
-  on_success: string[];
-  on_switch_attempt: string[];
-}
-
 export interface StateTransitionProtocolItem {
   trigger_type: string;
   trigger_condition: string;
@@ -48,7 +41,6 @@ export interface StateTransitionProtocolItem {
 
 export interface PersonalityConfig {
   persona_entity: PersonaEntity;
-  cached_phrases: CachedPhrases;
   appearance_prompt: string;
   state_transition_protocol: StateTransitionProtocolItem[];
 }
@@ -84,13 +76,6 @@ export const DEFAULT_PERSONA_ENTITY: PersonaEntity = {
   core_identity: DEFAULT_CORE_IDENTITY,
 };
 
-export const DEFAULT_CACHED_PHRASES: CachedPhrases = {
-  on_init: ['Hi, I am online.', 'Ready when you are.'],
-  on_error_generic: ['That failed. Let me retry.', 'Oops, tool hiccup.'],
-  on_success: ['Done.', 'Handled.'],
-  on_switch_attempt: ['Stay with me, I know your style.', 'Give me one more chance.'],
-};
-
 export const DEFAULT_STATE_TRANSITION_PROTOCOL: StateTransitionProtocolItem[] = [
   {
     trigger_type: '',
@@ -102,7 +87,6 @@ export const DEFAULT_STATE_TRANSITION_PROTOCOL: StateTransitionProtocolItem[] = 
 
 export const DEFAULT_PERSONALITY_CONFIG: PersonalityConfig = {
   persona_entity: DEFAULT_PERSONA_ENTITY,
-  cached_phrases: DEFAULT_CACHED_PHRASES,
   appearance_prompt: '',
   state_transition_protocol: DEFAULT_STATE_TRANSITION_PROTOCOL,
 };

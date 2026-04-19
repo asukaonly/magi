@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS personas (
     sort_order    INTEGER NOT NULL DEFAULT 0,
     is_builtin    INTEGER NOT NULL DEFAULT 0,
     seed_slug     TEXT,
+    description   TEXT NOT NULL DEFAULT '',
     created_at    REAL NOT NULL,
     updated_at    REAL NOT NULL
 );
@@ -98,6 +99,19 @@ class PersonaRepository:
         """Create tables if they do not exist."""
         async with sqlite_connection_async(self._db_path) as db:
             await db.executescript(_CREATE_SCHEMA)
+            # Migrate: add description column if missing.
+            cols = {r["name"] for r in await db.execute_fetchall("PRAGMA table_info(personas)")}
+            if "description" not in cols:
+                await db.execute("ALTER TABLE personas ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+                # Backfill from config_json.
+                rows = await db.execute_fetchall("SELECT persona_id, config_json FROM personas")
+                for row in rows:
+                    try:
+                        d = json.loads(row["config_json"])
+                        desc = d.get("persona_entity", {}).get("basic_profile", {}).get("description", "")
+                    except (json.JSONDecodeError, TypeError):
+                        desc = ""
+                    await db.execute("UPDATE personas SET description = ? WHERE persona_id = ?", (desc, row["persona_id"]))
             await db.commit()
 
     # ---- create ----
@@ -113,13 +127,10 @@ class PersonaRepository:
     ) -> str:
         """Insert a new persona and return its persona_id."""
         data = json.loads(config_json)
-        display_name = (
-            data.get("persona_entity", {}).get("basic_profile", {}).get("name", "")
-            or "Unnamed"
-        )
-        avatar = (
-            data.get("persona_entity", {}).get("basic_profile", {}).get("avatar", "")
-        )
+        bp = data.get("persona_entity", {}).get("basic_profile", {})
+        display_name = bp.get("name", "") or "Unnamed"
+        avatar = bp.get("avatar", "")
+        description = bp.get("description", "")
         group = data.get("meta", {}).get("group", "general")
         order = data.get("meta", {}).get("order", 0)
 
@@ -143,11 +154,13 @@ class PersonaRepository:
             await db.execute(
                 """INSERT INTO personas
                    (persona_id, name, slug, locale, config_json, avatar_path,
-                    group_name, sort_order, is_builtin, seed_slug, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    group_name, sort_order, is_builtin, seed_slug, description,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     persona_id, display_name, final_slug, locale, config_json,
-                    avatar, group, order, int(is_builtin), seed_slug, now, now,
+                    avatar, group, order, int(is_builtin), seed_slug, description,
+                    now, now,
                 ),
             )
             await db.commit()
@@ -209,6 +222,23 @@ class PersonaRepository:
         sort_order: int | None = None,
     ) -> None:
         """Update mutable fields of an existing persona."""
+        # When config_json changes, sync denormalized columns from it.
+        description: str | None = None
+        if config_json is not None:
+            try:
+                data = json.loads(config_json)
+                bp = data.get("persona_entity", {}).get("basic_profile", {})
+                meta = data.get("meta", {})
+                if name is None:
+                    name = bp.get("name") or None
+                if avatar_path is None:
+                    avatar_path = bp.get("avatar", "")
+                description = bp.get("description", "")
+                if sort_order is None and "order" in meta:
+                    sort_order = meta["order"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         sets: list[str] = []
         params: list[object] = []
 
@@ -227,6 +257,9 @@ class PersonaRepository:
         if sort_order is not None:
             sets.append("sort_order = ?")
             params.append(sort_order)
+        if description is not None:
+            sets.append("description = ?")
+            params.append(description)
 
         if not sets:
             return
@@ -325,16 +358,6 @@ class PersonaRepository:
 
     @staticmethod
     def _row_to_summary(row) -> PersonaSummary:
-        description = ""
-        try:
-            data = json.loads(row["config_json"])
-            description = (
-                data.get("persona_entity", {})
-                .get("basic_profile", {})
-                .get("description", "")
-            )
-        except (json.JSONDecodeError, TypeError):
-            pass
         return PersonaSummary(
             persona_id=row["persona_id"],
             name=row["name"],
@@ -344,5 +367,5 @@ class PersonaRepository:
             group_name=row["group_name"],
             sort_order=row["sort_order"],
             is_builtin=bool(row["is_builtin"]),
-            description=description,
+            description=row["description"] if "description" in row.keys() else "",
         )

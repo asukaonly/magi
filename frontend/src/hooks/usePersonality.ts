@@ -108,10 +108,6 @@ const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig =>
     ...next.persona_entity.core_identity,
     ...(incoming.persona_entity?.core_identity || {}),
   };
-  next.cached_phrases = {
-    ...next.cached_phrases,
-    ...(incoming.cached_phrases || {}),
-  };
   next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
   const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
   next.state_transition_protocol =
@@ -347,16 +343,7 @@ export function usePersonality(
 
     setSwitching(true);
     try {
-      // Load the current persona's config to get its retention phrase
-      let retentionPhrase = t('personality.switchPromptFallback');
-      try {
-        const currentResult = await personasApi.get(currentId);
-        const currentConfig = currentResult.data?.config as Partial<PersonalityConfig> | undefined;
-        const phrase = currentConfig?.cached_phrases?.on_switch_attempt?.find((item: string) => item.trim());
-        if (phrase) retentionPhrase = phrase;
-      } catch {
-        // use fallback
-      }
+      const retentionPhrase = t('personality.switchPromptFallback');
       const currentInfo = list.find((item) => item.id === currentId);
       setSwitchPrompt({
         phrase: retentionPhrase,

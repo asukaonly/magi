@@ -48,7 +48,7 @@ vi.mock('@/api/modules/personas', async () => {
   };
 });
 
-const buildConfig = (name: string, onSwitchAttempt: string[] = []) => ({
+const buildConfig = (name: string) => ({
   persona_entity: {
     basic_profile: {
       name,
@@ -63,12 +63,6 @@ const buildConfig = (name: string, onSwitchAttempt: string[] = []) => ({
       language_fingerprint: '',
       attention_bias: '',
     },
-  },
-  cached_phrases: {
-    on_init: [],
-    on_error_generic: [],
-    on_success: [],
-    on_switch_attempt: onSwitchAttempt,
   },
   appearance_prompt: '',
   state_transition_protocol: [
@@ -145,7 +139,7 @@ describe('usePersonality', () => {
         slug: id === 'uuid-seven' ? 'seven' : 'asuka',
         locale: 'zh',
         config: id === 'uuid-seven'
-          ? buildConfig('七号', ['别急着走，再给我一次机会。'])
+          ? buildConfig('七号')
           : buildConfig('惣流·明日香·兰格雷'),
         avatar_path: '',
         group_name: 'general',

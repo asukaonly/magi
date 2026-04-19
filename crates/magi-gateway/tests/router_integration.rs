@@ -11,7 +11,6 @@ use http_body_util::BodyExt;
 use hyper::Request;
 use magi_gateway::{api, ipc};
 use serde_json::Value;
-use tokio::sync::broadcast;
 use tower::ServiceExt;
 
 static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -44,11 +43,10 @@ async fn test_state() -> api::state::ApiState {
         .await
         .expect("Connect to test IPC socket");
 
-    let (ws_broadcast_tx, _) = broadcast::channel::<api::state::WsBroadcast>(16);
-
     api::state::ApiState {
         ipc_client: Arc::new(ipc_client),
-        ws_broadcast: ws_broadcast_tx,
+        builtin_avatar_dir: None,
+        user_avatar_dir: None,
     }
 }
 

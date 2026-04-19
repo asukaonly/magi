@@ -48,12 +48,17 @@ class MemoryQueryTool(Tool):
                     name="query_mode",
                     type=ParameterType.STRING,
                     description=(
-                        "Optional query mode hint "
-                        "(exact_fact|current_state|episode_recall|cross_session|temporal_compare|summary|strategy). "
-                        "When omitted, the system auto-detects the best mode from the query."
+                        "The retrieval mode that best matches the user's intent. Choose one: "
+                        "exact_fact (specific facts, preferences, profile data), "
+                        "current_state (what is currently true, present status), "
+                        "episode_recall (what happened on a specific occasion), "
+                        "cross_session (aggregation across multiple sessions — how many, which ones, all), "
+                        "temporal_compare (before/after, changes over time), "
+                        "summary (summarize or recap a period), "
+                        "strategy (how-to, workflow, prior approach)."
                     ),
-                    required=False,
-                    default=None,
+                    required=True,
+                    enum=["exact_fact", "current_state", "episode_recall", "cross_session", "temporal_compare", "summary", "strategy"],
                 ),
                 ToolParameter(
                     name="limit",

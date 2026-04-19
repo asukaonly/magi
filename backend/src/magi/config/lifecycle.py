@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..bootstrap.lifecycle import LifecycleModule
-from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
+from ..bootstrap.context import RuntimeBootstrapContext
 from ..core.logger import get_logger
 from . import get_config
 
@@ -22,14 +22,8 @@ class ConfigurationModule(LifecycleModule):
 
     async def init(self) -> None:
         self._context.core.config = get_config()
-        runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-        current_file = runtime_paths.personalities_dir / "current"
-        current_personality = self._context.core.config.agent.personality.name or "default"
-        if current_file.exists():
-            try:
-                persisted_name = current_file.read_text(encoding="utf-8").strip()
-                if persisted_name:
-                    current_personality = persisted_name
-            except Exception as exc:
-                logger.warning("Failed to read current personality selection: %s", exc)
-        self._context.core.current_personality = current_personality
+        # Set a preliminary personality name from config.  PersonalityModule
+        # will override this with the registry-resolved active persona later.
+        self._context.core.current_personality = (
+            self._context.core.config.agent.personality.name or "default"
+        )

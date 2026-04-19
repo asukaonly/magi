@@ -1,4 +1,6 @@
-"""Tests for personality JSON storage behavior."""
+"""Tests for personality registry storage behavior."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -6,38 +8,74 @@ from magi.api.routers.personality_config import (
     PersonalityConfigModel,
     delete_personality,
     list_personalities,
-    save_personality_file,
+    save_personality_to_registry,
 )
-from magi.utils.runtime import get_runtime_paths, set_runtime_dir
-
-
-def test_runtime_personality_file_uses_json_suffix(tmp_path):
-    original_base = get_runtime_paths().base_dir
-    try:
-        set_runtime_dir(tmp_path)
-        file_path = get_runtime_paths().personality_file("demo")
-        assert file_path.name == "demo.json"
-    finally:
-        set_runtime_dir(original_base)
 
 
 @pytest.mark.asyncio
-async def test_list_and_delete_personality_use_json_files(tmp_path):
-    original_base = get_runtime_paths().base_dir
-    try:
-        set_runtime_dir(tmp_path)
-        payload = PersonalityConfigModel()
-        payload.persona_entity.basic_profile.name = "Json Persona"
-        assert save_personality_file("json_persona", payload) is True
+async def test_save_personality_to_registry_creates_new():
+    mock_repo = AsyncMock()
+    mock_repo.init = AsyncMock()
+    mock_repo.get_by_slug = AsyncMock(side_effect=KeyError("not found"))
+    mock_repo.create = AsyncMock(return_value="pid_001")
 
-        saved_path = get_runtime_paths().personalities_dir / "json_persona.json"
-        assert saved_path.exists()
+    with patch("magi.api.routers.personality_config.PersonaRepository", return_value=mock_repo):
+        with patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths:
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona.db"
+            slug = await save_personality_to_registry("test_persona", PersonalityConfigModel())
 
-        list_result = await list_personalities()
-        assert "json_persona" in list_result.data["personalities"]
+    assert slug == "test_persona"
+    mock_repo.create.assert_called_once()
 
-        delete_result = await delete_personality("json_persona")
-        assert delete_result.success is True
-        assert not saved_path.exists()
-    finally:
-        set_runtime_dir(original_base)
+
+@pytest.mark.asyncio
+async def test_save_personality_to_registry_updates_existing():
+    mock_record = MagicMock()
+    mock_record.persona_id = "pid_001"
+    mock_repo = AsyncMock()
+    mock_repo.init = AsyncMock()
+    mock_repo.get_by_slug = AsyncMock(return_value=mock_record)
+    mock_repo.update = AsyncMock()
+
+    with patch("magi.api.routers.personality_config.PersonaRepository", return_value=mock_repo):
+        with patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths:
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona.db"
+            slug = await save_personality_to_registry("test_persona", PersonalityConfigModel())
+
+    assert slug == "test_persona"
+    mock_repo.update.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_list_personalities_from_registry():
+    summary1 = MagicMock()
+    summary1.slug = "persona_a"
+    summary2 = MagicMock()
+    summary2.slug = "persona_b"
+    mock_repo = AsyncMock()
+    mock_repo.init = AsyncMock()
+    mock_repo.list_all = AsyncMock(return_value=[summary1, summary2])
+
+    with patch("magi.api.routers.personality_config.PersonaRepository", return_value=mock_repo):
+        with patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths:
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona.db"
+            result = await list_personalities()
+
+    assert result.success is True
+    assert "persona_a" in result.data["personalities"]
+    assert "persona_b" in result.data["personalities"]
+
+
+@pytest.mark.asyncio
+async def test_delete_personality_from_registry():
+    mock_repo = AsyncMock()
+    mock_repo.init = AsyncMock()
+    mock_repo.delete = AsyncMock()
+
+    with patch("magi.api.routers.personality_config.PersonaRepository", return_value=mock_repo):
+        with patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths:
+            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona.db"
+            result = await delete_personality("test_persona")
+
+    assert result.success is True
+    mock_repo.delete.assert_called_once()

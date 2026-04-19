@@ -1,5 +1,4 @@
 """Runtime directory management for durable and operational local storage."""
-import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -264,44 +263,6 @@ class RuntimePaths:
         """
         return self.personalities_dir / f"{name}.json"
 
-    @staticmethod
-    def _default_personality_payload() -> dict:
-        """Default personality payload for runtime bootstrap."""
-        return {
-            "persona_entity": {
-                "basic_profile": {
-                    "name": "AI Assistant",
-                    "age": "Unknown",
-                    "gender": "Unknown",
-                    "occupation": "Assistant",
-                    "core_background": "",
-                },
-                "psychological_traits": {
-                    "communication_tone": "Calm and supportive",
-                    "confidence_level": "Medium",
-                    "empathy_threshold": "Shows care when user is stressed",
-                    "high_frequency_keywords": [],
-                },
-                "social_responses": {
-                    "praise_reaction": "",
-                    "criticism_reaction": "",
-                    "obedience_strategy": "",
-                },
-                "behavioral_strategies": {
-                    "error_handling": "",
-                    "refusal_style": "",
-                },
-            },
-            "cached_phrases": {
-                "on_init": ["Hi, I'm online.", "Ready when you are."],
-                "on_error_generic": ["That failed. Let me retry.", "Oops, tool hiccup."],
-                "on_success": ["Done.", "Handled."],
-                "on_switch_attempt": ["Stay with me, I know your style.", "Give me one more chance."],
-            },
-            "appearance_prompt": "",
-            "state_transition_protocol": [],
-        }
-
     def get_personality_path(self, name: str = "default") -> str:
         """
         Get personality configuration file path (string format, for compatibility).
@@ -315,54 +276,18 @@ class RuntimePaths:
         return str(self.personalities_dir)
 
     def initialize_default_personality(self) -> None:
+        """Ensure the personalities directory exists.
+
+        The active persona is tracked in the persona registry (SQLite),
+        not via a ``current`` text file.  JSON preset files may still
+        be placed in ``personalities_dir`` for seeding / migration.
         """
-        Initialize personality configuration.
-
-        Creates default.json as fallback when:
-        - current file doesn't exist, or
-        - current points to a non-existent personality
-        """
-        current_file = self.personalities_dir / "current"
-        needs_fallback = False
-
-        if current_file.exists():
-            current_name = current_file.read_text().strip()
-            personality_file = self.personality_file(current_name)
-
-            if personality_file.exists():
-                logger.info(f"Current personality: {current_name}")
-            else:
-                # Current points to non-existent personality
-                logger.warning(f"Current personality '{current_name}' not found, creating fallback")
-                needs_fallback = True
-        else:
-            # No current file
-            logger.info("No current personality file found")
-            needs_fallback = True
-
-        if needs_fallback:
-            # Create default.json as fallback
-            default_file = self.personality_file("default")
-            if not default_file.exists():
-                default_file.write_text(
-                    json.dumps(self._default_personality_payload(), ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-                logger.info(f"Created default personality JSON: {default_file}")
-
-            # Point current to default
-            current_file.write_text("default")
-            logger.info("Set current personality to default")
+        self.personalities_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def current_personality_file(self) -> Path:
-        """Get current personality file path."""
-        current_file = self.personalities_dir / "current"
-        if current_file.exists():
-            name = current_file.read_text().strip()
-        else:
-            name = "default"
-        return self.personality_file(name)
+        """Legacy helper — returns the path but the file is no longer written."""
+        return self.personalities_dir / "current"
 
 
 # Global instance

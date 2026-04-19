@@ -1259,21 +1259,33 @@ async def get_memory_statistics():
 @memory_router.delete("/clear")
 async def clear_memory_layers():
     """Clear all memory layers and chat session mappings."""
+    logger.info("clear_memory: request received")
     unified_memory = _resolve_unified_memory()
     if not unified_memory:
+        logger.warning("clear_memory: memory system not initialized")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Memory system not initialized",
         )
 
+    logger.info("clear_memory: clearing l0")
     l0_count = await unified_memory.l0.clear() if getattr(unified_memory, "l0", None) else 0
+    logger.info("clear_memory: l0 done, removed=%d; clearing l1", l0_count)
     l1_count = await unified_memory.l1.clear() if getattr(unified_memory, "l1", None) else 0
+    logger.info("clear_memory: l1 done, removed=%d; clearing l2", l1_count)
     l2_count = await unified_memory.l2.clear() if getattr(unified_memory, "l2", None) else 0
     if getattr(unified_memory, "l2_entity_catalog", None):
         l2_count += await unified_memory.l2_entity_catalog.clear()
+    logger.info("clear_memory: l2 done, removed=%d; clearing l3", l2_count)
     l3_count = await unified_memory.l3.clear() if getattr(unified_memory, "l3", None) else 0
+    logger.info("clear_memory: l3 done, removed=%d; clearing l4", l3_count)
     l4_count = await unified_memory.l4.clear() if getattr(unified_memory, "l4", None) else 0
+    logger.info("clear_memory: l4 done, removed=%d; clearing chat context", l4_count)
     chat_context_count = get_chat_read_service().clear_all_sessions()
+    logger.info(
+        "clear_memory: complete. l0=%d l1=%d l2=%d l3=%d l4=%d chat=%d",
+        l0_count, l1_count, l2_count, l3_count, l4_count, chat_context_count,
+    )
 
     return {
         "success": True,

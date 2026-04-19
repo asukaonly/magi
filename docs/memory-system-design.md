@@ -373,7 +373,7 @@ Each mode defines a `QueryModePlan` with:
 - Primary and secondary layer preferences
 - Evidence assembler type and reducer type
 
-**Auto-detection**: When `query_mode` is not specified, `classify_query_mode()` in the intent decider uses keyword matching (zh + en) to infer the appropriate mode.
+**Fallback**: When `query_mode` is not specified, the system defaults to `exact_fact`. The main LLM is expected to choose the appropriate mode when calling the `memory_query` tool.
 
 **Legacy migration**: Old `recall_intent` values (`event_recall`, `preference_recall`, etc.) and old mode names (`detail`, `experience`, `graph`) are mapped to unified modes via `normalize_query_mode()`.
 
