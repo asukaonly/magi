@@ -47,8 +47,14 @@ OPTIONAL_HIDDEN_IMPORTS = (
 PACKAGE_DATA_DIRECTORIES = (
     ("configs", "configs"),
     ("personalities", "personalities"),
-    ("plugins", "plugins"),
     ("skills", "skills"),
+)
+
+# Only core plugins are shipped inside the sidecar binary.
+# Optional plugins are installed at runtime from the plugin registry.
+CORE_PLUGIN_IDS = (
+    "core-tools",
+    "core-actions",
 )
 
 
@@ -75,7 +81,6 @@ def build_packaged_data_entries(
     source_roots = {
         "configs": resolved_backend_root,
         "personalities": resolved_backend_root,
-        "plugins": resolved_repo_root,
         "skills": resolved_repo_root,
     }
 
@@ -84,6 +89,14 @@ def build_packaged_data_entries(
         source_path = source_roots[source_name] / source_name
         if source_path.exists():
             entries.append((source_path, destination_name))
+
+    # Include only core plugins as individual directories.
+    plugins_root = resolved_repo_root / "plugins"
+    for plugin_id in CORE_PLUGIN_IDS:
+        plugin_path = plugins_root / plugin_id
+        if plugin_path.exists():
+            entries.append((plugin_path, f"plugins/{plugin_id}"))
+
     return entries
 
 

@@ -1,9 +1,15 @@
 """Unified plugin manager for tool, sensor, and action extensions."""
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import logging
+import shutil
+import subprocess
 import sys
+import tarfile
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -429,6 +435,12 @@ class PluginManager:
 
     def _instantiate_plugin(self, manifest: PluginManifest, settings: dict[str, Any]) -> Plugin:
         module_path = Path(manifest.plugin_dir) / f"{manifest.entry_module}.py"
+
+        # Add plugin-local .deps/ to sys.path so private dependencies resolve.
+        deps_dir = Path(manifest.plugin_dir) / ".deps"
+        if deps_dir.is_dir() and str(deps_dir) not in sys.path:
+            sys.path.insert(0, str(deps_dir))
+
         spec = importlib.util.spec_from_file_location(
             f"magi_plugin_{manifest.plugin_id.replace('-', '_')}",
             module_path,
@@ -485,3 +497,166 @@ class PluginManager:
     @staticmethod
     def _default_builtin_root() -> Path:
         return get_repo_root() / "plugins"
+
+    @staticmethod
+    def _user_plugins_root() -> Path:
+        return Path("~/.magi/plugins").expanduser()
+
+    # ------------------------------------------------------------------
+    # Plugin installation / uninstallation
+    # ------------------------------------------------------------------
+
+    def install_plugin_from_archive(self, archive_path: Path) -> PluginPackageState:
+        """Install a plugin from a .tar.gz or .zip archive.
+
+        The archive must contain a ``plugin.toml`` at the top level or
+        inside exactly one subdirectory.  The plugin is extracted into
+        ``~/.magi/plugins/<plugin_id>/``.
+        """
+        user_root = self._user_plugins_root()
+        user_root.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory(prefix="magi-plugin-install-") as tmp:
+            tmp_path = Path(tmp)
+            self._extract_archive(archive_path, tmp_path)
+            manifest_file = self._find_manifest_in_tree(tmp_path)
+            if manifest_file is None:
+                raise ValueError("Archive does not contain a plugin.toml")
+            manifest = self._load_manifest(manifest_file, source="external")
+            plugin_id = manifest.plugin_id
+
+            # Prevent overwriting builtin plugins.
+            existing = self._package_states.get(plugin_id)
+            if existing is not None and existing.manifest.source == "builtin":
+                raise ValueError(f"Cannot overwrite builtin plugin: {plugin_id}")
+
+            dest_dir = user_root / plugin_id
+            source_dir = manifest_file.parent
+
+            # Remove old installation if present.
+            if dest_dir.exists():
+                self.unload_plugin(plugin_id)
+                shutil.rmtree(dest_dir)
+
+            shutil.copytree(source_dir, dest_dir)
+
+            # Install declared Python dependencies into plugin-local .deps/.
+            new_manifest = self._load_manifest(dest_dir / "plugin.toml", source="external")
+            if new_manifest.dependencies:
+                self._install_dependencies(new_manifest.dependencies, dest_dir)
+
+        self.scan(persist_discovery=True)
+        state = self._require_package(plugin_id)
+        return state
+
+    def install_plugin_from_directory(self, source_dir: Path) -> PluginPackageState:
+        """Install a plugin from a local directory containing a plugin.toml.
+
+        Used by the git-clone registry flow where the plugin source has
+        already been extracted into a temporary directory.
+        """
+        manifest_file = self._find_manifest_in_tree(source_dir)
+        if manifest_file is None:
+            raise ValueError("Directory does not contain a plugin.toml")
+        manifest = self._load_manifest(manifest_file, source="external")
+        plugin_id = manifest.plugin_id
+
+        existing = self._package_states.get(plugin_id)
+        if existing is not None and existing.manifest.source == "builtin":
+            raise ValueError(f"Cannot overwrite builtin plugin: {plugin_id}")
+
+        user_root = self._user_plugins_root()
+        user_root.mkdir(parents=True, exist_ok=True)
+        dest_dir = user_root / plugin_id
+        plugin_source = manifest_file.parent
+
+        if dest_dir.exists():
+            self.unload_plugin(plugin_id)
+            shutil.rmtree(dest_dir)
+
+        shutil.copytree(plugin_source, dest_dir)
+
+        new_manifest = self._load_manifest(dest_dir / "plugin.toml", source="external")
+        if new_manifest.dependencies:
+            self._install_dependencies(new_manifest.dependencies, dest_dir)
+
+        self.scan(persist_discovery=True)
+        return self._require_package(plugin_id)
+
+    def uninstall_plugin(self, plugin_id: str) -> None:
+        """Uninstall a user-installed plugin and remove its files."""
+        state = self._require_package(plugin_id)
+        if state.manifest.source == "builtin":
+            raise ValueError(f"Cannot uninstall builtin plugin: {plugin_id}")
+
+        self.unload_plugin(plugin_id)
+
+        plugin_dir = Path(state.manifest.plugin_dir)
+        if plugin_dir.exists():
+            shutil.rmtree(plugin_dir)
+
+        # Remove persisted config.
+        save_config({f"plugins.packages.{plugin_id}": None})
+        self._package_states.pop(plugin_id, None)
+        request_sensor_schedule_refresh()
+
+    def check_installed_version(self, plugin_id: str) -> str | None:
+        """Return the installed version of a plugin, or None if not installed."""
+        state = self._package_states.get(plugin_id)
+        if state is None:
+            return None
+        return state.manifest.version
+
+    @staticmethod
+    def _extract_archive(archive_path: Path, dest: Path) -> None:
+        """Extract a .tar.gz or .zip archive into *dest*."""
+        name = archive_path.name.lower()
+        if name.endswith(".tar.gz") or name.endswith(".tgz"):
+            with tarfile.open(archive_path, "r:gz") as tf:
+                # Security: prevent path traversal.
+                for member in tf.getmembers():
+                    if member.name.startswith("/") or ".." in member.name.split("/"):
+                        raise ValueError(f"Unsafe path in archive: {member.name}")
+                tf.extractall(dest)
+        elif name.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                for info in zf.infolist():
+                    if info.filename.startswith("/") or ".." in info.filename.split("/"):
+                        raise ValueError(f"Unsafe path in archive: {info.filename}")
+                zf.extractall(dest)
+        else:
+            raise ValueError(f"Unsupported archive format: {archive_path.name}")
+
+    @staticmethod
+    def _find_manifest_in_tree(root: Path) -> Path | None:
+        """Find plugin.toml at root level or one directory deep."""
+        direct = root / "plugin.toml"
+        if direct.exists():
+            return direct
+        for child in root.iterdir():
+            if child.is_dir():
+                candidate = child / "plugin.toml"
+                if candidate.exists():
+                    return candidate
+        return None
+
+    @staticmethod
+    def _install_dependencies(dependencies: list[str], plugin_dir: Path) -> None:
+        """Install plugin dependencies into a local .deps/ directory."""
+        deps_dir = plugin_dir / ".deps"
+        deps_dir.mkdir(exist_ok=True)
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--target",
+            str(deps_dir),
+            "--no-user",
+            "--quiet",
+            *dependencies,
+        ]
+        logger.info("Installing plugin dependencies", extra={"deps": dependencies, "target": str(deps_dir)})
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to install plugin dependencies: {result.stderr.strip()}")

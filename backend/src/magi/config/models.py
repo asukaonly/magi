@@ -590,6 +590,7 @@ class PluginsSettings(BaseModel):
     """Unified plugin runtime configuration."""
 
     scan_paths: List[str] = Field(default_factory=lambda: ["plugins", "~/.magi/plugins"])
+    registry_url: Optional[str] = Field(default=None)
     packages: Dict[str, PluginSettings] = Field(
         default_factory=lambda: {
             "core-tools": PluginSettings(

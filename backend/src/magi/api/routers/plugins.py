@@ -1,10 +1,12 @@
 """Plugin management API router."""
 from __future__ import annotations
 
+import logging
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
 from ...core.runtime_bindings import require_plugin_manager
@@ -13,9 +15,14 @@ from ...plugins.contracts import (
     PluginContribution,
     PluginManifest,
     PluginPackageState,
+    PluginRegistryEntry,
+    PluginRegistryIndex,
     PluginSettingsResourcePayload,
 )
 from ...plugins.i18n import PluginI18n
+from ...plugins.registry_client import PluginRegistryClient
+
+logger = logging.getLogger(__name__)
 
 plugins_router = APIRouter()
 
@@ -74,6 +81,40 @@ class PluginSettingsResourceResponse(BaseModel):
     resource_name: str
     resource_type: str
     data: Any = None
+
+
+class PluginRegistryEntryResponse(BaseModel):
+    plugin_id: str
+    name: str
+    version: str
+    description: str = ""
+    author: str = ""
+    official: bool = False
+    contribution_types: list[str] = Field(default_factory=list)
+    platforms: list[str] = Field(default_factory=list)
+    min_sdk_version: str = ""
+    homepage: str = ""
+    repository: str = ""
+    path: str = ""
+    installed: bool = False
+    installed_version: str | None = None
+    update_available: bool = False
+
+
+class PluginRegistryResponse(BaseModel):
+    plugins: list[PluginRegistryEntryResponse] = Field(default_factory=list)
+    registry_version: str = "1"
+
+
+class PluginInstallRequest(BaseModel):
+    plugin_id: str
+
+
+class PluginUpdateCheckResponse(BaseModel):
+    plugin_id: str
+    current_version: str
+    latest_version: str
+    update_available: bool
 
 
 class PluginsListResponse(BaseModel):
@@ -243,3 +284,178 @@ async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
     if isinstance(payload, PluginSettingsResourcePayload):
         return PluginSettingsResourceResponse(**payload.model_dump())
     return PluginSettingsResourceResponse(**payload)
+
+
+# -------------------------------------------------------------------------
+# Plugin installation / uninstallation
+# -------------------------------------------------------------------------
+
+
+@plugins_router.post("/install/upload", response_model=PluginPackageResponse)
+async def install_plugin_from_upload(file: UploadFile):
+    """Install a plugin from an uploaded .tar.gz or .zip archive."""
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename required")
+    name = file.filename.lower()
+    if not (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".zip")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Archive must be .tar.gz, .tgz, or .zip")
+
+    manager = require_plugin_manager()
+    with tempfile.TemporaryDirectory(prefix="magi-upload-") as tmp:
+        archive_path = Path(tmp) / file.filename
+        content = await file.read()
+        archive_path.write_bytes(content)
+        try:
+            state = manager.install_plugin_from_archive(archive_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+    return _serialize_package(state)
+
+
+@plugins_router.post("/install/registry", response_model=PluginPackageResponse)
+async def install_plugin_from_registry(request: PluginInstallRequest):
+    """Clone and install a plugin from the remote registry."""
+    manager = require_plugin_manager()
+    registry = PluginRegistryClient()
+
+    entry = await registry.fetch_entry(request.plugin_id)
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found in registry")
+
+    try:
+        plugin_dir = await registry.clone_plugin(entry)
+        state = manager.install_plugin_from_directory(plugin_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+    return _serialize_package(state)
+
+
+@plugins_router.delete("/{plugin_id}", status_code=status.HTTP_200_OK)
+async def uninstall_plugin(plugin_id: str):
+    """Uninstall a user-installed plugin."""
+    manager = require_plugin_manager()
+    try:
+        manager.uninstall_plugin(plugin_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"status": "ok", "plugin_id": plugin_id}
+
+
+# -------------------------------------------------------------------------
+# Plugin registry (marketplace)
+# -------------------------------------------------------------------------
+
+
+@plugins_router.get("/registry", response_model=PluginRegistryResponse)
+async def list_registry_plugins():
+    """List all available plugins from the remote registry."""
+    manager = require_plugin_manager()
+    registry = PluginRegistryClient()
+    try:
+        index = await registry.fetch_index()
+    except Exception as exc:
+        logger.warning("Failed to fetch plugin registry", extra={"error": str(exc)})
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to reach plugin registry",
+        ) from exc
+
+    result: list[PluginRegistryEntryResponse] = []
+    for entry in index.plugins:
+        installed_version = manager.check_installed_version(entry.plugin_id)
+        installed = installed_version is not None
+        update_available = False
+        if installed and installed_version:
+            update_available = _version_newer(entry.version, installed_version)
+        result.append(
+            PluginRegistryEntryResponse(
+                plugin_id=entry.plugin_id,
+                name=entry.name,
+                version=entry.version,
+                description=entry.description,
+                author=entry.author,
+                official=entry.official,
+                contribution_types=entry.contribution_types,
+                platforms=entry.platforms,
+                min_sdk_version=entry.min_sdk_version,
+                homepage=entry.homepage,
+                repository=entry.repository,
+                path=entry.path,
+                installed=installed,
+                installed_version=installed_version,
+                update_available=update_available,
+            )
+        )
+    return PluginRegistryResponse(plugins=result, registry_version=index.registry_version)
+
+
+@plugins_router.get("/updates", response_model=list[PluginUpdateCheckResponse])
+async def check_plugin_updates():
+    """Check all installed plugins for available updates."""
+    manager = require_plugin_manager()
+    registry = PluginRegistryClient()
+
+    installed = {
+        state.manifest.plugin_id: state.manifest.version
+        for state in manager.list_packages()
+        if state.manifest.source != "builtin"
+    }
+    if not installed:
+        return []
+
+    try:
+        update_entries = await registry.check_updates(installed)
+    except Exception as exc:
+        logger.warning("Failed to check plugin updates", extra={"error": str(exc)})
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to reach plugin registry",
+        ) from exc
+
+    return [
+        PluginUpdateCheckResponse(
+            plugin_id=entry.plugin_id,
+            current_version=installed[entry.plugin_id],
+            latest_version=entry.version,
+            update_available=True,
+        )
+        for entry in update_entries
+    ]
+
+
+@plugins_router.post("/{plugin_id}/update", response_model=PluginPackageResponse)
+async def update_plugin(plugin_id: str):
+    """Update a plugin to the latest version from the registry."""
+    manager, state = _require_package(plugin_id)
+    if state.manifest.source == "builtin":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot update builtin plugins")
+
+    registry = PluginRegistryClient()
+    entry = await registry.fetch_entry(plugin_id)
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found in registry")
+
+    try:
+        plugin_dir = await registry.clone_plugin(entry)
+        new_state = manager.install_plugin_from_directory(plugin_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+    return _serialize_package(new_state)
+
+
+def _version_newer(remote: str, local: str) -> bool:
+    """Compare semver-style version strings (best-effort)."""
+    try:
+        remote_parts = [int(p) for p in remote.split(".")]
+        local_parts = [int(p) for p in local.split(".")]
+        return remote_parts > local_parts
+    except (ValueError, AttributeError):
+        return remote != local
