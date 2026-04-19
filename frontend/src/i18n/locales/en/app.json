@@ -1410,9 +1410,33 @@
         "name": "NetEase Cloud Music",
         "description": "Sync NetEase Cloud Music play history to timeline (Windows & macOS)",
         "fields": {
+          "enabled": {
+            "label": "Enable Sync",
+            "description": "Turn on to automatically read local play history and write it to the timeline."
+          },
+          "sync_mode": {
+            "label": "Sync Mode",
+            "description": "Trigger manually or run on a fixed schedule."
+          },
+          "sync_interval_minutes": {
+            "label": "Sync Interval (minutes)",
+            "description": "How often to pull new play records when using interval sync."
+          },
+          "min_play_duration": {
+            "label": "Minimum Play Duration (seconds)",
+            "description": "Tracks played for less than this duration are skipped and not written to the timeline."
+          },
+          "db_path": {
+            "label": "Database Path",
+            "description": "Path to the NetEase Cloud Music local database file. Usually no need to change."
+          },
+          "initial_sync_policy": {
+            "label": "Initial Sync Policy",
+            "description": "How to backfill history data the first time sync is enabled."
+          },
           "tag_strategy": {
             "label": "Genre Tag Source",
-            "description": "How to extract genre/style tags for listened tracks."
+            "description": "How to attach genre/style tags to play records. 'Built-in' reads the local alias field (e.g. 'TV anime OST'), limited to ~45% coverage. 'Last.fm' queries the API for accurate tags."
           },
           "lastfm_api_key": {
             "label": "Last.fm API Key",
@@ -1442,7 +1466,8 @@
         },
         "sections": {
           "general": "General",
-          "analysis": "Analysis"
+          "analysis": "Analysis",
+          "activation": "First-time Setup"
         }
       },
       "screen-time": {

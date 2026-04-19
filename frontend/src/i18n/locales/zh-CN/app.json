@@ -1410,9 +1410,33 @@
         "name": "网易云音乐",
         "description": "自动同步网易云音乐的播放历史到时间线（支持 Windows 和 macOS）",
         "fields": {
+          "enabled": {
+            "label": "启用同步",
+            "description": "开启后自动读取本地播放历史并写入时间线。"
+          },
+          "sync_mode": {
+            "label": "同步方式",
+            "description": "手动触发，或按固定时间自动同步。"
+          },
+          "sync_interval_minutes": {
+            "label": "定时间隔（分钟）",
+            "description": "定时同步时，多久拉取一次播放记录。"
+          },
+          "min_play_duration": {
+            "label": "最短播放时长（秒）",
+            "description": "播放不足这个时长的曲目会被跳过，不写入时间线。"
+          },
+          "db_path": {
+            "label": "数据库路径",
+            "description": "网易云音乐本地数据库文件的路径，通常无需修改。"
+          },
+          "initial_sync_policy": {
+            "label": "首次同步策略",
+            "description": "首次启用时，决定如何填充历史数据。"
+          },
           "tag_strategy": {
             "label": "风格标签来源",
-            "description": "从播放记录中提取风格标签的方式。"
+            "description": "为播放记录添加风格/流派标签的方式。内置模式使用本地称号字段（如“TV动画《孤独摇滚》插曲”），覆盖率有限；Last.fm 模式通过 API 在线查询，准确度更高。"
           },
           "lastfm_api_key": {
             "label": "Last.fm API Key",
@@ -1442,7 +1466,8 @@
         },
         "sections": {
           "general": "常规",
-          "analysis": "分析"
+          "analysis": "分析",
+          "activation": "首次启用"
         }
       },
       "screen-time": {
