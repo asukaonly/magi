@@ -113,6 +113,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
         const mergedConfig = mergeConfig(data);
         setConfig(mergedConfig);
         formInstance.setFieldValue(['personality'], mergedConfig);
+        formInstance.setFieldValue(['personalitySeedSlug'], defaultPreset.seed_slug);
       } catch {
         if (cancelled) return;
         const fallbackConfig = mergeConfig({
@@ -126,6 +127,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
         } as Partial<PersonalityConfig>);
         setConfig(fallbackConfig);
         formInstance.setFieldValue(['personality'], fallbackConfig);
+        formInstance.setFieldValue(['personalitySeedSlug'], defaultPreset.seed_slug);
       } finally {
         if (!cancelled) {
           setLoadingConfig(false);
@@ -211,9 +213,11 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
       setFieldValue(['personality'], mergedConfig);
+      setFieldValue(['personalitySeedSlug'], item.seed_slug);
     } catch {
       setConfig(DEFAULT_PERSONALITY_CONFIG);
       setFieldValue(['personality'], DEFAULT_PERSONALITY_CONFIG);
+      setFieldValue(['personalitySeedSlug'], null);
     } finally {
       setLoadingConfig(false);
       setConfigLoaded(true);
@@ -226,6 +230,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     setConfig(DEFAULT_PERSONALITY_CONFIG);
     setConfigLoaded(true);
     setFieldValue(['personality'], DEFAULT_PERSONALITY_CONFIG);
+    setFieldValue(['personalitySeedSlug'], null);
     setOneLiner('');
   };
 
@@ -247,6 +252,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
       setFieldValue(['personality'], mergedConfig);
+      setFieldValue(['personalitySeedSlug'], null);
     } catch (error: any) {
       toast.error(error?.message || t('personality.generateFailed'));
     } finally {

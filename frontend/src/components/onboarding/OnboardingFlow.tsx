@@ -272,13 +272,43 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
     try {
       await personasApi.seed(locale);
-      // Find the persona matching the selected personality name
       const listResult = await personasApi.list();
       const personas = listResult.data || [];
-      const selectedName = values.personality?.persona_entity?.basic_profile?.name;
-      const match = personas.find((p) => p.name === selectedName) || personas[0];
-      if (match) {
-        await personasApi.setActive(match.persona_id);
+
+      // Determine which persona to activate:
+      // - Quick mode: use the default preset slug
+      // - Expert mode with preset: use the seed_slug saved by PersonalityForm
+      // - Expert mode with custom: create a new persona entry
+      const seedSlug: string | undefined =
+        mode === 'quick' ? 'echo_ai_ssistant' : values.personalitySeedSlug;
+
+      let activatedPersonaId: string | undefined;
+
+      if (seedSlug) {
+        const match = personas.find((p) => p.slug === seedSlug);
+        if (match) activatedPersonaId = match.persona_id;
+      }
+
+      if (!activatedPersonaId && !seedSlug && values.personality) {
+        // Expert mode with a custom/generated persona — create a new registry entry
+        try {
+          const configJson = JSON.stringify(values.personality);
+          const created = await personasApi.create({ config_json: configJson, locale });
+          if (created.data?.persona_id) activatedPersonaId = created.data.persona_id;
+        } catch {
+          // Fall through to name-based matching
+        }
+      }
+
+      // Fallback: match by name, then first persona
+      if (!activatedPersonaId) {
+        const selectedName = values.personality?.persona_entity?.basic_profile?.name;
+        const fallback = personas.find((p) => p.name === selectedName) || personas[0];
+        if (fallback) activatedPersonaId = fallback.persona_id;
+      }
+
+      if (activatedPersonaId) {
+        await personasApi.setActive(activatedPersonaId);
       }
     } catch {
       // Persona registry is best-effort during onboarding;

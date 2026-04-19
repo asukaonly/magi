@@ -1137,9 +1137,10 @@ async def complete_onboarding(config: SystemConfigModel):
             await initialize_agent_runtime()
         await _enqueue_runtime_llm_refresh_command(reason="onboarding_completed")
 
-        # Save the full personality config to registry and set as current
-        if config.personality:
-            await _save_personality_to_user(config.personality)
+        # NOTE: persona registry entries are created by the frontend via
+        # ``POST /api/personas/seed`` after this call returns.  We no longer
+        # call ``_save_personality_to_user`` here to avoid creating duplicate
+        # non-builtin entries that conflict with the seeded builtins.
 
         return ConfigResponse(success=True, message="Onboarding configuration saved", data=_build_system_config())
     except HTTPException:
