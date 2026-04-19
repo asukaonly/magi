@@ -3,8 +3,8 @@
 //! These tests verify that the Axum router builds correctly and that
 //! endpoints not requiring IPC (health, ready) respond as expected.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use axum::body::Body;
 use http_body_util::BodyExt;
@@ -18,10 +18,7 @@ static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
 /// Create a test ApiState using a real temporary socket pair.
 async fn test_state() -> api::state::ApiState {
     let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let sock_path = std::env::temp_dir().join(format!(
-        "magi-test-{}-{n}.sock",
-        std::process::id()
-    ));
+    let sock_path = std::env::temp_dir().join(format!("magi-test-{}-{n}.sock", std::process::id()));
     let _ = std::fs::remove_file(&sock_path);
 
     let listener = tokio::net::UnixListener::bind(&sock_path).unwrap();
@@ -107,7 +104,10 @@ async fn unknown_api_path_hits_fallback_proxy() {
     let status = response.status().as_u16();
     // Should NOT be 404 (Axum's default for unmatched routes)
     // The proxy handler should intercept it
-    assert_ne!(status, 404, "Fallback proxy should handle unknown /api/ paths");
+    assert_ne!(
+        status, 404,
+        "Fallback proxy should handle unknown /api/ paths"
+    );
 }
 
 #[tokio::test]
@@ -126,7 +126,9 @@ async fn cors_headers_present() {
     let response = router.oneshot(req).await.unwrap();
 
     assert!(
-        response.headers().contains_key("access-control-allow-origin"),
+        response
+            .headers()
+            .contains_key("access-control-allow-origin"),
         "CORS allow-origin header should be present"
     );
 }

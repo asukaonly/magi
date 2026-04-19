@@ -135,12 +135,14 @@ pub async fn get_l2_statistics() -> Json<Value> {
 fn build_l2_statistics() -> Value {
     let conn = match db::open_readonly(&db::memory_db_path()) {
         Some(c) => c,
-        None => return json!({
-            "is_running": false,
-            "relation_count": 0,
-            "assertion_count": 0,
-            "projection_backlog": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0},
-        }),
+        None => {
+            return json!({
+                "is_running": false,
+                "relation_count": 0,
+                "assertion_count": 0,
+                "projection_backlog": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0},
+            })
+        }
     };
 
     let rel_count = db::count_rows(
@@ -314,9 +316,8 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
         }
     }
     if let Some(ref v) = params.query {
-        where_parts.push(
-            "event_id IN (SELECT event_id FROM l1_events_fts WHERE content MATCH ?)".into(),
-        );
+        where_parts
+            .push("event_id IN (SELECT event_id FROM l1_events_fts WHERE content MATCH ?)".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
 
@@ -324,8 +325,10 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
 
     // Count total matching rows
     let count_sql = format!("SELECT COUNT(*) FROM fact_events WHERE {}", where_clause);
-    let count_refs: Vec<&dyn rusqlite::types::ToSql> =
-        bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+    let count_refs: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect();
     let total = db::count_rows(&conn, &count_sql, &count_refs);
 
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
@@ -343,8 +346,10 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
          FROM fact_events WHERE {} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
         where_clause
     );
-    let refs: Vec<&dyn rusqlite::types::ToSql> =
-        bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+    let refs: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect();
 
     let items = db::query_to_json_array(&conn, &sql, &refs);
     json!({"items": items, "total": total, "limit": limit, "offset": offset})
@@ -397,11 +402,8 @@ pub async fn list_l2_assertions(Query(params): Query<PaginationQuery>) -> Json<V
             let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    let total = db::count_rows(
-                        &conn,
-                        "SELECT COUNT(*) FROM tom_trait_assertions",
-                        &[],
-                    );
+                    let total =
+                        db::count_rows(&conn, "SELECT COUNT(*) FROM tom_trait_assertions", &[]);
                     let items = db::query_to_json_array(
                         &conn,
                         "SELECT * FROM tom_trait_assertions \
@@ -449,7 +451,11 @@ fn build_l2_entities(limit: i64, offset: i64) -> Value {
     // Collect entity_ids from the current page to scope the alias query.
     let entity_ids: Vec<String> = entities
         .iter()
-        .filter_map(|e| e.get("entity_id").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|e| {
+            e.get("entity_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     let mut alias_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -486,10 +492,7 @@ fn build_l2_entities(limit: i64, offset: i64) -> Value {
         .into_iter()
         .map(|mut e| {
             if let Some(obj) = e.as_object_mut() {
-                let eid = obj
-                    .get("entity_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let eid = obj.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
                 let aliases = alias_map.remove(eid).unwrap_or_default();
                 obj.insert("aliases".to_string(), json!(aliases));
             }
@@ -513,11 +516,7 @@ pub async fn list_l2_mentions(Query(params): Query<PaginationQuery>) -> Json<Val
             let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    let total = db::count_rows(
-                        &conn,
-                        "SELECT COUNT(*) FROM entity_mentions",
-                        &[],
-                    );
+                    let total = db::count_rows(&conn, "SELECT COUNT(*) FROM entity_mentions", &[]);
                     let items = db::query_to_json_array(
                         &conn,
                         "SELECT * FROM entity_mentions \
@@ -546,11 +545,7 @@ pub async fn list_l2_snapshots(Query(params): Query<PaginationQuery>) -> Json<Va
             let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    let total = db::count_rows(
-                        &conn,
-                        "SELECT COUNT(*) FROM tom_snapshots",
-                        &[],
-                    );
+                    let total = db::count_rows(&conn, "SELECT COUNT(*) FROM tom_snapshots", &[]);
                     // Only select columns the frontend uses; skip heavy
                     // history/evolution columns (relationship_history etc.).
                     let items = db::query_to_json_array(
@@ -638,8 +633,10 @@ fn build_l3_summaries(params: &SummariesQuery) -> Value {
 
     // Count total matching rows
     let count_sql = format!("SELECT COUNT(*) FROM summaries {}", where_clause);
-    let count_refs: Vec<&dyn rusqlite::types::ToSql> =
-        bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+    let count_refs: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect();
     let total = db::count_rows(&conn, &count_sql, &count_refs);
 
     bind.push(rusqlite::types::Value::Integer(limit));
@@ -653,8 +650,10 @@ fn build_l3_summaries(params: &SummariesQuery) -> Value {
          FROM summaries {}ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         where_clause
     );
-    let refs: Vec<&dyn rusqlite::types::ToSql> =
-        bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+    let refs: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect();
 
     let items = db::query_to_json_array(&conn, &sql, &refs);
     json!({"items": items, "total": total, "limit": limit, "offset": offset})
@@ -676,7 +675,9 @@ pub struct L0SessionsQuery {
 pub async fn list_l0_sessions(Query(params): Query<L0SessionsQuery>) -> Json<Value> {
     let result = tokio::task::spawn_blocking(move || build_l0_sessions(&params))
         .await
-        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": 50, "offset": 0, "stats": {}}));
+        .unwrap_or_else(
+            |_| json!({"items": [], "total": 0, "limit": 50, "offset": 0, "stats": {}}),
+        );
     Json(result)
 }
 
@@ -713,8 +714,10 @@ fn build_l0_sessions(params: &L0SessionsQuery) -> Value {
     };
 
     let count_sql = format!("SELECT COUNT(*) FROM l0_sessions s {}", where_clause);
-    let count_refs: Vec<&dyn rusqlite::types::ToSql> =
-        bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+    let count_refs: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect();
     let total = db::count_rows(&mem_conn, &count_sql, &count_refs);
 
     bind.push(rusqlite::types::Value::Integer(limit));
@@ -730,14 +733,20 @@ fn build_l0_sessions(params: &L0SessionsQuery) -> Value {
          ORDER BY s.last_active_at DESC LIMIT ? OFFSET ?",
         where_clause
     );
-    let refs: Vec<&dyn rusqlite::types::ToSql> =
-        bind.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+    let refs: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect();
     let sessions = db::query_to_json_array(&mem_conn, &sql, &refs);
 
     // Collect session_ids to batch-lookup chat titles
     let session_ids: Vec<String> = sessions
         .iter()
-        .filter_map(|s| s.get("session_id").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|s| {
+            s.get("session_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     let title_map = build_chat_title_map(&session_ids);
@@ -802,7 +811,11 @@ fn build_chat_title_map(session_ids: &[String]) -> HashMap<String, String> {
         Some(c) => c,
         None => return map,
     };
-    let placeholders: String = session_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let placeholders: String = session_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
         "SELECT session_id, title FROM chat_sessions WHERE session_id IN ({})",
         placeholders
@@ -959,12 +972,36 @@ fn build_background_pending() -> Value {
     let l3_pending = build_embedding_pending_from_db(&db::memory_db_path(), "summaries");
     let l4_pending = build_embedding_pending_from_db(&db::memory_db_path(), "procedural_skills");
 
-    let all_idle = l2.get("extract_pending").and_then(|v| v.as_i64()).unwrap_or(0) == 0
-        && l2.get("reconcile_pending").and_then(|v| v.as_i64()).unwrap_or(0) == 0
-        && l2.get("snapshot_pending").and_then(|v| v.as_i64()).unwrap_or(0) == 0
-        && l1_pending.get("pending").and_then(|v| v.as_i64()).unwrap_or(0) == 0
-        && l3_pending.get("pending").and_then(|v| v.as_i64()).unwrap_or(0) == 0
-        && l4_pending.get("pending").and_then(|v| v.as_i64()).unwrap_or(0) == 0;
+    let all_idle = l2
+        .get("extract_pending")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        == 0
+        && l2
+            .get("reconcile_pending")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+            == 0
+        && l2
+            .get("snapshot_pending")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+            == 0
+        && l1_pending
+            .get("pending")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+            == 0
+        && l3_pending
+            .get("pending")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+            == 0
+        && l4_pending
+            .get("pending")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+            == 0;
 
     json!({
         "l2": l2,

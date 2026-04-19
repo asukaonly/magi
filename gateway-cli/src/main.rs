@@ -34,8 +34,9 @@ async fn main() {
     });
 
     eprintln!("Connecting to IPC worker at {ipc_socket}");
-    let (ipc_client, _event_rx) =
-        ipc::IpcClient::connect(&ipc_socket).await.unwrap_or_else(|e| {
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&ipc_socket)
+        .await
+        .unwrap_or_else(|e| {
             eprintln!("Failed to connect to IPC worker: {e}");
             std::process::exit(1);
         });
@@ -67,12 +68,10 @@ async fn main() {
     eprintln!("Magi gateway listening on http://127.0.0.1:{port}");
 
     // Write port file so benchmark scripts can auto-discover the gateway
-    let port_file = std::path::PathBuf::from(
-        env::var("HOME").unwrap_or_else(|_| ".".into()),
-    )
-    .join(".magi")
-    .join("runtime")
-    .join("gateway.port");
+    let port_file = std::path::PathBuf::from(env::var("HOME").unwrap_or_else(|_| ".".into()))
+        .join(".magi")
+        .join("runtime")
+        .join("gateway.port");
     let _ = std::fs::create_dir_all(port_file.parent().unwrap());
     let _ = std::fs::write(&port_file, port.to_string());
 
