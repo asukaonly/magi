@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 SEED_LOCALES = ("zh", "en")
 
 
-def _resolve_locale(language: str) -> str:
+def resolve_locale(language: str) -> str:
     """Map a user-facing language code to a seed locale folder name."""
     lang = language.lower().replace("-", "_")
     if lang.startswith("zh"):

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
+from ..config.loader import get_user_preference
 from ..core.logger import get_logger
 from .current_state import get_current_personality
 from .persona_repository import PersonaRepository
-from .persona_seed import SEED_LOCALES, seed_builtin_personas
+from .persona_seed import seed_builtin_personas, resolve_locale
 from .self_memory import SelfMemory
 
 logger = get_logger(__name__)
@@ -37,9 +38,13 @@ class PersonalityModule(LifecycleModule):
         # persona registry existed).
         existing = await repo.list_all()
         if not existing:
-            logger.info("Persona registry empty, auto-seeding builtin personas")
-            for locale in SEED_LOCALES:
-                await seed_builtin_personas(repo, locale)
+            user_lang = get_user_preference("language", "zh")
+            locale = resolve_locale(user_lang)
+            logger.info(
+                "Persona registry empty, auto-seeding builtin personas for locale '%s'",
+                locale,
+            )
+            await seed_builtin_personas(repo, locale)
 
         try:
             active_id = await repo.get_active_id()
