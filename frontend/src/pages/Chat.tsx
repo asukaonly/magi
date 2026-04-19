@@ -735,6 +735,9 @@ export const ChatPage: React.FC = () => {
               if (initData?.bootstrap_active && initData.opening) {
                 setBootstrapActive(true);
                 bootstrapHistoryRef.current = [{ role: 'assistant', content: initData.opening }];
+                // Re-fetch history so the persisted opening message appears in the chat
+                lastHistoryRequestRef.current = null;
+                void requestHistory(currentSessionId);
               }
             } catch {
               // Bootstrap init failed — proceed without bootstrap
@@ -745,7 +748,7 @@ export const ChatPage: React.FC = () => {
         // Non-critical — keep default AI name
       }
     },
-    [currentSessionId]
+    [currentSessionId, requestHistory]
   );
 
   const handleExecutionTraceUpdate = useCallback(
