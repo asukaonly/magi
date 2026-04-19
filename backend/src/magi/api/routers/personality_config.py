@@ -892,12 +892,17 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
             )
 
         turn_id = f"turn_bs_{_uuid.uuid4().hex[:12]}"
-        await _persist_bootstrap_assistant_message(
-            session_id=request.session_id,
-            user_id=request.user_id,
-            turn_id=turn_id,
-            content=opening,
-        )
+        try:
+            await _persist_bootstrap_assistant_message(
+                session_id=request.session_id,
+                user_id=request.user_id,
+                turn_id=turn_id,
+                content=opening,
+            )
+        except RuntimeError as exc:
+            # chat_store or other runtime bindings may not be ready yet
+            # during early startup; return the opening anyway.
+            logger.warning("Bootstrap opening not persisted (runtime not ready): %s", exc)
 
         return PersonalityResponse(
             success=True,
@@ -963,12 +968,15 @@ async def api_bootstrap_message(request: BootstrapMessageRequest):
 
         # Persist assistant reply as a real chat message + emit notification
         reply_turn_id = f"turn_bs_{_uuid.uuid4().hex[:12]}"
-        await _persist_bootstrap_assistant_message(
-            session_id=request.session_id,
-            user_id=request.user_id,
-            turn_id=reply_turn_id,
-            content=reply,
-        )
+        try:
+            await _persist_bootstrap_assistant_message(
+                session_id=request.session_id,
+                user_id=request.user_id,
+                turn_id=reply_turn_id,
+                content=reply,
+            )
+        except RuntimeError as exc:
+            logger.warning("Bootstrap reply not persisted (runtime not ready): %s", exc)
 
         return PersonalityResponse(
             success=True,
