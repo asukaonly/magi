@@ -3,8 +3,19 @@
     "name": "NetEase Cloud Music",
     "description": "Play history from NetEase Cloud Music app"
   },
-  "played_track": {
-    "title": "Played track",
-    "description": "Played a music track"
+  "summary": {
+    "listened": "Listened to \u300a{track_name}\u300b by {artist_name} (album: {album_name}) on NetEase Cloud Music for {duration_min} min",
+    "listened_with_alias": "Listened to \u300a{track_name}\u300b by {artist_name} ({alias}) on NetEase Cloud Music for {duration_min} min",
+    "listened_no_album": "Listened to \u300a{track_name}\u300b by {artist_name} on NetEase Cloud Music for {duration_min} min",
+    "listened_no_artist": "Listened to \u300a{track_name}\u300b on NetEase Cloud Music for {duration_min} min"
+  },
+  "fields": {
+    "tag_strategy_label": "Tag Extraction Strategy",
+    "tag_strategy_desc": "How to extract genre/style tags for listened tracks",
+    "tag_strategy_off": "Off",
+    "tag_strategy_builtin": "Built-in (local alias data, limited coverage)",
+    "tag_strategy_lastfm": "Last.fm",
+    "lastfm_api_key_label": "Last.fm API Key",
+    "lastfm_api_key_desc": "Required when using Last.fm strategy. Get a free key at last.fm/api/account/create"
   }
 }

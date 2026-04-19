@@ -68,7 +68,8 @@ def test_extract_track_info_full_info() -> None:
         "artist_name": "Test Artist",
         "album_id": "789",
         "album_name": "Test Album",
-        "album_cover_url": "http://example.com/cover.jpg"
+        "album_cover_url": "http://example.com/cover.jpg",
+        "track_alias": [],
     }
 
 
@@ -90,7 +91,8 @@ def test_extract_track_info_missing_artists() -> None:
         "artist_name": None,
         "album_id": "789",
         "album_name": "Test Album",
-        "album_cover_url": None
+        "album_cover_url": None,
+        "track_alias": [],
     }
 
 
@@ -112,7 +114,8 @@ def test_extract_track_info_missing_album() -> None:
         "artist_name": "Test Artist",
         "album_id": None,
         "album_name": None,
-        "album_cover_url": None
+        "album_cover_url": None,
+        "track_alias": [],
     }
 
 
@@ -132,8 +135,32 @@ def test_extract_track_info_no_artists_album() -> None:
         "artist_name": None,
         "album_id": None,
         "album_name": None,
-        "album_cover_url": None
+        "album_cover_url": None,
+        "track_alias": [],
     }
+
+
+def test_extract_track_info_with_alias() -> None:
+    """Test that alias / alia fields are returned as track_alias list."""
+    # Old API format: "alias"
+    track_data_old = {
+        "id": "111",
+        "name": "魂のルフラン",
+        "duration": 200000,
+        "alias": ["剧场版《新世纪福音战士》片尾曲"],
+    }
+    result_old = extract_track_info(track_data_old)
+    assert result_old["track_alias"] == ["剧场版《新世纪福音战士》片尾曲"]
+
+    # New API format: "alia"
+    track_data_new = {
+        "id": "222",
+        "name": "孤独摇滚",
+        "duration": 190000,
+        "alia": ["TV动画《孤独摇滚》主题曲", ""],  # empty string should be stripped
+    }
+    result_new = extract_track_info(track_data_new)
+    assert result_new["track_alias"] == ["TV动画《孤独摇滚》主题曲"]
 
 
 def test_build_netease_url_basic() -> None:
@@ -322,7 +349,7 @@ def test_read_play_records_includes_track_info(sample_database):
     assert 'track_name' in first_record
     assert 'artist_name' in first_record
     assert 'album_name' in first_record
-    assert 'track_duration_ms' in first_record
+    assert 'track_alias' in first_record
 
 
 def test_read_play_records_marks_liked(sample_database):
@@ -464,7 +491,8 @@ async def test_build_output():
         "update_time": 1641000000,
         "source": "local",
         "is_liked": True,
-        "track_duration_ms": 180000
+        "track_duration_ms": 180000,
+        "track_alias": [],
     }
 
     output = await sensor.build_output(item)
@@ -473,10 +501,12 @@ async def test_build_output():
     assert output.source_type == "netease_music"
     assert output.source_item_id == "netease_123_1641000000"
     assert output.title == "Test Song - Test Artist"
-    assert output.summary == "播放了 Test Song (30秒)"
+    # Natural language summary must include artist and album for searchability
+    assert "Test Artist" in output.summary
+    assert "Test Song" in output.summary
     assert output.occurred_at == 1641000000
 
-    # Check content blocks
+    # Check content blocks: track, artist, album (no alias since track_alias=[])
     assert len(output.content_blocks) == 3
     assert output.content_blocks[0].kind == "text"
     assert output.content_blocks[0].value == "Test Song"
@@ -503,6 +533,72 @@ async def test_build_output():
     assert provenance["play_duration_sec"] == 30
     assert "netease_url" in provenance
     assert provenance["is_liked"] is True
+    assert provenance["track_alias"] == []
+
+
+@pytest.mark.asyncio
+async def test_build_output_with_alias():
+    """Alias should appear in content blocks and summary when present."""
+    sensor = NeteaseMusicTimelineSensor()
+    item = {
+        "track_id": "999",
+        "track_name": "魂のルフラン",
+        "artist_name": "高橋洋子",
+        "album_name": "EVA OST",
+        "play_duration_sec": 300,
+        "update_time": 1641000000,
+        "source": "local",
+        "is_liked": False,
+        "track_alias": ["剧场版《新世纪福音战士》片尾曲"],
+    }
+    output = await sensor.build_output(item)
+    # Alias goes into summary (for BM25 searchability)
+    assert "剧场版《新世纪福音战士》片尾曲" in output.summary
+    # And into content_blocks as a separate block
+    block_values = [b.value for b in output.content_blocks]
+    assert "剧场版《新世纪福音战士》片尾曲" in block_values
+
+
+@pytest.mark.asyncio
+async def test_extract_metadata_returns_listened_candidate():
+    """extract_metadata should produce a LISTENED relation candidate."""
+    sensor = NeteaseMusicTimelineSensor()
+    item = {
+        "track_name": "晴天",
+        "artist_name": "周杰伦",
+        "track_alias": [],
+    }
+    meta = await sensor.extract_metadata(item)
+    assert any(c["predicate"] == "LISTENED" for c in meta.relation_candidates)
+    assert any(c["object_id"] == "media:晴天" for c in meta.relation_candidates)
+
+
+@pytest.mark.asyncio
+async def test_extract_metadata_builtin_strategy_returns_alias_tags():
+    """Built-in tag strategy should return alias strings as tags."""
+    sensor = NeteaseMusicTimelineSensor(tag_strategy="builtin")
+    item = {
+        "track_name": "Test",
+        "artist_name": "Artist",
+        "track_alias": ["TV动画《孤独摇滚》插曲", "Animation OST"],
+    }
+    meta = await sensor.extract_metadata(item)
+    assert "TV动画《孤独摇滚》插曲" in meta.tags
+    assert "Animation OST" in meta.tags
+
+
+@pytest.mark.asyncio
+async def test_extract_metadata_off_strategy_returns_no_genre_tags():
+    """Off strategy should produce no genre tags."""
+    sensor = NeteaseMusicTimelineSensor(tag_strategy="off")
+    item = {
+        "track_name": "Test",
+        "artist_name": "Artist",
+        "track_alias": ["some alias"],
+    }
+    meta = await sensor.extract_metadata(item)
+    # No genre tags when strategy is off, even if alias is present
+    assert meta.tags == []
 
 
 @pytest.mark.asyncio

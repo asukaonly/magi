@@ -26,20 +26,26 @@ def extract_track_info(track_data: dict[str, Any]) -> dict[str, Any]:
         "album_id": None,
         "album_name": None,
         "album_cover_url": None,
+        "track_alias": [],
     }
 
-    # Extract artist info
-    artists = track_data.get("artists", [])
-    if artists and len(artists) > 0:
+    # Extract artist info (supports both old "artists" and new "ar" field names)
+    artists = track_data.get("artists") or track_data.get("ar") or []
+    if artists:
         result["artist_id"] = artists[0].get("id")
         result["artist_name"] = artists[0].get("name")
 
-    # Extract album info
-    album = track_data.get("album")
+    # Extract album info (supports both old "album" and new "al" field names)
+    album = track_data.get("album") or track_data.get("al") or {}
     if album:
         result["album_id"] = album.get("id")
         result["album_name"] = album.get("name")
         result["album_cover_url"] = album.get("picUrl")
+
+    # Extract aliases/context labels (e.g. "TV动画《孤独摇滚》插曲").
+    # Supports both old API "alias" and new API "alia" field names.
+    raw_alias = track_data.get("alias") or track_data.get("alia") or []
+    result["track_alias"] = [str(a).strip() for a in raw_alias if str(a).strip()]
 
     return result
 

@@ -3,13 +3,19 @@
     "name": "网易云音乐",
     "description": "网易云音乐播放记录接入时间线"
   },
-  "played_track": {
-    "title": "播放了 {track_name}",
-    "description": "播放了 {track_name} ({play_duration_sec}秒)"
+  "summary": {
+    "listened": "在网易云音乐听了{artist_name}的《{track_name}》（{album_name}），播放了{duration_min}分钟",
+    "listened_with_alias": "在网易云音乐听了{artist_name}的《{track_name}》（{alias}），播放了{duration_min}分钟",
+    "listened_no_album": "在网易云音乐听了{artist_name}的《{track_name}》，播放了{duration_min}分钟",
+    "listened_no_artist": "在网易云音乐听了《{track_name}》，播放了{duration_min}分钟"
   },
-  "content_blocks": {
-    "repo": "仓库：{repo_path}",
-    "operation": "操作：{operation_type}",
-    "commit": "提交：{old_sha}..{new_sha}"
+  "fields": {
+    "tag_strategy_label": "标签提取策略",
+    "tag_strategy_desc": "为播放记录提取风格/流派标签的方式",
+    "tag_strategy_off": "关闭",
+    "tag_strategy_builtin": "内置（本地别名数据，覆盖率有限）",
+    "tag_strategy_lastfm": "Last.fm",
+    "lastfm_api_key_label": "Last.fm API Key",
+    "lastfm_api_key_desc": "选择 Last.fm 策略时必填，在 last.fm/api/account/create 免费申请"
   }
 }

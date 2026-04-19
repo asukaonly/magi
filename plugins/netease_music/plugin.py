@@ -120,6 +120,38 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             surface="timeline",
             order=80,
         ),
+        ExtensionFieldSpec(
+            key=f"{prefix}.tag_strategy",
+            type="select",
+            label="Tag Extraction Strategy",
+            description=(
+                "How to extract genre/style tags for listened tracks. "
+                "'Built-in' reads local alias data (limited coverage). "
+                "'Last.fm' queries the Last.fm API (requires an API key)."
+            ),
+            default="off",
+            options=[
+                ExtensionFieldOption(label="Off", value="off"),
+                ExtensionFieldOption(label="Built-in (local alias data)", value="builtin"),
+                ExtensionFieldOption(label="Last.fm", value="lastfm"),
+            ],
+            section="analysis",
+            surface="timeline",
+            order=75,
+        ),
+        ExtensionFieldSpec(
+            key=f"{prefix}.lastfm_api_key",
+            type="input",
+            label="Last.fm API Key",
+            description=(
+                "Required when Tag Extraction Strategy is set to Last.fm. "
+                "Apply for a free key at last.fm/api/account/create"
+            ),
+            default="",
+            section="analysis",
+            surface="timeline",
+            order=76,
+        ),
     ]
 
 
@@ -139,6 +171,8 @@ class NeteaseMusicPlugin(Plugin):
             min_play_duration=int(settings.get("min_play_duration") or DEFAULT_SETTINGS["min_play_duration"]),
             source_path=str(settings.get("db_path") or DEFAULT_SETTINGS["db_path"]),
             retention_mode=str(settings.get("default_retention_mode") or DEFAULT_SETTINGS["default_retention_mode"]),
+            tag_strategy=str(settings.get("tag_strategy") or "off"),
+            lastfm_api_key=str(settings.get("lastfm_api_key") or ""),
         )
 
         return [
