@@ -13,6 +13,11 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     # ssl._encode_hostname calls codecs.lookup('idna') dynamically; PyInstaller
     # cannot detect this so the codec must be listed explicitly.
     "encodings.idna",
+    # Local embedding / reranker are behind lazy ``try: import`` guards but are
+    # mandatory dependencies — always include them.
+    "onnxruntime",
+    "tokenizers",
+    "huggingface_hub",
 )
 
 # Packages whose submodules are loaded dynamically and must be collected in
@@ -34,10 +39,6 @@ COLLECT_BINARY_PACKAGES = (
 # are installed in the build environment.  PyInstaller cannot discover them
 # because they are behind ``try: import … except ImportError`` guards.
 OPTIONAL_HIDDEN_IMPORTS = (
-    # local-embedding extra
-    "onnxruntime",
-    "tokenizers",
-    "huggingface_hub",
     # channels extra
     "telegram",
     # Windows media control (Windows only)

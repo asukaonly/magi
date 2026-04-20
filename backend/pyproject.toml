@@ -70,6 +70,11 @@ dependencies = [
     "socksio>=1.0.0",
     "aiofiles>=23.2.1",
     "playwright>=1.53.0",
+
+    # Local embedding / reranker (ONNX)
+    "onnxruntime>=1.17.0",
+    "tokenizers>=0.19.0",
+    "huggingface-hub>=0.20.0",
 ]
 
 [project.optional-dependencies]
@@ -80,11 +85,6 @@ dev = [
     "black>=24.1.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
-]
-local-embedding = [
-    "onnxruntime>=1.17.0",
-    "tokenizers>=0.19.0",
-    "huggingface-hub>=0.20.0",
 ]
 
 [project.urls]
