@@ -72,6 +72,10 @@ Main code locations:
 - API layer: `backend/src/magi/api/`
 - Frontend app: `frontend/src/`
 - Desktop host/runtime: `frontend/src-tauri/`
+- Builtin plugins: `plugins/` (core-tools, core-actions)
+- External plugins repo: `github.com/asukaonly/magi-plugins` (marketplace registry + all non-builtin plugins)
+- Builtin plugins: `plugins/` (core-tools, core-actions)
+- External plugins repo: `github.com/asukaonly/magi-plugins` (marketplace registry + all non-builtin plugins)
 
 ---
 
@@ -127,6 +131,12 @@ magi/
 │   ├── build-sidecar.sh        # Build Python sidecar binary for macOS/Linux
 │   ├── build-sidecar.ps1       # Build Python sidecar binary for Windows
 │   └── dev-tauri-hot.sh        # Start Tauri + backend with hot reload
+├── plugins/
+│   ├── core-tools/              # Builtin tools plugin (web search, file ops, etc.)
+│   └── core-actions/             # Builtin actions plugin (email, notifications)
+├── plugins/
+│   ├── core-tools/              # Builtin tools plugin (web search, file ops, etc.)
+│   └── core-actions/             # Builtin actions plugin (email, notifications)
 ├── configs/
 ├── docs/
 │   ├── project-overview.md
@@ -134,6 +144,38 @@ magi/
 │   └── task-agent-runtime-architecture.md
 ├── README.md
 └── agents.md
+```
+
+### External Plugin Repository
+
+```text
+magi-plugins/                     # github.com/asukaonly/magi-plugins
+├── registry.json                  # Marketplace index (plugin_id, version, path, platforms)
+├── calendar/                      # macOS calendar sensor
+├── chrome-history/                # Chrome browsing history sensor
+├── git-activity/                  # Git commit history sensor
+├── netease-music/                 # NetEase Cloud Music play history sensor
+├── photo-library/                 # Photo library EXIF sensor
+├── screen-time/                   # macOS app usage sensor
+├── system-media/                  # Cross-platform media playback sensor
+├── telegram/                      # Telegram bot channel adapter
+└── terminal-history/              # Terminal command history sensor
+```
+
+### External Plugin Repository
+
+```text
+magi-plugins/                     # github.com/asukaonly/magi-plugins
+├── registry.json                  # Marketplace index (plugin_id, version, path, platforms)
+├── calendar/                      # macOS calendar sensor
+├── chrome-history/                # Chrome browsing history sensor
+├── git-activity/                  # Git commit history sensor
+├── netease-music/                 # NetEase Cloud Music play history sensor
+├── photo-library/                 # Photo library EXIF sensor
+├── screen-time/                   # macOS app usage sensor
+├── system-media/                  # Cross-platform media playback sensor
+├── telegram/                      # Telegram bot channel adapter
+└── terminal-history/              # Terminal command history sensor
 ```
 
 ---
