@@ -162,13 +162,14 @@ class PluginRegistryClient:
             shutil.rmtree(work_dir, ignore_errors=True)
 
         # Create a working tree from the bare cache — local clone, no network.
+        # Use file:// protocol so --depth is honoured on local repos.
+        # Skip --filter since the bare cache is already a partial clone.
         local_clone_cmd = [
             "git", "clone",
             "--depth", "1",
-            "--filter=blob:none",
             "--sparse",
             "--no-hardlinks",
-            str(bare_dir), str(work_dir),
+            f"file://{bare_dir}", str(work_dir),
         ]
         await _run_async(local_clone_cmd, timeout=30, error_prefix="local clone failed", env=proxy_env)
 
