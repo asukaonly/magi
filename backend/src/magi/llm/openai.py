@@ -368,3 +368,44 @@ class OpenAIAdapter(LLMAdapter):
             "text-embedding-ada-002": 1536,
         }
         return dimensions.get(self._embedding_model, 1536)
+
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        model: Optional[str] = None,
+        size: str = "1024x1024",
+        quality: str = "auto",
+        n: int = 1,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate images via OpenAI-compatible Images API.
+
+        Returns:
+            Dict with ``images`` list containing base64-encoded image data.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        image_model = model or self._model
+        try:
+            response = await self._client.images.generate(
+                model=image_model,
+                prompt=prompt,
+                n=n,
+                size=size,
+                quality=quality,
+            )
+            images = []
+            for item in response.data:
+                entry: Dict[str, Any] = {}
+                if getattr(item, "b64_json", None):
+                    entry["b64_json"] = item.b64_json
+                if getattr(item, "url", None):
+                    entry["url"] = item.url
+                if getattr(item, "revised_prompt", None):
+                    entry["revised_prompt"] = item.revised_prompt
+                images.append(entry)
+            return {"images": images, "model": image_model}
+        except Exception as e:
+            logger.error("Image generation failed: %s", e)
+            raise

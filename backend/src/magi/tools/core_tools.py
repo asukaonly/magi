@@ -9,6 +9,7 @@ from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
 from .builtin.glob_tool import GlobTool
 from .builtin.grep_tool import GrepTool
+from .builtin.image_generation_tool import ImageGenerationTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.web_fetch_tool import WebFetchTool
@@ -29,5 +30,6 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     SystemSettingsTool,
     AgentTool,
     MemoryQueryTool,
+    ImageGenerationTool,
 )
 

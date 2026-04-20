@@ -193,6 +193,11 @@
         "desc": "将文本转为向量以实现语义搜索和记忆召回，启用后可大幅提升记忆检索的准确性。是否启用由上方的「向量模式」控制。",
         "offHint": "向量模型当前未启用。启用后 AI 将获得语义记忆检索能力，能更准确地理解和召回历史对话与知识。建议在「记忆检索」相关场景下开启。"
       },
+      "image_generation": {
+        "title": "生图模型",
+        "desc": "根据文字描述生成图片。选择供应商并输入生图模型 ID（如 gpt-image-1）。生图模型不内置，需手动填写你的供应商支持的模型 ID。",
+        "notConfiguredHint": "生图模型尚未配置。请选择供应商并输入模型 ID，以启用生图工具。"
+      },
       "reranker": {
         "title": "精排模型",
         "desc": "对检索结果做二次语义排序，进一步提升记忆召回的准确性。需先在「记忆 → 通用记忆设置」中启用。"
@@ -255,6 +260,7 @@
       "customProviderModelRequired": "请为自定义供应商添加至少一个模型。"
     },
     "modelManualPlaceholder": "输入模型 ID，例如 gpt-4.1",
+    "imageGenerationModelPlaceholder": "输入生图模型 ID，例如 gpt-image-1",
     "customProviderDefaultName": "自定义供应商",
     "providerLabel": "模型提供商",
     "providerRequired": "请选择模型提供商",

@@ -51,9 +51,7 @@ providers:
         dimensions: [3072, 1024, 256]
         limits:
           max_concurrency: 4
-    image_generation_models:
-      - id: gpt-image-1
-        label: GPT Image 1
+    image_generation_models: []
     audio_generation_models:
       - id: gpt-4o-mini-tts
         label: GPT-4o Mini TTS

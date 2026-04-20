@@ -192,6 +192,11 @@
         "desc": "Converts text into vectors for semantic search and memory retrieval, significantly improving recall accuracy when enabled. Enablement is controlled by the Embedding Mode selector above.",
         "offHint": "Embedding is currently disabled. When enabled, AI gains semantic memory retrieval — much better at understanding and recalling past conversations and knowledge. Recommended for any memory-related scenario."
       },
+      "image_generation": {
+        "title": "Image Generation",
+        "desc": "Generates images from text prompts. Select a provider and enter the image generation model ID (e.g. gpt-image-1). The model is not built-in — you need to manually specify the model your provider supports.",
+        "notConfiguredHint": "Image generation is not configured. Select a provider and enter the model ID to enable the image generation tool."
+      },
       "reranker": {
         "title": "Reranker",
         "desc": "Re-ranks retrieval results with a second semantic pass, further improving memory recall accuracy. Must be enabled in Memory → General Settings first."
@@ -254,6 +259,7 @@
       "customProviderModelRequired": "Please add at least one model for the custom provider."
     },
     "modelManualPlaceholder": "Enter a model ID, for example gpt-4.1",
+    "imageGenerationModelPlaceholder": "Enter an image model ID, e.g. gpt-image-1",
     "customProviderDefaultName": "Custom Provider",
     "providerLabel": "Model Provider",
     "providerRequired": "Please select a model provider",

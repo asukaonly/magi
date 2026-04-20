@@ -178,6 +178,7 @@ class LLMProviderCatalogEntryModel(BaseModel):
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
     resolved_chat_models: list[LLMResolvedModelMetaModel] = Field(default_factory=list)
     resolved_embedding_models: list[LLMResolvedEmbeddingModelMetaModel] = Field(default_factory=list)
+    image_generation_models: list[LLMImageGenerationModelMetaModel] = Field(default_factory=list)
 
 
 class ResolvedLLMProfile(BaseModel):
@@ -628,6 +629,7 @@ def build_provider_catalog(
                 fields=dict(provider_meta.fields),
                 resolved_chat_models=resolved_catalog.chat_models,
                 resolved_embedding_models=resolved_catalog.embedding_models,
+                image_generation_models=list(provider_meta.image_generation_models),
             )
         )
 

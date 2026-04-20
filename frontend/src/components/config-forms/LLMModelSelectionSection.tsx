@@ -46,9 +46,9 @@ interface LLMModelSelectionSectionProps {
   onCrossEncoderConfigChange?: (updater: (draft: CrossEncoderConfig) => void) => void;
 }
 
-const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
+const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding', 'image_generation'];
 type ModelTab = LLMScenario | 'reranker';
-const MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'embedding', 'reranker'];
+const MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'embedding', 'image_generation', 'reranker'];
 
 const compareOptionLabels = (left: { label: string; value: string }, right: { label: string; value: string }) => {
   const labelComparison = left.label.localeCompare(right.label, 'en', { sensitivity: 'base' });
@@ -253,6 +253,34 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           label: `${right.modelLabel} (${right.providerName})`,
           value: `${right.providerId}::${right.modelId}`,
         }
+      )
+    );
+  }, [enabledProviders, registry.providers]);
+
+  // Collect all image generation models from all enabled providers
+  const allImageGenerationModels = useMemo(() => {
+    const models: Array<{
+      providerId: string;
+      providerName: string;
+      modelId: string;
+      modelLabel: string;
+    }> = [];
+    for (const [providerId, provider] of enabledProviders) {
+      const providerMeta = registry.providers.find((p) => p.id === providerId);
+      const imageModels = providerMeta?.image_generation_models ?? [];
+      for (const model of imageModels) {
+        models.push({
+          providerId,
+          providerName: provider.display_name || providerId,
+          modelId: model.id,
+          modelLabel: model.label || model.id,
+        });
+      }
+    }
+    return models.sort((left, right) =>
+      compareOptionLabels(
+        { label: `${left.modelLabel} (${left.providerName})`, value: `${left.providerId}::${left.modelId}` },
+        { label: `${right.modelLabel} (${right.providerName})`, value: `${right.providerId}::${right.modelId}` }
       )
     );
   }, [enabledProviders, registry.providers]);
@@ -687,10 +715,79 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     );
   };
 
+  const renderImageGenerationScenarioContent = (scenario: LLMScenario) => {
+    const selection = value.selections[scenario];
+
+    return (
+      <>
+        <div className={cn('grid gap-3', quickMode ? 'lg:grid-cols-2' : 'md:grid-cols-2')}>
+          <label className="space-y-2">
+            <span className="text-sm font-medium">{t('llm.fields.provider')}</span>
+            <SelectField
+              className="w-full"
+              triggerClassName={inputClassName}
+              value={selection?.provider_id || ''}
+              allowEmpty={false}
+              options={enabledProviders.map(([providerId, enabledProvider]) => ({
+                label: enabledProvider.display_name || providerId,
+                value: providerId,
+              }))}
+              onChange={(nextValue) => onScenarioProviderChange(scenario, nextValue)}
+            />
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-sm font-medium">{t('llm.fields.model')}</span>
+            {(() => {
+              const providerImageModels = allImageGenerationModels.filter(
+                (m) => m.providerId === (selection?.provider_id || '')
+              );
+              if (providerImageModels.length > 0) {
+                return (
+                  <SelectField
+                    className="w-full"
+                    triggerClassName={inputClassName}
+                    value={selection?.model || ''}
+                    allowEmpty={false}
+                    searchable
+                    searchThreshold={10}
+                    searchPlaceholder={t('llm.modelSelection.searchPlaceholder')}
+                    noResultsText={t('llm.modelSelection.noSearchResults')}
+                    options={providerImageModels.map((m) => ({
+                      label: m.modelLabel,
+                      value: m.modelId,
+                    }))}
+                    onChange={(nextValue) => onScenarioModelChange(scenario, nextValue)}
+                  />
+                );
+              }
+              return (
+                <input
+                  aria-label={t('llm.fields.model')}
+                  className={inputClassName}
+                  value={selection?.model || ''}
+                  placeholder={t('llm.imageGenerationModelPlaceholder')}
+                  onChange={(event) => onScenarioModelChange(scenario, event.target.value)}
+                />
+              );
+            })()}
+          </label>
+        </div>
+
+        {(!selection?.provider_id || !selection?.model) ? (
+          <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <p className="text-xs leading-5 text-amber-800 dark:text-amber-300">{t('llm.scenarios.image_generation.notConfiguredHint')}</p>
+          </div>
+        ) : null}
+      </>
+    );
+  };
+
   const renderScenarioContent = (scenario: LLMScenario) => {
-    return scenario === 'embedding'
-      ? renderEmbeddingScenarioContent(scenario)
-      : renderChatScenarioContent(scenario);
+    if (scenario === 'embedding') return renderEmbeddingScenarioContent(scenario);
+    if (scenario === 'image_generation') return renderImageGenerationScenarioContent(scenario);
+    return renderChatScenarioContent(scenario);
   };
 
   const renderRerankerContent = () => {
