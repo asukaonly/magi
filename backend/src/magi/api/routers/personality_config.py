@@ -101,13 +101,6 @@ class BootstrapInitRequest(BaseModel):
     user_id: str = Field(default="default_user")
 
 
-class BootstrapMessageRequest(BaseModel):
-    user_message: str = Field(..., description="User's message text")
-    history: List[Dict[str, str]] = Field(default_factory=list, description="Previous dialogue turns")
-    user_id: str = Field(default="default_user")
-    session_id: str = Field(default="bootstrap")
-
-
 class JournalReflectRequest(BaseModel):
     persona_name: Optional[str] = Field(None, description="Persona to reflect as; defaults to current")
     emotional_state: Optional[Dict[str, Any]] = None
@@ -911,80 +904,6 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
         )
     except Exception as exc:
         logger.error("Bootstrap init failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@personality_config_router.post(
-    "/bootstrap/message",
-    response_model=PersonalityResponse,
-    summary="Send a bootstrap dialogue message",
-    description="Exchange a message in the persona bootstrap (first-contact) dialogue. "
-    "Both user and assistant messages are persisted as real chat turns.",
-)
-async def api_bootstrap_message(request: BootstrapMessageRequest):
-    try:
-        import time as _time
-        import uuid as _uuid
-
-        from ...core.runtime_bindings import require_chat_store
-
-        current_name = get_current_personality_name()
-        persona_id = await _resolve_persona_id(current_name)
-        bootstrap_svc = await _get_bootstrap_service()
-
-        if not await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id):
-            return PersonalityResponse(
-                success=True,
-                message="Bootstrap already completed",
-                data={"reply": None, "is_complete": True},
-            )
-
-        # Persist user message as a real chat turn
-        user_turn_id = f"turn_bs_{_uuid.uuid4().hex[:12]}"
-        now_ms = int(_time.time() * 1000)
-        try:
-            chat_store = require_chat_store()
-            await chat_store.create_user_turn(
-                session_id=request.session_id,
-                user_id=request.user_id,
-                turn_id=user_turn_id,
-                message_text=request.user_message,
-                created_at_ms=now_ms,
-            )
-        except Exception as exc:
-            logger.warning("Failed to persist bootstrap user turn: %s", exc)
-
-        reply = await bootstrap_svc.reply(
-            persona_name=current_name,
-            user_id=request.user_id,
-            session_id=request.session_id,
-            user_message=request.user_message,
-            history=request.history,
-            persona_id=persona_id,
-        )
-
-        still_needs = await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id)
-        is_complete = not still_needs
-
-        # Persist assistant reply as a real chat message + emit notification
-        reply_turn_id = f"turn_bs_{_uuid.uuid4().hex[:12]}"
-        try:
-            await _persist_bootstrap_assistant_message(
-                session_id=request.session_id,
-                user_id=request.user_id,
-                turn_id=reply_turn_id,
-                content=reply,
-            )
-        except RuntimeError as exc:
-            logger.warning("Bootstrap reply not persisted (runtime not ready): %s", exc)
-
-        return PersonalityResponse(
-            success=True,
-            message="Bootstrap reply generated",
-            data={"reply": reply, "is_complete": is_complete},
-        )
-    except Exception as exc:
-        logger.error("Bootstrap message failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

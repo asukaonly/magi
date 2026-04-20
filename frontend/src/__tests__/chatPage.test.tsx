@@ -57,7 +57,6 @@ vi.mock('@/api/modules/personas', async () => {
       ...actual.personasApi,
       getGreeting: vi.fn().mockResolvedValue({ success: true, data: { name: 'AI', greeting: '', needs_bootstrap: false } }),
       bootstrapInit: vi.fn().mockResolvedValue({ success: true, data: { bootstrap_active: false, opening: null } }),
-      bootstrapMessage: vi.fn().mockResolvedValue({ success: true, data: { reply: '', is_complete: true } }),
     },
   };
 });

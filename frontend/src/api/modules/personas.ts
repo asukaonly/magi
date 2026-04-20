@@ -259,15 +259,6 @@ export const personasApi = {
       session_id: sessionId,
       user_id: userId,
     }),
-
-  /** Send a bootstrap message for the active persona. */
-  bootstrapMessage: (request: {
-    user_message: string;
-    history: Array<{ role: string; content: string }>;
-    user_id?: string;
-    session_id: string;
-  }) =>
-    api.post<{ reply: string; is_complete: boolean }>('/personality/bootstrap/message', request),
 };
 
 export default personasApi;
