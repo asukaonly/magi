@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from .contracts import ChannelTarget, OutboundContent
 
@@ -30,3 +31,7 @@ class Channel(ABC):
     @abstractmethod
     async def send_typing_indicator(self, target: ChannelTarget) -> None:
         """Show typing/processing state on the external platform."""
+
+    def bind_session_mapper(self, session_mapper: Any) -> None:
+        """Inject the session mapper after construction (called by ChannelsModule)."""
+        pass

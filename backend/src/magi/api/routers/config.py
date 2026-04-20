@@ -264,22 +264,6 @@ class TimelineConfigModel(BaseModel):
     sources: TimelineSourcesConfigModel = Field(default_factory=TimelineSourcesConfigModel)
 
 
-class TelegramChannelConfigModel(BaseModel):
-    enabled: bool = Field(default=False)
-    bot_token: str = Field(default="")
-    mode: str = Field(default="polling")
-    webhook_url: str = Field(default="")
-    proxy: str = Field(default="")
-    allowed_user_ids: List[str] = Field(default_factory=list)
-    group_trigger_keyword: str = Field(default="")
-    magi_user_id: str = Field(default="default")
-    max_message_length: int = Field(default=4096)
-
-
-class ChannelsConfigModel(BaseModel):
-    telegram: TelegramChannelConfigModel = Field(default_factory=TelegramChannelConfigModel)
-
-
 class SystemConfigModel(BaseModel):
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
@@ -289,7 +273,6 @@ class SystemConfigModel(BaseModel):
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
     tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
     timeline: TimelineConfigModel = Field(default_factory=TimelineConfigModel)
-    channels: ChannelsConfigModel = Field(default_factory=ChannelsConfigModel)
 
 
 class ConfigResponse(BaseModel):
@@ -539,35 +522,6 @@ def _build_llm_config_model(
     )
 
 
-def _build_channels_config(raw: Dict[str, Any], runtime_config: Any, mask_api_key: bool = False) -> ChannelsConfigModel:
-    """Build channels config from runtime config and raw YAML."""
-    channels_cfg = getattr(runtime_config, "channels", None)
-    if channels_cfg is None:
-        return ChannelsConfigModel()
-
-    tg_cfg = getattr(channels_cfg, "telegram", None)
-    if tg_cfg is None:
-        return ChannelsConfigModel()
-
-    bot_token = tg_cfg.bot_token
-    if mask_api_key and bot_token:
-        bot_token = _mask_api_key(bot_token)
-
-    return ChannelsConfigModel(
-        telegram=TelegramChannelConfigModel(
-            enabled=tg_cfg.enabled,
-            bot_token=bot_token,
-            mode=tg_cfg.mode,
-            webhook_url=tg_cfg.webhook_url,
-            proxy=tg_cfg.proxy,
-            allowed_user_ids=list(tg_cfg.allowed_user_ids or []),
-            group_trigger_keyword=tg_cfg.group_trigger_keyword,
-            magi_user_id=tg_cfg.magi_user_id,
-            max_message_length=tg_cfg.max_message_length,
-        ),
-    )
-
-
 def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
     runtime_config = get_config()
     raw = _read_raw_yaml()
@@ -595,7 +549,6 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
         timeline=TimelineConfigModel(
             **(raw.get("timeline", {}) if isinstance(raw.get("timeline"), dict) else {})
         ),
-        channels=_build_channels_config(raw, runtime_config, mask_api_key=mask_api_key),
     )
 
 
@@ -723,13 +676,6 @@ def _normalize_masked_secrets(config: SystemConfigModel) -> SystemConfigModel:
         runtime_web_search = runtime_config.tools.web_search.providers.get(web_search_provider)
         normalized.tools.builtIn.webSearch.apiKey = runtime_web_search.api_key if runtime_web_search is not None else None
 
-    # Restore masked bot_token for channels
-    tg_bot_token = normalized.channels.telegram.bot_token
-    if _is_masked_api_key(tg_bot_token):
-        runtime_channels = getattr(runtime_config, "channels", None)
-        runtime_tg = getattr(runtime_channels, "telegram", None) if runtime_channels else None
-        normalized.channels.telegram.bot_token = runtime_tg.bot_token if runtime_tg is not None else ""
-
     return normalized
 
 
@@ -832,7 +778,6 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.web_search.default_provider": config.tools.builtIn.webSearch.provider,
         "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
         "tools.web_fetch.default_provider": "browser" if config.tools.builtIn.webFetch.usePlaywright else "http",
-        "channels": _prune_sparse_value(config.channels.model_dump(exclude_none=True)),
     }
     if config.tools.builtIn.weather.apiKey is not None:
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = config.tools.builtIn.weather.apiKey
@@ -1069,7 +1014,7 @@ async def test_telegram_connection(payload: TestTelegramConnectionRequest):
         raise HTTPException(status_code=400, detail="A valid bot token is required")
 
     try:
-        import httpx
+        import httpx  # noqa: F401
         from telegram import Bot
         from telegram.request import HTTPXRequest
     except ImportError:
@@ -1079,7 +1024,6 @@ async def test_telegram_connection(payload: TestTelegramConnectionRequest):
         )
 
     proxy_url = payload.proxy.strip() or None
-    # Fallback to global network proxy
     if not proxy_url:
         try:
             cfg = get_config()

@@ -49,7 +49,6 @@ export interface UseSettingsReturn {
   handleNavItemClick: (itemId: string, isGroup: boolean, firstChildId?: string) => void;
 
   // Section helpers
-  isWideSection: boolean;
   usesInnerPaneScroll: boolean;
 
   // Config state (saved/draft)
@@ -77,6 +76,7 @@ export interface UseSettingsReturn {
   handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   handleReloadActionPlugin: (pluginId: string) => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
+  loadPluginsAndSensors: () => Promise<void>;
 
   // Tools
   tools: ToolConfig[];
@@ -92,6 +92,12 @@ export interface UseSettingsReturn {
   timelineSelection: string | null;
   setTimelineSelection: React.Dispatch<React.SetStateAction<string | null>>;
   fetchTimelineStatuses: () => Promise<void>;
+
+  // Contribution sub-nav selections
+  actionsSelection: string | null;
+  setActionsSelection: React.Dispatch<React.SetStateAction<string | null>>;
+  channelsSelection: string | null;
+  setChannelsSelection: React.Dispatch<React.SetStateAction<string | null>>;
 
   // Dirty tracking
   dirty: boolean;
@@ -134,13 +140,20 @@ export function useSettings(): UseSettingsReturn {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     llm: false,
     memory: false,
+    extensions: false,
     timeline: false,
+    actions: false,
+    channels: false,
   });
 
   // Timeline state
   const [timelineStatuses, setTimelineStatuses] = useState<SensorSourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
+
+  // Actions / Channels sub-nav selections
+  const [actionsSelection, setActionsSelection] = useState<string | null>(null);
+  const [channelsSelection, setChannelsSelection] = useState<string | null>(null);
 
   // Plugins state
   const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
@@ -164,19 +177,6 @@ export function useSettings(): UseSettingsReturn {
   // ========================================
   // Navigation Helpers
   // ========================================
-
-  const isWideSection = useMemo(
-    () =>
-      activeSection === 'llmProviders'
-      || activeSection === 'llmModels'
-      || activeSection === 'timeline'
-      || activeSection === 'personality'
-      || activeSection === 'statisticsLlm'
-      || activeSection === 'statisticsRuntime'
-      || activeSection === 'memoryGeneral'
-      || activeSection === 'extensions',
-    [activeSection]
-  );
 
   const usesInnerPaneScroll = useMemo(
     () => activeSection === 'llmProviders',
@@ -207,6 +207,12 @@ export function useSettings(): UseSettingsReturn {
       setActiveSection(itemId);
       if (itemId === 'timeline') {
         setTimelineSelection(null);
+      }
+      if (itemId === 'actions') {
+        setActionsSelection(null);
+      }
+      if (itemId === 'channels') {
+        setChannelsSelection(null);
       }
     },
     [getGroupExpanded, setGroupExpanded]
@@ -285,6 +291,11 @@ export function useSettings(): UseSettingsReturn {
       }
     }
   }, [t]);
+
+  const loadPluginsAndSensors = useCallback(async () => {
+    await loadPlugins();
+    await fetchTimelineStatuses();
+  }, [loadPlugins, fetchTimelineStatuses]);
 
   const loadTools = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) {
@@ -654,7 +665,6 @@ export function useSettings(): UseSettingsReturn {
     handleNavItemClick,
 
     // Section helpers
-    isWideSection,
     usesInnerPaneScroll,
 
     // Config state
@@ -683,6 +693,7 @@ export function useSettings(): UseSettingsReturn {
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,
+    loadPluginsAndSensors,
 
     // Tools
     tools,
@@ -698,6 +709,12 @@ export function useSettings(): UseSettingsReturn {
     timelineSelection,
     setTimelineSelection,
     fetchTimelineStatuses,
+
+    // Contribution sub-nav selections
+    actionsSelection,
+    setActionsSelection,
+    channelsSelection,
+    setChannelsSelection,
 
     // Dirty tracking
     dirty,

@@ -400,6 +400,7 @@
     "errorUnknown": "Unknown error",
     "resetConfirm": "Reset all settings to defaults?",
     "resetSuccess": "Configuration reset to defaults",
+    "arrayPlaceholder": "Type and press Enter to add",
     "resetFailed": "Failed to reset config: {{message}}",
     "downloadStartFailed": "Failed to start download",
     "modelReady": "Model is ready",
@@ -430,9 +431,12 @@
       "memorySkills": "Skill Memory",
       "timeline": "Sensors",
       "extensions": "Extensions",
+      "extensionsInstalled": "Installed",
+      "extensionsMarketplace": "Marketplace",
       "tools": "Tools",
       "actions": "Actions",
       "channels": "Channels",
+      "channelsTelegram": "Telegram",
       "system": "System"
     },
     "preferencesDesc": "Configure interface language, theme, and desktop behavior",
@@ -460,9 +464,15 @@
     "memoryDesc": "Control the L0-L4 memory lifecycle, replay posture, and extraction pipelines.",
     "timelineDesc": "Configure timeline ingestion defaults and tune each source independently",
     "extensionsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
+    "extensionsInstalledDesc": "Manage installed plugin packages — enable, disable, and reload.",
+    "extensionsMarketplaceDesc": "Browse and download available plugin extensions.",
     "toolsDesc": "Configure built-in tools and skills",
     "actionsDesc": "Configure outbound action capabilities and their declarative settings.",
     "channelsDesc": "Connect external messaging platforms (e.g. Telegram) to chat with AI via the existing pipeline.",
+    "channelsTelegramDesc": "Configure Telegram Bot integration, supporting both DM and group chat.",
+    "channelsConfig": {
+      "emptyState": "No channel plugins installed. Browse the marketplace to find and install one."
+    },
     "channels": {
       "statusOn": "Enabled",
       "statusOff": "Disabled",
@@ -552,6 +562,7 @@
       "loopInterval": "Loop Interval (sec)",
       "busBackend": "Message Bus Backend",
       "busQueueSize": "Bus Queue Size",
+
       "logLevel": "Log Level",
       "clearMemory": "Clear All Memory",
       "clearMemoryDesc": "Clear all memory data from L1-L5 layers. This action is irreversible, use with caution.",
@@ -600,11 +611,6 @@
         "layers": "Lifecycle Layers",
         "runtime": "Runtime Retention",
         "pipelines": "Inference Pipelines"
-      },
-      "dangerZone": {
-        "title": "Danger Zone",
-        "description": "Clear all memory data across all layers, including event stream, knowledge graph, summaries and skills. This action is irreversible.",
-        "clearButton": "Clear All Memory"
       },
       "form": {
         "title": "Memory Configuration",
@@ -1179,6 +1185,46 @@
         "settingsSaveFailed": "Failed to save plugin settings: {{message}}"
       }
     },
+    "marketplace": {
+      "searchPlaceholder": "Search plugins…",
+      "loading": "Loading plugin marketplace…",
+      "error": "Unable to reach the plugin registry",
+      "empty": "No plugins available in the registry.",
+      "noResults": "No plugins match your search.",
+      "badge": {
+        "official": "Official",
+        "installed": "Installed"
+      },
+      "actions": {
+        "install": "Install",
+        "uninstall": "Uninstall",
+        "update": "Update",
+        "refresh": "Refresh",
+        "retry": "Retry",
+        "uploadPlugin": "Upload plugin"
+      },
+      "feedback": {
+        "installSuccess": "Plugin installed successfully",
+        "installFailed": "Failed to install plugin: {{message}}",
+        "uninstallSuccess": "Plugin uninstalled",
+        "uninstallFailed": "Failed to uninstall plugin: {{message}}",
+        "updateSuccess": "Plugin updated successfully",
+        "updateFailed": "Failed to update plugin: {{message}}"
+      },
+      "filter": {
+        "all": "All",
+        "sensor": "Sensor",
+        "tool": "Tool",
+        "action": "Action",
+        "channel": "Channel"
+      },
+      "contributionType": {
+        "sensor": "Sensor",
+        "tool": "Tool",
+        "action": "Action",
+        "channel": "Channel"
+      }
+    },
     "actionsConfig": {
       "emptyState": "No configurable action plugins are available yet.",
       "emptySettings": "This action does not expose additional settings.",
@@ -1200,18 +1246,9 @@
         "name": "Photo Library",
         "description": "Scan local photo directories, extract EXIF metadata, and ingest into the timeline",
         "options": {
-          "enabled": {
-            "true": "Enabled",
-            "false": "Disabled"
-          },
-          "sync_mode": {
-            "manual": "Manual",
-            "interval": "Interval"
-          },
-          "analysis_features": {
-            "exif": "EXIF Metadata",
-            "geocode": "GPS Geocoding"
-          }
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "sync_mode": { "manual": "Manual", "interval": "Interval" },
+          "analysis_features": { "exif": "EXIF Metadata", "geocode": "GPS Geocoding" }
         },
         "fields": {
           "enabled": {
@@ -1244,9 +1281,7 @@
             "description": "Metadata extraction capabilities to apply."
           }
         },
-        "sections": {
-          "general": "General"
-        }
+        "sections": { "general": "General" }
       },
       "core-tools": {
         "name": "Core Tools",
@@ -1256,15 +1291,9 @@
         "name": "Core Actions",
         "description": "Built-in actions for agent outbound capabilities",
         "options": {
-          "delivery_mode": {
-            "console": "Console (Debug)",
-            "smtp": "SMTP",
-            "sendgrid": "SendGrid"
-          }
+          "delivery_mode": { "console": "Console (Debug)", "smtp": "SMTP", "sendgrid": "SendGrid" }
         },
-        "sections": {
-          "email": "Email"
-        }
+        "sections": { "email": "Email" }
       },
       "calendar": {
         "name": "Calendar",
@@ -1292,10 +1321,7 @@
           }
         },
         "options": {
-          "sync_mode": {
-            "manual": "Manual",
-            "interval": "Scheduled"
-          },
+          "sync_mode": { "manual": "Manual", "interval": "Scheduled" },
           "sync_interval_minutes": {
             "15": "15 minutes",
             "30": "30 minutes",
@@ -1303,10 +1329,7 @@
             "360": "6 hours"
           }
         },
-        "sections": {
-          "general": "General",
-          "sync": "Sync"
-        },
+        "sections": { "general": "General", "sync": "Sync" },
         "activation": {
           "title": "Connect Calendar",
           "description": "Allow Magi to read your calendar events for timeline sync.",
@@ -1350,31 +1373,16 @@
           }
         },
         "options": {
-          "enabled": {
-            "true": "Enabled",
-            "false": "Disabled"
-          },
-          "sync_mode": {
-            "manual": "Manual",
-            "interval": "Interval"
-          },
-          "default_retention_mode": {
-            "analyze_only": "Analyze Only",
-            "retain_raw": "Retain Raw"
-          },
-          "storage_mode": {
-            "managed": "Managed",
-            "external_reference": "External Reference"
-          },
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "sync_mode": { "manual": "Manual", "interval": "Interval" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
             "from_now": "Only new records from now on"
           },
-          "fetch_page_content": {
-            "true": "Yes",
-            "false": "No"
-          }
+          "fetch_page_content": { "true": "Yes", "false": "No" }
         },
         "sections": {
           "general": "General",
@@ -1387,14 +1395,8 @@
         "name": "Git Activity",
         "description": "Git repository activity ingestion for the timeline",
         "options": {
-          "enabled": {
-            "true": "Enabled",
-            "false": "Disabled"
-          },
-          "default_retention_mode": {
-            "analyze_only": "Analyze Only",
-            "full": "Full Retention"
-          },
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
@@ -1406,75 +1408,23 @@
             "include": "Include all content"
           }
         },
-        "sections": {
-          "general": "General",
-          "retention": "Retention",
-          "privacy": "Privacy"
-        }
+        "sections": { "general": "General", "retention": "Retention", "privacy": "Privacy" }
       },
       "netease-music": {
         "name": "NetEase Cloud Music",
         "description": "Sync NetEase Cloud Music play history to timeline (Windows & macOS)",
-        "fields": {
-          "enabled": {
-            "label": "Enable Sync",
-            "description": "Turn on to automatically read local play history and write it to the timeline."
-          },
-          "sync_mode": {
-            "label": "Sync Mode",
-            "description": "Trigger manually or run on a fixed schedule."
-          },
-          "sync_interval_minutes": {
-            "label": "Sync Interval (minutes)",
-            "description": "How often to pull new play records when using interval sync."
-          },
-          "min_play_duration": {
-            "label": "Minimum Play Duration (seconds)",
-            "description": "Tracks played for less than this duration are skipped and not written to the timeline."
-          },
-          "db_path": {
-            "label": "Database Path",
-            "description": "Path to the NetEase Cloud Music local database file. Usually no need to change."
-          },
-          "initial_sync_policy": {
-            "label": "Initial Sync Policy",
-            "description": "How to backfill history data the first time sync is enabled."
-          },
-          "tag_strategy": {
-            "label": "Genre Tag Source",
-            "description": "How to attach genre/style tags to play records. 'Built-in' reads the local alias field (e.g. 'TV anime OST'), limited to ~45% coverage. 'Last.fm' queries the API for accurate tags."
-          },
-          "lastfm_api_key": {
-            "label": "Last.fm API Key",
-            "description": "Required when Genre Tag Source is set to Last.fm. Apply for a free key at last.fm/api/account/create"
-          }
-        },
         "options": {
-          "enabled": {
-            "true": "Enabled",
-            "false": "Disabled"
-          },
-          "sync_mode": {
-            "manual": "Manual",
-            "interval": "Interval",
-            "watch": "Watch"
-          },
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
             "from_now": "Only new tracks from now"
-          },
-          "tag_strategy": {
-            "off": "Off",
-            "builtin": "Built-in (local alias, limited coverage)",
-            "lastfm": "Last.fm"
           }
         },
-        "sections": {
-          "general": "General",
-          "analysis": "Analysis",
-          "activation": "First-time Setup"
-        }
+        "sections": { "general": "General", "storage": "Storage" }
       },
       "screen-time": {
         "name": "App Usage",
@@ -1497,10 +1447,7 @@
             "60": "Every 60 minutes"
           }
         },
-        "sections": {
-          "general": "General",
-          "sync": "Sync"
-        }
+        "sections": { "general": "General", "sync": "Sync" }
       },
       "system-media": {
         "name": "Media Playback",
@@ -1530,23 +1477,14 @@
             "15": "Every 15 minutes"
           }
         },
-        "sections": {
-          "general": "General",
-          "sync": "Sync"
-        }
+        "sections": { "general": "General", "sync": "Sync" }
       },
       "terminal-history": {
         "name": "Terminal History",
         "description": "Terminal command history ingestion for the timeline",
         "options": {
-          "enabled": {
-            "true": "Enabled",
-            "false": "Disabled"
-          },
-          "default_retention_mode": {
-            "analyze_only": "Analyze Only",
-            "retain_raw": "Retain Raw"
-          },
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
           "initial_sync_policy": {
             "full": "Sync full history",
             "lookback_days": "Sync recent days",
@@ -1564,8 +1502,53 @@
           "privacy": "Privacy",
           "activation": "Activation"
         }
+      },
+      "telegram": {
+        "name": "Telegram",
+        "description": "Bidirectional Telegram bot channel adapter",
+        "fields": {
+          "bot_token": {
+            "label": "Bot Token",
+            "description": "The Bot API token obtained from @BotFather."
+          },
+          "mode": {
+            "label": "Connection Mode",
+            "description": "How to connect to the Telegram server."
+          },
+          "proxy": {
+            "label": "Proxy",
+            "description": "Proxy for Telegram API access. Leave empty to use the global network proxy.",
+            "placeholder": "http://127.0.0.1:7890"
+          },
+          "allowed_user_ids": {
+            "label": "Allowed User IDs",
+            "description": "Telegram user IDs allowed to interact with the bot. Leave empty for no restriction."
+          },
+          "group_trigger_keyword": {
+            "label": "Group Trigger Keyword",
+            "description": "Keyword to trigger a reply in group chat (besides @mention and /ask)."
+          },
+          "magi_user_id": {
+            "label": "Magi User ID",
+            "description": "The internal Magi user identity to map to."
+          },
+          "max_message_length": {
+            "label": "Max Message Length",
+            "description": "Maximum character count per message."
+          }
+        },
+        "options": {
+          "mode": {
+            "polling": "Polling",
+            "webhook": "Webhook"
+          }
+        },
+        "sections": {
+          "general": "General"
+        }
       }
-    }
+    },
+    "saving": "Saving..."
   },
   "memory": {
     "title": "Memory Viewer",
@@ -1580,13 +1563,13 @@
     },
     "overview": {
       "eyebrow": "Memory Atlas",
-      "subtitle": "View storage status, search memory contents, and handle items that need attention.",
+      "subtitle": "Start with cross-layer search, overall signals, layer entry cards, and recent changes before choosing where to go deeper.",
       "searchLabel": "Cross-layer search",
       "searchResultsTitle": "Search results",
       "searchResultsBody": "Cross-layer clues for \"{{query}}\" are collected here first so you can quickly decide which workspace is worth opening next.",
       "searchIdleBody": "Once you enter a keyword, this area gathers the relevant clues into a calmer, easier-to-read surface.",
       "searchIdleHint": "No search results yet. Try a preference, person, place, or skill name, then follow the densest layer.",
-      "noSearchResults": "No matching memory found. Try a more specific keyword.",
+      "noSearchResults": "No matching memory surfaced yet. Try a more specific term, or enter a layer directly from the overview below.",
       "matchesLabel": "matches",
       "workspaceTitle": "Layer entry points",
       "workspaceBody": "Use this area to move into each independent memory page. Every layer keeps its own filtering model and reading rhythm so you can go deeper without losing orientation.",
@@ -1606,15 +1589,7 @@
         "summaryTitle": "Fresh reflections",
         "relationTitle": "Knowledge graph size",
         "skillTitle": "Skill memory entries"
-      },
-      "storageSummary": "{{total}} memories · {{size}}",
-      "matchCount": "{{count}} matches",
-      "viewAll": "View all",
-      "attentionTitle": "Needs attention ({{count}})",
-      "pendingAssertions": "{{count}} knowledge assertions pending review",
-      "openBreakers": "{{count}} skills with open circuit breakers",
-      "allClear": "All clear — nothing needs your attention right now.",
-      "storageSummaryCompact": "{{total}} memories"
+      }
     },
     "pages": {
       "workbench": {
@@ -1911,13 +1886,13 @@
     },
     "clearConfirm": {
       "title": "Clear All Memory",
-      "description": "This will permanently delete all memory data, including:",
-      "l0": "Current session state and goals",
-      "l1": "All conversation history and event records",
-      "l2": "Accumulated knowledge and personal insights",
-      "l3": "Auto-generated periodic summaries",
-      "l4": "Learned skills and operational experience",
-      "chatContext": "Chat context cache",
+      "description": "This will permanently delete all memory data from all layers.",
+      "l0": "L0 working context (sessions, goals)",
+      "l1": "L1 event stream",
+      "l2": "L2 cognition (knowledge graph, ToM)",
+      "l3": "L3 reflection summaries",
+      "l4": "L4 procedural skills",
+      "chatContext": "Chat context history",
       "countdownHint": "Please wait {{seconds}} seconds before confirming.",
       "readyHint": "You can confirm the clear action now.",
       "confirmCountdown": "Confirm in {{seconds}}s",
@@ -1977,6 +1952,10 @@
       "basicInfo": "Basic Profile",
       "basicProfile": "Basic Profile",
       "coreIdentity": "Core Identity",
+      "psychologicalTraits": "Psychological Traits",
+      "socialResponses": "Social Responses",
+      "behavioralStrategies": "Behavioral Strategies",
+      "cachedPhrases": "Cached Phrases",
       "appearance": "Appearance Prompt",
       "stateTransitionProtocol": "State Transition Protocol",
       "personaLayers": "Deep Persona Layers"
@@ -1988,9 +1967,20 @@
       "description": "Description",
       "avatar": "Avatar",
       "occupation": "Occupation",
-      "innerNarrative": "Inner Narrative",
-      "languageFingerprint": "Language Fingerprint",
-      "attentionBias": "Attention Bias",
+      "coreBackground": "Core Background",
+      "communicationTone": "Communication Tone",
+      "confidenceLevel": "Confidence Level",
+      "empathyThreshold": "Empathy Threshold",
+      "highFrequencyKeywords": "High Frequency Keywords (comma separated)",
+      "praiseReaction": "Praise Reaction",
+      "criticismReaction": "Criticism Reaction",
+      "obedienceStrategy": "Obedience Strategy",
+      "errorHandling": "Error Handling",
+      "refusalStyle": "Refusal Style",
+      "onInit": "On Init (one per line)",
+      "onError": "On Error (one per line)",
+      "onSuccess": "On Success (one per line)",
+      "onSwitchAttempt": "On Switch Attempt (one per line)",
       "appearancePrompt": "Appearance Prompt (English for image model)",
       "stateTransitionItem": "State Transition #{{index}}",
       "triggerCondition": "Trigger Condition",

@@ -389,20 +389,18 @@ export interface TimelineConfig {
   };
 }
 
-export interface TelegramChannelConfig {
-  enabled: boolean;
-  bot_token: string;
-  mode: string;
-  webhook_url: string;
-  proxy: string;
-  allowed_user_ids: string[];
-  group_trigger_keyword: string;
-  magi_user_id: string;
-  max_message_length: number;
-}
-
-export interface ChannelsConfig {
-  telegram: TelegramChannelConfig;
+export interface SystemConfig {
+  agent: {
+    name: string;
+    description?: string;
+  };
+  llm: LLMConfig;
+  memory: MemoryConfig;
+  preferences: UserPreferences;
+  network: NetworkProxyConfig;
+  personality: PersonalityConfig;
+  tools: ToolsConfig;
+  timeline: TimelineConfig;
 }
 
 export type OnboardingStep =
@@ -418,21 +416,6 @@ export interface OnboardingState {
   currentStep: OnboardingStep;
   mode: UserMode;
   completedSteps: OnboardingStep[];
-}
-
-export interface SystemConfig {
-  agent: {
-    name: string;
-    description?: string;
-  };
-  llm: LLMConfig;
-  memory: MemoryConfig;
-  preferences: UserPreferences;
-  network: NetworkProxyConfig;
-  personality: PersonalityConfig;
-  tools: ToolsConfig;
-  timeline: TimelineConfig;
-  channels: ChannelsConfig;
 }
 
 export const DEFAULT_LLM_CAPABILITIES: LLMCapabilities = {
@@ -600,40 +583,13 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       },
     },
   },
-  channels: {
-    telegram: {
-      enabled: false,
-      bot_token: '',
-      mode: 'polling',
-      webhook_url: '',
-      proxy: '',
-      allowed_user_ids: [],
-      group_trigger_keyword: '',
-      magi_user_id: 'default',
-      max_message_length: 4096,
-    },
-  },
 };
-
-export interface TestTelegramConnectionRequest {
-  bot_token: string;
-  proxy: string;
-}
-
-export interface TestTelegramConnectionResponse {
-  success: boolean;
-  message: string;
-  bot_username: string;
-  bot_id: number;
-}
 
 export const configApi = {
   get: () => api.get<SystemConfig>('/config'),
   update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
   getTemplate: () => api.get<SystemConfig>('/config/template'),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
-  testTelegramConnection: (payload: TestTelegramConnectionRequest) =>
-    api.post<TestTelegramConnectionResponse>('/config/channels/telegram/test', payload),
   getLLMProviderCatalog: () => api.get<LLMProviderCatalog>('/llm/providers/catalog'),
   resolveLLMProviderCatalog: (payload: LLMProviderCatalogResolveRequest) =>
     api.post<LLMProviderCatalog>('/llm/providers/catalog', payload),
@@ -644,6 +600,11 @@ export const configApi = {
     api.post<TestLLMProviderConnectionResponse>('/llm/providers/test', payload),
   getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
   completeOnboarding: (config: SystemConfig) => api.post<SystemConfig>('/config/onboarding-complete', config),
+  testTelegramConnection: (payload: { bot_token: string; proxy?: string }) =>
+    api.post<{ success: boolean; message: string; bot_username?: string; bot_id?: number }>(
+      '/config/channels/telegram/test',
+      payload,
+    ),
 };
 
 export default configApi;

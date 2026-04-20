@@ -400,6 +400,7 @@
     "errorUnknown": "未知错误",
     "resetConfirm": "确定要重置所有配置为默认值吗？",
     "resetSuccess": "配置已重置为默认值",
+    "arrayPlaceholder": "输入后回车添加",
     "resetFailed": "重置配置失败: {{message}}",
     "downloadStartFailed": "启动下载失败",
     "modelReady": "模型已就绪",
@@ -430,9 +431,12 @@
       "memorySkills": "工具技能记忆",
       "timeline": "传感器",
       "extensions": "扩展",
+      "extensionsInstalled": "已安装",
+      "extensionsMarketplace": "插件市场",
       "tools": "工具",
       "actions": "执行器",
       "channels": "接入渠道",
+      "channelsTelegram": "Telegram",
       "system": "系统"
     },
     "preferencesDesc": "配置界面语言、主题和桌面行为",
@@ -460,9 +464,15 @@
     "memoryDesc": "控制 L0-L4 记忆生命周期、回放策略和各层抽取管线。",
     "timelineDesc": "配置时间线接入默认策略，并分别调整每个来源的行为",
     "extensionsDesc": "统一查看、启停和重载插件包，并检查它们贡献的能力。",
+    "extensionsInstalledDesc": "管理已安装的插件，启停和重载插件包。",
+    "extensionsMarketplaceDesc": "浏览和下载可用的插件扩展。",
     "toolsDesc": "配置内置工具和技能",
     "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
     "channelsDesc": "接入外部消息平台（如 Telegram），通过现有聊天链路与 AI 交互。",
+    "channelsTelegramDesc": "配置 Telegram Bot 接入，支持私聊和群聊。",
+    "channelsConfig": {
+      "emptyState": "当前没有已安装的消息渠道插件。可以在插件市场中查找并安装。"
+    },
     "channels": {
       "statusOn": "已启用",
       "statusOff": "未启用",
@@ -600,11 +610,6 @@
         "layers": "生命周期层级",
         "runtime": "运行期保留",
         "pipelines": "推理抽取管线"
-      },
-      "dangerZone": {
-        "title": "危险操作",
-        "description": "清除所有层级的记忆数据，包括事件流、知识图谱、摘要和技能。此操作不可恢复。",
-        "clearButton": "清除所有记忆"
       },
       "form": {
         "title": "记忆配置",
@@ -1179,6 +1184,46 @@
         "settingsSaveFailed": "插件设置保存失败：{{message}}"
       }
     },
+    "marketplace": {
+      "searchPlaceholder": "搜索插件…",
+      "loading": "正在加载插件市场…",
+      "error": "无法连接插件仓库",
+      "empty": "插件仓库暂无可用的插件。",
+      "noResults": "没有找到匹配的插件。",
+      "badge": {
+        "official": "官方",
+        "installed": "已安装"
+      },
+      "actions": {
+        "install": "安装",
+        "uninstall": "卸载",
+        "update": "更新",
+        "refresh": "刷新",
+        "retry": "重试",
+        "uploadPlugin": "上传插件"
+      },
+      "feedback": {
+        "installSuccess": "插件安装成功",
+        "installFailed": "插件安装失败：{{message}}",
+        "uninstallSuccess": "插件已卸载",
+        "uninstallFailed": "插件卸载失败：{{message}}",
+        "updateSuccess": "插件更新成功",
+        "updateFailed": "插件更新失败：{{message}}"
+      },
+      "filter": {
+        "all": "全部",
+        "sensor": "传感器",
+        "tool": "工具",
+        "action": "执行器",
+        "channel": "消息渠道"
+      },
+      "contributionType": {
+        "sensor": "传感器",
+        "tool": "工具",
+        "action": "执行器",
+        "channel": "消息渠道"
+      }
+    },
     "actionsConfig": {
       "emptyState": "当前没有可配置的执行器插件。",
       "emptySettings": "这个执行器没有额外设置项。",
@@ -1415,40 +1460,6 @@
       "netease-music": {
         "name": "网易云音乐",
         "description": "自动同步网易云音乐的播放历史到时间线（支持 Windows 和 macOS）",
-        "fields": {
-          "enabled": {
-            "label": "启用同步",
-            "description": "开启后自动读取本地播放历史并写入时间线。"
-          },
-          "sync_mode": {
-            "label": "同步方式",
-            "description": "手动触发，或按固定时间自动同步。"
-          },
-          "sync_interval_minutes": {
-            "label": "定时间隔（分钟）",
-            "description": "定时同步时，多久拉取一次播放记录。"
-          },
-          "min_play_duration": {
-            "label": "最短播放时长（秒）",
-            "description": "播放不足这个时长的曲目会被跳过，不写入时间线。"
-          },
-          "db_path": {
-            "label": "数据库路径",
-            "description": "网易云音乐本地数据库文件的路径，通常无需修改。"
-          },
-          "initial_sync_policy": {
-            "label": "首次同步策略",
-            "description": "首次启用时，决定如何填充历史数据。"
-          },
-          "tag_strategy": {
-            "label": "风格标签来源",
-            "description": "为播放记录添加风格/流派标签的方式。内置模式使用本地称号字段（如“TV动画《孤独摇滚》插曲”），覆盖率有限；Last.fm 模式通过 API 在线查询，准确度更高。"
-          },
-          "lastfm_api_key": {
-            "label": "Last.fm API Key",
-            "description": "选择 Last.fm 时需填写，免费申请：last.fm/api/account/create"
-          }
-        },
         "options": {
           "enabled": {
             "true": "启用",
@@ -1459,21 +1470,23 @@
             "interval": "定时",
             "watch": "监听"
           },
+          "default_retention_mode": {
+            "analyze_only": "仅分析",
+            "retain_raw": "保留原始"
+          },
+          "storage_mode": {
+            "managed": "托管",
+            "external_reference": "外部引用"
+          },
           "initial_sync_policy": {
             "full": "同步全部历史",
             "lookback_days": "同步最近几天",
             "from_now": "仅同步新曲目"
-          },
-          "tag_strategy": {
-            "off": "关闭",
-            "builtin": "内置（本地别名，覆盖率有限）",
-            "lastfm": "Last.fm"
           }
         },
         "sections": {
           "general": "常规",
-          "analysis": "分析",
-          "activation": "首次启用"
+          "storage": "存储"
         }
       },
       "screen-time": {
@@ -1564,6 +1577,50 @@
           "privacy": "隐私",
           "activation": "激活"
         }
+      },
+      "telegram": {
+        "name": "Telegram",
+        "description": "双向 Telegram Bot 消息渠道适配器",
+        "fields": {
+          "bot_token": {
+            "label": "Bot Token",
+            "description": "从 @BotFather 获取的 Bot API Token。"
+          },
+          "mode": {
+            "label": "接入模式",
+            "description": "连接 Telegram 服务器的方式。"
+          },
+          "proxy": {
+            "label": "代理地址",
+            "description": "访问 Telegram API 的代理，留空则使用全局网络代理。",
+            "placeholder": "http://127.0.0.1:7890"
+          },
+          "allowed_user_ids": {
+            "label": "允许的用户 ID",
+            "description": "允许与 Bot 交互的 Telegram 用户 ID，留空则不限制。"
+          },
+          "group_trigger_keyword": {
+            "label": "群聊触发关键词",
+            "description": "在群聊中触发回复的关键词（除 @机器人 和 /ask 外）。"
+          },
+          "magi_user_id": {
+            "label": "Magi 用户 ID",
+            "description": "映射到 Magi 内部用户身份的 ID。"
+          },
+          "max_message_length": {
+            "label": "最大消息长度",
+            "description": "单条消息的最大字符数。"
+          }
+        },
+        "options": {
+          "mode": {
+            "polling": "轮询",
+            "webhook": "Webhook"
+          }
+        },
+        "sections": {
+          "general": "常规"
+        }
       }
     }
   },
@@ -1580,13 +1637,13 @@
     },
     "overview": {
       "eyebrow": "记忆总览",
-      "subtitle": "查看记忆存储状态、搜索记忆内容、处理待办事项。",
+      "subtitle": "先查看跨层搜索、整体统计、层级入口与最近变化，再决定进入哪一层继续工作。",
       "searchLabel": "跨层搜索",
       "searchResultsTitle": "搜索结果",
       "searchResultsBody": "围绕“{{query}}”整理出的跨层线索会先落在这里，便于快速判断应该进入哪一层继续查看。",
       "searchIdleBody": "输入一个关键词后，这里会把跨层线索整理成适合继续深入的入口。",
       "searchIdleHint": "还没有搜索结果。你可以先搜索偏好、人物、地点或技能名称，再从结果最密集的层继续进入。",
-      "noSearchResults": "暂时没有命中结果，可以换一个更具体的关键词再试。",
+      "noSearchResults": "暂时没有命中结果。可以换一个更具体的关键词，或直接从下方层级入口进入。",
       "matchesLabel": "命中",
       "workspaceTitle": "层级入口",
       "workspaceBody": "从这里进入 5 层独立记忆页面。每一层都保留自己的筛选方式和阅读节奏，方便按任务深入查看。",
@@ -1606,15 +1663,7 @@
         "summaryTitle": "新摘要沉淀",
         "relationTitle": "知识关系规模",
         "skillTitle": "技能记忆条目"
-      },
-      "storageSummary": "共 {{total}} 条记忆 · {{size}}",
-      "matchCount": "{{count}} 条命中",
-      "viewAll": "查看全部",
-      "attentionTitle": "需要你处理 ({{count}})",
-      "pendingAssertions": "{{count}} 条知识待确认",
-      "openBreakers": "{{count}} 个技能已熔断",
-      "allClear": "一切正常，暂时没有需要处理的事项。",
-      "storageSummaryCompact": "共 {{total}} 条记忆"
+      }
     },
     "pages": {
       "workbench": {
@@ -1911,13 +1960,13 @@
     },
     "clearConfirm": {
       "title": "清除所有记忆",
-      "description": "此操作将永久删除所有记忆数据，包括：",
-      "l0": "当前会话的工作状态与目标",
-      "l1": "所有历史对话与事件记录",
-      "l2": "已积累的知识与人物认知",
-      "l3": "自动生成的阶段性总结",
-      "l4": "已习得的操作技能与经验",
-      "chatContext": "对话上下文缓存",
+      "description": "此操作将永久删除所有层级的记忆数据。",
+      "l0": "L0 工作上下文（会话、目标）",
+      "l1": "L1 事件流",
+      "l2": "L2 认知（知识图谱、心智理论）",
+      "l3": "L3 反思摘要",
+      "l4": "L4 程序性技能",
+      "chatContext": "对话上下文历史",
       "countdownHint": "请等待 {{seconds}} 秒后确认清除。",
       "readyHint": "现在可以确认清除了。",
       "confirmCountdown": "{{seconds}} 秒后可确认",
@@ -1977,6 +2026,10 @@
       "basicInfo": "基础档案",
       "basicProfile": "基础档案",
       "coreIdentity": "核心身份",
+      "psychologicalTraits": "心理特征",
+      "socialResponses": "社交反应",
+      "behavioralStrategies": "行为策略",
+      "cachedPhrases": "缓存短语",
       "appearance": "外观提示词",
       "stateTransitionProtocol": "状态切换协议",
       "personaLayers": "深层人格"
@@ -1988,9 +2041,20 @@
       "description": "描述",
       "avatar": "头像",
       "occupation": "职业",
-      "innerNarrative": "内在叙事",
-      "languageFingerprint": "语言指纹",
-      "attentionBias": "注意力偏好",
+      "coreBackground": "核心背景",
+      "communicationTone": "沟通语气",
+      "confidenceLevel": "自信等级",
+      "empathyThreshold": "共情触发阈值",
+      "highFrequencyKeywords": "高频关键词（逗号分隔）",
+      "praiseReaction": "被赞美时反应",
+      "criticismReaction": "被批评时反应",
+      "obedienceStrategy": "执行策略",
+      "errorHandling": "错误处理方式",
+      "refusalStyle": "拒绝风格",
+      "onInit": "初始化短语（每行一条）",
+      "onError": "错误短语（每行一条）",
+      "onSuccess": "成功短语（每行一条）",
+      "onSwitchAttempt": "切换挽留短语（每行一条）",
       "appearancePrompt": "外观提示词（英文）",
       "stateTransitionItem": "状态切换 #{{index}}",
       "triggerCondition": "触发条件",

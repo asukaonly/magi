@@ -14,6 +14,7 @@ class ContributionType(str, Enum):
     TOOL = "tool"
     SENSOR = "sensor"
     ACTION = "action"
+    CHANNEL = "channel"
 
 
 class ExtensionFieldOption(BaseModel):
@@ -98,6 +99,11 @@ class PluginManifest(BaseModel):
     entry_class: str = "Plugin"
     official: bool = False
     contribution_types: list[ContributionType] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    min_sdk_version: str = ""
+    platforms: list[str] = Field(default_factory=list)
+    homepage: str = ""
+    repository: str = ""
     plugin_dir: str = ""
     manifest_path: str = ""
     source: Literal["builtin", "external"] = "external"
@@ -133,3 +139,28 @@ class PluginPackageState(BaseModel):
     last_error: Optional[str] = None
     contributions: list[PluginContribution] = Field(default_factory=list)
     current_settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginRegistryEntry(BaseModel):
+    """Remote plugin registry entry describing an available plugin."""
+
+    plugin_id: str
+    name: str
+    version: str
+    path: str = ""
+    description: str = ""
+    author: str = ""
+    official: bool = False
+    contribution_types: list[str] = Field(default_factory=list)
+    platforms: list[str] = Field(default_factory=list)
+    min_sdk_version: str = ""
+    homepage: str = ""
+    repository: str = ""
+
+
+class PluginRegistryIndex(BaseModel):
+    """Response model for the remote plugin registry listing."""
+
+    plugins: list[PluginRegistryEntry] = Field(default_factory=list)
+    registry_version: str = "1"
+    repo_url: str = ""

@@ -70,14 +70,14 @@ dependencies = [
     "socksio>=1.0.0",
     "aiofiles>=23.2.1",
     "playwright>=1.53.0",
-    "psutil>=5.9.8",
-    "pyobjc-framework-EventKit>=10.0; platform_system == 'Darwin'",
-    "pyobjc-framework-Cocoa>=10.0; platform_system == 'Darwin'",
+
+    # Local embedding / reranker (ONNX)
+    "onnxruntime>=1.17.0",
+    "tokenizers>=0.19.0",
+    "huggingface-hub>=0.20.0",
 ]
 
 [project.optional-dependencies]
-channels = ["python-telegram-bot>=22.0"]
-windows = ["winrt-runtime>=2.0", "winrt-Windows.Media.Control>=2.0"]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
@@ -85,11 +85,6 @@ dev = [
     "black>=24.1.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
-]
-local-embedding = [
-    "onnxruntime>=1.17.0",
-    "tokenizers>=0.19.0",
-    "huggingface-hub>=0.20.0",
 ]
 
 [project.urls]

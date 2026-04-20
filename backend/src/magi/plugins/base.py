@@ -85,6 +85,14 @@ class Plugin(ABC):
     def get_actions(self) -> list[Any]:
         return []
 
+    def get_channel(self) -> Any | None:
+        """Return a configured Channel instance, or None if this plugin has no channel."""
+        return None
+
+    def get_channel_fields(self) -> list[Any]:
+        """Return ExtensionFieldSpec list for the channel settings surface."""
+        return []
+
     def get_plugin_ingress_registrations(self, *, runtime_paths: Any) -> list[Any]:
         return []
 

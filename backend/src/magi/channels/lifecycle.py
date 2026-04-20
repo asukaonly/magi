@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 
 class ChannelsModule(LifecycleModule):
-    """Initialize configured external messaging channels and the notification relay."""
+    """Initialize channel plugins and the notification relay."""
 
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
@@ -22,6 +22,7 @@ class ChannelsModule(LifecycleModule):
                 "runtime_trace",
                 "runtime_configuration",
                 "runtime_core_dependencies",
+                "runtime_plugin_system",
             ),
         )
         self._context = context
@@ -35,10 +36,9 @@ class ChannelsModule(LifecycleModule):
         await self._start_channels()
 
     async def restart(self) -> None:
-        """Tear down running channels and re-initialize from current config."""
-        logger.info("Restarting channels module after configuration change")
+        """Tear down running channels and re-initialize from current plugin state."""
+        logger.info("Restarting channels module")
         await self._stop_channels()
-        # Re-read config (already reloaded by command processor)
         await self._start_channels()
 
     async def shutdown(self) -> None:
@@ -50,18 +50,23 @@ class ChannelsModule(LifecycleModule):
         from .registry import ChannelRegistry
         from .session_mapper import ChannelSessionMapper
 
-        config = require_initialized(self._context.core.config, "config")
+        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         chat_store = require_initialized(self._context.chat.store, "chat store")
         trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
 
-        tg_config = config.channels.telegram
-        if not tg_config.enabled:
-            logger.info("No channels enabled, skipping channel bootstrap")
+        # Collect channel instances from loaded plugins.
+        channel_instances = []
+        for plugin in plugin_manager.iter_loaded_plugins():
+            channel = plugin.get_channel()
+            if channel is not None:
+                channel_instances.append(channel)
+
+        if not channel_instances:
+            logger.info("No channel plugins enabled, skipping channel bootstrap")
             return
 
         channels_db_path = str(runtime_paths.data_dir / "channels" / "channels.db")
-        # Ensure parent directory exists
         from pathlib import Path
         Path(channels_db_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -69,35 +74,12 @@ class ChannelsModule(LifecycleModule):
         await session_mapper.initialize()
 
         registry = ChannelRegistry()
-
-        if tg_config.enabled and tg_config.bot_token:
-            from .telegram.adapter import TelegramChannel, TelegramChannelConfig
-
-            # Resolve proxy: channel-specific > global network proxy
-            proxy = tg_config.proxy
-            if not proxy:
-                proxy = config.network.proxy_url() or ""
-
-            adapter_config = TelegramChannelConfig(
-                bot_token=tg_config.bot_token,
-                mode=tg_config.mode,
-                webhook_url=tg_config.webhook_url,
-                webhook_secret=tg_config.webhook_secret,
-                proxy=proxy,
-                allowed_user_ids=list(tg_config.allowed_user_ids),
-                group_trigger_keyword=tg_config.group_trigger_keyword,
-                magi_user_id=tg_config.magi_user_id,
-                max_message_length=tg_config.max_message_length,
-            )
-            tg_channel = TelegramChannel(
-                config=adapter_config,
-                session_mapper=session_mapper,
-            )
-            registry.register(tg_channel)
-
-        if not registry.all_channels():
-            logger.info("No channel adapters configured")
-            return
+        for channel in channel_instances:
+            channel.bind_session_mapper(session_mapper)
+            try:
+                registry.register(channel)
+            except ValueError:
+                logger.warning("Duplicate channel type skipped", channel_type=channel.channel_type)
 
         await registry.start_all()
 
@@ -111,7 +93,7 @@ class ChannelsModule(LifecycleModule):
         self._registry = registry
         self._relay = relay
         self._session_mapper = session_mapper
-        logger.info("Channels module started")
+        logger.info("Channels module started", channel_count=len(channel_instances))
 
     async def _stop_channels(self) -> None:
         if self._relay is not None:

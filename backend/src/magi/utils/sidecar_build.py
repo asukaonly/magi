@@ -13,6 +13,11 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     # ssl._encode_hostname calls codecs.lookup('idna') dynamically; PyInstaller
     # cannot detect this so the codec must be listed explicitly.
     "encodings.idna",
+    # Local embedding / reranker are behind lazy ``try: import`` guards but are
+    # mandatory dependencies — always include them.
+    "onnxruntime",
+    "tokenizers",
+    "huggingface_hub",
 )
 
 # Packages whose submodules are loaded dynamically and must be collected in
@@ -34,10 +39,6 @@ COLLECT_BINARY_PACKAGES = (
 # are installed in the build environment.  PyInstaller cannot discover them
 # because they are behind ``try: import … except ImportError`` guards.
 OPTIONAL_HIDDEN_IMPORTS = (
-    # local-embedding extra
-    "onnxruntime",
-    "tokenizers",
-    "huggingface_hub",
     # channels extra
     "telegram",
     # Windows media control (Windows only)
@@ -47,8 +48,14 @@ OPTIONAL_HIDDEN_IMPORTS = (
 PACKAGE_DATA_DIRECTORIES = (
     ("configs", "configs"),
     ("personalities", "personalities"),
-    ("plugins", "plugins"),
     ("skills", "skills"),
+)
+
+# Only core plugins are shipped inside the sidecar binary.
+# Optional plugins are installed at runtime from the plugin registry.
+CORE_PLUGIN_IDS = (
+    "core-tools",
+    "core-actions",
 )
 
 
@@ -75,7 +82,6 @@ def build_packaged_data_entries(
     source_roots = {
         "configs": resolved_backend_root,
         "personalities": resolved_backend_root,
-        "plugins": resolved_repo_root,
         "skills": resolved_repo_root,
     }
 
@@ -84,6 +90,14 @@ def build_packaged_data_entries(
         source_path = source_roots[source_name] / source_name
         if source_path.exists():
             entries.append((source_path, destination_name))
+
+    # Include only core plugins as individual directories.
+    plugins_root = resolved_repo_root / "plugins"
+    for plugin_id in CORE_PLUGIN_IDS:
+        plugin_path = plugins_root / plugin_id
+        if plugin_path.exists():
+            entries.append((plugin_path, f"plugins/{plugin_id}"))
+
     return entries
 
 

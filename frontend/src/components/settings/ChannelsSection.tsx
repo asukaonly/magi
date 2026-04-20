@@ -1,271 +1,203 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Send as TelegramIcon, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 
-import type { SystemConfig } from '@/api/modules/config';
 import { configApi } from '@/api/modules/config';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
+import {
+  type PluginContribution,
+  type PluginPackageState,
+} from '@/api/modules/plugins';
+import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { LabeledSelectField } from '@/components/settings/form-fields';
+import { Switch } from '@/components/ui/switch';
+
+type ChannelContributionEntry = {
+  plugin: PluginPackageState;
+  contribution: PluginContribution;
+};
+
+const listChannelEntries = (plugins: PluginPackageState[]): ChannelContributionEntry[] =>
+  plugins.flatMap((plugin) =>
+    plugin.contributions
+      .filter((c) => c.contribution_type === 'channel')
+      .map((contribution) => ({ plugin, contribution }))
+  );
 
 interface ChannelsSectionProps {
-  draftConfig: SystemConfig;
-  patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
+  plugins: PluginPackageState[];
+  drafts: Record<string, Record<string, any>>;
+  dirty?: boolean;
+  selectedContributionId: string | null;
+  onSelectContribution: (id: string | null) => void;
+  onFieldChange: (pluginId: string, key: string, value: any) => void;
+  onReloadPlugin: (pluginId: string) => Promise<void>;
+  onPluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
+  reloading: Record<string, boolean>;
 }
 
 export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
-  draftConfig,
-  patchDraftConfig,
+  plugins,
+  drafts,
+  dirty = false,
+  selectedContributionId,
+  onSelectContribution,
+  onFieldChange,
+  onReloadPlugin,
+  onPluginAction,
+  reloading,
 }) => {
   const { t } = useTranslation('app');
-  const [showToken, setShowToken] = useState(false);
+  const channelEntries = useMemo(() => listChannelEntries(plugins), [plugins]);
+
+  const selectedEntry = useMemo(
+    () => channelEntries.find((e) => e.contribution.contribution_id === selectedContributionId) ?? null,
+    [channelEntries, selectedContributionId]
+  );
+
+  // Telegram test connection state
   const [testState, setTestState] = useState<{
     loading: boolean;
     result?: { success: boolean; message: string };
   }>({ loading: false });
-  const tg = draftConfig.channels.telegram;
+
+  const isTelegram = selectedEntry?.contribution.contribution_id?.toLowerCase().includes('telegram') ?? false;
 
   const handleTestConnection = useCallback(async () => {
+    if (!selectedEntry) return;
+    const pluginDrafts = drafts[selectedEntry.plugin.manifest.plugin_id] || {};
+    const botToken = pluginDrafts.bot_token ?? '';
+    const proxy = pluginDrafts.proxy ?? '';
     setTestState({ loading: true });
     try {
-      const res = await configApi.testTelegramConnection({
-        bot_token: tg.bot_token,
-        proxy: tg.proxy,
-      });
+      const res = await configApi.testTelegramConnection({ bot_token: botToken, proxy });
       setTestState({ loading: false, result: { success: res.success, message: res.message } });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setTestState({ loading: false, result: { success: false, message: msg } });
     }
-  }, [tg.bot_token, tg.proxy]);
+  }, [selectedEntry, drafts]);
 
-  const patchTelegram = useCallback(
-    (updater: (tg: SystemConfig['channels']['telegram']) => void) => {
-      patchDraftConfig((draft) => {
-        updater(draft.channels.telegram);
-      });
-    },
-    [patchDraftConfig],
-  );
+  // Overview mode
+  if (!selectedEntry) {
+    return (
+      <div className="space-y-6">
+        <p className="text-sm leading-6 text-muted-foreground">
+          {t('settings.channelsDesc')}
+        </p>
 
-  const handleAllowedIdsChange = useCallback(
-    (value: string) => {
-      const ids = value
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      patchTelegram((cfg) => {
-        cfg.allowed_user_ids = ids;
-      });
-    },
-    [patchTelegram],
-  );
+        {channelEntries.length === 0 ? (
+          <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-8 text-center text-sm text-muted-foreground">
+            {t('settings.channelsConfig.emptyState')}
+          </div>
+        ) : (
+          <div>
+            {channelEntries.map(({ plugin, contribution }) => (
+              <button
+                key={contribution.contribution_id}
+                type="button"
+                onClick={() => onSelectContribution(contribution.contribution_id)}
+                className="grid w-full gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] px-0 py-4 text-left transition-colors last:border-b-0 hover:bg-transparent sm:grid-cols-[minmax(0,1.2fr)_auto_auto]"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    <span className="truncate text-sm font-medium text-foreground">{contribution.display_name}</span>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                    {contribution.description || contribution.contribution_id}
+                  </p>
+                </div>
+                <div className="text-xs text-muted-foreground sm:text-right">
+                  <Badge variant="outline">{plugin.manifest.name}</Badge>
+                </div>
+                <div className="sm:justify-self-end">
+                  <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="rounded-md">
+                    {plugin.enabled ? 'ON' : 'OFF'}
+                  </Badge>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Detail mode
+  const { plugin, contribution } = selectedEntry;
 
   return (
     <div className="space-y-8">
-      {/* Telegram */}
-      <section className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500">
-            <TelegramIcon className="h-5 w-5" />
+      <header className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="rounded-md">
+              {plugin.enabled ? t('settings.extensions.status.enabled') : t('settings.extensions.status.disabled')}
+            </Badge>
+            <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{plugin.manifest.plugin_id}</span>
           </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-foreground">Telegram</h3>
-              <Badge variant={tg.enabled ? 'default' : 'secondary'} className="text-[10px] px-1.5 py-0">
-                {tg.enabled ? t('settings.channels.statusOn') : t('settings.channels.statusOff')}
-              </Badge>
-            </div>
-            <p className="text-xs text-muted-foreground">{t('settings.channels.telegramDesc')}</p>
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={plugin.enabled}
+              onCheckedChange={(checked) => void onPluginAction(plugin.manifest.plugin_id, checked ? 'enable' : 'disable')}
+            />
           </div>
-          <Switch
-            aria-label={t('settings.channels.enableTelegram')}
-            checked={tg.enabled}
-            onCheckedChange={(checked) => patchTelegram((cfg) => { cfg.enabled = checked; })}
-          />
         </div>
-
-        {tg.enabled && (
-          <div className="space-y-4 rounded-lg border border-border/60 bg-muted/30 p-4">
-            {/* Bot Token */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t('settings.channels.botToken')}
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  type={showToken ? 'text' : 'password'}
-                  aria-label={t('settings.channels.botToken')}
-                  value={tg.bot_token}
-                  placeholder="123456:ABC-DEF..."
-                  onChange={(e) => patchTelegram((cfg) => { cfg.bot_token = e.target.value; })}
-                  className="font-mono text-xs"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowToken((prev) => !prev)}
-                  aria-label={showToken ? 'Hide token' : 'Show token'}
-                >
-                  {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {t('settings.channels.botTokenHint')}
-              </p>
-            </div>
-
-            {/* Mode */}
-            <div className="space-y-1.5">
-              <LabeledSelectField
-                label={t('settings.channels.mode')}
-                ariaLabel={t('settings.channels.mode')}
-                value={tg.mode}
-                options={[
-                  { label: 'Polling', value: 'polling' },
-                  { label: 'Webhook', value: 'webhook' },
-                ]}
-                onChange={(value) => patchTelegram((cfg) => { cfg.mode = value; })}
-              />
-            </div>
-
-            {/* Webhook URL (conditional) */}
-            {tg.mode === 'webhook' && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  {t('settings.channels.webhookUrl')}
-                </label>
-                <Input
-                  aria-label={t('settings.channels.webhookUrl')}
-                  value={tg.webhook_url}
-                  placeholder="https://your-domain.com/webhook/telegram"
-                  onChange={(e) => patchTelegram((cfg) => { cfg.webhook_url = e.target.value; })}
-                  className="text-xs"
-                />
-              </div>
-            )}
-
-            {/* Proxy */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t('settings.channels.proxy')}
-              </label>
-              <Input
-                aria-label={t('settings.channels.proxy')}
-                value={tg.proxy}
-                placeholder="http://127.0.0.1:7890"
-                onChange={(e) => patchTelegram((cfg) => { cfg.proxy = e.target.value; })}
-                className="font-mono text-xs"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                {t('settings.channels.proxyHint')}
-              </p>
-            </div>
-
-            {/* Test Connection */}
-            <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!tg.bot_token || tg.bot_token.endsWith('****') || testState.loading}
-                onClick={handleTestConnection}
-                className="text-xs"
-              >
-                {testState.loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                {t('settings.channels.testConnection')}
-              </Button>
-              {testState.result && (
-                <span className={`flex items-center gap-1 text-xs ${testState.result.success ? 'text-green-600' : 'text-destructive'}`}>
-                  {testState.result.success
-                    ? <CheckCircle2 className="h-3.5 w-3.5" />
-                    : <XCircle className="h-3.5 w-3.5" />}
-                  {testState.result.message}
-                </span>
-              )}
-            </div>
-
-            {/* Allowed User IDs */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t('settings.channels.allowedUserIds')}
-              </label>
-              <Input
-                aria-label={t('settings.channels.allowedUserIds')}
-                value={tg.allowed_user_ids.join(', ')}
-                placeholder="123456789, 987654321"
-                onChange={(e) => handleAllowedIdsChange(e.target.value)}
-                className="text-xs"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                {t('settings.channels.allowedUserIdsHint')}
-              </p>
-            </div>
-
-            {/* Group Trigger Keyword */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t('settings.channels.groupTriggerKeyword')}
-              </label>
-              <Input
-                aria-label={t('settings.channels.groupTriggerKeyword')}
-                value={tg.group_trigger_keyword}
-                placeholder="magi"
-                onChange={(e) => patchTelegram((cfg) => { cfg.group_trigger_keyword = e.target.value; })}
-                className="text-xs"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                {t('settings.channels.groupTriggerKeywordHint')}
-              </p>
-            </div>
-
-            {/* Magi User ID */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t('settings.channels.magiUserId')}
-              </label>
-              <Input
-                aria-label={t('settings.channels.magiUserId')}
-                value={tg.magi_user_id}
-                placeholder="default"
-                onChange={(e) => patchTelegram((cfg) => { cfg.magi_user_id = e.target.value; })}
-                className="text-xs"
-              />
-            </div>
-
-            {/* Max Message Length */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t('settings.channels.maxMessageLength')}
-              </label>
-              <Input
-                type="number"
-                aria-label={t('settings.channels.maxMessageLength')}
-                value={tg.max_message_length}
-                min={1}
-                max={4096}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  if (!isNaN(val) && val >= 1 && val <= 4096) {
-                    patchTelegram((cfg) => { cfg.max_message_length = val; });
-                  }
-                }}
-                className="w-28 text-xs"
-              />
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Placeholder for future channels */}
-      <section className="space-y-2 opacity-50">
-        <p className="text-xs text-muted-foreground italic">
-          {t('settings.channels.moreComingSoon')}
+        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+          {contribution.description || contribution.contribution_id}
         </p>
-      </section>
+      </header>
+
+      {contribution.fields.length > 0 ? (
+        <PluginSettingsFields
+          fields={contribution.fields}
+          values={drafts[plugin.manifest.plugin_id] || {}}
+          onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
+          disabled={!plugin.enabled}
+          pluginId={plugin.manifest.plugin_id}
+        />
+      ) : (
+        <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">
+          {t('settings.actionsConfig.emptySettings')}
+        </div>
+      )}
+
+      {isTelegram ? (
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!(drafts[plugin.manifest.plugin_id]?.bot_token) || testState.loading}
+            onClick={() => void handleTestConnection()}
+            className="text-xs"
+          >
+            {testState.loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {t('settings.channels.testConnection')}
+          </Button>
+          {testState.result ? (
+            <span className={`flex items-center gap-1 text-xs ${testState.result.success ? 'text-green-600' : 'text-destructive'}`}>
+              {testState.result.success
+                ? <CheckCircle2 className="h-3.5 w-3.5" />
+                : <XCircle className="h-3.5 w-3.5" />}
+              {testState.result.message}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={dirty || !!reloading[plugin.manifest.plugin_id]}
+          onClick={() => void onReloadPlugin(plugin.manifest.plugin_id)}
+        >
+          <RefreshCw className={reloading[plugin.manifest.plugin_id] ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
+          {t('settings.extensions.actions.reload')}
+        </Button>
+      </div>
     </div>
   );
 };
