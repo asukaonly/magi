@@ -469,6 +469,9 @@
     "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
     "channelsDesc": "接入外部消息平台（如 Telegram），通过现有聊天链路与 AI 交互。",
     "channelsTelegramDesc": "配置 Telegram Bot 接入，支持私聊和群聊。",
+    "channelsConfig": {
+      "emptyState": "当前没有已安装的消息渠道插件。可以在插件市场中查找并安装。"
+    },
     "channels": {
       "statusOn": "已启用",
       "statusOff": "未启用",
