@@ -199,7 +199,7 @@ class ChatStore:
                 ChatSessionRecord(
                     session_id=session_id,
                     user_id=user_id,
-                    title=str(existing_session["title"]) if existing_session is not None else "New Chat",
+                    title=str(existing_session["title"]) if existing_session is not None else "",
                     title_overridden=bool(int(existing_session["title_overridden"] or 0)) if existing_session is not None else False,
                     summary=str(existing_session["summary"] or "") if existing_session is not None else "",
                     created_at_ms=int(existing_session["created_at_ms"]) if existing_session is not None else created_at_ms,

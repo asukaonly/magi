@@ -1060,7 +1060,7 @@ class ChatReadService:
     def _row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:
         return ChatSessionSummary(
             session_id=str(row["session_id"]),
-            title=str(row["title"] or "New Chat"),
+            title=str(row["title"] or ""),
             last_message_preview=str(row["last_message_preview"] or ""),
             last_user_message_preview=str(row["last_user_message_preview"] or ""),
             title_overridden=bool(int(row["title_overridden"] or 0)),

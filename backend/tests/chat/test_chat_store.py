@@ -143,7 +143,7 @@ async def test_chat_store_persists_turn_and_message_records(tmp_path: Path) -> N
             ChatSessionRecord(
                 session_id="session-1",
                 user_id="user-1",
-                title="New Chat",
+                title="",
                 title_overridden=False,
                 summary="",
                 created_at_ms=100,
@@ -286,7 +286,7 @@ async def test_chat_store_marks_interim_messages_replaced_by_final(tmp_path: Pat
             ChatSessionRecord(
                 session_id="session-1",
                 user_id="user-1",
-                title="New Chat",
+                title="",
                 title_overridden=False,
                 summary="",
                 created_at_ms=100,

@@ -74,7 +74,7 @@ def create_chat_session_record(
     *,
     user_id: str,
     session_id: str | None = None,
-    title: str = "New Chat",
+    title: str = "",
     summary: str = "",
     workspace_path: str | None = None,
     now: float | None = None,
@@ -86,7 +86,7 @@ def create_chat_session_record(
     return ChatSessionRecord(
         session_id=normalized_session_id,
         user_id=str(user_id).strip(),
-        title=str(title).strip() or "New Chat",
+        title=str(title).strip(),
         title_overridden=False,
         summary=str(summary),
         created_at=timestamp,
@@ -131,7 +131,7 @@ async def project_chat_event_to_session(
         (
             normalized_session_id,
             normalized_user_id,
-            "New Chat",
+            "",
             0,
             "",
             float(timestamp),

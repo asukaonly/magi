@@ -684,7 +684,7 @@ async def test_l1_event_store_projects_user_message_into_chat_session_row(tmp_pa
         conn.close()
 
         assert row is not None
-        assert row[0] == "New Chat"
+        assert row[0] == ""
         assert row[1] == 0
         assert row[2] == "First message preview"
         assert row[3] == "First message preview"

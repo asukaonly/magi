@@ -39,7 +39,7 @@ async def backfill_chat_store_from_legacy(*, chat_store: ChatStore, legacy_l1_db
                     ChatSessionRecord(
                         session_id=str(row["session_id"]),
                         user_id=str(row["user_id"]),
-                        title=str(row["title"] or "New Chat"),
+                        title=str(row["title"] or ""),
                         title_overridden=bool(int(row["title_overridden"] or 0)),
                         summary=str(row["summary"] or ""),
                         created_at_ms=_to_ms(row["created_at"]),

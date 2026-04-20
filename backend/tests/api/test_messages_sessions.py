@@ -111,7 +111,7 @@ def _insert_session(db_path: Path, **values) -> None:
     payload = {
         "session_id": values.get("session_id"),
         "user_id": values.get("user_id"),
-        "title": values.get("title", "New Chat"),
+        "title": values.get("title", ""),
         "title_overridden": int(values.get("title_overridden", False)),
         "summary": values.get("summary", ""),
         "created_at_ms": values.get("created_at", 0),
