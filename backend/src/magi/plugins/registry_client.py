@@ -40,6 +40,8 @@ class PluginRegistryClient:
         self._registry_url = registry_url or configured_url or DEFAULT_REGISTRY_URL
         self._cached_index: PluginRegistryIndex | None = None
         self._cache_timestamp: float = 0.0
+        self._cached_tarball: bytes | None = None
+        self._tarball_timestamp: float = 0.0
 
     @property
     def _proxy_url(self) -> str | None:
@@ -97,6 +99,28 @@ class PluginRegistryClient:
             return self._cached_index.repo_url
         return DEFAULT_REPO_URL
 
+    async def _fetch_tarball(self) -> bytes:
+        """Download the repo tarball, with short-lived in-memory caching.
+
+        When multiple plugins are installed back-to-back (e.g. during
+        onboarding), only one HTTP download is performed.
+        """
+        now = time.monotonic()
+        if (
+            self._cached_tarball is not None
+            and (now - self._tarball_timestamp) < INDEX_CACHE_TTL
+        ):
+            return self._cached_tarball
+
+        tarball_url = self._tarball_url()
+        logger.info("Downloading plugin repository tarball", extra={"url": tarball_url})
+        async with self._http_client(timeout=TARBALL_TIMEOUT) as client:
+            resp = await client.get(tarball_url)
+            resp.raise_for_status()
+            self._cached_tarball = resp.content
+            self._tarball_timestamp = time.monotonic()
+        return self._cached_tarball
+
     async def clone_plugin(
         self,
         entry: PluginRegistryEntry,
@@ -105,8 +129,8 @@ class PluginRegistryClient:
     ) -> Path:
         """Download and extract a single plugin from the remote repository.
 
-        Downloads the repo tarball from GitHub, streams it into a tar
-        reader, and extracts only the plugin subdirectory.  No local git
+        Downloads the repo tarball from GitHub (cached for repeat calls),
+        then extracts only the plugin subdirectory.  No local git
         commands are required.
 
         Returns the path to the extracted plugin directory ready for
@@ -115,16 +139,11 @@ class PluginRegistryClient:
         if not entry.path:
             raise ValueError(f"No path defined for plugin: {entry.plugin_id}")
 
-        tarball_url = self._tarball_url()
-
         dest = dest_dir or Path(tempfile.mkdtemp(prefix="magi-plugin-dl-"))
         dest.mkdir(parents=True, exist_ok=True)
 
         try:
-            async with self._http_client(timeout=TARBALL_TIMEOUT) as client:
-                resp = await client.get(tarball_url)
-                resp.raise_for_status()
-                tarball_bytes = resp.content
+            tarball_bytes = await self._fetch_tarball()
 
             plugin_dest = dest / entry.plugin_id
             _extract_subdir_from_tarball(tarball_bytes, entry.path, plugin_dest)
