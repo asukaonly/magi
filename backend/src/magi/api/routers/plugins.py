@@ -48,11 +48,12 @@ def _try_plugin_manager():
 
 def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     """Get i18n helper for a plugin, using cached instance if plugin is loaded."""
-    manager = require_plugin_manager()
-    plugin_instance = manager._plugin_instances.get(plugin_id)
-    if plugin_instance:
-        return plugin_instance.i18n
-    # For unloaded plugins, create i18n instance directly
+    manager = _try_plugin_manager()
+    if manager is not None:
+        plugin_instance = manager._plugin_instances.get(plugin_id)
+        if plugin_instance:
+            return plugin_instance.i18n
+    # For unloaded plugins or when manager is unavailable, create i18n instance directly.
     return PluginI18n(plugin_id, Path(plugin_dir))
 
 
