@@ -50,3 +50,57 @@ async def test_initialize_agent_runtime_binds_skills_when_runtime_deferred(
     container.skill_indexer.reset_override()
     container.skill_loader.reset_override()
     container.skill_runner.reset_override()
+
+
+class _DeferredOrchestratorWithContext:
+    """Orchestrator that defers but lets context fields be populated first."""
+
+    def __init__(self, context):
+        self._context = context
+
+    async def startup(self) -> None:
+        # Simulate modules 1-6 running before LLM defers
+        self._context.chat.store = object()
+        self._context.message_bus.message_bus = object()
+        self._context.runtime_commands.runtime_command_queue = object()
+        raise RuntimeInitializationDeferred(pending_selection=True)
+
+
+@pytest.mark.asyncio
+async def test_initialize_agent_runtime_exports_infra_bindings_when_deferred(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Infrastructure bindings (chat_store, message_bus, etc.) should be
+    exported to the DI container even when full runtime init is deferred."""
+    container = get_container()
+    container.chat_store.reset_override()
+    container.message_bus.reset_override()
+    container.runtime_command_queue.reset_override()
+
+    fake_config = type("Config", (), {"features": type("Features", (), {"enable_skills": False})()})()
+
+    captured_context = {}
+
+    def fake_orchestrator_factory(modules):
+        ctx = captured_context.get("ctx")
+        return _DeferredOrchestratorWithContext(ctx)
+
+    def fake_build(context, role=None):
+        captured_context["ctx"] = context
+        return []
+
+    monkeypatch.setattr(backend_module, "_is_runtime_initialized", lambda: False)
+    monkeypatch.setattr(backend_module, "get_config", lambda: fake_config)
+    monkeypatch.setattr(backend_module, "build_runtime_modules", fake_build)
+    monkeypatch.setattr(backend_module, "ModuleLifecycleOrchestrator", fake_orchestrator_factory)
+
+    await backend_module.initialize_agent_runtime()
+
+    assert container.chat_store.overridden
+    assert container.message_bus.overridden
+    assert container.runtime_command_queue.overridden
+    assert not container.agent_runtime.overridden
+
+    container.chat_store.reset_override()
+    container.message_bus.reset_override()
+    container.runtime_command_queue.reset_override()
