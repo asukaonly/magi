@@ -275,6 +275,18 @@ class ChatPostProcessService:
                 message_id=notification_message_id,
                 message_kind=notification_message_kind,
             )
+        else:
+            # Streaming turns skip agent_response; emit a completion control event so the
+            # frontend knows the turn is done and can unlock the input.
+            await self.emit_execution_control_notification(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=turn_id,
+                run_id=context.session_run_id,
+                orchestration_id=result.orchestration_id,
+                state="completed",
+                can_cancel=False,
+            )
 
         await action_emitter.emit_chat_response_event(
             user_id=context.user_id,

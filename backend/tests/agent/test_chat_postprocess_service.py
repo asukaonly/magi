@@ -1985,3 +1985,80 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
     await service.handle(context, result)
 
     assert unified_memory.task_packets == []
+
+
+@pytest.mark.asyncio
+async def test_handle_emits_execution_control_completed_for_streamed_result(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
+    """Streamed turns must emit turn_execution_control(completed) so the frontend unlocks the input."""
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "Tell me a joke.",
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-streamed",
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-stream",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Tell me a joke.",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="Tell me a joke.",
+            turn_id="turn-streamed",
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="Why did the chicken cross the road?",
+        correlation_id="corr-stream",
+        turn_id="turn-streamed",
+        streamed=True,
+    )
+
+    outcome = await service.handle(context, result)
+
+    assert outcome.emitted is True
+    # agent_response notification must NOT be present for streamed turns
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    channels = [n.channel for n in notifications]
+    assert "agent_response" not in channels
+    # execution_control with state=completed must be present
+    control_notifs = [n for n in notifications if n.channel == "execution_control"]
+    assert len(control_notifs) == 1
+    import json as _json
+    payload = _json.loads(control_notifs[0].payload_json)
+    assert payload["state"] == "completed"
+    assert payload["turn_id"] == "turn-streamed"
+
