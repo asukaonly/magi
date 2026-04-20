@@ -48,6 +48,21 @@ from .common import FactOnlyHandler, OrchestrationLaunchHandler, OrchestrationUp
 
 logger = get_logger(__name__)
 
+_RATE_LIMIT_CODES = {"429", "1302", "rate_limit_exceeded"}
+
+
+def _format_llm_error(exc: Exception) -> str:
+    """Return a concise user-facing error string for an LLM call failure."""
+    exc_str = str(exc)
+    status_code = str(getattr(exc, "status_code", "") or "")
+    if status_code == "429" or any(code in exc_str for code in _RATE_LIMIT_CODES):
+        return "⚠️ The AI service is rate-limited. Please wait a moment and try again."
+    if status_code in ("401", "403"):
+        return "⚠️ Authentication failed. Please check your API key configuration."
+    if status_code in ("500", "502", "503"):
+        return "⚠️ The AI service is temporarily unavailable. Please try again later."
+    return f"⚠️ The AI service returned an error. Please try again. ({exc.__class__.__name__})"
+
 
 class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection, ExecutionRequest, ExecutionResult]):
     """Consumes chat facts and delegates execution to typed handlers."""
@@ -325,8 +340,32 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         return await self._coordinator.assemble_request(context, intent_result, tool_result)
 
     async def call_llm(self, context: ChatRuntimeContext, llm_params: ExecutionRequest) -> ExecutionResult:
-        _ = context
-        return await self._coordinator.execute(llm_params)
+        try:
+            return await self._coordinator.execute(llm_params)
+        except Exception as exc:
+            await self._emit_llm_error(context, exc)
+            raise
+
+    async def _emit_llm_error(self, context: ChatRuntimeContext, exc: Exception) -> None:
+        """Emit a user-visible error message when LLM call fails."""
+        turn_id = str(getattr(context.latest_payload, "turn_id", "") or "").strip()
+        if not (context.user_id and context.session_id and turn_id):
+            return
+        error_text = _format_llm_error(exc)
+        await self._emit_stream_chunk(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=turn_id,
+            content_delta=error_text,
+            is_final=False,
+        )
+        await self._emit_stream_chunk(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=turn_id,
+            content_delta="",
+            is_final=True,
+        )
 
     async def parse_result(self, context: ChatRuntimeContext, raw_result: ExecutionResult) -> None:
         await self._postprocess_service.handle(context, raw_result)

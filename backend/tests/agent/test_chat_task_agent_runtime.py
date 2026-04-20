@@ -7,7 +7,7 @@ import pytest
 
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.chat.postprocess_service import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
-from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
+from magi.agent.task_agents.chat_task_agent import ChatTaskAgent, _format_llm_error
 from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
 from magi.chat import ChatStore
 from magi.events.events import EventTypes
@@ -214,3 +214,146 @@ async def test_chat_task_agent_marks_interrupted_turn_as_interrupted(tmp_path: P
     assert first_turn.response_anchor_turn_id == "turn-2"
     assert first_turn.superseded_by_turn_id == "turn-2"
     assert first_turn.supersession_reason == "interrupted"
+
+
+# ---------------------------------------------------------------------------
+# _format_llm_error helpers
+# ---------------------------------------------------------------------------
+
+
+class _FakeRateLimitError(Exception):
+    def __init__(self) -> None:
+        super().__init__("Error code: 429 - {'error': {'code': '1302', 'message': '速率限制'}}")
+        self.status_code = 429
+
+
+class _FakeAuthError(Exception):
+    def __init__(self) -> None:
+        super().__init__("Error code: 401 - Unauthorized")
+        self.status_code = 401
+
+
+class _FakeServerError(Exception):
+    def __init__(self) -> None:
+        super().__init__("Error code: 503 - Service Unavailable")
+        self.status_code = 503
+
+
+def test_format_llm_error_rate_limit() -> None:
+    msg = _format_llm_error(_FakeRateLimitError())
+    assert "rate" in msg.lower() or "限" in msg
+
+
+def test_format_llm_error_auth() -> None:
+    msg = _format_llm_error(_FakeAuthError())
+    assert "auth" in msg.lower() or "api key" in msg.lower()
+
+
+def test_format_llm_error_server() -> None:
+    msg = _format_llm_error(_FakeServerError())
+    assert "unavailable" in msg.lower() or "later" in msg.lower()
+
+
+def test_format_llm_error_generic() -> None:
+    msg = _format_llm_error(ValueError("something went wrong"))
+    assert "ValueError" in msg
+
+
+# ---------------------------------------------------------------------------
+# call_llm emits error stream chunk on failure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
+    """When _coordinator.execute raises, call_llm must emit a terminal stream chunk."""
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    emitted: list[dict] = []
+
+    async def _fake_emit(*, user_id, session_id, turn_id, content_delta, is_final, retract=False):
+        emitted.append({"content_delta": content_delta, "is_final": is_final})
+
+    monkeypatch.setattr(agent, "_emit_stream_chunk", _fake_emit)
+
+    class _FakeCoordinator:
+        async def execute(self, _params):
+            raise _FakeRateLimitError()
+
+    agent._coordinator = _FakeCoordinator()
+
+    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.common.contracts import IncomingFactKind, GenericFactPayload
+
+    ctx = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-test",
+        history_key="u-chat:s-test",
+        history=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=SimpleNamespace(turn_id="turn-x"),
+        conversation_history=[],
+        active_orchestrations=[],
+    )
+
+    with pytest.raises(_FakeRateLimitError):
+        await agent.call_llm(ctx, SimpleNamespace())
+
+    assert len(emitted) == 2
+    assert emitted[0]["is_final"] is False
+    assert "rate" in emitted[0]["content_delta"].lower()
+    assert emitted[1]["is_final"] is True
+    assert emitted[1]["content_delta"] == ""
+
+
+@pytest.mark.asyncio
+async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
+    """If turn_id is missing, no stream chunk is emitted (avoids noisy errors)."""
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    emitted: list[dict] = []
+
+    async def _fake_emit(**kwargs):
+        emitted.append(kwargs)
+
+    monkeypatch.setattr(agent, "_emit_stream_chunk", _fake_emit)
+
+    class _FakeCoordinator:
+        async def execute(self, _params):
+            raise RuntimeError("boom")
+
+    agent._coordinator = _FakeCoordinator()
+
+    from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+    from magi.agent.task_agents.common.contracts import IncomingFactKind, GenericFactPayload
+
+    ctx = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-test",
+        history_key="u-chat:s-test",
+        history=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=SimpleNamespace(turn_id=""),
+        conversation_history=[],
+        active_orchestrations=[],
+    )
+
+    with pytest.raises(RuntimeError):
+        await agent.call_llm(ctx, SimpleNamespace())
+
+    assert emitted == []
+
