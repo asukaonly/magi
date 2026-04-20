@@ -603,11 +603,6 @@ class PluginsSettings(BaseModel):
                 trusted=True,
                 source="builtin",
             ),
-            "core-actions": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
             "chrome-history": PluginSettings(
                 enabled=True,
                 trusted=True,

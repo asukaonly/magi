@@ -1297,20 +1297,6 @@
         "name": "核心工具",
         "description": "内置工具，用于网页搜索、文件操作等功能"
       },
-      "core-actions": {
-        "name": "核心执行器",
-        "description": "内置执行器，用于代理对外操作能力",
-        "options": {
-          "delivery_mode": {
-            "console": "控制台（调试）",
-            "smtp": "SMTP",
-            "sendgrid": "SendGrid"
-          }
-        },
-        "sections": {
-          "email": "邮件"
-        }
-      },
       "calendar": {
         "name": "日历",
         "description": "日历事件接入时间线",

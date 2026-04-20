@@ -55,7 +55,6 @@ PACKAGE_DATA_DIRECTORIES = (
 # Optional plugins are installed at runtime from the plugin registry.
 CORE_PLUGIN_IDS = (
     "core-tools",
-    "core-actions",
 )
 
 

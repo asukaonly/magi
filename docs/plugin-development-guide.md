@@ -272,49 +272,6 @@ extraction_instructions=(
 
 Profiles are currently registered in `extraction_profiles.py`. New source types fall back to the unrestricted `chat.user_message` default profile.
 
-## Action Plugins
-
-Actions inherit `BaseAction` and return instances from `get_actions()`.
-
-Example:
-
-```python
-from magi.plugins import ActionExecutionContext, ActionSpec, BaseAction, Plugin
-
-
-class NotifyAction(BaseAction):
-    def build_spec(self) -> ActionSpec:
-        return ActionSpec(
-            action_id="send-email",
-            display_name="Send Email",
-            description="Send an outbound email.",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Recipient address"},
-                    "subject": {"type": "string", "description": "Email subject"},
-                    "body": {"type": "string", "description": "Email body"},
-                },
-                "required": ["to", "subject", "body"],
-            },
-            tool_adapter_name="send-email",
-        )
-
-    async def execute(self, parameters: dict, context: ActionExecutionContext) -> dict:
-        return {"status": "queued", "to": parameters["to"]}
-
-
-class ExamplePlugin(Plugin):
-    def get_actions(self):
-        return [NotifyAction()]
-```
-
-Guidelines:
-
-- actions model outbound system behavior
-- do not treat actions as tools by default
-- use `tool_adapter_name` only when the action should also be callable through agent tool invocation
-
 ## Declaring Settings Fields
 
 Frontend settings are generated from `ExtensionFieldSpec`.
@@ -344,9 +301,6 @@ Typical surfaces:
 - `timeline`
   sensor settings shown in Timeline & Sources
 
-- `actions`
-  action settings shown on the Actions page
-
 - `tools`
   reserved for tool-facing settings surfaces
 
@@ -357,26 +311,18 @@ from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec
 
 fields = [
     ExtensionFieldSpec(
-        key="email.default_sender",
-        type="input",
-        label="Default Sender",
-        description="Default sender address for email actions.",
-        default="",
-        section="email",
-        surface="actions",
-        order=10,
-    ),
-    ExtensionFieldSpec(
-        key="email.provider_mode",
+        key="sensors.example_source.sync_mode",
         type="select",
-        label="Delivery Mode",
-        default="simulated",
+        label="Sync Mode",
+        description="How synchronization is performed.",
+        default="manual",
         options=[
-            ExtensionFieldOption(label="Simulated", value="simulated"),
+            ExtensionFieldOption(label="Manual", value="manual"),
+            ExtensionFieldOption(label="Interval", value="interval"),
         ],
-        section="email",
-        surface="actions",
-        order=20,
+        section="sync",
+        surface="timeline",
+        order=10,
     ),
 ]
 ```

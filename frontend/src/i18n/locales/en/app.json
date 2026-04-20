@@ -1287,14 +1287,6 @@
         "name": "Core Tools",
         "description": "Built-in tools for web search, file operations, and more"
       },
-      "core-actions": {
-        "name": "Core Actions",
-        "description": "Built-in actions for agent outbound capabilities",
-        "options": {
-          "delivery_mode": { "console": "Console (Debug)", "smtp": "SMTP", "sendgrid": "SendGrid" }
-        },
-        "sections": { "email": "Email" }
-      },
       "calendar": {
         "name": "Calendar",
         "description": "Calendar event ingestion for the timeline",

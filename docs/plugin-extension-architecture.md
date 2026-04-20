@@ -537,16 +537,13 @@ Timeline source status also now reflects plugin-backed sensor registration:
 
 ## Official Built-In Plugins
 
-Magi currently ships three general built-in plugin packages:
+Magi currently ships two general built-in plugin packages:
 
 - `core-tools`
   registers built-in tools
 
 - `photo-library`
   registers the local photo library timeline source
-
-- `core-actions`
-  registers built-in outbound actions such as send-email
 
 These packages are enabled by default through config defaults.
 
