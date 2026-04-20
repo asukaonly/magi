@@ -167,7 +167,7 @@ class PluginRegistryClient:
             "--depth", "1",
             "--filter=blob:none",
             "--sparse",
-            "--reference", str(bare_dir),
+            "--no-hardlinks",
             str(bare_dir), str(work_dir),
         ]
         await _run_async(local_clone_cmd, timeout=30, error_prefix="local clone failed", env=proxy_env)
