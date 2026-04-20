@@ -127,7 +127,6 @@ class PluginRegistryClient:
             clone_cmd = [
                 "git", *proxy_args,
                 "clone", "--bare", "--depth", "1",
-                "--filter=blob:none",
                 repo_url, str(bare_dir),
             ]
             logger.info("Cloning plugin repository (bare)", extra={"repo": repo_url})
