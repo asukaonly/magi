@@ -22,7 +22,6 @@ Magi currently exposes these major configuration areas:
 - tool management
 - plugin and extension management
 - sensor source management
-- outbound action management
 - settings page structure
 
 These areas are closely related. Onboarding determines the first-run experience, while the settings page is the long-term place where users revisit the same configuration families.
@@ -100,7 +99,6 @@ It should provide a stable place where users can revisit and update:
 - timeline settings
 - extension settings
 - tool settings
-- action settings
 - relevant system/runtime settings
 
 Expected behavior:
@@ -340,19 +338,6 @@ Expected product behavior:
 - selecting a timeline anchor should open a context drawer backed by a cross-layer context bundle rather than a page-specific event detail contract
 - the product may add more source types over time, but the timeline surface should stay source-agnostic at the page-structure level
 
-## Action Management
-
-Magi now exposes outbound actions as a distinct product surface.
-
-Expected product behavior:
-
-- actions should appear as a dedicated settings category
-- action settings should be rendered from backend metadata
-- actions remain conceptually distinct from tools even when a tool adapter exists
-- dangerous or permission-requiring actions should surface that metadata clearly to the user
-
-Action execution may also be scheduled by the backend runtime for delayed or recurring delivery, even when the product does not yet expose a full task-center UI.
-
 ## Desktop Window Presence
 
 Magi is a desktop-only application and should behave like a native background-capable desktop app instead of a browser tab wrapped in a shell.
@@ -446,7 +431,7 @@ For internal runtime implementation details, read:
 
 - [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
 
-For unified extension loading, plugin-backed sensors, and action/tool registration, read:
+For unified extension loading and plugin-backed sensors, read:
 
 - [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
 - [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)

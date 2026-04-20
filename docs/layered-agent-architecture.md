@@ -112,7 +112,7 @@ Primary packages:
 Notes:
 
 - this layer owns package lifecycle only
-- tools, sensors, and actions return to their owning runtime layers after registration
+- tools and sensors return to their owning runtime layers after registration
 
 ### L5. LLM Runtime
 
@@ -167,7 +167,7 @@ Primary packages:
 
 - `personality/`
 
-### L9. Sensors And Actions Layer
+### L9. Sensors Layer
 
 Responsibilities:
 
@@ -175,8 +175,7 @@ Responsibilities:
 - sensor memory policy (`SensorMemoryPolicy`) controlling L0–L4 routing
 - sensor ingestion gateway (`SensorIngestionGateway`) for memory/timeline/graph routing
 - sensor state management (cursors, fingerprint dedup)
-- outbound actions
-- action emission and action-target registration
+- runtime event emission
 
 Primary packages:
 
@@ -184,7 +183,7 @@ Primary packages:
 
 Notes:
 
-- plugin-contributed sensors and actions are registered in `plugins/`, but runtime execution belongs here
+- plugin-contributed sensors are registered in `plugins/`, but runtime execution belongs here
 - all sensor plugins inherit from `SensorBase` and produce `SensorOutput`
 - `SensorIngestionGateway` routes outputs to memory (L6), timeline (L12), and knowledge graph
 
@@ -305,7 +304,7 @@ Notes:
 ### Scheduler contract
 
 - the scheduler engine is infrastructure
-- timeline, agent, and action layers own scheduling policy and target registration
+- timeline and agent layers own scheduling policy and target registration
 - scheduled execution should enter the owning layer through typed target handlers rather than scattered ad hoc loops
 
 ### Plugin contract
@@ -314,11 +313,10 @@ Notes:
 - registries expose the registered capability surfaces
 - plugin registration must not become a place where domain behavior is reimplemented
 
-### Tool versus action contract
+### Tool contract
 
 - tools are agent-callable capabilities
-- actions are outbound side effects
-- an action may expose a tool adapter, but the concepts remain distinct
+- if outbound side effects are needed in the future, they should be modeled as channels or runtime pipeline hooks rather than a separate action abstraction
 
 ### Personality versus memory contract
 
@@ -373,7 +371,7 @@ The current codebase maps to the layered model like this:
 - `memory/` -> L6 memory
 - `tools/`, `skills/` -> L7 tools and skills
 - `personality/` -> L8 personality
-- `awareness/`, action registries and handlers -> L9 sensors and actions
+- `awareness/`, event emitter -> L9 sensors
 - `context/` -> L10 context
 - `agent/` -> L11 agent runtime
 - `timeline/` -> L12 timeline domain

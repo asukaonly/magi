@@ -8,7 +8,7 @@ Use it when you want to:
 
 - add a built-in extension under `plugins/`
 - author an external plugin under `~/.magi/plugins/`
-- contribute new tools, timeline sensors, or outbound actions
+- contribute new tools or timeline sensors
 
 ## Quick Start
 
@@ -39,7 +39,7 @@ author = "Your Name"
 entry_module = "plugin"
 entry_class = "ExamplePlugin"
 official = false
-contribution_types = ["tool", "sensor", "action"]
+contribution_types = ["tool", "sensor"]
 ```
 
 You only need to declare the contribution types you actually expose.
@@ -61,9 +61,6 @@ class ExamplePlugin(Plugin):
         return []
 
     def get_sensors(self):
-        return []
-
-    def get_actions(self):
         return []
 ```
 
@@ -376,7 +373,7 @@ When adding a new plugin or contribution, validate at three levels when relevant
   discovery, enable, disable, reload
 
 - registry integration
-  tool, sensor, or action is visible in the correct runtime registry
+  tool or sensor is visible in the correct runtime registry
 
 - API or UI surface
   settings metadata is serialized correctly and appears in the expected frontend page
@@ -393,7 +390,6 @@ Use these as the primary templates:
 
 - [core-tools plugin](/Users/asuka/code/magi/plugins/core-tools/plugin.py)
 - [chrome-history plugin](/Users/asuka/code/magi/plugins/chrome-history/) — full sensor with entity hints, L2 batch policy, and extraction metadata
-- [core-actions plugin](/Users/asuka/code/magi/plugins/core-actions/plugin.py)
 
 ## Common Mistakes
 

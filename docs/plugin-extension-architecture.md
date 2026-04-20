@@ -487,14 +487,12 @@ Examples:
 
 - per-plugin enable / disable / reload
 - per-sensor source settings
-- action-specific settings
 
 Frontend surfaces:
 
 - [Settings.tsx](/Users/asuka/code/magi/frontend/src/pages/Settings.tsx)
 - [ExtensionsSection.tsx](/Users/asuka/code/magi/frontend/src/components/settings/ExtensionsSection.tsx)
 - [TimelineSourcesSection.tsx](/Users/asuka/code/magi/frontend/src/components/settings/TimelineSourcesSection.tsx)
-- [ActionsSection.tsx](/Users/asuka/code/magi/frontend/src/components/settings/ActionsSection.tsx)
 
 ## Configuration Persistence
 
@@ -586,17 +584,6 @@ Current rules:
 - per-source settings are persisted through plugin package settings instead of `config.timeline.sources`
 
 Global timeline switches still remain in the root config because they control timeline behavior at the domain level rather than at one plugin contribution.
-
-## Action Integration
-
-Actions are now visible in the settings page as a dedicated surface.
-
-Current rules:
-
-- actions remain separate from tools at the model level
-- an action may optionally expose a tool adapter name
-- the runtime will register that adapter into `ToolRegistry`
-- the settings page still treats the action as an action contribution, not as a tool definition
 
 ## Known Boundaries
 

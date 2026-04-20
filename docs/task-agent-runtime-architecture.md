@@ -67,7 +67,7 @@ The current sequence is:
 8. tools
 9. skills
 10. personality
-11. sensors and actions
+11. sensors and event emission
 12. context assembly
 13. agent runtime
 14. timeline service
