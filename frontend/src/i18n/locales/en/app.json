@@ -400,6 +400,7 @@
     "errorUnknown": "Unknown error",
     "resetConfirm": "Reset all settings to defaults?",
     "resetSuccess": "Configuration reset to defaults",
+    "arrayPlaceholder": "Type and press Enter to add",
     "resetFailed": "Failed to reset config: {{message}}",
     "downloadStartFailed": "Failed to start download",
     "modelReady": "Model is ready",
@@ -1499,6 +1500,50 @@
           "retention": "Retention",
           "privacy": "Privacy",
           "activation": "Activation"
+        }
+      },
+      "telegram": {
+        "name": "Telegram",
+        "description": "Bidirectional Telegram bot channel adapter",
+        "fields": {
+          "bot_token": {
+            "label": "Bot Token",
+            "description": "The Bot API token obtained from @BotFather."
+          },
+          "mode": {
+            "label": "Connection Mode",
+            "description": "How to connect to the Telegram server."
+          },
+          "proxy": {
+            "label": "Proxy",
+            "description": "Proxy for Telegram API access. Leave empty to use the global network proxy.",
+            "placeholder": "http://127.0.0.1:7890"
+          },
+          "allowed_user_ids": {
+            "label": "Allowed User IDs",
+            "description": "Telegram user IDs allowed to interact with the bot. Leave empty for no restriction."
+          },
+          "group_trigger_keyword": {
+            "label": "Group Trigger Keyword",
+            "description": "Keyword to trigger a reply in group chat (besides @mention and /ask)."
+          },
+          "magi_user_id": {
+            "label": "Magi User ID",
+            "description": "The internal Magi user identity to map to."
+          },
+          "max_message_length": {
+            "label": "Max Message Length",
+            "description": "Maximum character count per message."
+          }
+        },
+        "options": {
+          "mode": {
+            "polling": "Polling",
+            "webhook": "Webhook"
+          }
+        },
+        "sections": {
+          "general": "General"
         }
       }
     },

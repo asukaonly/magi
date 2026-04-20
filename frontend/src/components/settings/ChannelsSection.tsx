@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { RefreshCw } from 'lucide-react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { configApi } from '@/api/modules/config';
 import {
   type PluginContribution,
   type PluginPackageState,
@@ -53,6 +54,29 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
     () => channelEntries.find((e) => e.contribution.contribution_id === selectedContributionId) ?? null,
     [channelEntries, selectedContributionId]
   );
+
+  // Telegram test connection state
+  const [testState, setTestState] = useState<{
+    loading: boolean;
+    result?: { success: boolean; message: string };
+  }>({ loading: false });
+
+  const isTelegram = selectedEntry?.contribution.contribution_id?.toLowerCase().includes('telegram') ?? false;
+
+  const handleTestConnection = useCallback(async () => {
+    if (!selectedEntry) return;
+    const pluginDrafts = drafts[selectedEntry.plugin.manifest.plugin_id] || {};
+    const botToken = pluginDrafts.bot_token ?? '';
+    const proxy = pluginDrafts.proxy ?? '';
+    setTestState({ loading: true });
+    try {
+      const res = await configApi.testTelegramConnection({ bot_token: botToken, proxy });
+      setTestState({ loading: false, result: { success: res.success, message: res.message } });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTestState({ loading: false, result: { success: false, message: msg } });
+    }
+  }, [selectedEntry, drafts]);
 
   // Overview mode
   if (!selectedEntry) {
@@ -130,12 +154,37 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
           values={drafts[plugin.manifest.plugin_id] || {}}
           onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
           disabled={!plugin.enabled}
+          pluginId={plugin.manifest.plugin_id}
         />
       ) : (
         <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">
           {t('settings.actionsConfig.emptySettings')}
         </div>
       )}
+
+      {isTelegram ? (
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!(drafts[plugin.manifest.plugin_id]?.bot_token) || testState.loading}
+            onClick={() => void handleTestConnection()}
+            className="text-xs"
+          >
+            {testState.loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {t('settings.channels.testConnection')}
+          </Button>
+          {testState.result ? (
+            <span className={`flex items-center gap-1 text-xs ${testState.result.success ? 'text-green-600' : 'text-destructive'}`}>
+              {testState.result.success
+                ? <CheckCircle2 className="h-3.5 w-3.5" />
+                : <XCircle className="h-3.5 w-3.5" />}
+              {testState.result.message}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex justify-end">
         <Button

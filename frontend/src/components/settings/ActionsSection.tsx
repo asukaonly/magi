@@ -155,6 +155,7 @@ export const ActionsSection: React.FC<ActionsSectionProps> = ({
           values={drafts[plugin.manifest.plugin_id] || {}}
           onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
           disabled={!plugin.enabled}
+          pluginId={plugin.manifest.plugin_id}
         />
       ) : (
         <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">

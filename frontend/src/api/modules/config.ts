@@ -600,6 +600,11 @@ export const configApi = {
     api.post<TestLLMProviderConnectionResponse>('/llm/providers/test', payload),
   getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
   completeOnboarding: (config: SystemConfig) => api.post<SystemConfig>('/config/onboarding-complete', config),
+  testTelegramConnection: (payload: { bot_token: string; proxy?: string }) =>
+    api.post<{ success: boolean; message: string; bot_username?: string; bot_id?: number }>(
+      '/config/channels/telegram/test',
+      payload,
+    ),
 };
 
 export default configApi;

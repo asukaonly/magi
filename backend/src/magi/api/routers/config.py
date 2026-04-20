@@ -995,6 +995,60 @@ async def _save_personality_to_user(personality: FullPersonalityConfigModel) -> 
         return False
 
 
+class TestTelegramConnectionRequest(BaseModel):
+    bot_token: str
+    proxy: str = ""
+
+
+class TestTelegramConnectionResponse(BaseModel):
+    success: bool
+    message: str
+    bot_username: str = ""
+    bot_id: int = 0
+
+
+@config_router.post("/channels/telegram/test", response_model=TestTelegramConnectionResponse)
+async def test_telegram_connection(payload: TestTelegramConnectionRequest):
+    """Test Telegram bot token + proxy by calling getMe."""
+    if not payload.bot_token or payload.bot_token.endswith("****"):
+        raise HTTPException(status_code=400, detail="A valid bot token is required")
+
+    try:
+        import httpx  # noqa: F401
+        from telegram import Bot
+        from telegram.request import HTTPXRequest
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="python-telegram-bot is not installed",
+        )
+
+    proxy_url = payload.proxy.strip() or None
+    if not proxy_url:
+        try:
+            cfg = get_config()
+            proxy_url = cfg.network.proxy_url()
+        except Exception:
+            pass
+
+    try:
+        request = HTTPXRequest(proxy=proxy_url, connect_timeout=10, read_timeout=10)
+        bot = Bot(token=payload.bot_token, request=request)
+        async with bot:
+            me = await bot.get_me()
+        return TestTelegramConnectionResponse(
+            success=True,
+            message=f"Connected to @{me.username}",
+            bot_username=me.username or "",
+            bot_id=me.id,
+        )
+    except Exception as exc:
+        return TestTelegramConnectionResponse(
+            success=False,
+            message=str(exc),
+        )
+
+
 @config_router.post("/onboarding-complete", response_model=ConfigResponse)
 async def complete_onboarding(config: SystemConfigModel):
     try:

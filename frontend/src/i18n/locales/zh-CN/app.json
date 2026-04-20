@@ -400,6 +400,7 @@
     "errorUnknown": "未知错误",
     "resetConfirm": "确定要重置所有配置为默认值吗？",
     "resetSuccess": "配置已重置为默认值",
+    "arrayPlaceholder": "输入后回车添加",
     "resetFailed": "重置配置失败: {{message}}",
     "downloadStartFailed": "启动下载失败",
     "modelReady": "模型已就绪",
@@ -1574,6 +1575,50 @@
           "retention": "保留策略",
           "privacy": "隐私",
           "activation": "激活"
+        }
+      },
+      "telegram": {
+        "name": "Telegram",
+        "description": "双向 Telegram Bot 消息渠道适配器",
+        "fields": {
+          "bot_token": {
+            "label": "Bot Token",
+            "description": "从 @BotFather 获取的 Bot API Token。"
+          },
+          "mode": {
+            "label": "接入模式",
+            "description": "连接 Telegram 服务器的方式。"
+          },
+          "proxy": {
+            "label": "代理地址",
+            "description": "访问 Telegram API 的代理，留空则使用全局网络代理。",
+            "placeholder": "http://127.0.0.1:7890"
+          },
+          "allowed_user_ids": {
+            "label": "允许的用户 ID",
+            "description": "允许与 Bot 交互的 Telegram 用户 ID，留空则不限制。"
+          },
+          "group_trigger_keyword": {
+            "label": "群聊触发关键词",
+            "description": "在群聊中触发回复的关键词（除 @机器人 和 /ask 外）。"
+          },
+          "magi_user_id": {
+            "label": "Magi 用户 ID",
+            "description": "映射到 Magi 内部用户身份的 ID。"
+          },
+          "max_message_length": {
+            "label": "最大消息长度",
+            "description": "单条消息的最大字符数。"
+          }
+        },
+        "options": {
+          "mode": {
+            "polling": "轮询",
+            "webhook": "Webhook"
+          }
+        },
+        "sections": {
+          "general": "常规"
         }
       }
     }
