@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,14 @@ def _get_registry_client() -> PluginRegistryClient:
     if _registry_client is None:
         _registry_client = PluginRegistryClient()
     return _registry_client
+
+
+def _try_plugin_manager():
+    """Return the plugin manager if initialized, otherwise ``None``."""
+    try:
+        return require_plugin_manager()
+    except RuntimeError:
+        return None
 
 
 def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
@@ -96,8 +105,10 @@ class PluginSettingsResourceResponse(BaseModel):
 class PluginRegistryEntryResponse(BaseModel):
     plugin_id: str
     name: str
+    name_i18n: dict[str, str] = Field(default_factory=dict)
     version: str
     description: str = ""
+    description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
     official: bool = False
     contribution_types: list[str] = Field(default_factory=list)
@@ -201,6 +212,60 @@ def _serialize_contribution(contribution: PluginContribution, i18n: PluginI18n) 
         surface=contribution.surface,
         fields=serialized_fields,
         metadata=dict(contribution.metadata),
+    )
+
+
+def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> PluginPackageState:
+    """Install plugin files without a running PluginManager.
+
+    Copies the plugin to ``~/.magi/plugins/<id>/`` and persists an
+    ``enabled=true`` config entry so the next full startup will pick it
+    up automatically.
+    """
+    from ...config import save_config
+    from ...plugins.contracts import ContributionType
+    from ...plugins.manager import PluginManager
+
+    manifest_file = PluginManager._find_manifest_in_tree(source_dir)
+    if manifest_file is None:
+        raise ValueError("Directory does not contain a plugin.toml")
+
+    plugin_source = manifest_file.parent
+    user_root = PluginManager._user_plugins_root()
+    user_root.mkdir(parents=True, exist_ok=True)
+    dest_dir = user_root / entry.plugin_id
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    shutil.copytree(plugin_source, dest_dir)
+
+    # Persist enabled state so the plugin loads on next startup.
+    save_config({f"plugins.packages.{entry.plugin_id}": {"enabled": True}})
+
+    # Convert string contribution_types to enum values.
+    ctypes: list[ContributionType] = []
+    for ct in entry.contribution_types:
+        try:
+            ctypes.append(ContributionType(ct))
+        except ValueError:
+            pass
+
+    return PluginPackageState(
+        manifest=PluginManifest(
+            id=entry.plugin_id,
+            name=entry.name,
+            version=entry.version,
+            description=entry.description,
+            author=entry.author,
+            official=entry.official,
+            contribution_types=ctypes,
+            platforms=entry.platforms,
+            plugin_dir=str(dest_dir),
+            source="external",
+        ),
+        enabled=True,
+        trusted=False,
+        loaded=False,
+        healthy=True,
     )
 
 
@@ -330,7 +395,7 @@ async def install_plugin_from_upload(file: UploadFile):
 @plugins_router.post("/install/registry", response_model=PluginPackageResponse)
 async def install_plugin_from_registry(request: PluginInstallRequest):
     """Clone and install a plugin from the remote registry."""
-    manager = require_plugin_manager()
+    manager = _try_plugin_manager()
     registry = _get_registry_client()
 
     entry = await registry.fetch_entry(request.plugin_id)
@@ -339,7 +404,11 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
 
     try:
         plugin_dir = await registry.clone_plugin(entry)
-        state = manager.install_plugin_from_directory(plugin_dir)
+        if manager is not None:
+            state = manager.install_plugin_from_directory(plugin_dir)
+        else:
+            # Lightweight install: copy plugin files for next startup.
+            state = _lightweight_install(plugin_dir, entry)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -368,7 +437,7 @@ async def uninstall_plugin(plugin_id: str):
 @plugins_router.get("/registry", response_model=PluginRegistryResponse)
 async def list_registry_plugins():
     """List all available plugins from the remote registry."""
-    manager = require_plugin_manager()
+    manager = _try_plugin_manager()
     registry = _get_registry_client()
     try:
         index = await registry.fetch_index()
@@ -381,7 +450,7 @@ async def list_registry_plugins():
 
     result: list[PluginRegistryEntryResponse] = []
     for entry in index.plugins:
-        installed_version = manager.check_installed_version(entry.plugin_id)
+        installed_version = manager.check_installed_version(entry.plugin_id) if manager else None
         installed = installed_version is not None
         update_available = False
         if installed and installed_version:
@@ -390,8 +459,10 @@ async def list_registry_plugins():
             PluginRegistryEntryResponse(
                 plugin_id=entry.plugin_id,
                 name=entry.name,
+                name_i18n=entry.name_i18n,
                 version=entry.version,
                 description=entry.description,
+                description_i18n=entry.description_i18n,
                 author=entry.author,
                 official=entry.official,
                 contribution_types=entry.contribution_types,

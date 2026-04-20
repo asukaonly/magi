@@ -66,7 +66,29 @@
     "knowledgePartner": "Knowledge Partner",
     "knowledgePartnerDesc": "Accumulate knowledge, manage memory, deep analysis",
     "decideLater": "Decide Later",
-    "decideLaterDesc": "Use system defaults and configure in Settings later"
+    "decideLaterDesc": "Use system defaults and configure in Settings later",
+    "featureSummaryTitle": "This scenario enables:",
+    "defaultFeatureSummaryTitle": "System defaults will enable:",
+    "sensorHint": "You can install data collection sensors in the next step.",
+    "defaultHint": "Uses system defaults. All features can be enabled or adjusted in Settings at any time.",
+    "features": {
+      "conversation": "AI conversation and Q&A",
+      "shortTermMemory": "Short-term memory (remembers recent conversations)",
+      "webTools": "Web search and weather lookup",
+      "knowledgeExtraction": "Knowledge extraction (extracts facts and relations from conversations)",
+      "temporalSummary": "Temporal summary (auto-generates periodic summaries)",
+      "skillLearning": "Skill learning (accumulates capabilities from experience)",
+      "sensors": "Data collection sensors (requires plugin installation)"
+    }
+  },
+  "sensorSelection": {
+    "title": "Install Sensor Plugins",
+    "description": "Sensors automatically collect your digital life data. Select the ones you need and install them. All are optional — you can add more later in Settings.",
+    "recommended": "Recommended",
+    "installSelected": "Install Selected Sensors",
+    "skipHint": "You can skip this step and install sensors later in Settings → Extensions.",
+    "registryUnavailable": "The sensor plugin registry is temporarily unavailable. After setup, you can browse and install these sensors in Settings → Extensions:",
+    "installLaterHint": "You can install and configure sensors in Settings → Extensions after setup. Click Next to continue."
   },
   "sensors": {
     "title": "Sensor Configuration",

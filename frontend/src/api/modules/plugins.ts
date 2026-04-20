@@ -153,8 +153,10 @@ export const buildPluginFieldValueMap = (
 export interface PluginRegistryEntry {
   plugin_id: string;
   name: string;
+  name_i18n: Record<string, string>;
   version: string;
   description: string;
+  description_i18n: Record<string, string>;
   author: string;
   official: boolean;
   contribution_types: string[];

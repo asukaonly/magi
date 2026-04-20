@@ -16,6 +16,8 @@ import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
 import ScenarioSelection from './ScenarioSelection';
 import type { ScenarioId } from './ScenarioSelection';
+import { SCENARIO_NEEDS_SENSORS } from './ScenarioSelection';
+import SensorSelection from './SensorSelection';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
@@ -27,7 +29,12 @@ const STORAGE_KEY = 'magi_onboarding_state';
 const BUILTIN_SCENARIOS = ['context_decider', 'core', 'embedding'] as const;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
 
-/** Scenario preset config overrides for quick mode. */
+/** Scenario preset config overrides for quick mode.
+ *
+ * These only set memory-layer and tool defaults.
+ * Sensor / timeline source config is handled by plugin installation
+ * in the SensorSelection step.
+ */
 const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
   chat_assistant: {
     memory: {
@@ -60,13 +67,6 @@ const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
       l3: { enabled: true, vectors_enabled: true, llm_summary_enabled: true, temporal_llm_timeout_seconds: 3.0, temporal_llm_min_event_count: 2, summary_interval_minutes: 60 },
       l4: { enabled: false, vectors_enabled: false, skill_extraction_enabled: false },
     },
-    timeline: {
-      sources: {
-        photo_library: { enabled: true, sync_mode: 'interval', sync_interval_minutes: 60, default_retention_mode: 'retain_raw', storage_mode: 'external_reference', fetch_page_content: false, edge_whitelist: ['CAPTURED', 'RELATED_TO', 'INTERACTED_WITH', 'CREATED'] },
-        calendar: { enabled: true, sync_mode: 'interval', sync_interval_minutes: 15, default_retention_mode: 'analyze_only', storage_mode: 'managed', fetch_page_content: false, edge_whitelist: [] },
-        screen_time: { enabled: true, sync_mode: 'interval', sync_interval_minutes: 30, default_retention_mode: 'analyze_only', storage_mode: 'managed', fetch_page_content: false, edge_whitelist: [] },
-      },
-    },
     tools: {
       builtIn: {
         weather: { enabled: true, provider: 'qweather' },
@@ -86,13 +86,6 @@ const SCENARIO_PRESETS: Record<ScenarioId, Partial<SystemConfig>> = {
       l2: { enabled: true, vectors_enabled: true, batch_flush_interval_seconds: 60, llm_extraction_enabled: true, auto_extract_relations: true, conflict_arbitration_enabled: true, conflict_arbitration_min_confidence: 0.85 },
       l3: { enabled: true, vectors_enabled: true, llm_summary_enabled: true, temporal_llm_timeout_seconds: 3.0, temporal_llm_min_event_count: 2, summary_interval_minutes: 60 },
       l4: { enabled: true, vectors_enabled: true, skill_extraction_enabled: true },
-    },
-    timeline: {
-      sources: {
-        photo_library: { enabled: false, sync_mode: 'interval', sync_interval_minutes: 60, default_retention_mode: 'retain_raw', storage_mode: 'external_reference', fetch_page_content: false, edge_whitelist: ['CAPTURED', 'RELATED_TO', 'INTERACTED_WITH', 'CREATED'] },
-        chrome_history: { enabled: true, sync_mode: 'interval', sync_interval_minutes: 30, default_retention_mode: 'analyze_only', storage_mode: 'managed', fetch_page_content: false, edge_whitelist: [] },
-        git_activity: { enabled: true, sync_mode: 'interval', sync_interval_minutes: 30, default_retention_mode: 'analyze_only', storage_mode: 'managed', fetch_page_content: false, edge_whitelist: [] },
-      },
     },
     tools: {
       builtIn: {
@@ -145,11 +138,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   }, [i18n, initialConfig.preferences?.language]);
 
-  // Quick mode steps: Scenario → Provider → Complete
+  // Quick mode steps: Scenario → [Sensors] → Provider → Complete
   // Expert mode steps: Provider → Models → Personality → Memory → Sensors → Tools → Complete
+  const needsSensors = scenario ? SCENARIO_NEEDS_SENSORS[scenario] : false;
   const steps = useMemo(() => {
     if (mode === 'quick') {
-      return [t('steps.scenario'), t('steps.llmProviders'), t('steps.complete')];
+      const base = [t('steps.scenario')];
+      if (needsSensors) base.push(t('steps.sensors'));
+      base.push(t('steps.llmProviders'), t('steps.complete'));
+      return base;
     }
     return [
       t('steps.llmProviders'),
@@ -160,7 +157,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       t('steps.tools'),
       t('steps.complete'),
     ];
-  }, [mode, t, activeLanguage]);
+  }, [mode, needsSensors, t, activeLanguage]);
 
   const isLastStep = current === steps.length - 1;
 
@@ -404,7 +401,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   /** Get the provider config step index for the current mode. */
-  const getProviderStepIndex = (): number => (isQuickMode ? 1 : 0);
+  const getProviderStepIndex = (): number => (isQuickMode ? (needsSensors ? 2 : 1) : 0);
 
   /** Get the model selection step index (expert only). */
   const getModelStepIndex = (): number => 1;
@@ -414,7 +411,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       setSaving(true);
       await form.validateFields();
 
-      // Quick mode: step 0 = scenario, step 1 = providers, step 2 = complete
+      // Quick mode: step 0 = scenario, then sensors (if needed), then providers, then complete
       if (isQuickMode && current === 0) {
         if (!scenario) {
           toast.warning(t('scenario.description'));
@@ -479,7 +476,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     const language = form.getFieldValue(['preferences', 'language']) || 'zh';
 
     if (isQuickMode) {
-      // Quick: 0=Scenario, 1=Providers, 2=Complete
+      // Quick: 0=Scenario, [1=Sensors if needed], N-1=Providers, N=Complete
+      const providerIdx = needsSensors ? 2 : 1;
+      const completeIdx = needsSensors ? 3 : 2;
+
       if (current === 0) {
         return (
           <ScenarioSelection
@@ -492,8 +492,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           />
         );
       }
-      if (current === 1) return <LLMForm quickMode view="providers" />;
-      if (current === 2) return <CompletionScreen onFinish={handleFinish} />;
+      if (needsSensors && current === 1) {
+        return <SensorSelection scenario={scenario!} />;
+      }
+      if (current === providerIdx) return <LLMForm quickMode view="providers" />;
+      if (current === completeIdx) return <CompletionScreen onFinish={handleFinish} />;
     } else {
       // Expert: 0=Providers, 1=Models, 2=Personality, 3=Memory, 4=Sensors, 5=Tools, 6=Complete
       if (current === 0) return <LLMForm quickMode={false} view="providers" />;

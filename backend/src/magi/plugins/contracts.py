@@ -145,9 +145,11 @@ class PluginRegistryEntry(BaseModel):
 
     plugin_id: str
     name: str
+    name_i18n: dict[str, str] = Field(default_factory=dict)
     version: str
     path: str = ""
     description: str = ""
+    description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
     official: bool = False
     contribution_types: list[str] = Field(default_factory=list)
