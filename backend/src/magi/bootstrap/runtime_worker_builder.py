@@ -9,7 +9,7 @@ from .maintenance import OtherDependenciesModule
 
 from ..agent.lifecycle import AgentRuntimeModule
 from ..awareness.lifecycle import (
-    SensorsAndActionsModule,
+    SensorModule,
     SensorScheduleRegistrationModule,
     SensorSyncExecutorModule,
 )
@@ -87,7 +87,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         ToolsModule(context),
         SkillsModule(context),
         PersonalityModule(context),
-        SensorsAndActionsModule(context),
+        SensorModule(context),
         ContextModule(context),
         AgentRuntimeModule(context),
         RuntimeCommandProcessorModule(context),

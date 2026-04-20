@@ -164,7 +164,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
                     "session_id": "s1",
                 },
             },
-            source="runtime_action_emitter",
+            source="runtime_event_emitter",
             level=EventLevel.INFO,
             correlation_id="turn-3:llm_call:direct",
         )

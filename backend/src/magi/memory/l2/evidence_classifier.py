@@ -135,7 +135,7 @@ def _semantic_owner(speaker_role: str | None) -> str | None:
 def _is_assistant_runtime_derivation(event: MemoryEvent) -> bool:
     if str(event.event_type).strip() != "ActionExecuted":
         return False
-    if _normalized(event.source) != "runtime_action_emitter":
+    if _normalized(event.source) != "runtime_event_emitter":
         return False
     return _normalized(event.source_item_id) == "chatresponseaction"
 

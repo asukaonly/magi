@@ -13,7 +13,6 @@ class ContributionType(str, Enum):
 
     TOOL = "tool"
     SENSOR = "sensor"
-    ACTION = "action"
     CHANNEL = "channel"
 
 
@@ -35,7 +34,7 @@ class ExtensionFieldSpec(BaseModel):
     required: bool = False
     options: list[ExtensionFieldOption] = Field(default_factory=list)
     section: str = "general"
-    surface: Literal["extensions", "tools", "timeline", "actions"] = "extensions"
+    surface: Literal["extensions", "tools", "timeline"] = "extensions"
     order: int = 0
     placeholder: Optional[str] = None
     depends_on_key: Optional[str] = None
@@ -123,7 +122,7 @@ class PluginContribution(BaseModel):
     contribution_type: ContributionType
     display_name: str
     description: str = ""
-    surface: Literal["extensions", "tools", "timeline", "actions"] = "extensions"
+    surface: Literal["extensions", "tools", "timeline"] = "extensions"
     fields: list[ExtensionFieldSpec] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

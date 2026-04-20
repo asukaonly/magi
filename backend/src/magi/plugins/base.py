@@ -82,9 +82,6 @@ class Plugin(ABC):
     def get_sensors(self) -> list[tuple[str, Any, Any]]:
         return []
 
-    def get_actions(self) -> list[Any]:
-        return []
-
     def get_channel(self) -> Any | None:
         """Return a configured Channel instance, or None if this plugin has no channel."""
         return None

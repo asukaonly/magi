@@ -403,7 +403,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 "id": "evt-action-only-1",
                 "type": EventTypes.ACTION_EXECUTED,
                 "timestamp": now,
-                "source": "runtime_action_emitter",
+                "source": "runtime_event_emitter",
                 "level": EventLevel.INFO.value,
                 "data": {
                     "user_id": "u1",

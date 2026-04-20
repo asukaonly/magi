@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import pytest
 
-from magi.awareness.contracts import ActionEmissionRecord
 from magi.chat import ChatStore
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
 from magi.agent.task_agents.chat.postprocess_components import (
@@ -38,9 +37,8 @@ class _FakeHistoryService:
         _ = (history_key, record)
 
 
-class _FakeActionEmitter:
+class _FakeEventEmitter:
     def __init__(self) -> None:
-        self.action_events: list[tuple[ActionEmissionRecord, bool, str | None]] = []
         self.chat_response_events: list[dict] = []
         self.runtime_events: list[dict] = []
 
@@ -68,9 +66,6 @@ class _FakeActionEmitter:
                 "trace_available": trace_available,
             }
         )
-
-    async def emit_action_event(self, record: ActionEmissionRecord, success: bool, error: str | None = None) -> None:
-        self.action_events.append((record, success, error))
 
     async def emit_runtime_event(
         self,
@@ -291,7 +286,7 @@ async def test_handle_worker_result_persists_reply_anchor_to_original_message(
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: _FakeActionEmitter(),
+        get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         chat_store=chat_store,
@@ -417,11 +412,11 @@ async def chat_store(tmp_path):
 
 @pytest.mark.asyncio
 async def test_record_tool_interaction_preserves_trace_identity() -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         max_fact_memory=10,
@@ -446,18 +441,10 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
         }
     )
 
-    assert len(action_emitter.action_events) == 1
-    record, success, error = action_emitter.action_events[0]
-    assert success is True
-    assert error is None
-    assert record.payload["turn_id"] == "turn-1"
-    assert record.payload["orchestration_id"] == "orch-1"
-    assert record.payload["tool_call_id"] == "call-1"
-    assert record.payload["iteration"] == 3
-
-    assert len(action_emitter.runtime_events) == 1
-    runtime_payload = action_emitter.runtime_events[0]["payload"]
+    assert len(event_emitter.runtime_events) == 1
+    runtime_payload = event_emitter.runtime_events[0]["payload"]
     assert runtime_payload["turn_id"] == "turn-1"
+    assert runtime_payload["tool_call_id"] == "call-1"
     assert runtime_payload["iteration"] == 3
 
 
@@ -473,7 +460,7 @@ async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: _FakeActionEmitter(),
+        get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         unified_memory=_FakeUnifiedMemory(l0=l0_store),
@@ -507,11 +494,11 @@ async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_
 async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -557,18 +544,18 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
 
     await service.record_intent_resolution(context, _FakeIntentDecision())
 
-    assert action_emitter.runtime_events == []
+    assert event_emitter.runtime_events == []
 
 
 @pytest.mark.asyncio
 async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -641,11 +628,11 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -745,11 +732,11 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -844,11 +831,11 @@ async def test_record_intent_resolution_commits_reaction_turn_state_before_notif
 async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -886,12 +873,12 @@ async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
 
 @pytest.mark.asyncio
 async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat_fact() -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     manager = _RecordingTaskAgentManager()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: manager,
         get_sensor_hub=lambda: None,
         max_fact_memory=10,
@@ -912,9 +899,9 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
 
     assert manager.calls == []
     assert service._local_fact_memory == []
-    assert len(action_emitter.runtime_events) == 1
-    assert action_emitter.runtime_events[0]["event_type"] == "CHAT_TOOL_LOOP_STEP"
-    assert action_emitter.runtime_events[0]["payload"]["tool_name"] == "file_read"
+    assert len(event_emitter.runtime_events) == 1
+    assert event_emitter.runtime_events[0]["event_type"] == "CHAT_TOOL_LOOP_STEP"
+    assert event_emitter.runtime_events[0]["payload"]["tool_name"] == "file_read"
 
 
 @pytest.mark.asyncio
@@ -929,7 +916,7 @@ async def test_record_tool_loop_fact_projects_replan_tactic_into_l0(tmp_path) ->
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: _FakeActionEmitter(),
+        get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         unified_memory=_FakeUnifiedMemory(l0=l0_store),
@@ -964,11 +951,11 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -1089,12 +1076,12 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
 
 @pytest.mark.asyncio
 async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.MonkeyPatch) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     runtime = _FakeRuntime()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=runtime.get_sensor_hub,
         max_fact_memory=10,
@@ -1146,20 +1133,20 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
     outcome = await service.handle(context, result)
 
     assert outcome.emitted is True
-    assert len(action_emitter.chat_response_events) == 1
+    assert len(event_emitter.chat_response_events) == 1
     assert runtime.sensor_hub.sensor_events == []
-    assert action_emitter.runtime_events == []
+    assert event_emitter.runtime_events == []
 
 
 @pytest.mark.asyncio
 async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -1226,19 +1213,19 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
 
     await service.handle(context, result)
 
-    assert action_emitter.runtime_events == []
+    assert event_emitter.runtime_events == []
 
 
 @pytest.mark.asyncio
 async def test_handle_persists_turn_response_and_llm_trace_rows(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     completed_runs: list[tuple[str, str, int]] = []
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -1342,12 +1329,12 @@ async def test_handle_commits_final_chat_message_before_notification(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -1444,12 +1431,12 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     completed_runs: list[tuple[str, str, int]] = []
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -1526,7 +1513,7 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
 
     assert outcome.emitted is False
     assert [message.message_kind for message in messages] == ["user_text"]
-    assert action_emitter.chat_response_events == []
+    assert event_emitter.chat_response_events == []
     assert notifications == []
     assert completed_runs == [("session-1", "run-cancelled", 0)]
 
@@ -1536,12 +1523,12 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -1654,11 +1641,11 @@ async def test_handle_completes_none_surface_turn_without_final_message(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -1739,11 +1726,11 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
     runtime_trace_store: RuntimeTraceStore,
     chat_store: ChatStore,
 ) -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
@@ -1848,7 +1835,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
 
 @pytest.mark.asyncio
 async def test_handle_records_task_reflection_for_explore_completion() -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     unified_memory = _FakeUnifiedMemory(
         events=[
             {"event_id": "evt-1"},
@@ -1858,7 +1845,7 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         unified_memory=unified_memory,
@@ -1927,12 +1914,12 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
 
 @pytest.mark.asyncio
 async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> None:
-    action_emitter = _FakeActionEmitter()
+    event_emitter = _FakeEventEmitter()
     unified_memory = _FakeUnifiedMemory(events=[{"event_id": "evt-1"}])
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         unified_memory=unified_memory,

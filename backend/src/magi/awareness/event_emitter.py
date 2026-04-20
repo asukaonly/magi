@@ -1,11 +1,10 @@
-"""Action emitter for runtime agents."""
+"""Runtime event emitter for runtime agents."""
 
 from __future__ import annotations
 
 import time
 from typing import Any
 
-from .contracts import ActionEmissionRecord
 from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
 from ..events.events import (
@@ -22,8 +21,8 @@ def _critical_delivery_metadata() -> dict[str, bool]:
     return {REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True}
 
 
-class ActionEmitter:
-    """Outbound action event emitter for task-agent execution results."""
+class RuntimeEventEmitter:
+    """Outbound runtime event emitter for task-agent execution results."""
 
     def __init__(self, message_bus: MessageBusBackend) -> None:
         self._message_bus = message_bus
@@ -58,7 +57,7 @@ class ActionEmitter:
             Event(
                 type=EventTypes.AI_RESPONSE,
                 data=response_data,
-                source="runtime_action_emitter",
+                source="runtime_event_emitter",
                 level=EventLevel.INFO,
                 correlation_id=correlation_id,
                 metadata=_critical_delivery_metadata(),
@@ -75,54 +74,6 @@ class ActionEmitter:
             trace_available=trace_available,
         )
 
-    async def emit_action_event(self, record: ActionEmissionRecord, success: bool, error: str | None = None) -> None:
-        try:
-            payload = record.payload if isinstance(record.payload, dict) else {}
-            action_type = payload.get("action_type")
-            if not action_type:
-                action_type = payload.get("tool_name")
-            if not action_type and record.event_type == EventTypes.USER_MESSAGE:
-                action_type = "ChatResponseAction"
-            if not action_type:
-                action_type = str(record.event_type or "UnknownAction")
-
-            params = payload.get("params")
-            if params is None:
-                params = payload.get("arguments")
-            if params is None:
-                params = {}
-
-            execution_time = payload.get("execution_time")
-            if execution_time is None:
-                execution_time = payload.get("execution_time_ms", 0.0)
-            response = payload.get("response")
-
-            await self._message_bus.publish(
-                Event(
-                    type=EventTypes.ACTION_EXECUTED,
-                    data={
-                        "agent_id": record.agent_id,
-                        "event_type": record.event_type,
-                        "action_type": str(action_type),
-                        "params": params if isinstance(params, dict) else {},
-                        "execution_time": float(execution_time or 0.0),
-                        "response": response if isinstance(response, str) else "",
-                        "user_id": payload.get("user_id"),
-                        "session_id": payload.get("session_id"),
-                        "turn_id": payload.get("turn_id"),
-                        "orchestration_id": payload.get("orchestration_id"),
-                        "success": success,
-                        "error": error,
-                    },
-                    source="runtime_action_emitter",
-                    level=EventLevel.INFO if success else EventLevel.ERROR,
-                    correlation_id=record.correlation_id,
-                    metadata=_critical_delivery_metadata(),
-                )
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to publish action execution event: {exc}")
-
     async def emit_runtime_event(
         self,
         *,
@@ -135,7 +86,7 @@ class ActionEmitter:
             Event(
                 type=event_type,
                 data=payload,
-                source="runtime_action_emitter",
+                source="runtime_event_emitter",
                 level=EventLevel.INFO if success else EventLevel.ERROR,
                 correlation_id=correlation_id,
                 metadata=_critical_delivery_metadata(),

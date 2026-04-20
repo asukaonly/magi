@@ -42,7 +42,7 @@ async def test_router_agent_loop_dispatches_batch_to_targets(tmp_path):
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.CHAT, agent_id),
     )
-    await manager.start_all(action_emitter=None)
+    await manager.start_all(event_emitter=None)
     router_agent = RouterAgent(
         sensor_hub=sensor_hub,
         task_agent_manager=manager,
@@ -83,7 +83,7 @@ async def test_router_agent_loop_routes_targeted_timeline_events(tmp_path):
         create_chat_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.CHAT, agent_id),
         create_default_agent=lambda agent_type, agent_id: _NoopTaskAgent(agent_type, agent_id),
     )
-    await manager.start_all(action_emitter=None)
+    await manager.start_all(event_emitter=None)
     router_agent = RouterAgent(
         sensor_hub=sensor_hub,
         task_agent_manager=manager,

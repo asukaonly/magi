@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from magi.config.models import AppConfig, PluginSettings
-from magi.plugins.actions import ActionRegistry
 from magi.plugins.manager import PluginManager
 from magi.plugins.sensors import SensorRegistry
 from magi.timeline import SensorSyncContext
@@ -249,7 +248,6 @@ def _build_manager(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> tuple[
     manager = PluginManager(
         tool_registry=ToolRegistry(),
         sensor_registry=sensor_registry,
-        action_registry=ActionRegistry(),
         search_paths=[_plugin_root()],
     )
     return manager, sensor_registry

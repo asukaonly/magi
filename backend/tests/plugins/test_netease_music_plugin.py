@@ -645,7 +645,6 @@ if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 
 from magi.config.models import AppConfig, PluginSettings
-from magi.plugins.actions import ActionRegistry
 from magi.plugins.manager import PluginManager
 from magi.plugins.sensors import SensorRegistry
 from magi.timeline import SensorSyncContext

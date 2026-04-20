@@ -4,7 +4,7 @@ Self-Awareness Module
 Perceives external world information, supports multiple sensors and a five-step perception decision system
 """
 from .base import Perception, PerceptionType, TriggerMode
-from .contracts import ActionEmissionRecord, SensorEvent
+from .contracts import SensorEvent
 from .manager import PerceptionManager
 from .sensor_hub import SensorHub
 from .sensors import (
@@ -25,7 +25,6 @@ __all__ = [
     "Perception",
     "PerceptionType",
     "TriggerMode",
-    "ActionEmissionRecord",
     "SensorEvent",
     "SensorHub",
     "PerceptionManager",

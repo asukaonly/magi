@@ -13,8 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
     pytest = _PytestFallback()
 
-from magi.awareness.action_emitter import ActionEmitter
-from magi.awareness.contracts import ActionEmissionRecord
+from magi.awareness.event_emitter import RuntimeEventEmitter
 from magi.awareness.sensor_hub import SensorHub
 from magi.agent.runtime import (
     AgentRuntime,
@@ -63,17 +62,14 @@ class _FakeChatTaskAgent(
         return {"response": "ok"}
 
     async def parse_result(self, context: TaskAgentRuntimeContext, raw_result):
-        if self._action_emitter is None:
+        if self._event_emitter is None:
             return
         latest = context.latest_fact
         if isinstance(latest, FactRecord):
-            await self._action_emitter.emit_action_event(
-                ActionEmissionRecord(
-                    agent_id=latest.agent_id,
-                    event_type=latest.event_type,
-                    payload=latest.payload if isinstance(latest.payload, dict) else {},
-                    correlation_id=latest.correlation_id,
-                ),
+            await self._event_emitter.emit_runtime_event(
+                event_type=latest.event_type,
+                payload=latest.payload if isinstance(latest.payload, dict) else {},
+                correlation_id=latest.correlation_id,
                 success=True,
             )
 
@@ -85,7 +81,7 @@ async def test_runtime_chat_dispatch_from_message_bus(tmp_path):
 
     fake_chat = _FakeChatTaskAgent()
     sensor_hub = SensorHub(message_bus=message_bus)
-    action_emitter = ActionEmitter(message_bus=message_bus)
+    event_emitter = RuntimeEventEmitter(message_bus=message_bus)
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: fake_chat if agent_id == "s-chat" else _FakeChatTaskAgent(),
     )
@@ -94,7 +90,7 @@ async def test_runtime_chat_dispatch_from_message_bus(tmp_path):
         sensor_hub=sensor_hub,
         router_agent=router_agent,
         task_agent_manager=manager,
-        action_emitter=action_emitter,
+        event_emitter=event_emitter,
     )
 
     await orchestrator.start()

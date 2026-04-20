@@ -1747,7 +1747,7 @@
     "clear": "Clear",
     "sources": {
       "chat_projector": "Chat projector",
-      "runtime_action_emitter": "Runtime action emitter",
+      "runtime_event_emitter": "Runtime event emitter",
       "timeline_importer": "Timeline importer",
       "manual_journal": "Manual journal",
       "l2_lab": "L2 lab"

@@ -7,16 +7,16 @@ This document describes the current unified plugin runtime in Magi.
 It is the implementation-facing guide for:
 
 - maintainers evolving extension loading and registration
-- contributors wiring new tools, timeline sensors, or outbound actions
+- contributors wiring new tools or timeline sensors
 - frontend contributors building settings surfaces for extension-backed capabilities
 
-The current system unifies `tool`, `sensor`, and `action` extensions under one plugin package model.
+The current system unifies `tool` and `sensor` extensions under one plugin package model.
 
 ## Design Goals
 
 The plugin runtime exists to solve three problems:
 
-- stop hardcoding extension registration paths separately for tools, sensors, and actions
+- stop hardcoding extension registration paths separately for tools and sensors
 - let built-in and external extensions use the same discovery and lifecycle model
 - expose a declarative settings contract that the frontend can render without loading plugin-owned UI code
 
@@ -26,8 +26,6 @@ Each plugin package is a backend Python package that may contribute one or more 
 
 - tools
 - sensors
-- actions
-- channels
 
 A plugin package is discovered from disk, parsed from `plugin.toml`, loaded from a Python entry module, then registered into one or more runtime registries.
 
@@ -40,20 +38,18 @@ At runtime the flow is:
 5. contributions are registered into dedicated registries:
    - `ToolRegistry`
    - `SensorRegistry`
-   - `ActionRegistry`
-   - `ChannelRegistry`
 6. APIs and frontend settings surfaces read registry state and plugin package state rather than hardcoded lists
 
 ## Scan Paths
 
 The plugin manager scans two roots:
 
-- repository built-ins: `plugins/` (core-tools, core-actions)
-- user-installed plugins: `~/.magi/plugins/` (marketplace installs and manually placed plugins)
+- repository built-ins: `plugins/`
+- user-installed plugins: `~/.magi/plugins/`
 
 These roots are persisted in:
 
-- [models.py](backend/src/magi/config/models.py)
+- [models.py](/Users/asuka/code/magi/backend/src/magi/config/models.py)
 
 under:
 
@@ -68,13 +64,8 @@ A plugin package is a directory containing:
 
 Official built-in examples live in:
 
-- [core-tools](plugins/core-tools/plugin.py)
-- [core-actions](plugins/core-actions/plugin.py)
-
-External plugin examples live in the separate plugin repository (`github.com/asukaonly/magi-plugins`):
-
-- `chrome-history/` �?full-featured sensor with entity hints, batch policies, and metadata extraction
-- `telegram/` �?bidirectional channel adapter
+- [core-tools](/Users/asuka/code/magi/plugins/core-tools/plugin.py)
+- [chrome-history](/Users/asuka/code/magi/plugins/chrome-history/) — full-featured sensor with entity hints, batch policies, and metadata extraction
 
 ## Manifest Contract
 
@@ -94,21 +85,20 @@ Important fields:
 
 The typed contract lives in:
 
-- [contracts.py](backend/src/magi/plugins/contracts.py)
+- [contracts.py](/Users/asuka/code/magi/backend/src/magi/plugins/contracts.py)
 
 ## Base Plugin Contract
 
 Every plugin entry class must inherit:
 
-- [Plugin](backend/src/magi/plugins/base.py)
+- [Plugin](/Users/asuka/code/magi/backend/src/magi/plugins/base.py)
 
-The base contract exposes three contribution hooks:
+The base contract exposes two contribution hooks:
 
 - `get_tools()`
 - `get_sensors()`
-- `get_actions()`
 
-A single plugin package may implement any combination of these.
+A single plugin package may implement either or both.
 
 The manager binds two pieces of runtime state before registration:
 
@@ -158,27 +148,7 @@ Builtin timeline sensor packages that should be configurable in Settings are exp
 
 The contracts live in:
 
-- [sensors.py](backend/src/magi/plugins/sensors.py)
-
-### Action Registry
-
-Actions are first-class outbound capabilities used for system-side behavior such as user notifications or email.
-
-They remain distinct from tools.
-
-An action may optionally declare a tool adapter name, which lets the plugin runtime expose that action through `ToolRegistry` as an agent-callable tool without collapsing the two concepts into one.
-
-The contracts live in:
-
-- [actions.py](backend/src/magi/plugins/actions.py)
-
-### Channel Registry
-
-Channels are bidirectional messaging adapters that connect Magi to external platforms (e.g. Telegram).
-
-A plugin contributes a channel by implementing `get_channel()` and `get_channel_fields()` in its `Plugin` subclass. The channel lifecycle module discovers channel plugins from `PluginManager` and starts/stops them as part of the runtime lifecycle.
-
-Channel contributions have their own settings surface in the frontend under "接入渠道 / Channels", following the same expandable sub-nav pattern as sensors.
+- [sensors.py](/Users/asuka/code/magi/backend/src/magi/plugins/sensors.py)
 
 ## Sensor Memory Integration
 
@@ -187,11 +157,11 @@ Channel contributions have their own settings surface in the frontend under "接
 Sensor outputs flow through the memory system via the following chain:
 
 ```
-SensorBase.build_output(item)     �?SensorOutput (content, provenance)
-SensorBase.extract_metadata(item) �?SensorOutputMetadata (entity hints, tags, relations)
-IngestionGateway.ingest()         �?MemoryEvent with metadata_json
-L1 EventStore                     �?persisted fact event
-L2 Pipeline                       �?cognition (graph, entities, assertions)
+SensorBase.build_output(item)     → SensorOutput (content, provenance)
+SensorBase.extract_metadata(item) → SensorOutputMetadata (entity hints, tags, relations)
+IngestionGateway.ingest()         → MemoryEvent with metadata_json
+L1 EventStore                     → persisted fact event
+L2 Pipeline                       → cognition (graph, entities, assertions)
 ```
 
 ### SensorOutput
@@ -212,13 +182,13 @@ L2 Pipeline                       �?cognition (graph, entities, assertions)
 - `tags`: classification tags
 - `relation_candidates`: rule-based graph edge candidates
 
-Entity hints are passed through the ingestion gateway as `structured_entity_hints` in `MemoryEvent.metadata_json`. In the L2 pipeline, these hints are injected into the Phase 1 LLM prompt as **context anchors** �?they help the LLM resolve entities to consistent canonical names and types, but are NOT automatically materialized into the entity catalog. Only entities that the LLM independently extracts in Phase 1 output become persisted entities.
+Entity hints are passed through the ingestion gateway as `structured_entity_hints` in `MemoryEvent.metadata_json`. In the L2 pipeline, these hints are injected into the Phase 1 LLM prompt as **context anchors** — they help the LLM resolve entities to consistent canonical names and types, but are NOT automatically materialized into the entity catalog. Only entities that the LLM independently extracts in Phase 1 output become persisted entities.
 
 Relation candidates are persisted as rule-based graph edges (with `extraction_method="rule"`) without LLM involvement.
 
 ### Target Semantic Enrichment Contract
 
-The long-term plugin-facing contract should evolve from “entity hints + ad hoc rule edges�?into a source-owned semantic enrichment envelope.
+The long-term plugin-facing contract should evolve from “entity hints + ad hoc rule edges” into a source-owned semantic enrichment envelope.
 
 Important boundary:
 
@@ -322,7 +292,7 @@ In practice this means extraction profiles may allow them for structured hints w
 
 See also:
 
-- [memory-system-design.md](docs/memory-system-design.md)
+- [memory-system-design.md](/Users/asuka/code/magi/docs/memory-system-design.md)
 
 ### L2 Batch Policy
 
@@ -376,11 +346,11 @@ Profile mapping uses `source_type` from the event. New source types fall back to
 
 Current registered profiles include:
 
-- `chat.user_message` �?unrestricted default
-- `chat.agent_response` �?graph-only, no assertions
-- `timeline.chrome_history` �?selective entity types, no assertions, detailed extraction instructions
-- `timeline.git_activity` �?software/project focused
-- `timeline.screen_time` �?software/activity focused
+- `chat.user_message` — unrestricted default
+- `chat.agent_response` — graph-only, no assertions
+- `timeline.chrome_history` — selective entity types, no assertions, detailed extraction instructions
+- `timeline.git_activity` — software/project focused
+- `timeline.screen_time` — software/activity focused
 
 ### Entity Quality Controls in L2 Pipeline
 
@@ -423,8 +393,8 @@ Important field attributes:
 
 The frontend consumes these fields through:
 
-- [plugins.ts](frontend/src/api/modules/plugins.ts)
-- [PluginSettingsFields.tsx](frontend/src/components/settings/PluginSettingsFields.tsx)
+- [plugins.ts](/Users/asuka/code/magi/frontend/src/api/modules/plugins.ts)
+- [PluginSettingsFields.tsx](/Users/asuka/code/magi/frontend/src/components/settings/PluginSettingsFields.tsx)
 
 ## Plugin Settings Resources
 
@@ -521,11 +491,10 @@ Examples:
 
 Frontend surfaces:
 
-- [Settings.tsx](frontend/src/pages/Settings.tsx)
-- [ExtensionsSection.tsx](frontend/src/components/settings/ExtensionsSection.tsx)
-- [TimelineSourcesSection.tsx](frontend/src/components/settings/TimelineSourcesSection.tsx)
-- [ActionsSection.tsx](frontend/src/components/settings/ActionsSection.tsx)
-- [ChannelsSection.tsx](frontend/src/components/settings/ChannelsSection.tsx)
+- [Settings.tsx](/Users/asuka/code/magi/frontend/src/pages/Settings.tsx)
+- [ExtensionsSection.tsx](/Users/asuka/code/magi/frontend/src/components/settings/ExtensionsSection.tsx)
+- [TimelineSourcesSection.tsx](/Users/asuka/code/magi/frontend/src/components/settings/TimelineSourcesSection.tsx)
+- [ActionsSection.tsx](/Users/asuka/code/magi/frontend/src/components/settings/ActionsSection.tsx)
 
 ## Configuration Persistence
 
@@ -549,7 +518,7 @@ This keeps host runtime configuration separate from plugin lifecycle state and r
 
 The unified plugin management API lives in:
 
-- [plugins.py](backend/src/magi/api/routers/plugins.py)
+- [plugins.py](/Users/asuka/code/magi/backend/src/magi/api/routers/plugins.py)
 
 Current endpoints:
 
@@ -564,7 +533,7 @@ Current endpoints:
 
 Timeline source status also now reflects plugin-backed sensor registration:
 
-- [timeline.py](backend/src/magi/api/routers/timeline.py)
+- [timeline.py](/Users/asuka/code/magi/backend/src/magi/api/routers/timeline.py)
 
 ## Official Built-In Plugins
 
@@ -632,36 +601,6 @@ Current rules:
 - the runtime will register that adapter into `ToolRegistry`
 - the settings page still treats the action as an action contribution, not as a tool definition
 
-## Plugin Marketplace
-
-External plugins are hosted in the `magi-plugins` repository (`github.com/asukaonly/magi-plugins`).
-
-### Registry
-
-The marketplace index is a `registry.json` file at the repository root containing an array of `PluginRegistryEntry` objects:
-
-- `plugin_id` �?unique identifier matching the plugin's `plugin.toml`
-- `name` �?display name
-- `version` �?semver string
-- `path` �?subdirectory path within the repository
-- `description` �?short description
-- `author` �?plugin author
-- `official` �?whether the plugin is maintained by the Magi team
-- `contribution_types` �?array of capability types (`sensor`, `action`, `channel`, `tool`)
-- `platforms` �?array of supported platforms (`macos`, `windows`, `linux`)
-
-### Installation Flow
-
-1. `RegistryClient.fetch_index()` fetches `registry.json` from the remote repository
-2. The registry is cached as a shallow bare clone under `~/.magi/cache/plugin-repo/repo.git`
-3. `RegistryClient.clone_plugin()` extracts a single plugin directory from the cache via sparse checkout
-4. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
-5. The plugin is discovered on next scan and can be enabled from the settings UI
-
-### Frontend
-
-The marketplace UI lives in the Extensions settings section under "插件市场 / Marketplace". It shows available plugins with install/uninstall actions, version info, and platform compatibility badges.
-
 ## Known Boundaries
 
 The current plugin runtime is intentionally scoped.
@@ -671,26 +610,26 @@ It does not yet support:
 - plugin-owned frontend bundles
 - hot code sandboxing or permission isolation beyond trust/enable state
 - arbitrary awareness-module sensor registration through the old awareness abstractions
+- remote plugin marketplaces or package installation flows
 
 The current system is a local backend Python extension model.
 
 ## Related Files
 
-- [Plugin manager](backend/src/magi/plugins/manager.py)
-- [Plugin runtime exports](backend/src/magi/plugins/__init__.py)
-- [Registry client](backend/src/magi/plugins/registry_client.py)
-- [Config models](backend/src/magi/config/models.py)
-- [Plugins API](backend/src/magi/api/routers/plugins.py)
-- [Timeline API](backend/src/magi/api/routers/timeline.py)
-- [Sensor base contract](backend/src/magi/awareness/sensor_base.py)
-- [Sensor output models](backend/src/magi/awareness/sensor_output.py)
-- [Ingestion gateway](backend/src/magi/awareness/ingestion_gateway.py)
-- [Extraction profiles](backend/src/magi/memory/l2/extraction_profiles.py)
-- [L2 pipeline](backend/src/magi/memory/l2/pipeline.py)
+- [Plugin manager](/Users/asuka/code/magi/backend/src/magi/plugins/manager.py)
+- [Plugin runtime exports](/Users/asuka/code/magi/backend/src/magi/plugins/__init__.py)
+- [Config models](/Users/asuka/code/magi/backend/src/magi/config/models.py)
+- [Plugins API](/Users/asuka/code/magi/backend/src/magi/api/routers/plugins.py)
+- [Timeline API](/Users/asuka/code/magi/backend/src/magi/api/routers/timeline.py)
+- [Sensor base contract](/Users/asuka/code/magi/backend/src/magi/awareness/sensor_base.py)
+- [Sensor output models](/Users/asuka/code/magi/backend/src/magi/awareness/sensor_output.py)
+- [Ingestion gateway](/Users/asuka/code/magi/backend/src/magi/awareness/ingestion_gateway.py)
+- [Extraction profiles](/Users/asuka/code/magi/backend/src/magi/memory/l2/extraction_profiles.py)
+- [L2 pipeline](/Users/asuka/code/magi/backend/src/magi/memory/l2/pipeline.py)
 
 ## Related Documents
 
-- [Project Overview](docs/project-overview.md)
-- [Product Configuration Guide](docs/product-configuration-guide.md)
-- [Plugin Development Guide](docs/plugin-development-guide.md)
-- [Memory System Design](docs/memory-system-design.md)
+- [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)
+- [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md)
+- [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
+- [Memory System Design](/Users/asuka/code/magi/docs/memory-system-design.md)
