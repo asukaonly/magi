@@ -389,6 +389,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
   const renderEmbeddingScenarioContent = (scenario: LLMScenario) => {
     const selection = value.selections[scenario];
+    if (!selection) return null;
     const currentEmbeddingModel = allEmbeddingModels.find(
       (m) => m.providerId === selection.provider_id && m.modelId === selection.model
     );
@@ -641,6 +642,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
   const renderChatScenarioContent = (scenario: LLMScenario) => {
     const selection = value.selections[scenario];
+    if (!selection) return null;
     const provider = value.providers[selection.provider_id];
     const models = provider
       ? resolveProviderModels(registry, selection.provider_id, provider).chat_models.filter((model) => !model.hidden)
@@ -717,6 +719,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
   const renderImageGenerationScenarioContent = (scenario: LLMScenario) => {
     const selection = value.selections[scenario];
+    if (!selection) return null;
 
     return (
       <>

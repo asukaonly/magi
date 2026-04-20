@@ -132,6 +132,7 @@ const cloneLLMConfig = (value?: LLMConfig): LLMConfig => ({
     context_decider: cloneSelection(value?.selections?.context_decider),
     core: cloneSelection(value?.selections?.core),
     embedding: cloneSelection(value?.selections?.embedding),
+    image_generation: cloneSelection(value?.selections?.image_generation),
   },
   model_runtime_overrides: Object.fromEntries(
     Object.entries(value?.model_runtime_overrides || {}).map(([runtimeKey, limits]) => [
@@ -519,14 +520,6 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
                 reasoning: false,
                 embedding: true,
               }
-            : scenario === 'image_generation'
-            ? {
-                vision: false,
-                image_output: true,
-                tool_calling: false,
-                reasoning: false,
-                embedding: false,
-              }
             : undefined
         );
         selection.limits = cloneLimits();
@@ -685,7 +678,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
 
   const scenarioReferences = useMemo(() => {
     return Object.entries(currentValue.selections).reduce<Record<string, LLMScenario[]>>((acc, [scenario, selection]) => {
-      const providerId = selection.provider_id;
+      const providerId = selection?.provider_id;
+      if (!providerId) return acc;
       if (!acc[providerId]) {
         acc[providerId] = [];
       }
@@ -718,11 +712,26 @@ const LLMForm: React.FC<LLMFormProps> = ({
           defaultMaxConcurrency: null,
           sharedScenarios: [],
         },
+        image_generation: {
+          runtimeKey: null,
+          effectiveMaxConcurrency: null,
+          overrideMaxConcurrency: null,
+          defaultMaxConcurrency: null,
+          sharedScenarios: [],
+        },
       };
     }
 
     const entries = BUILTIN_SCENARIOS.map((scenario) => {
       const selection = currentValue.selections[scenario];
+      if (!selection?.provider_id) {
+        return {
+          scenario,
+          runtimeKey: null,
+          overrideMaxConcurrency: null,
+          defaultMaxConcurrency: null,
+        };
+      }
       const provider = currentValue.providers[selection.provider_id];
       const runtimeKey = buildRuntimeOverrideKey({
         registry,
