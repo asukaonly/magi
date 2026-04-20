@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Download, Check, AlertCircle, Info } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { pluginsApi } from '@/api/modules/plugins';
 import type { ScenarioId } from './ScenarioSelection';
@@ -126,16 +127,31 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
       return sensor && !sensor.alreadyInstalled && installStates[id] !== 'installed';
     });
 
+    if (toInstall.length === 0) return;
+
+    let successCount = 0;
+    let failCount = 0;
+
     for (const pluginId of toInstall) {
       setInstallStates((prev) => ({ ...prev, [pluginId]: 'installing' }));
       try {
         await pluginsApi.installFromRegistry(pluginId);
         setInstallStates((prev) => ({ ...prev, [pluginId]: 'installed' }));
+        successCount++;
       } catch {
         setInstallStates((prev) => ({ ...prev, [pluginId]: 'error' }));
+        failCount++;
       }
     }
-  }, [selected, sensors, installStates]);
+
+    if (failCount === 0) {
+      toast.success(t('sensorSelection.installSuccess', { count: successCount }));
+    } else if (successCount === 0) {
+      toast.error(t('sensorSelection.installAllFailed', { count: failCount }));
+    } else {
+      toast.warning(t('sensorSelection.installPartial', { success: successCount, fail: failCount }));
+    }
+  }, [selected, sensors, installStates, t]);
 
   const recommended = SCENARIO_RECOMMENDED_SENSORS[scenario] ?? [];
   const hasSelection = selected.size > 0;

@@ -86,6 +86,9 @@
     "description": "Sensors automatically collect your digital life data. Select the ones you need and install them. All are optional — you can add more later in Settings.",
     "recommended": "Recommended",
     "installSelected": "Install Selected Sensors",
+    "installSuccess": "Successfully installed {{count}} sensor(s)",
+    "installAllFailed": "{{count}} sensor(s) failed to install, you can retry later in Settings",
+    "installPartial": "{{success}} installed, {{fail}} failed",
     "skipHint": "You can skip this step and install sensors later in Settings → Extensions.",
     "registryUnavailable": "The sensor plugin registry is temporarily unavailable. After setup, you can browse and install these sensors in Settings → Extensions:",
     "installLaterHint": "You can install and configure sensors in Settings → Extensions after setup. Click Next to continue."

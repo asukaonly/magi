@@ -87,6 +87,9 @@
     "description": "传感器会自动采集你的数字生活数据。选择需要的传感器，点击安装后即可使用。全部可选，可以之后在设置中再添加。",
     "recommended": "推荐",
     "installSelected": "安装选中的传感器",
+    "installSuccess": "已成功安装 {{count}} 个传感器",
+    "installAllFailed": "{{count}} 个传感器安装失败，可稍后在设置中重试",
+    "installPartial": "{{success}} 个安装成功，{{fail}} 个失败",
     "skipHint": "不选择任何传感器也可以继续，之后可以在设置 → 扩展中安装。",
     "registryUnavailable": "传感器插件仓库暂时不可用。完成引导后，你可以在设置 → 扩展中浏览和安装以下传感器：",
     "installLaterHint": "完成引导后可以在设置 → 扩展中安装和配置传感器，直接点击下一步继续。"
