@@ -11,7 +11,6 @@ import LLMForm from '../config-forms/LLMForm';
 import PersonalityForm from '../config-forms/PersonalityForm';
 import MemoryForm from '../config-forms/MemoryForm';
 import ToolsForm from '../config-forms/ToolsForm';
-import SensorConfigForm from '../config-forms/SensorConfigForm';
 import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
 import ScenarioSelection from './ScenarioSelection';
@@ -532,7 +531,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       }
       if (current === 2) return <PersonalityForm quickMode={false} language={language} />;
       if (current === 3) return <MemoryForm />;
-      if (current === 4) return <SensorConfigForm />;
+      if (current === 4) return <SensorSelection />;
       if (current === 5) return <ToolsForm />;
       if (current === 6) return <CompletionScreen onFinish={handleFinish} />;
     }

@@ -29,7 +29,7 @@ function getCurrentPlatform(): string {
 }
 
 interface SensorSelectionProps {
-  scenario: ScenarioId;
+  scenario?: ScenarioId;
 }
 
 type InstallState = 'idle' | 'installing' | 'installed' | 'error';
@@ -79,8 +79,8 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
           setRegistryAvailable(true);
 
           // Pre-select recommended sensors that exist in filtered list.
-          const recommended = SCENARIO_RECOMMENDED_SENSORS[scenario] ?? [];
-          const availableIds = new Set(items.map((s) => s.pluginId));
+          const recommended = (scenario && SCENARIO_RECOMMENDED_SENSORS[scenario]) ?? [];
+          const availableIds = new Set(items.map((s: SensorItem) => s.pluginId));
           setSelected(new Set(recommended.filter((id) => availableIds.has(id))));
 
           const preInstalled: Record<string, InstallState> = {};
@@ -104,8 +104,8 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
 
   // Reset selection when scenario changes.
   useEffect(() => {
-    const recommended = SCENARIO_RECOMMENDED_SENSORS[scenario] ?? [];
-    const availableIds = new Set(sensors.map((s) => s.pluginId));
+    const recommended = (scenario && SCENARIO_RECOMMENDED_SENSORS[scenario]) ?? [];
+    const availableIds = new Set(sensors.map((s: SensorItem) => s.pluginId));
     setSelected(new Set(recommended.filter((id) => availableIds.has(id))));
   }, [scenario, sensors]);
 
@@ -153,7 +153,7 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
     }
   }, [selected, sensors, installStates, t]);
 
-  const recommended = SCENARIO_RECOMMENDED_SENSORS[scenario] ?? [];
+  const recommended = (scenario && SCENARIO_RECOMMENDED_SENSORS[scenario]) ?? [];
   const hasSelection = selected.size > 0;
   const allSelectedInstalled = [...selected].every(
     (id) => installStates[id] === 'installed' || sensors.find((s) => s.pluginId === id)?.alreadyInstalled
