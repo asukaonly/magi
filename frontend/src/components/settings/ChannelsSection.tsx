@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Radio, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -9,6 +9,7 @@ import {
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 
 type ChannelContributionEntry = {
   plugin: PluginPackageState;
@@ -26,8 +27,11 @@ interface ChannelsSectionProps {
   plugins: PluginPackageState[];
   drafts: Record<string, Record<string, any>>;
   dirty?: boolean;
+  selectedContributionId: string | null;
+  onSelectContribution: (id: string | null) => void;
   onFieldChange: (pluginId: string, key: string, value: any) => void;
   onReloadPlugin: (pluginId: string) => Promise<void>;
+  onPluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   reloading: Record<string, boolean>;
 }
 
@@ -35,80 +39,115 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
   plugins,
   drafts,
   dirty = false,
+  selectedContributionId,
+  onSelectContribution,
   onFieldChange,
   onReloadPlugin,
+  onPluginAction,
   reloading,
 }) => {
   const { t } = useTranslation('app');
   const channelEntries = useMemo(() => listChannelEntries(plugins), [plugins]);
 
-  return (
-    <div className="space-y-8">
-      <p className="text-sm leading-6 text-muted-foreground">
-        {t('settings.channelsDesc')}
-      </p>
+  const selectedEntry = useMemo(
+    () => channelEntries.find((e) => e.contribution.contribution_id === selectedContributionId) ?? null,
+    [channelEntries, selectedContributionId]
+  );
 
-      <div className="grid gap-4">
-        {channelEntries.map(({ plugin, contribution }) => (
-          <section
-            key={contribution.contribution_id}
-            className="space-y-5 pt-4"
-          >
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <Radio className="h-4 w-4 text-primary" />
-                    {contribution.display_name}
+  // Overview mode
+  if (!selectedEntry) {
+    return (
+      <div className="space-y-6">
+        <p className="text-sm leading-6 text-muted-foreground">
+          {t('settings.channelsDesc')}
+        </p>
+
+        {channelEntries.length === 0 ? (
+          <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-8 text-center text-sm text-muted-foreground">
+            {t('settings.channelsConfig.emptyState')}
+          </div>
+        ) : (
+          <div>
+            {channelEntries.map(({ plugin, contribution }) => (
+              <button
+                key={contribution.contribution_id}
+                type="button"
+                onClick={() => onSelectContribution(contribution.contribution_id)}
+                className="grid w-full gap-3 border-b border-[hsl(var(--settings-subnav-border)/0.6)] px-0 py-4 text-left transition-colors last:border-b-0 hover:bg-transparent sm:grid-cols-[minmax(0,1.2fr)_auto_auto]"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    <span className="truncate text-sm font-medium text-foreground">{contribution.display_name}</span>
                   </div>
-                  <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                     {contribution.description || contribution.contribution_id}
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={plugin.enabled ? 'default' : 'secondary'}>
-                    {plugin.enabled ? t('settings.extensions.status.enabled') : t('settings.extensions.status.disabled')}
-                  </Badge>
+                <div className="text-xs text-muted-foreground sm:text-right">
                   <Badge variant="outline">{plugin.manifest.name}</Badge>
                 </div>
-              </div>
-
-              {contribution.fields.length > 0 ? (
-                <PluginSettingsFields
-                  fields={contribution.fields}
-                  values={drafts[plugin.manifest.plugin_id] || {}}
-                  onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
-                  disabled={!plugin.enabled}
-                />
-              ) : (
-                <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">
-                  {t('settings.actionsConfig.emptySettings')}
+                <div className="sm:justify-self-end">
+                  <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="rounded-md">
+                    {plugin.enabled ? 'ON' : 'OFF'}
+                  </Badge>
                 </div>
-              )}
-
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={dirty || !!reloading[plugin.manifest.plugin_id]}
-                  onClick={() => void onReloadPlugin(plugin.manifest.plugin_id)}
-                >
-                  <RefreshCw className={reloading[plugin.manifest.plugin_id] ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
-                  {t('settings.extensions.actions.reload')}
-                </Button>
-              </div>
-            </div>
-          </section>
-        ))}
-
-        {channelEntries.length === 0 ? (
-          <div className="border-t border-[hsl(var(--settings-subnav-border)/0.72)] pt-6">
-            <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-8 text-center text-sm text-muted-foreground">
-              {t('settings.channelsConfig.emptyState')}
-            </div>
+              </button>
+            ))}
           </div>
-        ) : null}
+        )}
+      </div>
+    );
+  }
+
+  // Detail mode
+  const { plugin, contribution } = selectedEntry;
+
+  return (
+    <div className="space-y-8">
+      <header className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="rounded-md">
+              {plugin.enabled ? t('settings.extensions.status.enabled') : t('settings.extensions.status.disabled')}
+            </Badge>
+            <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{plugin.manifest.plugin_id}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={plugin.enabled}
+              onCheckedChange={(checked) => void onPluginAction(plugin.manifest.plugin_id, checked ? 'enable' : 'disable')}
+            />
+          </div>
+        </div>
+        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+          {contribution.description || contribution.contribution_id}
+        </p>
+      </header>
+
+      {contribution.fields.length > 0 ? (
+        <PluginSettingsFields
+          fields={contribution.fields}
+          values={drafts[plugin.manifest.plugin_id] || {}}
+          onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
+          disabled={!plugin.enabled}
+        />
+      ) : (
+        <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">
+          {t('settings.actionsConfig.emptySettings')}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={dirty || !!reloading[plugin.manifest.plugin_id]}
+          onClick={() => void onReloadPlugin(plugin.manifest.plugin_id)}
+        >
+          <RefreshCw className={reloading[plugin.manifest.plugin_id] ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
+          {t('settings.extensions.actions.reload')}
+        </Button>
       </div>
     </div>
   );

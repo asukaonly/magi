@@ -93,6 +93,12 @@ export interface UseSettingsReturn {
   setTimelineSelection: React.Dispatch<React.SetStateAction<string | null>>;
   fetchTimelineStatuses: () => Promise<void>;
 
+  // Contribution sub-nav selections
+  actionsSelection: string | null;
+  setActionsSelection: React.Dispatch<React.SetStateAction<string | null>>;
+  channelsSelection: string | null;
+  setChannelsSelection: React.Dispatch<React.SetStateAction<string | null>>;
+
   // Dirty tracking
   dirty: boolean;
 
@@ -136,12 +142,18 @@ export function useSettings(): UseSettingsReturn {
     memory: false,
     extensions: false,
     timeline: false,
+    actions: false,
+    channels: false,
   });
 
   // Timeline state
   const [timelineStatuses, setTimelineStatuses] = useState<SensorSourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
+
+  // Actions / Channels sub-nav selections
+  const [actionsSelection, setActionsSelection] = useState<string | null>(null);
+  const [channelsSelection, setChannelsSelection] = useState<string | null>(null);
 
   // Plugins state
   const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
@@ -195,6 +207,12 @@ export function useSettings(): UseSettingsReturn {
       setActiveSection(itemId);
       if (itemId === 'timeline') {
         setTimelineSelection(null);
+      }
+      if (itemId === 'actions') {
+        setActionsSelection(null);
+      }
+      if (itemId === 'channels') {
+        setChannelsSelection(null);
       }
     },
     [getGroupExpanded, setGroupExpanded]
@@ -691,6 +709,12 @@ export function useSettings(): UseSettingsReturn {
     timelineSelection,
     setTimelineSelection,
     fetchTimelineStatuses,
+
+    // Contribution sub-nav selections
+    actionsSelection,
+    setActionsSelection,
+    channelsSelection,
+    setChannelsSelection,
 
     // Dirty tracking
     dirty,

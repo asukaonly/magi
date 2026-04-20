@@ -115,6 +115,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     timelineSelection,
     setTimelineSelection,
     fetchTimelineStatuses,
+    actionsSelection,
+    setActionsSelection,
+    channelsSelection,
+    setChannelsSelection,
     dirty,
     handleSaveChanges,
     handleDiscardChanges,
@@ -131,6 +135,24 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       collator.compare(getTimelineSourceDisplayName(t, left), getTimelineSourceDisplayName(t, right))
     );
   }, [t, timelineStatuses]);
+
+  const actionContributions = useMemo(() =>
+    plugins.flatMap((plugin) =>
+      plugin.contributions
+        .filter((c) => c.contribution_type === 'action' || c.surface === 'actions')
+        .map((contribution) => ({ plugin, contribution }))
+    ),
+    [plugins]
+  );
+
+  const channelContributions = useMemo(() =>
+    plugins.flatMap((plugin) =>
+      plugin.contributions
+        .filter((c) => c.contribution_type === 'channel')
+        .map((contribution) => ({ plugin, contribution }))
+    ),
+    [plugins]
+  );
 
   const isNavGroupActive = (item: NavItem) => {
     if (!isNavGroup(item)) {
@@ -657,8 +679,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             plugins={plugins}
             drafts={draftPluginDrafts}
             dirty={dirty}
+            selectedContributionId={actionsSelection}
+            onSelectContribution={setActionsSelection}
             onFieldChange={handlePluginDraftChange}
             onReloadPlugin={handleReloadActionPlugin}
+            onPluginAction={handlePluginAction}
             reloading={reloadingActionPlugins}
           />
         );
@@ -669,8 +694,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             plugins={plugins}
             drafts={draftPluginDrafts}
             dirty={dirty}
+            selectedContributionId={channelsSelection}
+            onSelectContribution={setChannelsSelection}
             onFieldChange={handlePluginDraftChange}
             onReloadPlugin={handleReloadActionPlugin}
+            onPluginAction={handlePluginAction}
             reloading={reloadingActionPlugins}
           />
         );
@@ -696,7 +724,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = isNavGroupActive(item);
-              const isExpandable = isNavGroup(item) || item.id === 'timeline';
+              const isExpandable = isNavGroup(item) || item.id === 'timeline' || item.id === 'actions' || item.id === 'channels';
               const isExpanded = isExpandable ? getGroupExpanded(item.id) : false;
               const ParentChevron = isExpandable && isExpanded ? ChevronDown : ChevronRight;
               return (
@@ -814,6 +842,88 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                             {source.last_error ? (
                               <span className="ml-auto h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
                             ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {item.id === 'actions' && isActive && isExpanded ? (
+                    <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
+                      <button
+                        type="button"
+                        onClick={() => setActionsSelection(null)}
+                        aria-current={actionsSelection === null ? 'page' : undefined}
+                        className={cn(
+                          'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px]',
+                          'transition-colors duration-150 ease-out',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          actionsSelection === null
+                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
+                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                        )}
+                      >
+                        {t('settings.timeline.nav.overview')}
+                      </button>
+                      {actionContributions.map(({ contribution }) => {
+                        const isSelected = actionsSelection === contribution.contribution_id;
+                        return (
+                          <button
+                            key={contribution.contribution_id}
+                            type="button"
+                            onClick={() => setActionsSelection(contribution.contribution_id)}
+                            aria-current={isSelected ? 'page' : undefined}
+                            className={cn(
+                              'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px]',
+                              'transition-colors duration-150 ease-out',
+                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              isSelected
+                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
+                                : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                            )}
+                          >
+                            <span className="truncate">{contribution.display_name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {item.id === 'channels' && isActive && isExpanded ? (
+                    <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--settings-subnav-border)/0.78)] pl-4">
+                      <button
+                        type="button"
+                        onClick={() => setChannelsSelection(null)}
+                        aria-current={channelsSelection === null ? 'page' : undefined}
+                        className={cn(
+                          'flex w-full items-center rounded-sm px-2.5 py-1.5 text-[13px]',
+                          'transition-colors duration-150 ease-out',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          channelsSelection === null
+                            ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
+                            : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                        )}
+                      >
+                        {t('settings.timeline.nav.overview')}
+                      </button>
+                      {channelContributions.map(({ contribution }) => {
+                        const isSelected = channelsSelection === contribution.contribution_id;
+                        return (
+                          <button
+                            key={contribution.contribution_id}
+                            type="button"
+                            onClick={() => setChannelsSelection(contribution.contribution_id)}
+                            aria-current={isSelected ? 'page' : undefined}
+                            className={cn(
+                              'flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px]',
+                              'transition-colors duration-150 ease-out',
+                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              isSelected
+                                ? 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-foreground font-medium'
+                                : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.52)] hover:text-foreground'
+                            )}
+                          >
+                            <span className="truncate">{contribution.display_name}</span>
                           </button>
                         );
                       })}
