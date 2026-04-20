@@ -285,6 +285,37 @@ def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
     )
 
 
+def _serialize_package_lightweight(state: PluginPackageState) -> PluginPackageResponse:
+    """Serialize a PluginPackageState without loading plugin-local i18n.
+
+    Used by the lightweight install path (onboarding) where contributions
+    are empty and the frontend already has translated display data from
+    the registry.
+    """
+    m = state.manifest
+    return PluginPackageResponse(
+        manifest=PluginManifestResponse(
+            plugin_id=m.plugin_id,
+            name=m.name,
+            version=m.version,
+            description=m.description,
+            author=m.author,
+            official=m.official,
+            contribution_types=[ct.value for ct in m.contribution_types],
+            source=m.source,
+            plugin_dir=m.plugin_dir,
+            manifest_path=m.manifest_path,
+        ),
+        enabled=state.enabled,
+        trusted=state.trusted,
+        loaded=state.loaded,
+        healthy=state.healthy,
+        last_error=state.last_error,
+        contributions=[],
+        current_settings=dict(state.current_settings),
+    )
+
+
 def _require_package(plugin_id: str):
     manager = require_plugin_manager()
     package = manager.get_package(plugin_id)
@@ -407,14 +438,19 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
         plugin_dir = await registry.clone_plugin(entry)
         if manager is not None:
             state = manager.install_plugin_from_directory(plugin_dir)
-        else:
-            # Lightweight install: copy plugin files for next startup.
-            state = _lightweight_install(plugin_dir, entry)
+            return _serialize_package(state)
+
+        # Lightweight install: copy plugin files for next startup.
+        # Skip _serialize_package() — it loads plugin-local i18n that is
+        # unnecessary here.  The frontend already has translated display
+        # data from the registry and does not consume the response body
+        # during onboarding installs.
+        state = _lightweight_install(plugin_dir, entry)
+        return _serialize_package_lightweight(state)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
-    return _serialize_package(state)
 
 
 @plugins_router.delete("/{plugin_id}", status_code=status.HTTP_200_OK)
