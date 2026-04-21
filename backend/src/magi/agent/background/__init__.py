@@ -29,14 +29,25 @@ from .executor import (
     BackgroundTaskRunResult,
 )
 from .manager import BackgroundTaskManager
+from .memory_isolation import (
+    BACKGROUND_SCOPE_KEY,
+    BackgroundFactEmitter,
+    BackgroundMemoryScope,
+    get_background_scope,
+    is_background_fact,
+    tag_fact,
+)
 from .store import BackgroundTaskStore
 
 __all__ = [
+    "BACKGROUND_SCOPE_KEY",
     "BackgroundDecision",
     "BackgroundDecisionContext",
     "BackgroundDecisionSource",
     "BackgroundDisposition",
     "BackgroundDispatcher",
+    "BackgroundFactEmitter",
+    "BackgroundMemoryScope",
     "BackgroundRuleOutcome",
     "BackgroundTask",
     "BackgroundTaskEvent",
@@ -48,4 +59,7 @@ __all__ = [
     "BackgroundTaskStatus",
     "BackgroundTaskStore",
     "BackgroundTaskTriggerSource",
+    "get_background_scope",
+    "is_background_fact",
+    "tag_fact",
 ]
