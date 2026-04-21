@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
 from ..core.runtime_bindings import require_scenario_llm_pool
+from ..llm import LLMProviderBridge
 from .current_state import resolve_persona_config
 from .growth_memory import GrowthMemoryEngine, MilestoneType
 from .loader import BootstrapConfig, PersonalityConfig
@@ -111,7 +112,7 @@ class BootstrapDialogueService:
 
         try:
             pool = require_scenario_llm_pool()
-            bridge = pool.get(LLMScenario.CORE)
+            bridge = LLMProviderBridge(pool.get(LLMScenario.CORE))
             result = await bridge.chat(
                 system_prompt=system_prompt,
                 messages=[{"role": "user", "content": "Generate your opening line."}],
@@ -163,7 +164,7 @@ class BootstrapDialogueService:
 
         try:
             pool = require_scenario_llm_pool()
-            bridge = pool.get(LLMScenario.CORE)
+            bridge = LLMProviderBridge(pool.get(LLMScenario.CORE))
             response = await bridge.chat(
                 system_prompt=system_prompt,
                 messages=messages,
@@ -277,7 +278,7 @@ class BootstrapDialogueService:
 
         try:
             pool = require_scenario_llm_pool()
-            bridge = pool.get(LLMScenario.CORE)
+            bridge = LLMProviderBridge(pool.get(LLMScenario.CORE))
             raw = await bridge.chat(
                 system_prompt="You are an information extraction assistant. Output valid JSON only.",
                 messages=[{"role": "user", "content": extraction_prompt}],
@@ -395,7 +396,7 @@ async def maybe_extract_bootstrap_info(
         )
         try:
             pool = require_scenario_llm_pool()
-            bridge = pool.get(LLMScenario.CORE)
+            bridge = LLMProviderBridge(pool.get(LLMScenario.CORE))
             raw = await bridge.chat(
                 system_prompt="You are an information extraction assistant. Output valid JSON only.",
                 messages=[{"role": "user", "content": extraction_prompt}],
