@@ -24,9 +24,7 @@ class PluginSystemModule(LifecycleModule):
         bindings = build_plugin_runtime()
         self._context.plugins.plugin_manager = bindings.plugin_manager
         self._context.plugins.sensor_registry = bindings.sensor_registry
-        self._context.plugins.action_registry = bindings.action_registry
 
     async def shutdown(self) -> None:
         self._context.plugins.plugin_manager = None
         self._context.plugins.sensor_registry = None
-        self._context.plugins.action_registry = None

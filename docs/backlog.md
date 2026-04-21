@@ -86,7 +86,7 @@ Status: active
 Current candidates:
 
 - websocket and transport boundary behavior
-- awareness and sensor and action boundary behavior
+- awareness and sensor boundary behavior
 - llm provider edge cases and error handling
 
 ## Documentation Follow-Up

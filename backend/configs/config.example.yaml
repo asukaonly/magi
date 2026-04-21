@@ -208,16 +208,6 @@ plugins:
             storage_mode: "external_reference"
             source_path: ""
             edge_whitelist: ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"]
-    core-actions:
-      enabled: true
-      trusted: true
-      source: "builtin"
-      settings:
-        notifications:
-          default_level: "info"
-        email:
-          default_sender: ""
-          provider_mode: "simulated"
 
 # =============================================================================
 # Global Settings

@@ -67,7 +67,32 @@
     "knowledgePartner": "知识伙伴",
     "knowledgePartnerDesc": "积累知识、管理记忆、深度分析",
     "decideLater": "稍后再决定",
-    "decideLaterDesc": "使用系统默认配置，之后在设置中调整"
+    "decideLaterDesc": "使用系统默认配置，之后在设置中调整",
+    "featureSummaryTitle": "该场景将开启以下功能：",
+    "defaultFeatureSummaryTitle": "系统默认配置将开启以下功能：",
+    "sensorHint": "下一步可以选择要安装的数据采集传感器。",
+    "defaultHint": "使用系统默认配置，所有功能均可在设置页面中随时启用或调整。",
+    "features": {
+      "conversation": "AI 对话和问答",
+      "shortTermMemory": "短期记忆（自动记住近期对话）",
+      "webTools": "网络搜索和天气查询",
+      "knowledgeExtraction": "知识抽取（从对话中提取事实和关系）",
+      "temporalSummary": "时间摘要（自动生成阶段性总结）",
+      "skillLearning": "技能学习（从经验中积累能力）",
+      "sensors": "数据采集传感器（需安装插件）"
+    }
+  },
+  "sensorSelection": {
+    "title": "安装传感器插件",
+    "description": "传感器会自动采集你的数字生活数据。选择需要的传感器，点击安装后即可使用。全部可选，可以之后在设置中再添加。",
+    "recommended": "推荐",
+    "installSelected": "安装选中的传感器",
+    "installSuccess": "已成功安装 {{count}} 个传感器",
+    "installAllFailed": "{{count}} 个传感器安装失败，可稍后在设置中重试",
+    "installPartial": "{{success}} 个安装成功，{{fail}} 个失败",
+    "skipHint": "不选择任何传感器也可以继续，之后可以在设置 → 扩展中安装。",
+    "registryUnavailable": "传感器插件仓库暂时不可用。完成引导后，你可以在设置 → 扩展中浏览和安装以下传感器：",
+    "installLaterHint": "完成引导后可以在设置 → 扩展中安装和配置传感器，直接点击下一步继续。"
   },
   "sensors": {
     "title": "传感器配置",
@@ -171,6 +196,11 @@
         "desc": "将文本转为向量以实现语义搜索和记忆召回，启用后可大幅提升记忆检索的准确性。是否启用由上方的「向量模式」控制。",
         "offHint": "向量模型当前未启用。启用后 AI 将获得语义记忆检索能力，能更准确地理解和召回历史对话与知识。建议在「记忆检索」相关场景下开启。"
       },
+      "image_generation": {
+        "title": "生图模型",
+        "desc": "根据文字描述生成图片。选择供应商并输入生图模型 ID（如 gpt-image-1）。生图模型不内置，需手动填写你的供应商支持的模型 ID。",
+        "notConfiguredHint": "生图模型尚未配置。请选择供应商并输入模型 ID，以启用生图工具。"
+      },
       "reranker": {
         "title": "精排模型",
         "desc": "对检索结果做二次语义排序，进一步提升记忆召回的准确性。需先在「记忆 → 通用记忆设置」中启用。"
@@ -233,6 +263,7 @@
       "customProviderModelRequired": "请为自定义供应商添加至少一个模型。"
     },
     "modelManualPlaceholder": "输入模型 ID，例如 gpt-4.1",
+    "imageGenerationModelPlaceholder": "输入生图模型 ID，例如 gpt-image-1",
     "customProviderDefaultName": "自定义供应商",
     "providerLabel": "模型提供商",
     "providerRequired": "请选择模型提供商",

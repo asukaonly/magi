@@ -166,6 +166,7 @@ class LLMScenario(str, Enum):
     CONTEXT_DECIDER = "context_decider"
     CORE = "core"
     EMBEDDING = "embedding"
+    IMAGE_GENERATION = "image_generation"
 
 
 class LLMProviderSettings(BaseModel):
@@ -599,11 +600,6 @@ class PluginsSettings(BaseModel):
                 source="builtin",
             ),
             "photo-library": PluginSettings(
-                enabled=True,
-                trusted=True,
-                source="builtin",
-            ),
-            "core-actions": PluginSettings(
                 enabled=True,
                 trusted=True,
                 source="builtin",

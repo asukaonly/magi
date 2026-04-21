@@ -2174,7 +2174,7 @@ async def test_chat_response_action_runtime_event_does_not_enter_l2_pipeline():
                         "turn_id": "turn-1",
                         "success": True,
                     },
-                    source="runtime_action_emitter",
+                    source="runtime_event_emitter",
                     level=EventLevel.INFO,
                     correlation_id="evt-runtime-chat-1",
                     timestamp=time.time(),

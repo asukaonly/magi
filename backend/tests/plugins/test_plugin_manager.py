@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from magi.plugins.actions import ActionRegistry
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.sensors import SensorRegistry
@@ -93,7 +92,6 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
-        action_registry=ActionRegistry(),
         search_paths=[tmp_path],
     )
 
@@ -121,7 +119,6 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
-        action_registry=ActionRegistry(),
         search_paths=[tmp_path],
     )
 
@@ -153,7 +150,7 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
-        action_registry=ActionRegistry(),
+
         search_paths=[builtin_plugins_root],
     )
 
@@ -177,7 +174,6 @@ def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
 
     bindings = build_plugin_runtime(
         sensor_registry=SensorRegistry(),
-        action_registry=ActionRegistry(),
     )
 
     assert bindings.plugin_manager._tool_registry is shared_tool_registry
@@ -202,7 +198,6 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins(
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
-        action_registry=ActionRegistry(),
         search_paths=[builtin_plugins_root],
     )
 

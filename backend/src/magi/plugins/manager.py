@@ -1,4 +1,4 @@
-"""Unified plugin manager for tool, sensor, and action extensions."""
+"""Unified plugin manager for tool and sensor extensions."""
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +24,6 @@ from ..config.models import PluginSettings
 from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from ..utils.packaged_paths import get_repo_root
-from .actions import ActionRegistry, BaseAction, build_action_tool_class
 from .base import Plugin
 from .contracts import (
     ContributionType,
@@ -42,7 +41,6 @@ logger = logging.getLogger(__name__)
 class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
     sensor_registry: SensorRegistry
-    action_registry: ActionRegistry
 
 
 def _resolve_search_paths() -> list[Path]:
@@ -63,17 +61,14 @@ def build_plugin_runtime(
     *,
     tool_registry: ToolRegistry | None = None,
     sensor_registry: SensorRegistry | None = None,
-    action_registry: ActionRegistry | None = None,
 ) -> PluginRuntimeBindings:
     """Build plugin runtime services for the current runtime instance."""
 
     resolved_tool_registry = tool_registry or shared_tool_registry
     resolved_sensor_registry = sensor_registry or SensorRegistry()
-    resolved_action_registry = action_registry or ActionRegistry()
     plugin_manager = PluginManager(
         tool_registry=resolved_tool_registry,
         sensor_registry=resolved_sensor_registry,
-        action_registry=resolved_action_registry,
         search_paths=_resolve_search_paths(),
     )
     plugin_manager.scan(persist_discovery=True)
@@ -81,7 +76,6 @@ def build_plugin_runtime(
     return PluginRuntimeBindings(
         plugin_manager=plugin_manager,
         sensor_registry=resolved_sensor_registry,
-        action_registry=resolved_action_registry,
     )
 
 
@@ -93,19 +87,15 @@ class PluginManager:
         *,
         tool_registry: ToolRegistry,
         sensor_registry: SensorRegistry,
-        action_registry: ActionRegistry,
         search_paths: list[Path],
     ) -> None:
         self._tool_registry = tool_registry
         self._sensor_registry = sensor_registry
-        self._action_registry = action_registry
         self._search_paths = list(search_paths)
         self._package_states: dict[str, PluginPackageState] = {}
         self._plugin_instances: dict[str, Plugin] = {}
         self._registered_tools: dict[str, list[str]] = {}
         self._registered_sensors: dict[str, list[str]] = {}
-        self._registered_actions: dict[str, list[str]] = {}
-        self._registered_action_tools: dict[str, list[str]] = {}
 
     @property
     def search_paths(self) -> list[Path]:
@@ -220,30 +210,12 @@ class PluginManager:
                         contribution_type=ContributionType.SENSOR,
                         display_name=spec.display_name,
                         description=spec.description,
-                        surface=spec.surface if spec.surface in {"extensions", "tools", "timeline", "actions"} else "extensions",
+                        surface=spec.surface if spec.surface in {"extensions", "tools", "timeline"} else "extensions",
                         fields=list(spec.fields),
                         metadata={"domain": spec.domain, **dict(spec.metadata)},
                     )
                 )
             self._registered_sensors[plugin_id] = sensor_ids
-
-            action_ids: list[str] = []
-            action_tool_names: list[str] = []
-            for action in plugin_instance.get_actions():
-                if not isinstance(action, BaseAction):
-                    continue
-                self._action_registry.register(plugin_id, action)
-                action_ids.append(action.spec.action_id)
-                tool_class = build_action_tool_class(action)
-                if tool_class is not None:
-                    tool_instance = tool_class()
-                    tool_name = tool_instance.get_schema().name
-                    setattr(tool_class, "_plugin_package_id", plugin_id)
-                    self._tool_registry.register(tool_class)
-                    action_tool_names.append(tool_name)
-            self._registered_actions[plugin_id] = action_ids
-            self._registered_action_tools[plugin_id] = action_tool_names
-            registered_contributions.extend(self._action_registry.list_contributions(plugin_id))
 
             channel = plugin_instance.get_channel()
             if channel is not None:
@@ -279,12 +251,8 @@ class PluginManager:
 
         for tool_name in self._registered_tools.pop(plugin_id, []):
             self._tool_registry.unregister(tool_name)
-        for tool_name in self._registered_action_tools.pop(plugin_id, []):
-            self._tool_registry.unregister(tool_name)
         for sensor_id in self._registered_sensors.pop(plugin_id, []):
             self._sensor_registry.unregister(sensor_id)
-        for action_id in self._registered_actions.pop(plugin_id, []):
-            self._action_registry.unregister(action_id)
         self._plugin_instances.pop(plugin_id, None)
         state = self._package_states.get(plugin_id)
         if state is not None:
@@ -479,7 +447,6 @@ class PluginManager:
         _surface_map = {
             ContributionType.TOOL: "tools",
             ContributionType.SENSOR: "timeline",
-            ContributionType.ACTION: "actions",
             ContributionType.CHANNEL: "extensions",
         }
         return [

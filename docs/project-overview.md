@@ -90,11 +90,10 @@ The core runtime is centered on:
 
 ### Unified plugin runtime
 
-Plugin packages now contribute three capability families through one registration path:
+Plugin packages now contribute two capability families through one registration path:
 
 - tools
 - sensors
-- actions
 
 Discovery, enablement, and settings metadata are owned by the plugin runtime; execution stays in the owning runtime layers.
 
@@ -104,7 +103,6 @@ Discovery, enablement, and settings metadata are owned by the plugin runtime; ex
 
 - sensor sync
 - agent task dispatch
-- outbound action dispatch
 
 It is intentionally distinct from housekeeping loops such as `MaintenanceDaemon`.
 
@@ -131,7 +129,7 @@ This separates short-lived runtime state from durable user memory while keeping 
 
 Execution observability is now a separate concern from durable memory:
 
-- `L1` keeps canonical memory facts that may participate in recall, cognition, and reflection; execution-scoped action outcomes stay out of `L1`
+- `L1` keeps canonical memory facts that may participate in recall, cognition, and reflection; execution-scoped outcomes stay out of `L1`
 - runtime trace spans, tool calls, LLM call metrics, and turn-level execution summaries live in the dedicated runtime trace store
 
 ## Persistence Boundaries
@@ -184,7 +182,7 @@ magi/
 │   ├── src/magi/
 │   │   ├── agent/          # Task-agent runtime, orchestration, workers
 │   │   ├── api/            # Product-facing routers and services
-│   │   ├── awareness/      # Sensors, actions, action emission
+│   │   ├── awareness/      # Sensors and runtime event emission
 │   │   ├── bootstrap/      # Composition root and lifecycle assembly
 │   │   ├── channels/       # External messaging adapters (Telegram, etc.)
 │   │   ├── chat/           # Chat domain persistence and attachments

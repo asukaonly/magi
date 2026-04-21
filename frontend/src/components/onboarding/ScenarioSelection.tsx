@@ -1,10 +1,18 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { MessageSquare, Activity, BookOpen, Clock } from 'lucide-react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { MessageSquare, Activity, BookOpen, Clock, Check, X } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
 export type ScenarioId = 'chat_assistant' | 'life_monitor' | 'knowledge_partner' | 'default';
+
+/** Whether a scenario should show the sensor selection step. */
+export const SCENARIO_NEEDS_SENSORS: Record<ScenarioId, boolean> = {
+  chat_assistant: false,
+  life_monitor: true,
+  knowledge_partner: true,
+  default: false,
+};
 
 interface ScenarioSelectionProps {
   value: ScenarioId | null;
@@ -18,6 +26,11 @@ interface ScenarioOption {
   descKey: string;
 }
 
+interface FeatureItem {
+  labelKey: string;
+  enabled: boolean;
+}
+
 const scenarios: ScenarioOption[] = [
   { id: 'chat_assistant', icon: MessageSquare, labelKey: 'scenario.chatAssistant', descKey: 'scenario.chatAssistantDesc' },
   { id: 'life_monitor', icon: Activity, labelKey: 'scenario.lifeMonitor', descKey: 'scenario.lifeMonitorDesc' },
@@ -25,18 +38,56 @@ const scenarios: ScenarioOption[] = [
   { id: 'default', icon: Clock, labelKey: 'scenario.decideLater', descKey: 'scenario.decideLaterDesc' },
 ];
 
+const SCENARIO_FEATURES: Record<ScenarioId, FeatureItem[]> = {
+  chat_assistant: [
+    { labelKey: 'scenario.features.conversation', enabled: true },
+    { labelKey: 'scenario.features.shortTermMemory', enabled: true },
+    { labelKey: 'scenario.features.webTools', enabled: true },
+    { labelKey: 'scenario.features.knowledgeExtraction', enabled: false },
+    { labelKey: 'scenario.features.temporalSummary', enabled: false },
+    { labelKey: 'scenario.features.sensors', enabled: false },
+  ],
+  life_monitor: [
+    { labelKey: 'scenario.features.conversation', enabled: true },
+    { labelKey: 'scenario.features.shortTermMemory', enabled: true },
+    { labelKey: 'scenario.features.webTools', enabled: true },
+    { labelKey: 'scenario.features.knowledgeExtraction', enabled: true },
+    { labelKey: 'scenario.features.temporalSummary', enabled: true },
+    { labelKey: 'scenario.features.sensors', enabled: true },
+  ],
+  knowledge_partner: [
+    { labelKey: 'scenario.features.conversation', enabled: true },
+    { labelKey: 'scenario.features.shortTermMemory', enabled: true },
+    { labelKey: 'scenario.features.webTools', enabled: true },
+    { labelKey: 'scenario.features.knowledgeExtraction', enabled: true },
+    { labelKey: 'scenario.features.temporalSummary', enabled: true },
+    { labelKey: 'scenario.features.skillLearning', enabled: true },
+    { labelKey: 'scenario.features.sensors', enabled: true },
+  ],
+  default: [
+    { labelKey: 'scenario.features.conversation', enabled: true },
+    { labelKey: 'scenario.features.shortTermMemory', enabled: true },
+    { labelKey: 'scenario.features.webTools', enabled: true },
+    { labelKey: 'scenario.features.knowledgeExtraction', enabled: true },
+    { labelKey: 'scenario.features.temporalSummary', enabled: true },
+    { labelKey: 'scenario.features.skillLearning', enabled: true },
+    { labelKey: 'scenario.features.sensors', enabled: false },
+  ],
+};
+
 export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onChange }) => {
   const { t } = useTranslation('onboarding');
   const shouldReduceMotion = useReducedMotion();
+  const features = value ? SCENARIO_FEATURES[value] : [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
         <h3 className="mb-1 text-base font-medium">{t('scenario.title')}</h3>
-        <p className="mb-4 text-sm text-muted-foreground">{t('scenario.description')}</p>
+        <p className="mb-3 text-sm text-muted-foreground">{t('scenario.description')}</p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         {scenarios.map((scenario) => {
           const Icon = scenario.icon;
           const selected = value === scenario.id;
@@ -44,7 +95,8 @@ export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onC
           return (
             <motion.div
               key={scenario.id}
-              whileHover={shouldReduceMotion ? undefined : { y: -2 }}
+              className="h-full"
+              whileHover={shouldReduceMotion ? undefined : { y: -1 }}
               transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
             >
               <button
@@ -52,18 +104,18 @@ export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onC
                 onClick={() => onChange(scenario.id)}
                 aria-pressed={selected}
                 className={cn(
-                  'flex w-full flex-col rounded-xl border bg-background p-5 text-left transition',
+                  'flex h-full w-full flex-col items-center rounded-lg border bg-background px-3 py-3.5 text-center transition',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                   selected
                     ? 'border-primary bg-primary/5 shadow-sm'
                     : 'border-border hover:border-primary/40'
                 )}
               >
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Icon className="h-5 w-5" />
+                <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Icon className="h-4 w-4" />
                 </div>
-                <div className="text-base font-semibold">{t(scenario.labelKey)}</div>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                <div className="text-sm font-semibold">{t(scenario.labelKey)}</div>
+                <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
                   {t(scenario.descKey)}
                 </p>
               </button>
@@ -71,6 +123,54 @@ export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onC
           );
         })}
       </div>
+
+      {/* Feature summary panel */}
+      <AnimatePresence mode="wait">
+        {value && (
+          <motion.div
+            key={value}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={shouldReduceMotion ? undefined : { opacity: 0, y: 8 }}
+            transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
+            className="rounded-xl border border-border bg-muted/30 p-5"
+          >
+            {features.length > 0 ? (
+              <>
+                <p className="mb-3 text-sm font-medium text-foreground">
+                  {value === 'default'
+                    ? t('scenario.defaultFeatureSummaryTitle')
+                    : t('scenario.featureSummaryTitle')}
+                </p>
+                <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+                  {features.map((f) => (
+                    <div key={f.labelKey} className="flex items-center gap-2 text-sm">
+                      {f.enabled ? (
+                        <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      ) : (
+                        <X className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                      )}
+                      <span className={cn(f.enabled ? 'text-foreground' : 'text-muted-foreground/60')}>
+                        {t(f.labelKey)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {SCENARIO_NEEDS_SENSORS[value] && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {t('scenario.sensorHint')}
+                  </p>
+                )}
+                {value === 'default' && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {t('scenario.defaultHint')}
+                  </p>
+                )}
+              </>
+            ) : null}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

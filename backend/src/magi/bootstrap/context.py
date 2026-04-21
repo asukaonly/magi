@@ -19,13 +19,13 @@ if TYPE_CHECKING:
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
     from ..memory.hybrid_retrieval import HybridRetrievalService
-    from ..plugins import ActionRegistry, PluginManager, SensorRegistry
+    from ..plugins import PluginManager, SensorRegistry
     from ..personality.self_memory import SelfMemory
     from ..context.scenario_prompts import ScenarioPromptsStore
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
     from ..awareness.sensor_hub import SensorHub
     from ..agent.runtime import AgentRuntime, TaskAgentManager
-    from ..awareness.action_emitter import ActionEmitter
+    from ..awareness.event_emitter import RuntimeEventEmitter
     from ..timeline.service import TimelineService
     from ..scheduler import SchedulerService
     from ..runtime_trace import RuntimeTraceStore
@@ -98,7 +98,6 @@ class PluginBootstrapState:
 
     plugin_manager: PluginManager | None = None
     sensor_registry: SensorRegistry | None = None
-    action_registry: ActionRegistry | None = None
 
 
 @dataclass
@@ -138,7 +137,7 @@ class AgentRuntimeBootstrapState:
     """L11 Agent Runtime state slice."""
 
     sensor_hub: SensorHub | None = None
-    action_emitter: ActionEmitter | None = None
+    event_emitter: RuntimeEventEmitter | None = None
     sensor_scheduler_contrib: SensorSchedulerContrib | None = None
     sensor_sync_executor: Any = None
     agent_runtime: AgentRuntime | None = None

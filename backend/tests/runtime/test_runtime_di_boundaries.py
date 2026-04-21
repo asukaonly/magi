@@ -200,7 +200,7 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     assert "get_plugin_manager" not in tools_router
     assert "require_plugin_manager" in plugins_router
     assert "require_plugin_manager" in tools_router
-    assert "require_action_registry" in runtime_bindings
+    assert "require_action_registry" not in runtime_bindings
 
 
 def test_legacy_backend_app_is_removed() -> None:
@@ -241,7 +241,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     chat_handlers = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
     worker_manager = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
-    action_emitter = (BACKEND_SRC / "awareness/action_emitter.py").read_text(encoding="utf-8")
+    event_emitter = (BACKEND_SRC / "awareness/event_emitter.py").read_text(encoding="utf-8")
     awareness_contracts = (BACKEND_SRC / "awareness/contracts.py").read_text(encoding="utf-8")
 
     assert not (BACKEND_SRC / "core/runtime").exists()
@@ -267,13 +267,13 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "core.runtime_bindings" not in worker_manager
     assert "core.container" not in worker_manager
     assert "core.runtime.types" not in task_factory
-    assert "core.runtime.contracts" not in action_emitter
-    assert "agent.runtime.contracts" not in action_emitter
+    assert "core.runtime.contracts" not in event_emitter
+    assert "agent.runtime.contracts" not in event_emitter
     assert "personality.current_state" not in config_lifecycle
     assert "agent.runtime" in agent_lifecycle
     assert "sensor_hub" in awareness_lifecycle
     assert "agent.runtime" in bootstrap_context
-    assert "class ActionEmissionRecord" in awareness_contracts
+    assert "class ActionEmissionRecord" not in awareness_contracts
 
 
 def test_config_models_do_not_expose_message_bus_backend_selection() -> None:

@@ -23,6 +23,16 @@ import { Input } from '@/components/ui/input';
 const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'action', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
 
+/** Resolve the localized text from an i18n map, falling back to the default. */
+function localized(
+  base: string,
+  i18nMap: Record<string, string> | undefined,
+  lang: string,
+): string {
+  if (!i18nMap) return base;
+  return i18nMap[lang] ?? i18nMap[lang.split('-')[0]] ?? base;
+}
+
 interface PluginMarketplaceProps {
   installedPlugins: PluginPackageState[];
   onInstallComplete: () => Promise<void>;
@@ -32,7 +42,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   installedPlugins,
   onInstallComplete,
 }) => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const [registryEntries, setRegistryEntries] = useState<PluginRegistryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -263,7 +273,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                   <div className="space-y-1.5 min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-foreground">
-                        {entry.name}
+                        {localized(entry.name, entry.name_i18n, i18n.language)}
                       </span>
                       <Badge variant="outline" className="text-xs">
                         v{entry.version}
@@ -275,7 +285,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground leading-relaxed">
-                      {entry.description}
+                      {localized(entry.description, entry.description_i18n, i18n.language)}
                     </p>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       {entry.author && <span>{entry.author}</span>}

@@ -1,7 +1,7 @@
 """Agent runtime for sensor hub + router agent + runtime runners."""
 from __future__ import annotations
 
-from ...awareness.action_emitter import ActionEmitter
+from ...awareness.event_emitter import RuntimeEventEmitter
 from ...awareness.sensor_hub import SensorHub
 from ...core.logger import get_logger
 from .router_agent import RouterAgent
@@ -18,12 +18,12 @@ class AgentRuntime:
         sensor_hub: SensorHub,
         router_agent: RouterAgent,
         task_agent_manager: TaskAgentManager,
-        action_emitter: ActionEmitter,
+        event_emitter: RuntimeEventEmitter,
     ) -> None:
         self._sensor_hub = sensor_hub
         self._router_agent = router_agent
         self._task_agent_manager = task_agent_manager
-        self._action_emitter = action_emitter
+        self._event_emitter = event_emitter
         self._running = False
 
     async def start(self) -> None:
@@ -31,7 +31,7 @@ class AgentRuntime:
             return
         await self._sensor_hub.start()
         await self._task_agent_manager.start_all(
-            action_emitter=self._action_emitter,
+            event_emitter=self._event_emitter,
             sensor_hub=self._sensor_hub,
         )
         await self._router_agent.start()

@@ -311,7 +311,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                     )}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-primary/10 text-xl">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/50 bg-neutral-200 text-xl dark:bg-neutral-700">
                         {item.avatar && !brokenAvatarKeys[`list:${item.seed_slug}:${item.avatar}`] ? (
                           <img
                             src={resolveAvatarUrl(item.avatar)}
@@ -445,7 +445,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                               className="overflow-hidden"
                             >
                               <div className="flex flex-wrap items-start gap-4">
-                                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary/10 text-2xl">
+                                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/50 bg-neutral-200 text-2xl dark:bg-neutral-700">
                                   {isCustomSelected ? (
                                     <Sparkles className="h-7 w-7 text-primary" />
                                   ) : focusAvatar && !brokenAvatarKeys[`focus:${focusAvatar}`] ? (

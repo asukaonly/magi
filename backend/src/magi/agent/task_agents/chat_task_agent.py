@@ -166,7 +166,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         self._postprocess_service = ChatPostProcessService(
             agent_id=self.agent_id,
             history_service=self._history_service,
-            get_action_emitter=lambda: self._action_emitter,
+            get_event_emitter=lambda: self._event_emitter,
             get_task_agent_manager=lambda: self._task_agent_manager,
             get_sensor_hub=lambda: self._sensor_hub,
             memory=memory,

@@ -1287,14 +1287,6 @@
         "name": "Core Tools",
         "description": "Built-in tools for web search, file operations, and more"
       },
-      "core-actions": {
-        "name": "Core Actions",
-        "description": "Built-in actions for agent outbound capabilities",
-        "options": {
-          "delivery_mode": { "console": "Console (Debug)", "smtp": "SMTP", "sendgrid": "SendGrid" }
-        },
-        "sections": { "email": "Email" }
-      },
       "calendar": {
         "name": "Calendar",
         "description": "Calendar event ingestion for the timeline",
@@ -1747,7 +1739,7 @@
     "clear": "Clear",
     "sources": {
       "chat_projector": "Chat projector",
-      "runtime_action_emitter": "Runtime action emitter",
+      "runtime_event_emitter": "Runtime event emitter",
       "timeline_importer": "Timeline importer",
       "manual_journal": "Manual journal",
       "l2_lab": "L2 lab"

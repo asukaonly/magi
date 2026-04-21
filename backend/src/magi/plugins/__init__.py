@@ -1,6 +1,5 @@
 """Unified plugin runtime exports."""
 
-from .actions import ActionExecutionContext, ActionRegistry, ActionSpec, BaseAction
 from .base import Plugin
 from .contracts import (
     ActivationFlowSpec,
@@ -20,11 +19,7 @@ from .manager import PluginManager
 from .sensors import SensorRegistry, SensorSpec
 
 __all__ = [
-    "ActionExecutionContext",
-    "ActionRegistry",
-    "ActionSpec",
     "ActivationFlowSpec",
-    "BaseAction",
     "ContributionType",
     "ExtensionFieldOption",
     "ExtensionFieldSpec",

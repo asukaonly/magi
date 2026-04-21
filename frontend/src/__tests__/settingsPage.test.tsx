@@ -435,76 +435,8 @@ const pluginsListFixture = {
         },
       ],
     },
-    {
-      manifest: {
-        plugin_id: 'core-actions',
-        name: 'Core Actions',
-        version: '1.0.0',
-        description: 'Built-in actions',
-        author: 'Magi Team',
-        official: true,
-        contribution_types: ['action'],
-        source: 'builtin',
-        plugin_dir: '/tmp/plugins/core-actions',
-        manifest_path: '/tmp/plugins/core-actions/plugin.toml',
-      },
-      enabled: true,
-      trusted: true,
-      loaded: true,
-      healthy: true,
-      last_error: null,
-      current_settings: {
-        email: {
-          default_sender: '',
-          provider_mode: 'simulated',
-        },
-      },
-      contributions: [
-        {
-          plugin_id: 'core-actions',
-          contribution_id: 'send-email',
-          contribution_type: 'action',
-          display_name: 'Send Email',
-          description: 'Send an outbound email through the configured action provider.',
-          surface: 'actions',
-          fields: [
-            {
-              key: 'email.default_sender',
-              type: 'input',
-              label: 'Default Sender',
-              description: 'Default sender address for email actions.',
-              default: '',
-              required: false,
-              options: [],
-              section: 'email',
-              surface: 'actions',
-              order: 10,
-            },
-            {
-              key: 'email.provider_mode',
-              type: 'select',
-              label: 'Delivery Mode',
-              description: 'How email delivery is performed.',
-              default: 'simulated',
-              required: false,
-              options: [
-                { label: 'Simulated', value: 'simulated' },
-              ],
-              section: 'email',
-              surface: 'actions',
-              order: 20,
-            },
-          ],
-          metadata: {
-            dangerous: false,
-            required_permissions: [],
-            tool_adapter_name: 'send-email',
-          },
-        },
-      ],
-    },
   ],
-  total: 3,
+  total: 2,
 };
 
 const toolsFixture = {

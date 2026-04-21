@@ -1256,6 +1256,23 @@ describe('config forms', () => {
           },
           provider_options: {},
         },
+        image_generation: {
+          provider_id: '',
+          model: '',
+          capability_override_enabled: false,
+          capabilities: {
+            vision: false,
+            image_output: true,
+            tool_calling: false,
+            reasoning: false,
+            embedding: false,
+          },
+          limits: {
+            context_window: null,
+            max_output_tokens: null,
+          },
+          provider_options: {},
+        },
       },
       model_runtime_overrides: {},
     };

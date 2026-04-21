@@ -16,6 +16,42 @@ from ..llm.lifecycle import RuntimeInitializationDeferred
 logger = get_logger(__name__)
 
 
+def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) -> None:
+    """Bind infrastructure services that were created before LLM init was deferred.
+
+    When ``LLMRuntimeModule`` raises ``LifecycleInitDeferred``, modules that
+    ran *before* it (chat_store, message_bus, runtime_command_queue, etc.)
+    have already been initialised.  Export them to the DI container so that
+    API endpoints can use basic infrastructure even without a full runtime.
+    """
+    container = get_container()
+    bound: list[str] = []
+
+    if context.chat.store is not None:
+        container.chat_store.override(providers.Object(context.chat.store))
+        bound.append("chat_store")
+    if context.message_bus.message_bus is not None:
+        container.message_bus.override(providers.Object(context.message_bus.message_bus))
+        bound.append("message_bus")
+    if context.runtime_commands.runtime_command_queue is not None:
+        container.runtime_command_queue.override(
+            providers.Object(context.runtime_commands.runtime_command_queue),
+        )
+        bound.append("runtime_command_queue")
+    if context.plugins.plugin_manager is not None:
+        container.plugin_manager.override(providers.Object(context.plugins.plugin_manager))
+        bound.append("plugin_manager")
+    if context.plugins.sensor_registry is not None:
+        container.sensor_registry.override(providers.Object(context.plugins.sensor_registry))
+        bound.append("sensor_registry")
+    if context.runtime_trace.store is not None:
+        container.runtime_trace_store.override(providers.Object(context.runtime_trace.store))
+        bound.append("runtime_trace_store")
+
+    if bound:
+        logger.info("Infrastructure bindings exported during deferred init: %s", ", ".join(bound))
+
+
 def _initialize_skills_bindings_for_configuration_mode(config: AppConfig) -> None:
     """Initialize skills bindings even when full runtime startup is deferred.
 
@@ -84,6 +120,7 @@ async def initialize_agent_runtime() -> None:
         logger.info("Initializing Agent Runtime...")
         await orchestrator.startup()
     except RuntimeInitializationDeferred as exc:
+        _export_available_infrastructure_bindings(context)
         _initialize_skills_bindings_for_configuration_mode(context.core.config or get_config())
         if exc.pending_selection:
             logger.info(

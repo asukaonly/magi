@@ -157,3 +157,26 @@ class LLMAdapter(ABC):
     def supports_embeddings(self) -> bool:
         """Whether embedding vectors are supported"""
         return False
+
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        model: Optional[str] = None,
+        size: str = "1024x1024",
+        quality: str = "auto",
+        n: int = 1,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate an image from a text prompt (optional implementation).
+
+        Args:
+            prompt: Text description of the desired image.
+            model: Image generation model name (optional, uses adapter default).
+            size: Image dimensions, e.g. ``"1024x1024"``.
+            quality: Generation quality hint (``"auto"``, ``"high"``, ``"medium"``, ``"low"``).
+            n: Number of images to generate.
+
+        Returns:
+            Dict with ``images`` list and metadata, or ``None`` if not supported.
+        """
+        return None

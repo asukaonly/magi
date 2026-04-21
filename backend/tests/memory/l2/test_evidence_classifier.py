@@ -184,7 +184,7 @@ def _build_chat_response_action_event():
             "turn_id": "turn-1",
             "success": True,
         },
-        source="runtime_action_emitter",
+        source="runtime_event_emitter",
         level=EventLevel.INFO,
         correlation_id="evt-runtime-chat-1",
         timestamp=1710000004.0,

@@ -47,7 +47,7 @@ class AgentRuntimeModule(LifecycleModule):
         chat_store = require_initialized(self._context.chat.store, "chat store")
         chat_projector = require_initialized(self._context.chat.projector, "chat projector")
         sensor_hub = require_initialized(self._context.agent_runtime.sensor_hub, "sensor hub")
-        action_emitter = require_initialized(self._context.agent_runtime.action_emitter, "action emitter")
+        event_emitter = require_initialized(self._context.agent_runtime.event_emitter, "event emitter")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
         sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
 
@@ -90,7 +90,7 @@ class AgentRuntimeModule(LifecycleModule):
             sensor_hub=sensor_hub,
             router_agent=router_agent,
             task_agent_manager=task_agent_manager,
-            action_emitter=action_emitter,
+            event_emitter=event_emitter,
         )
         agent_tool = tool_registry.get_tool("agent")
         if agent_tool and hasattr(agent_tool, "configure"):

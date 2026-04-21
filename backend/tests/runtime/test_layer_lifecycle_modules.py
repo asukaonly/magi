@@ -114,7 +114,7 @@ def test_awareness_lifecycle_owns_action_runtime_primitives() -> None:
     assert "from .sensor_hub import SensorHub" in source
 
 
-def test_bootstrap_builder_uses_sensors_and_actions_module_name() -> None:
+def test_bootstrap_builder_uses_sensor_module_name() -> None:
     builder_source = (Path(__file__).resolve().parents[2] / "src/magi/bootstrap/builder.py").read_text(encoding="utf-8")
     runtime_worker_builder_source = (
         Path(__file__).resolve().parents[2] / "src/magi/bootstrap/runtime_worker_builder.py"
@@ -124,8 +124,8 @@ def test_bootstrap_builder_uses_sensors_and_actions_module_name() -> None:
     assert "SensorHubModule" not in builder_source
     assert "SensorHubModule" not in runtime_worker_builder_source
     assert "class SensorHubModule" not in awareness_source
-    assert "SensorsAndActionsModule" in runtime_worker_builder_source
-    assert "class SensorsAndActionsModule" in awareness_source
+    assert "SensorModule" in runtime_worker_builder_source
+    assert "class SensorModule" in awareness_source
     assert "core.runtime.action_scheduler_contrib" not in awareness_source
 
 

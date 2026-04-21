@@ -43,7 +43,7 @@ interface LLMFormProps {
   onCrossEncoderConfigChange?: (updater: (draft: import('@/api/modules/config').CrossEncoderConfig) => void) => void;
 }
 
-const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
+const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding', 'image_generation'];
 
 interface PendingEmbeddingDimensionChange {
   scenario: LLMScenario;
@@ -132,6 +132,7 @@ const cloneLLMConfig = (value?: LLMConfig): LLMConfig => ({
     context_decider: cloneSelection(value?.selections?.context_decider),
     core: cloneSelection(value?.selections?.core),
     embedding: cloneSelection(value?.selections?.embedding),
+    image_generation: cloneSelection(value?.selections?.image_generation),
   },
   model_runtime_overrides: Object.fromEntries(
     Object.entries(value?.model_runtime_overrides || {}).map(([runtimeKey, limits]) => [
@@ -300,6 +301,12 @@ const resolveProviderDefaultModel = (
   if (scenario === 'embedding') {
     return resolvedModels.embedding_models.find((model) => !model.hidden)?.id || '';
   }
+  if (scenario === 'image_generation') {
+    const providerMeta =
+      provider.provider_type === 'custom' ? undefined : getProviderMeta(registry, provider.provider_type);
+    const imageModels = providerMeta?.image_generation_models ?? [];
+    return imageModels[0]?.id || '';
+  }
   if (scenario === 'context_decider') {
     return (
       providerMeta?.default_classify_model ||
@@ -356,6 +363,22 @@ const applySelectionDefaults = (
         selection.limits = cloneLimits(selection.limits);
         selection.provider_options = { ...(fallbackModel.provider_options_example || {}) };
       }
+    }
+    return;
+  }
+
+  if (scenario === 'image_generation') {
+    // Image generation models are user-configured, no auto-resolution needed.
+    // Just keep the current model value as-is (user types it in).
+    if (!selection.capability_override_enabled) {
+      selection.capabilities = cloneCapabilities({
+        vision: false,
+        image_output: true,
+        tool_calling: false,
+        reasoning: false,
+        embedding: false,
+      });
+      selection.limits = cloneLimits(selection.limits);
     }
     return;
   }
@@ -437,6 +460,33 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
     })?.[0] || '';
 
   for (const scenario of BUILTIN_SCENARIOS) {
+    // Image generation is fully user-managed — skip auto-normalization.
+    if (scenario === 'image_generation') {
+      if (!next.selections[scenario]) {
+        next.selections[scenario] = {
+          provider_id: '',
+          model: '',
+          embedding_dimension: null,
+          capability_override_enabled: false,
+          capabilities: cloneCapabilities({
+            vision: false,
+            image_output: true,
+            tool_calling: false,
+            reasoning: false,
+            embedding: false,
+          }),
+          limits: cloneLimits(),
+          provider_options: {},
+        };
+      }
+      const sel = next.selections[scenario];
+      if (sel.provider_id && !next.providers[sel.provider_id]?.enabled) {
+        sel.provider_id = '';
+        sel.model = '';
+      }
+      continue;
+    }
+
     const selection = cloneSelection(next.selections[scenario]);
     const hasEnabledSelection =
       Boolean(selection.provider_id) &&
@@ -628,7 +678,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
 
   const scenarioReferences = useMemo(() => {
     return Object.entries(currentValue.selections).reduce<Record<string, LLMScenario[]>>((acc, [scenario, selection]) => {
-      const providerId = selection.provider_id;
+      const providerId = selection?.provider_id;
+      if (!providerId) return acc;
       if (!acc[providerId]) {
         acc[providerId] = [];
       }
@@ -661,11 +712,26 @@ const LLMForm: React.FC<LLMFormProps> = ({
           defaultMaxConcurrency: null,
           sharedScenarios: [],
         },
+        image_generation: {
+          runtimeKey: null,
+          effectiveMaxConcurrency: null,
+          overrideMaxConcurrency: null,
+          defaultMaxConcurrency: null,
+          sharedScenarios: [],
+        },
       };
     }
 
     const entries = BUILTIN_SCENARIOS.map((scenario) => {
       const selection = currentValue.selections[scenario];
+      if (!selection?.provider_id) {
+        return {
+          scenario,
+          runtimeKey: null,
+          overrideMaxConcurrency: null,
+          defaultMaxConcurrency: null,
+        };
+      }
       const provider = currentValue.providers[selection.provider_id];
       const runtimeKey = buildRuntimeOverrideKey({
         registry,

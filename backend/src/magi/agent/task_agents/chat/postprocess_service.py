@@ -8,7 +8,6 @@ import uuid
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from ....core.logger import get_logger
-from ....awareness.contracts import ActionEmissionRecord
 from ....agent.runtime.contracts import FactRecord
 from ....agent.trace import (
     now_wall_ms,
@@ -53,7 +52,7 @@ class ChatPostProcessService:
         *,
         agent_id: str,
         history_service: ChatHistoryService,
-        get_action_emitter: Callable[[], Any],
+        get_event_emitter: Callable[[], Any],
         get_task_agent_manager: Callable[[], Any | None],
         get_sensor_hub: Callable[[], Any | None],
         memory=None,
@@ -68,7 +67,7 @@ class ChatPostProcessService:
     ) -> None:
         self._agent_id = agent_id
         self._history_service = history_service
-        self._get_action_emitter = get_action_emitter
+        self._get_event_emitter = get_event_emitter
         self._get_task_agent_manager = get_task_agent_manager
         self._get_sensor_hub = get_sensor_hub
         self._memory = memory
@@ -110,7 +109,7 @@ class ChatPostProcessService:
             )
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
-        action_emitter = self._get_action_emitter()
+        event_emitter = self._get_event_emitter()
         latest_fact = context.latest_fact
         if not isinstance(latest_fact, FactRecord):
             return ChatParseOutcome(False, False, False, False)
@@ -131,7 +130,7 @@ class ChatPostProcessService:
             ):
                 return ChatParseOutcome(False, False, False, False)
             return ChatParseOutcome(False, False, False, False)
-        if action_emitter is None:
+        if event_emitter is None:
             return ChatParseOutcome(False, False, False, False)
 
         response_text = str(result.response_text or "").strip()
@@ -288,7 +287,7 @@ class ChatPostProcessService:
                 can_cancel=False,
             )
 
-        await action_emitter.emit_chat_response_event(
+        await event_emitter.emit_chat_response_event(
             user_id=context.user_id,
             session_id=context.session_id,
             response=response_text,
@@ -297,35 +296,6 @@ class ChatPostProcessService:
             orchestration_id=result.orchestration_id,
             trace_summary=trace_summary,
             trace_available=trace_available,
-        )
-        now = time.time()
-        message_started_at = float(result.message_started_at or latest_fact.timestamp or now)
-        response_time = max(0.0, now - message_started_at)
-        action_payload = dict(latest_fact.payload) if isinstance(latest_fact.payload, dict) else {}
-        action_payload.update(
-            {
-                "action_type": "ChatResponseAction",
-                "response": response_text,
-                "execution_time": response_time,
-                "user_id": context.user_id,
-                "session_id": context.session_id,
-                "orchestration_id": result.orchestration_id,
-                "turn_id": turn_id,
-            }
-        )
-        await action_emitter.emit_action_event(
-            record=ActionEmissionRecord(
-                agent_id=latest_fact.agent_id,
-                event_type=(
-                    EventTypes.AI_RESPONSE
-                    if latest_fact.event_type in WORKER_AGENT_EVENT_TYPES or latest_fact.event_type == EXPLORE_TASK_COMPLETED
-                    else latest_fact.event_type
-                ),
-                payload=action_payload,
-                correlation_id=correlation_id,
-            ),
-            success=True,
-            error=None,
         )
         return ChatParseOutcome(True, history_stored, memory_updated, False)
 
@@ -648,8 +618,8 @@ class ChatPostProcessService:
             },
         )
 
-        action_emitter = self._get_action_emitter()
-        if action_emitter is None:
+        event_emitter = self._get_event_emitter()
+        if event_emitter is None:
             return
         tool_name = str(payload.get("tool_name") or "unknown")
         arguments = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
@@ -669,29 +639,7 @@ class ChatPostProcessService:
                 },
                 source_event_id=str(payload.get("tool_call_id") or turn_id or tool_name),
             )
-        await action_emitter.emit_action_event(
-            record=ActionEmissionRecord(
-                agent_id=self._agent_id,
-                event_type=TOOL_INTERACTION_EVENT_TYPE,
-                payload={
-                    "action_type": tool_name,
-                    "tool_name": tool_name,
-                    "params": arguments,
-                    "arguments": arguments,
-                    "execution_time": execution_time,
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "orchestration_id": payload.get("orchestration_id"),
-                    "tool_call_id": payload.get("tool_call_id"),
-                    "iteration": payload.get("iteration"),
-                },
-                correlation_id=str(payload.get("tool_call_id") or str(uuid.uuid4())),
-            ),
-            success=success,
-            error=error_text,
-        )
-        await action_emitter.emit_runtime_event(
+        await event_emitter.emit_runtime_event(
             event_type=TOOL_INTERACTION_EVENT_TYPE,
             payload={
                 "tool_name": tool_name,
@@ -759,9 +707,9 @@ class ChatPostProcessService:
             "timestamp": time.time(),
         }
         correlation_id = str(payload.get("tool_call_id") or str(uuid.uuid4()))
-        action_emitter = self._get_action_emitter()
-        if action_emitter is not None:
-            await action_emitter.emit_runtime_event(
+        event_emitter = self._get_event_emitter()
+        if event_emitter is not None:
+            await event_emitter.emit_runtime_event(
                 event_type=CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
                 payload=runtime_payload,
                 correlation_id=correlation_id,
@@ -1373,7 +1321,7 @@ class ChatPostProcessService:
     async def _emit_loop_llm_trace(
         self,
         *,
-        action_emitter: Any,
+        event_emitter: Any,
         user_id: str,
         session_id: str,
         turn_id: str | None,
@@ -1391,7 +1339,7 @@ class ChatPostProcessService:
         duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
         ended_at_ms = now_wall_ms()
         started_at_ms = max(0, ended_at_ms - duration_ms)
-        _ = (action_emitter, user_id, session_id, tool_count, tool_names, response_preview, execution_agent_id)
+        _ = (event_emitter, user_id, session_id, tool_count, tool_names, response_preview, execution_agent_id)
         if self._runtime_trace_store is None:
             return
         span_id = self._build_span_id(

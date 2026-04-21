@@ -445,6 +445,7 @@ export const ChatPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const draftAttachmentsRef = useRef<DraftAttachment[]>([]);
+  const bootstrapInitDoneRef = useRef(false);
   const labelPopoverRef = useRef<HTMLDivElement>(null);
   const messageContextMenuRef = useRef<HTMLDivElement>(null);
   const labelInputComposingRef = useRef(false);
@@ -725,13 +726,15 @@ export const ChatPage: React.FC = () => {
           setAiName(data.name || 'AI');
           setAiAvatar(data.avatar || '');
 
-          if (data.needs_bootstrap && currentSessionId) {
+          if (data.needs_bootstrap && currentSessionId && !bootstrapInitDoneRef.current) {
+            bootstrapInitDoneRef.current = true;
             try {
               await personasApi.bootstrapInit(currentSessionId, USER_ID);
               // Re-fetch history so the persisted opening message appears in the chat
               lastHistoryRequestRef.current = null;
               void requestHistory(currentSessionId);
             } catch {
+              bootstrapInitDoneRef.current = false;
               // Bootstrap init failed — proceed without bootstrap
             }
           }

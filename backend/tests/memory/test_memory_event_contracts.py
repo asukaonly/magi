@@ -76,7 +76,7 @@ def test_trace_runtime_event_defaults_to_l0_only_and_reads_tags():
                 "session_id": "s1",
             },
         },
-        source="runtime_action_emitter",
+        source="runtime_event_emitter",
         level=EventLevel.INFO,
         correlation_id="trace-1",
     )
@@ -101,7 +101,7 @@ def test_action_executed_event_defaults_to_l0_only():
             "success": True,
             "execution_time": 0.25,
         },
-        source="runtime_action_emitter",
+        source="runtime_event_emitter",
         level=EventLevel.INFO,
         correlation_id="corr-action-1",
     )

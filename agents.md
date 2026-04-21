@@ -87,7 +87,7 @@ magi/
 │   ├── src/magi/
 │   │   ├── agent/              # Task-agent runtime, orchestration, workers
 │   │   ├── api/                # Product-facing routers and services
-│   │   ├── awareness/          # Sensors, actions, action emission
+│   │   ├── awareness/          # Sensors and runtime event emission
 │   │   ├── bootstrap/          # Composition root and lifecycle assembly
 │   │   ├── channels/           # External messaging adapters
 │   │   ├── chat/               # Chat domain persistence and attachments

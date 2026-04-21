@@ -1,4 +1,4 @@
-"""L9 Sensors And Actions Layer lifecycle module."""
+"""L9 Sensors Layer lifecycle module."""
 
 from __future__ import annotations
 
@@ -10,15 +10,15 @@ from ..timeline.adapter import TimelineAdapter
 from .ingestion_gateway import SensorIngestionGateway
 from .sensor_state import SqliteSensorStateStore
 from .sensor_hub import SensorHub
-from .action_emitter import ActionEmitter
+from .event_emitter import RuntimeEventEmitter
 from .scheduler_contrib import SensorSchedulerContrib
 from .sensor_sync_executor import SensorSyncExecutor
 
 logger = get_logger(__name__)
 
 
-class SensorsAndActionsModule(LifecycleModule):
-    """Initialize SensorHub and ActionEmitter (L9 - Sensors/Actuators layer)."""
+class SensorModule(LifecycleModule):
+    """Initialize SensorHub and RuntimeEventEmitter (L9 - Sensors layer)."""
 
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
@@ -31,12 +31,12 @@ class SensorsAndActionsModule(LifecycleModule):
         message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
 
         self._context.agent_runtime.sensor_hub = SensorHub(message_bus=message_bus)
-        self._context.agent_runtime.action_emitter = ActionEmitter(message_bus=message_bus)
-        logger.info("SensorHub and ActionEmitter initialized (L9)")
+        self._context.agent_runtime.event_emitter = RuntimeEventEmitter(message_bus=message_bus)
+        logger.info("SensorHub and RuntimeEventEmitter initialized (L9)")
 
     async def shutdown(self) -> None:
         self._context.agent_runtime.sensor_hub = None
-        self._context.agent_runtime.action_emitter = None
+        self._context.agent_runtime.event_emitter = None
 
 
 class SensorScheduleRegistrationModule(LifecycleModule):
