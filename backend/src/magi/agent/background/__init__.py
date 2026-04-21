@@ -15,6 +15,14 @@ from .contracts import (
     BackgroundTaskStatus,
     BackgroundTaskTriggerSource,
 )
+from .dispatcher import (
+    BackgroundDecision,
+    BackgroundDecisionContext,
+    BackgroundDecisionSource,
+    BackgroundDisposition,
+    BackgroundDispatcher,
+    BackgroundRuleOutcome,
+)
 from .executor import (
     BackgroundTaskExecutor,
     BackgroundTaskRunFn,
@@ -24,6 +32,12 @@ from .manager import BackgroundTaskManager
 from .store import BackgroundTaskStore
 
 __all__ = [
+    "BackgroundDecision",
+    "BackgroundDecisionContext",
+    "BackgroundDecisionSource",
+    "BackgroundDisposition",
+    "BackgroundDispatcher",
+    "BackgroundRuleOutcome",
     "BackgroundTask",
     "BackgroundTaskEvent",
     "BackgroundTaskExecutor",
