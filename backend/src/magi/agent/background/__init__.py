@@ -47,6 +47,7 @@ from .memory_isolation import (
     is_background_fact,
     tag_fact,
 )
+from .retention import BackgroundTaskRetentionGC
 from .store import BackgroundTaskStore
 
 __all__ = [
@@ -65,6 +66,7 @@ __all__ = [
     "BackgroundTaskExecutor",
     "BackgroundTaskListener",
     "BackgroundTaskManager",
+    "BackgroundTaskRetentionGC",
     "BackgroundTaskRunFn",
     "BackgroundTaskRunResult",
     "BackgroundTaskSpec",

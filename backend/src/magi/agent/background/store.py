@@ -306,6 +306,60 @@ class BackgroundTaskStore:
             )
         return recovered
 
+    async def purge_expired(
+        self,
+        *,
+        retention_seconds: float,
+        now: float | None = None,
+    ) -> int:
+        """Hard-delete terminal tasks older than ``retention_seconds``.
+
+        Only tasks whose status is ``succeeded`` / ``failed`` / ``cancelled``
+        are eligible — active rows are never removed. The cutoff compares
+        against ``finished_at`` when present, otherwise ``updated_at`` to
+        cover rows whose finish timestamp was not populated on a legacy
+        path. The related ``background_task_events`` rows are deleted in
+        the same transaction. Returns the number of tasks deleted.
+        """
+        if retention_seconds <= 0:
+            return 0
+        await self.initialize()
+        cutoff = (now if now is not None else time.time()) - retention_seconds
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            cursor = await db.execute(
+                """
+                SELECT task_id FROM background_tasks
+                WHERE status IN (?, ?, ?)
+                  AND COALESCE(finished_at, updated_at) < ?
+                """,
+                (
+                    BackgroundTaskStatus.SUCCEEDED.value,
+                    BackgroundTaskStatus.FAILED.value,
+                    BackgroundTaskStatus.CANCELLED.value,
+                    cutoff,
+                ),
+            )
+            rows = await cursor.fetchall()
+            task_ids = [str(row[0]) for row in rows]
+            if not task_ids:
+                return 0
+            placeholders = ",".join("?" * len(task_ids))
+            await db.execute(
+                f"DELETE FROM background_task_events WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+            await db.execute(
+                f"DELETE FROM background_tasks WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+            await db.commit()
+        logger.info(
+            "Purged expired background tasks",
+            count=len(task_ids),
+            retention_seconds=retention_seconds,
+        )
+        return len(task_ids)
+
     # ------------------------------------------------------------------
     # Event log
     # ------------------------------------------------------------------

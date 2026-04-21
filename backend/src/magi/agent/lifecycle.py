@@ -67,6 +67,7 @@ class AgentRuntimeModule(LifecycleModule):
             skill_runner=self._context.skills.skill_runner,
             runtime_trace_store=runtime_trace_store,
             max_concurrent=bg_settings.max_concurrent,
+            history_retention_days=bg_settings.history_retention_days,
         )
         self._background_wiring = background_wiring
         self._context.agent_runtime.background_task_manager = background_wiring.manager
@@ -132,6 +133,7 @@ class AgentRuntimeModule(LifecycleModule):
         background_wiring.manager.add_listener(handshake_listener)
         background_wiring.manager.add_listener(broadcast_background_task_state_changed)
         await background_wiring.manager.start()
+        await background_wiring.retention_gc.start()
 
         logger.info(
             "AgentRuntime started (L11)",
@@ -141,6 +143,7 @@ class AgentRuntimeModule(LifecycleModule):
 
     async def shutdown(self) -> None:
         if self._background_wiring is not None:
+            await self._background_wiring.retention_gc.stop()
             await self._background_wiring.manager.stop()
             self._background_wiring = None
             self._context.agent_runtime.background_task_manager = None

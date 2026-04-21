@@ -18,6 +18,7 @@ from ..agent.background import (
     BackgroundDispatcher,
     BackgroundLaunchService,
     BackgroundTaskManager,
+    BackgroundTaskRetentionGC,
     BackgroundTaskStore,
     build_background_run_fn,
 )
@@ -46,6 +47,7 @@ class BackgroundTaskWiring:
     manager: BackgroundTaskManager
     dispatcher: BackgroundDispatcher
     launch_service: BackgroundLaunchService
+    retention_gc: BackgroundTaskRetentionGC
 
 
 def build_background_task_wiring(
@@ -56,6 +58,7 @@ def build_background_task_wiring(
     skill_runner: Any,
     runtime_trace_store: Any,
     max_concurrent: int = 2,
+    history_retention_days: float = 0.0,
 ) -> BackgroundTaskWiring:
     """Construct the background-task components in their dependency order.
 
@@ -86,11 +89,16 @@ def build_background_task_wiring(
         llm_pool=llm_pool,
     )
     launch_service = BackgroundLaunchService(manager=manager)
+    retention_gc = BackgroundTaskRetentionGC(
+        store=store,
+        retention_days=history_retention_days,
+    )
     return BackgroundTaskWiring(
         store=store,
         manager=manager,
         dispatcher=dispatcher,
         launch_service=launch_service,
+        retention_gc=retention_gc,
     )
 
 

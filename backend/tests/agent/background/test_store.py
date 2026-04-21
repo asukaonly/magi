@@ -360,3 +360,79 @@ async def test_list_events_scopes_to_single_task(store: BackgroundTaskStore) -> 
     assert len(events_b) == 1
     assert events_a[0].task_id == task_a.task_id
     assert events_b[0].task_id == task_b.task_id
+
+
+# ----------------------------------------------------------------------
+# Retention GC
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_purge_expired_removes_old_terminal_tasks_and_events(
+    store: BackgroundTaskStore,
+) -> None:
+    old_success = BackgroundTask.new(_make_spec(origin_turn_id="t-old"))
+    old_success.status = BackgroundTaskStatus.SUCCEEDED
+    old_success.finished_at = 100.0
+    old_success.updated_at = 100.0
+    await store.create_task(old_success)
+    await store.append_event(
+        BackgroundTaskEvent.transition(
+            task_id=old_success.task_id,
+            attempt_index=0,
+            from_status=BackgroundTaskStatus.RUNNING,
+            to_status=BackgroundTaskStatus.SUCCEEDED,
+        )
+    )
+
+    recent_success = BackgroundTask.new(_make_spec(origin_turn_id="t-recent"))
+    recent_success.status = BackgroundTaskStatus.SUCCEEDED
+    recent_success.finished_at = 10_000.0
+    recent_success.updated_at = 10_000.0
+    await store.create_task(recent_success)
+
+    # now = 10_500, retention = 1000s  => cutoff = 9_500 => only the
+    # 100.0 row is expired. recent_success (10_000) is preserved.
+    deleted = await store.purge_expired(retention_seconds=1000.0, now=10_500.0)
+    assert deleted == 1
+
+    assert await store.get_task(old_success.task_id) is None
+    assert await store.get_task(recent_success.task_id) is not None
+    assert await store.list_events(old_success.task_id) == []
+
+
+@pytest.mark.asyncio
+async def test_purge_expired_never_touches_active_tasks(
+    store: BackgroundTaskStore,
+) -> None:
+    running = BackgroundTask.new(_make_spec(origin_turn_id="t-run"))
+    running.status = BackgroundTaskStatus.RUNNING
+    running.updated_at = 0.0
+    await store.create_task(running)
+
+    pending = BackgroundTask.new(_make_spec(origin_turn_id="t-pend"))
+    pending.status = BackgroundTaskStatus.PENDING
+    pending.updated_at = 0.0
+    await store.create_task(pending)
+
+    deleted = await store.purge_expired(retention_seconds=1.0, now=10_000.0)
+
+    assert deleted == 0
+    assert await store.get_task(running.task_id) is not None
+    assert await store.get_task(pending.task_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_purge_expired_noop_when_retention_zero(
+    store: BackgroundTaskStore,
+) -> None:
+    finished = BackgroundTask.new(_make_spec(origin_turn_id="t-zero"))
+    finished.status = BackgroundTaskStatus.FAILED
+    finished.finished_at = 1.0
+    finished.updated_at = 1.0
+    await store.create_task(finished)
+
+    deleted = await store.purge_expired(retention_seconds=0.0, now=10_000.0)
+
+    assert deleted == 0
+    assert await store.get_task(finished.task_id) is not None
