@@ -1,0 +1,231 @@
+"""Launch service + run-function factory for background tasks.
+
+This is the last piece of the background-task runtime (phase 3c):
+
+* :class:`BackgroundLaunchService` turns an :class:`ExecutionRequest`
+  that the dispatcher flagged as BACKGROUND into a persisted
+  :class:`BackgroundTask` via :class:`BackgroundTaskManager`, then
+  returns a short ack :class:`ExecutionResult` so the chat turn can
+  finalize its session-run immediately. No polling, no streaming — the
+  UI is notified through a later completion handshake (phase 4).
+
+* :func:`build_background_run_fn` returns a
+  :class:`BackgroundTaskRunFn` closure that the manager invokes for
+  each scheduled task. The closure is a thin bridge:
+  :class:`BackgroundTask` + :class:`CancelToken` →
+  :meth:`FunctionCallingOrchestrator.execute_with_tools` →
+  :class:`BackgroundTaskRunResult`.
+
+These two pieces are intentionally decoupled: the launch service does
+not know how a task will actually run, and the run-fn factory does not
+know how a task is dispatched. Phase 3d will call these from the chat
+coordinator after the dispatcher's verdict.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Callable
+
+import structlog
+
+from ..cancel import CancelToken
+from ..task_agents.common.contracts import (
+    ExecutionRequest,
+    ExecutionResult,
+)
+from .contracts import (
+    BackgroundTask,
+    BackgroundTaskSpec,
+    BackgroundTaskTriggerSource,
+)
+from .executor import BackgroundTaskRunFn, BackgroundTaskRunResult
+from .manager import BackgroundTaskManager
+
+__all__ = [
+    "BackgroundLaunchService",
+    "build_background_run_fn",
+    "build_spec_from_request",
+    "default_ack_text",
+]
+
+
+logger = structlog.get_logger(__name__)
+
+
+def default_ack_text(title: str) -> str:
+    """Default acknowledgement string shown to the user in chat.
+
+    Kept English per agents.md (AI-generated log/UX text). The real
+    product-facing copy can be swapped by passing ``ack_builder`` to
+    :class:`BackgroundLaunchService`.
+    """
+    clean = (title or "this task").strip() or "this task"
+    return f"Started background task: {clean}. I'll let you know when it finishes."
+
+
+# ---------------------------------------------------------------------
+# Spec construction
+# ---------------------------------------------------------------------
+
+
+def _derive_title(user_message: str) -> str:
+    text = (user_message or "").strip().splitlines()[0] if user_message else ""
+    text = text.strip()
+    if not text:
+        return "background task"
+    if len(text) <= 80:
+        return text
+    return text[:77].rstrip() + "..."
+
+
+def build_spec_from_request(
+    request: ExecutionRequest,
+    *,
+    trigger_source: BackgroundTaskTriggerSource,
+    timeout_seconds: int | None = 1800,
+    max_iterations: int = 20,
+) -> BackgroundTaskSpec:
+    """Construct a :class:`BackgroundTaskSpec` from a chat
+    :class:`ExecutionRequest`.
+
+    The spec captures the *intent snapshot* at dispatch time so a retry
+    can rerun the same task without replaying the whole chat turn. The
+    live chat history is intentionally not included — on retry the
+    executor will rebuild its own prompt package.
+    """
+    context = request.context
+    latest_payload = getattr(context, "latest_payload", None)
+    turn_id = getattr(latest_payload, "turn_id", None) or ""
+    workspace_path = str(getattr(latest_payload, "workspace_path", "") or "").strip() or None
+    user_message = context.latest_user_message or ""
+    return BackgroundTaskSpec(
+        user_id=context.user_id,
+        session_id=context.session_id or "",
+        origin_turn_id=str(turn_id),
+        title=_derive_title(user_message),
+        goal=user_message,
+        selected_tools=list(request.tool_selection.tools or []),
+        workspace_path=workspace_path,
+        trigger_source=trigger_source,
+        timeout_seconds=timeout_seconds,
+        max_iterations=max_iterations,
+    )
+
+
+# ---------------------------------------------------------------------
+# Launch service
+# ---------------------------------------------------------------------
+
+
+class BackgroundLaunchService:
+    """Enqueue-a-background-task service for the chat runtime.
+
+    The service is deliberately handler-agnostic: it returns a plain
+    :class:`ExecutionResult` that any caller (phase 3d will wire the
+    coordinator / FunctionCallingHandler) can forward as the turn's
+    final result. The ack text is built via an injectable callback so
+    product surfaces can localise it without touching runtime code.
+    """
+
+    def __init__(
+        self,
+        manager: BackgroundTaskManager,
+        *,
+        ack_builder: Callable[[BackgroundTaskSpec, BackgroundTask], str] | None = None,
+    ) -> None:
+        self._manager = manager
+        self._ack_builder = ack_builder or (
+            lambda spec, _task: default_ack_text(spec.title)
+        )
+
+    async def enqueue_from_request(
+        self,
+        request: ExecutionRequest,
+        *,
+        trigger_source: BackgroundTaskTriggerSource,
+        timeout_seconds: int | None = 1800,
+        max_iterations: int = 20,
+    ) -> ExecutionResult:
+        spec = build_spec_from_request(
+            request,
+            trigger_source=trigger_source,
+            timeout_seconds=timeout_seconds,
+            max_iterations=max_iterations,
+        )
+        task = await self._manager.enqueue(spec)
+        ack = self._ack_builder(spec, task)
+        logger.info(
+            "background task enqueued",
+            task_id=task.task_id,
+            user_id=spec.user_id,
+            session_id=spec.session_id,
+            trigger_source=trigger_source.value,
+            title=spec.title,
+        )
+        turn_id = getattr(getattr(request.context, "latest_payload", None), "turn_id", None)
+        return ExecutionResult(
+            mode=request.mode,
+            response_text=ack,
+            root_user_message=request.context.latest_user_message,
+            orchestration_id=task.task_id,
+            turn_id=turn_id,
+            ux_plan=_serialize_ux_plan(request.intent),
+        )
+
+
+def _serialize_ux_plan(intent: Any) -> dict | None:
+    plan = getattr(intent, "ux_plan", None)
+    if plan is None:
+        return None
+    to_dict = getattr(plan, "to_dict", None)
+    return to_dict() if callable(to_dict) else plan
+
+
+# ---------------------------------------------------------------------
+# Run-function factory
+# ---------------------------------------------------------------------
+
+
+def build_background_run_fn(
+    *,
+    function_calling_orchestrator: Any,
+    execution_agent_id: str = "background_task",
+    intent_label: str = "background",
+) -> BackgroundTaskRunFn:
+    """Return a :class:`BackgroundTaskRunFn` bound to ``orchestrator``.
+
+    The closure invokes
+    :meth:`FunctionCallingOrchestrator.execute_with_tools` with the
+    task's own spec + the provided :class:`CancelToken`, then wraps the
+    outcome into :class:`BackgroundTaskRunResult`. ``system_prompt`` is
+    left blank so the orchestrator falls back to its built-in scenario
+    prompt — the spec.goal alone is sufficient once decoupled from the
+    original chat turn.
+    """
+
+    async def _run(task: BackgroundTask, cancel_token: CancelToken) -> BackgroundTaskRunResult:
+        spec = task.spec
+        outcome = await function_calling_orchestrator.execute_with_tools(
+            user_message=spec.goal,
+            system_prompt="",
+            selected_tools=list(spec.selected_tools),
+            user_id=spec.user_id,
+            session_id=spec.session_id or None,
+            session_run_id=None,
+            session_run_revision=0,
+            turn_id=spec.origin_turn_id or None,
+            conversation_history=[],
+            max_iterations=spec.max_iterations,
+            intent=intent_label,
+            execution_agent_id=execution_agent_id,
+            execution_workspace=spec.workspace_path,
+            cancel_token=cancel_token,
+        )
+        summary = (outcome.content or "").strip()
+        return BackgroundTaskRunResult(
+            summary=summary,
+            result_payload=outcome.to_dict(),
+            orchestration_id=task.task_id,
+        )
+
+    return _run
