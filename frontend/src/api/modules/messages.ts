@@ -67,6 +67,7 @@ export interface ChatHistoryMessage {
   attachments?: ChatAttachment[];
   reply_to?: ChatReplyPreview | null;
   label?: ChatMessageLabel | null;
+  payload?: Record<string, unknown> | null;
 }
 
 export interface ConversationHistory {

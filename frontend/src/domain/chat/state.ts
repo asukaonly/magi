@@ -36,6 +36,7 @@ export interface ChatTimelineMessage {
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
   streaming?: boolean;
+  payload?: Record<string, unknown> | null;
 }
 
 export interface ChatTimelineReplyPreview {
@@ -292,6 +293,10 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       label: normalizeMessageLabel(message.label),
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
+      payload:
+        message.payload && typeof message.payload === 'object'
+          ? (message.payload as Record<string, unknown>)
+          : null,
     };
 
     if (rawMessageKind === 'assistant_reaction') {

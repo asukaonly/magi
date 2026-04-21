@@ -108,6 +108,17 @@
       "dismissSuccess": "Task dismissed.",
       "dismissFailed": "Could not dismiss this task.",
       "loadFailed": "Failed to load background tasks."
+    },
+    "chatCard": {
+      "eyebrow": "Background task",
+      "defaultTitle": "Background task",
+      "viewDetails": "View details",
+      "status": {
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "unknown": "Finished"
+      }
     }
   },
   "timeline": {

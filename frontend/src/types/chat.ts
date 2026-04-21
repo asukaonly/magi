@@ -96,6 +96,7 @@ export interface ChatTimelineMessage {
   turnId?: string;
   traceSummary?: NormalizedTraceSummary | null;
   traceAvailable?: boolean;
+  payload?: Record<string, unknown> | null;
 }
 
 // ============================================================================

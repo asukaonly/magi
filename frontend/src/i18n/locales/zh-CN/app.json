@@ -108,6 +108,17 @@
       "dismissSuccess": "已清理。",
       "dismissFailed": "清理失败。",
       "loadFailed": "后台任务加载失败。"
+    },
+    "chatCard": {
+      "eyebrow": "后台任务",
+      "defaultTitle": "后台任务",
+      "viewDetails": "查看详情",
+      "status": {
+        "succeeded": "已完成",
+        "failed": "已失败",
+        "cancelled": "已取消",
+        "unknown": "已结束"
+      }
     }
   },
   "timeline": {

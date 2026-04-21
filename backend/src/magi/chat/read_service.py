@@ -153,6 +153,7 @@ class ChatDisplayMessage:
     trace_available: bool = False
     reply_to: dict[str, Any] | None = None
     label: dict[str, Any] | None = None
+    payload: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -170,6 +171,7 @@ class ChatDisplayMessage:
             "trace_available": self.trace_available,
             "reply_to": dict(self.reply_to) if isinstance(self.reply_to, dict) else None,
             "label": dict(self.label) if isinstance(self.label, dict) else None,
+            "payload": dict(self.payload) if isinstance(self.payload, dict) else None,
         }
 
     def to_prompt_message(self) -> dict[str, str]:
@@ -1013,6 +1015,17 @@ class ChatReadService:
                 message_kind=message_kind,
                 turn_id=str(row["turn_id"] or "").strip() or None,
                 label=ChatReadService._parse_label_payload(row["label_json"]).to_dict() if ChatReadService._parse_label_payload(row["label_json"]) else None,
+            )
+        if message_kind == "background_task_completion":
+            return ChatDisplayMessage(
+                role=role,
+                kind="status",
+                content=content,
+                timestamp=int(row["created_at_ms"] or 0),
+                message_id=str(row["message_id"]),
+                message_kind=message_kind,
+                turn_id=str(row["turn_id"] or "").strip() or None,
+                payload=dict(payload) if isinstance(payload, dict) else None,
             )
         return None
 

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ChevronRight, ListChecks, RefreshCw } from 'lucide-react';
 
@@ -415,6 +416,17 @@ export const TasksPage: React.FC = () => {
   const hydrate = useBackgroundTaskStore((state) => state.hydrate);
   const [loading, setLoading] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    const queryTaskId = searchParams.get('taskId');
+    if (queryTaskId && queryTaskId !== selectedTaskId) {
+      setSelectedTaskId(queryTaskId);
+      const next = new URLSearchParams(searchParams);
+      next.delete('taskId');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, selectedTaskId, setSearchParams]);
 
   const refresh = useCallback(async () => {
     setLoading(true);

@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, CornerUpLeft, FileText, FolderOpen, ImagePlus, Loader2, Paperclip, Sparkles, Square, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -390,6 +391,7 @@ const resolveDraftAttachments = (
 
 export const ChatPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
+  const navigate = useNavigate();
   const shouldReduceMotion = useReducedMotion();
   const { subscribe } = useRealtime();
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
@@ -1306,7 +1308,78 @@ export const ChatPage: React.FC = () => {
     );
   };
 
+  const renderBackgroundCompletionCard = (message: ChatTimelineMessage) => {
+    const payload = (message.payload || {}) as Record<string, unknown>;
+    const taskId = String(payload.background_task_id || '').trim();
+    const status = String(payload.background_task_status || '').trim().toLowerCase();
+    const title = String(payload.background_task_title || '').trim() || t('tasks.chatCard.defaultTitle');
+    const bodyText = (() => {
+      const content = String(message.content || '');
+      const firstNewline = content.indexOf('\n');
+      return firstNewline >= 0 ? content.slice(firstNewline + 1).trim() : content.trim();
+    })();
+    const statusToneClass = (() => {
+      switch (status) {
+        case 'succeeded':
+          return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300';
+        case 'failed':
+          return 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-300';
+        case 'cancelled':
+          return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300';
+        default:
+          return 'border-border/60 bg-muted/40 text-muted-foreground';
+      }
+    })();
+    const statusLabelKey = `tasks.chatCard.status.${status || 'unknown'}`;
+    const statusLabel = t(statusLabelKey, { defaultValue: status || t('tasks.chatCard.status.unknown') });
+    const openTasksPage = () => {
+      if (taskId) {
+        navigate(`/tasks?taskId=${encodeURIComponent(taskId)}`);
+      } else {
+        navigate('/tasks');
+      }
+    };
+    return (
+      <motion.div
+        key={message.id}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+        className="mb-5 flex justify-center"
+      >
+        <div className="flex w-full max-w-[75%] flex-col gap-2 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t('tasks.chatCard.eyebrow')}
+            </span>
+            <span className={`ml-auto inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusToneClass}`}>
+              {statusLabel}
+            </span>
+          </div>
+          <div className="text-sm font-semibold text-foreground">{title}</div>
+          {bodyText && (
+            <p className="m-0 whitespace-pre-wrap text-sm text-muted-foreground">{bodyText}</p>
+          )}
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={openTasksPage}
+            >
+              {t('tasks.chatCard.viewDetails')}
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
   const renderStatusCard = (message: ChatTimelineMessage) => {
+    if (message.messageKind === 'background_task_completion') {
+      return renderBackgroundCompletionCard(message);
+    }
     const turnId = String(message.turnId || '').trim();
     const isBootstrapInitPending = turnId === BOOTSTRAP_PENDING_TURN_ID;
     const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
