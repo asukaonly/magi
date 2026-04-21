@@ -284,7 +284,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
                 if (
                     session_id
                     and content
-                    and self._interruption_classifier._looks_like_interrupt(content)
+                    and self._interruption_classifier.looks_like_strict_interrupt(content)
                 ):
                     active_run = self._session_run_coordinator.get_active_run(session_id)
                     if (

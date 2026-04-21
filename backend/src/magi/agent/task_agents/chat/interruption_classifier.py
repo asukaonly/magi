@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -10,6 +11,14 @@ from ..common import TaskAgentLLMService
 
 
 MODEL_CLASSIFICATION_TIMEOUT_SECONDS = 8.0
+
+# Matches any run of ASCII/CJK punctuation, whitespace, or other
+# non-alphanumeric separators. Used to collapse a user message down to a
+# canonical form for strict equality matching.
+_STRICT_NORMALIZE_RE = re.compile(
+    r"[\s\.,!\?;:\-_\"'`~@#\$%\^&\*\(\)\[\]\{\}<>/\\|"
+    "，。！？、；：""''「」『』【】（）《》…—–～]+"
+)
 
 
 class InterruptionDisposition(str, Enum):
@@ -121,6 +130,65 @@ class InterruptionClassifier:
     def _looks_like_interrupt(self, user_text: str) -> bool:
         normalized_text = user_text.lower()
         return any(pattern in normalized_text for pattern in self._INTERRUPT_PATTERNS)
+
+    # Canonical cancel phrases (already normalized: lowercased, with all
+    # punctuation/whitespace stripped). Used by the ingress fast path which
+    # needs very low false-positive rate — a long message that merely
+    # mentions "stop" in passing must fall through to the LLM classifier.
+    _STRICT_INTERRUPT_PHRASES = frozenset(
+        {
+            # English short cancels
+            "stop",
+            "cancel",
+            "abort",
+            "nevermind",
+            "nope",
+            "halt",
+            "quit",
+            # English short phrases (punctuation-stripped)
+            "stopit",
+            "stopnow",
+            "cancelit",
+            "cancelthat",
+            "abortit",
+            "dontdothat",
+            "donotdothat",
+            # Chinese short cancels
+            "不用做了",
+            "不用了",
+            "先停",
+            "先停一下",
+            "停一下",
+            "停下",
+            "停止",
+            "取消",
+            "别做了",
+            "算了",
+            "算了吧",
+            "搞错了",
+            "不做了",
+        }
+    )
+
+    @classmethod
+    def _strict_normalize(cls, user_text: str) -> str:
+        """Lowercase and strip all punctuation/whitespace for strict matching."""
+        return _STRICT_NORMALIZE_RE.sub("", user_text.lower())
+
+    def looks_like_strict_interrupt(self, user_text: str) -> bool:
+        """Return True only when the full normalized message equals a cancel phrase.
+
+        This is intentionally stricter than ``_looks_like_interrupt`` (which
+        uses substring matching for the in-loop rules-first classifier). The
+        ingress fast path in ``ChatTaskAgent.add_fact`` uses this stricter
+        check so long messages that merely mention a cancel keyword in
+        passing are routed to the LLM classifier instead of pre-emptively
+        cancelling the active run.
+        """
+        normalized = self._strict_normalize(user_text)
+        if not normalized:
+            return False
+        return normalized in self._STRICT_INTERRUPT_PHRASES
 
     def _looks_like_augment(self, user_text: str) -> bool:
         normalized_text = user_text.lower()

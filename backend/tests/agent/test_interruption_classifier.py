@@ -125,3 +125,57 @@ async def test_async_classifier_uses_fast_model_for_chinese_interrupt(monkeypatc
     )
 
     assert disposition == InterruptionDisposition.INTERRUPT
+
+
+@pytest.mark.parametrize(
+    "user_text",
+    [
+        "stop",
+        "Stop!",
+        "STOP.",
+        "stop, ",
+        "Cancel",
+        "cancel!",
+        "abort",
+        "Nope.",
+        "never mind",
+        "Never  mind!",
+        "don't do that",
+        "Don't do that!",
+        "取消",
+        "取消！",
+        "停止",
+        "停一下",
+        "算了",
+        "算了吧。",
+        "搞错了",
+        "不用做了",
+    ],
+)
+def test_strict_interrupt_accepts_canonical_cancel_phrases(user_text: str) -> None:
+    classifier = InterruptionClassifier()
+
+    assert classifier.looks_like_strict_interrupt(user_text) is True
+
+
+@pytest.mark.parametrize(
+    "user_text",
+    [
+        # Substrings of cancel keywords must NOT trigger.
+        "Please don't stop at the login page, also check checkout.",
+        "Can you cancel the trailing whitespace in this diff?",
+        "I want to abort early if X, but continue if Y.",
+        "Use the staging endpoint instead of prod.",
+        "顺便看看 github 的仓库",
+        "把这个取消订阅按钮改一下",
+        "先停留在这个页面看一下",
+        # Empty / whitespace.
+        "",
+        "   ",
+        "？？？",
+    ],
+)
+def test_strict_interrupt_rejects_non_cancel_messages(user_text: str) -> None:
+    classifier = InterruptionClassifier()
+
+    assert classifier.looks_like_strict_interrupt(user_text) is False
