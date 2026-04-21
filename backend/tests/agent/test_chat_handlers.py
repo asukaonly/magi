@@ -376,3 +376,192 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
     assert request.messages[0]["content"][0]["type"] == "text"
     assert request.messages[0]["content"][1]["type"] == "image"
     assert request.messages[0]["content"][1]["mime_type"] == "image/png"
+
+
+class _FakeCoordinator:
+    """Minimal coordinator stub for ``_build_cancel_checker`` tests.
+
+    Returns the configured status only when the queried ``(session_id, run_id,
+    revision)`` triple matches; returns ``None`` otherwise, mirroring the real
+    :meth:`SessionRunCoordinator.get_run_status` contract.
+    """
+
+    def __init__(
+        self,
+        *,
+        session_id: str | None = None,
+        run_id: str | None = None,
+        revision: int | None = None,
+        status: str | None = None,
+    ) -> None:
+        self.session_id = session_id
+        self.run_id = run_id
+        self.revision = revision
+        self.status = status
+        self.calls: list[dict[str, object]] = []
+
+    def get_run_status(
+        self,
+        *,
+        session_id: str,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> str | None:
+        self.calls.append(
+            {"session_id": session_id, "run_id": run_id, "revision": revision}
+        )
+        if self.session_id is not None and session_id != self.session_id:
+            return None
+        if run_id is not None and self.run_id is not None and run_id != self.run_id:
+            return None
+        if revision is not None and self.revision is not None and int(revision) != int(self.revision):
+            return None
+        return self.status
+
+
+def _make_cancel_request(
+    *,
+    session_id: str | None = "session-1",
+    session_run_id: str | None = "run-1",
+    session_run_revision: int | None = 0,
+) -> object:
+    return SimpleNamespace(
+        context=SimpleNamespace(
+            session_id=session_id,
+            session_run_id=session_run_id,
+            session_run_revision=session_run_revision,
+        )
+    )
+
+
+def test_build_cancel_checker_returns_none_when_no_coordinator() -> None:
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=None))
+
+    checker = handler._build_cancel_checker(_make_cancel_request())
+
+    assert checker is None
+
+
+def test_build_cancel_checker_returns_none_when_session_id_missing() -> None:
+    coordinator = _FakeCoordinator()
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(_make_cancel_request(session_id=""))
+
+    assert checker is None
+
+
+def test_build_cancel_checker_returns_none_when_run_id_missing() -> None:
+    coordinator = _FakeCoordinator()
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(_make_cancel_request(session_run_id=None))
+
+    assert checker is None
+
+
+def test_build_cancel_checker_false_when_run_is_running() -> None:
+    coordinator = _FakeCoordinator(
+        session_id="session-1", run_id="run-1", revision=0, status="running"
+    )
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(_make_cancel_request())
+
+    assert checker is not None
+    assert checker() is False
+    assert coordinator.calls[-1] == {
+        "session_id": "session-1",
+        "run_id": "run-1",
+        "revision": 0,
+    }
+
+
+def test_build_cancel_checker_true_when_run_is_cancelling() -> None:
+    coordinator = _FakeCoordinator(
+        session_id="session-1", run_id="run-1", revision=0, status="cancelling"
+    )
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(_make_cancel_request())
+
+    assert checker is not None
+    assert checker() is True
+
+
+def test_build_cancel_checker_true_when_run_is_cancelled() -> None:
+    coordinator = _FakeCoordinator(
+        session_id="session-1", run_id="run-1", revision=0, status="cancelled"
+    )
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(_make_cancel_request())
+
+    assert checker is not None
+    assert checker() is True
+
+
+def test_build_cancel_checker_false_when_revision_has_advanced() -> None:
+    """A superseded revision must not appear cancelled to the old tool-loop.
+
+    After an INTERRUPT, :meth:`SessionRunCoordinator.bump_revision` advances
+    the run revision without marking the old revision as ``cancelling``. The
+    cancel checker was bound to the old revision and must therefore stay
+    ``False`` — the superseded loop completes naturally and its result is
+    later filtered out by :meth:`SessionRunCoordinator.record_result`.
+    """
+    coordinator = _FakeCoordinator(
+        session_id="session-1", run_id="run-1", revision=1, status="running"
+    )
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(
+        _make_cancel_request(session_run_revision=0)
+    )
+
+    assert checker is not None
+    assert checker() is False
+
+
+def test_build_cancel_checker_false_when_run_id_has_changed() -> None:
+    """A new run has replaced the one the checker was bound to."""
+    coordinator = _FakeCoordinator(
+        session_id="session-1", run_id="run-2", revision=0, status="cancelling"
+    )
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(_make_cancel_request())
+
+    assert checker is not None
+    assert checker() is False
+
+
+def test_build_cancel_checker_false_when_active_run_cleared() -> None:
+    """``get_run_status`` returns ``None`` once the active run is completed."""
+    coordinator = _FakeCoordinator(status=None)
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(_make_cancel_request())
+
+    assert checker is not None
+    assert checker() is False
+
+
+def test_build_cancel_checker_reflects_state_transitions_on_each_call() -> None:
+    """The callable polls the coordinator live; no status is cached."""
+    coordinator = _FakeCoordinator(
+        session_id="session-1", run_id="run-1", revision=0, status="running"
+    )
+    handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
+
+    checker = handler._build_cancel_checker(_make_cancel_request())
+    assert checker is not None
+
+    assert checker() is False
+    coordinator.status = "cancelling"
+    assert checker() is True
+    coordinator.status = "cancelled"
+    assert checker() is True
+    coordinator.status = None
+    assert checker() is False
+

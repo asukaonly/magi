@@ -471,13 +471,32 @@ class FunctionCallingHandler(BaseExecutionHandler):
     def _build_cancel_checker(
         self, request: FunctionCallingRequest
     ) -> Callable[[], bool] | None:
-        """Build a cancel-polling callable tied to the current session run.
+        """Build a cancel-polling callable bound to one specific run revision.
 
-        Returns ``None`` when no coordinator is available or the request is
-        not bound to a session run (no cancellation is possible). The
-        callable returns ``True`` once the coordinator has recorded a
-        ``cancelling`` or ``cancelled`` status for the matching (session,
-        run, revision) tuple.
+        The returned callable is pinned to the ``(session_id, run_id,
+        revision)`` triple captured at build time. It returns ``True`` **only**
+        when :meth:`SessionRunCoordinator.get_run_status` reports the active
+        run for that exact triple is ``cancelling`` or ``cancelled``. In every
+        other case it returns ``False``:
+
+        * No coordinator is wired, or the request is not bound to a session
+          run → :meth:`_build_cancel_checker` returns ``None`` up front and
+          no polling occurs.
+        * The active run has been completed / cleared (``get_run_status``
+          returns ``None``) → ``False``.
+        * A new ``run_id`` has replaced the one we were bound to → ``False``.
+        * The ``revision`` has advanced (e.g. ``bump_revision`` after an
+          INTERRUPT) without an explicit ``request_cancel`` → ``False``. The
+          superseded tool-loop is expected to finish naturally; its result
+          will be flagged ``stale`` by
+          :meth:`SessionRunCoordinator.record_result`.
+        * The active run is ``running`` → ``False``.
+
+        This means the checker is a **narrow, opt-in stop signal**: a tool
+        loop will only abort when someone has *explicitly* requested
+        cancellation on the exact run/revision it was launched for. Callers
+        that want to react to supersession (revision bump) must wire a
+        separate signal.
         """
         coordinator = self._deps.session_run_coordinator
         session_id = str(request.context.session_id or "").strip()
