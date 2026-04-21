@@ -1,0 +1,252 @@
+"""Dataclasses and enums describing a background task and its event log.
+
+These types are the serialization boundary between the runtime layer (phases
+1+) and the persistence layer (phase 0). They intentionally carry no
+behavior — the store owns IO, the manager owns lifecycle transitions.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from time import time
+from typing import Any
+from uuid import uuid4
+
+
+class BackgroundTaskStatus(str, Enum):
+    """Lifecycle states for a background task.
+
+    The valid transitions are:
+
+    * ``pending`` → ``running`` (slot acquired) | ``cancelled``
+    * ``running`` → ``cancelling`` | ``succeeded`` | ``failed``
+    * ``cancelling`` → ``cancelled``
+    * ``failed`` / ``cancelled`` → ``pending`` on retry (new ``attempt_index``)
+
+    Succeeded tasks are terminal.
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    CANCELLING = "cancelling"
+    CANCELLED = "cancelled"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+    @classmethod
+    def terminal(cls) -> frozenset["BackgroundTaskStatus"]:
+        return frozenset({cls.SUCCEEDED, cls.FAILED, cls.CANCELLED})
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in self.terminal()
+
+
+class BackgroundTaskTriggerSource(str, Enum):
+    """How a task was launched. Used for auditing and dispatcher metrics."""
+
+    PLANNER = "planner"            # LLM planner returned run_in_background=true
+    CLASSIFIER = "classifier"      # long-task classifier (LLM slow path)
+    USER = "user"                  # user message explicitly asked for background
+    MANUAL = "manual"              # UI "move to background" action
+    RULE = "rule"                  # dispatcher rule fast-path match
+
+
+@dataclass(slots=True)
+class BackgroundTaskSpec:
+    """Immutable input used to (re-)launch a background task.
+
+    A spec is created once at dispatch time and is preserved verbatim across
+    retries; the mutable state lives on :class:`BackgroundTask`.
+    """
+
+    user_id: str
+    session_id: str
+    origin_turn_id: str
+    title: str
+    goal: str
+    selected_tools: list[str] = field(default_factory=list)
+    workspace_path: str | None = None
+    trigger_source: BackgroundTaskTriggerSource = BackgroundTaskTriggerSource.RULE
+    priority: int = 0
+    max_iterations: int = 20
+    timeout_seconds: int | None = 1800
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "origin_turn_id": self.origin_turn_id,
+            "title": self.title,
+            "goal": self.goal,
+            "selected_tools": list(self.selected_tools),
+            "workspace_path": self.workspace_path,
+            "trigger_source": self.trigger_source.value,
+            "priority": int(self.priority),
+            "max_iterations": int(self.max_iterations),
+            "timeout_seconds": (
+                int(self.timeout_seconds) if self.timeout_seconds is not None else None
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "BackgroundTaskSpec":
+        return cls(
+            user_id=str(data["user_id"]),
+            session_id=str(data["session_id"]),
+            origin_turn_id=str(data["origin_turn_id"]),
+            title=str(data["title"]),
+            goal=str(data["goal"]),
+            selected_tools=list(data.get("selected_tools") or []),
+            workspace_path=(
+                str(data["workspace_path"])
+                if data.get("workspace_path") is not None
+                else None
+            ),
+            trigger_source=BackgroundTaskTriggerSource(
+                str(data.get("trigger_source") or BackgroundTaskTriggerSource.RULE.value)
+            ),
+            priority=int(data.get("priority") or 0),
+            max_iterations=int(data.get("max_iterations") or 20),
+            timeout_seconds=(
+                int(data["timeout_seconds"])
+                if data.get("timeout_seconds") is not None
+                else None
+            ),
+        )
+
+
+@dataclass(slots=True)
+class BackgroundTask:
+    """Mutable runtime state for one background task.
+
+    ``task_id`` is stable across retries; each retry bumps ``attempt_index``
+    and clears ``started_at`` / ``finished_at`` / ``error`` / ``summary`` /
+    ``result_payload`` / ``orchestration_id`` before transitioning back to
+    ``pending``.
+    """
+
+    task_id: str
+    spec: BackgroundTaskSpec
+    status: BackgroundTaskStatus = BackgroundTaskStatus.PENDING
+    attempt_index: int = 0
+    orchestration_id: str | None = None
+    user_task_id: str | None = None
+    summary: str | None = None
+    result_payload: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    cancel_reason: str | None = None
+    created_at: float = field(default_factory=time)
+    started_at: float | None = None
+    finished_at: float | None = None
+    updated_at: float = field(default_factory=time)
+
+    @classmethod
+    def new(cls, spec: BackgroundTaskSpec) -> "BackgroundTask":
+        """Build a fresh task in ``pending`` state."""
+        now = time()
+        return cls(
+            task_id=f"bg_{uuid4().hex[:16]}",
+            spec=spec,
+            status=BackgroundTaskStatus.PENDING,
+            attempt_index=0,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "spec": self.spec.to_dict(),
+            "status": self.status.value,
+            "attempt_index": int(self.attempt_index),
+            "orchestration_id": self.orchestration_id,
+            "user_task_id": self.user_task_id,
+            "summary": self.summary,
+            "result_payload": dict(self.result_payload),
+            "error": self.error,
+            "cancel_reason": self.cancel_reason,
+            "created_at": float(self.created_at),
+            "started_at": (
+                float(self.started_at) if self.started_at is not None else None
+            ),
+            "finished_at": (
+                float(self.finished_at) if self.finished_at is not None else None
+            ),
+            "updated_at": float(self.updated_at),
+        }
+
+
+@dataclass(slots=True)
+class BackgroundTaskEvent:
+    """An append-only entry in the task's event log.
+
+    Events are recorded for every state transition plus ad-hoc progress
+    notes. The store guarantees insertion order but does not enforce any
+    transition validity; the manager is the authority on legal transitions.
+    """
+
+    event_id: str
+    task_id: str
+    attempt_index: int
+    event_type: str
+    from_status: BackgroundTaskStatus | None
+    to_status: BackgroundTaskStatus | None
+    message: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
+    created_at: float = field(default_factory=time)
+
+    @classmethod
+    def transition(
+        cls,
+        *,
+        task_id: str,
+        attempt_index: int,
+        from_status: BackgroundTaskStatus | None,
+        to_status: BackgroundTaskStatus,
+        message: str = "",
+        payload: dict[str, Any] | None = None,
+    ) -> "BackgroundTaskEvent":
+        return cls(
+            event_id=uuid4().hex,
+            task_id=task_id,
+            attempt_index=int(attempt_index),
+            event_type="state_changed",
+            from_status=from_status,
+            to_status=to_status,
+            message=message,
+            payload=dict(payload or {}),
+        )
+
+    @classmethod
+    def progress(
+        cls,
+        *,
+        task_id: str,
+        attempt_index: int,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> "BackgroundTaskEvent":
+        return cls(
+            event_id=uuid4().hex,
+            task_id=task_id,
+            attempt_index=int(attempt_index),
+            event_type="progress",
+            from_status=None,
+            to_status=None,
+            message=message,
+            payload=dict(payload or {}),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "task_id": self.task_id,
+            "attempt_index": int(self.attempt_index),
+            "event_type": self.event_type,
+            "from_status": self.from_status.value if self.from_status is not None else None,
+            "to_status": self.to_status.value if self.to_status is not None else None,
+            "message": self.message,
+            "payload": dict(self.payload),
+            "created_at": float(self.created_at),
+        }
