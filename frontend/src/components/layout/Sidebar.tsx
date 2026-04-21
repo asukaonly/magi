@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  ListChecks,
   MessageSquare,
   MoreHorizontal,
   Plus,
@@ -25,6 +26,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useChatShellStore, useConversationStore } from '@/stores';
+import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 
 const USER_ID = DEFAULT_USER_ID;
@@ -330,6 +332,8 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const timelineActive = activePanel === 'timeline' || location.pathname === '/timeline';
   const memoryActive = activePanel === 'memory' || isMemoryRoute;
   const settingsActive = activePanel === 'settings' || location.pathname === '/settings';
+  const tasksActive = activePanel === 'tasks' || location.pathname === '/tasks';
+  const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
   const conversationExpanded = expandedSection === 'conversation';
   const memoryExpanded = expandedSection === 'memory';
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
@@ -632,12 +636,33 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           <button
             type="button"
             onClick={() => {
+              setExpandedSection(null);
+              setActivePanel('tasks');
+              navigate('/tasks');
+            }}
+            aria-label={t('shell.tasks')}
+            aria-current={tasksActive ? 'page' : undefined}
+            className={primaryButtonClass(tasksActive)}
+          >
+            <span className={iconWrapClass(tasksActive)}>
+              <ListChecks className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1 text-sm font-medium">{t('shell.tasks')}</span>
+            {tasksActiveCount > 0 ? (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[hsl(var(--sidebar-badge))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--sidebar-badge-foreground))]">
+                {Math.min(tasksActiveCount, 99)}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
               setActivePanel('settings');
               navigate('/settings');
             }}
             aria-label={t('shell.settings')}
             aria-current={settingsActive ? 'page' : undefined}
-            className={primaryButtonClass(settingsActive)}
+            className={cn(primaryButtonClass(settingsActive), 'mt-1')}
           >
             <span className={iconWrapClass(settingsActive)}>
               <Settings2 className="h-4 w-4" />

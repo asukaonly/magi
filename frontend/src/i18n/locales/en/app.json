@@ -19,6 +19,7 @@
     "personality": "Personality",
     "events": "Memory",
     "timeline": "Timeline",
+    "tasks": "Tasks",
     "settings": "Settings"
   },
   "header": {
@@ -52,7 +53,62 @@
     "personality": "Personality",
     "memory": "Memory",
     "timeline": "Timeline",
+    "tasks": "Tasks",
     "settings": "Settings"
+  },
+  "tasks": {
+    "page": {
+      "title": "Background Tasks",
+      "subtitle": "Long-running work that was split off from your conversations. Cancel, retry, or dismiss tasks without leaving the thread.",
+      "refresh": "Refresh",
+      "refreshing": "Refreshing..."
+    },
+    "sections": {
+      "running": "Running",
+      "queued": "Queued",
+      "finished": "Finished"
+    },
+    "empty": {
+      "title": "No background tasks yet",
+      "description": "When the planner decides a turn should run in the background, it will appear here."
+    },
+    "status": {
+      "pending": "Queued",
+      "running": "Running",
+      "cancelling": "Cancelling",
+      "cancelled": "Cancelled",
+      "succeeded": "Succeeded",
+      "failed": "Failed"
+    },
+    "fields": {
+      "goal": "Goal",
+      "session": "Origin session",
+      "created": "Created",
+      "started": "Started",
+      "finished": "Finished",
+      "attempt": "Attempt",
+      "tools": "Tools",
+      "summary": "Summary",
+      "error": "Error",
+      "cancelReason": "Cancel reason",
+      "events": "Event log"
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "dismiss": "Dismiss",
+      "openSession": "Open session",
+      "close": "Close"
+    },
+    "feedback": {
+      "cancelSuccess": "Task cancelled.",
+      "cancelFailed": "Could not cancel this task.",
+      "retrySuccess": "Task queued for retry.",
+      "retryFailed": "Could not retry this task.",
+      "dismissSuccess": "Task dismissed.",
+      "dismissFailed": "Could not dismiss this task.",
+      "loadFailed": "Failed to load background tasks."
+    }
   },
   "timeline": {
     "title": "Timeline",

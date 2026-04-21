@@ -36,6 +36,9 @@ const MemorySkillsPage = React.lazy(() =>
 const PersonalityPage = React.lazy(() =>
   import('../pages/Personality').then((m) => ({ default: m.PersonalityPage }))
 );
+const TasksPage = React.lazy(() =>
+  import('../pages/Tasks').then((m) => ({ default: m.TasksPage }))
+);
 const OnboardingPage = React.lazy(() =>
   import('../pages/Onboarding').then((m) => ({ default: m.default }))
 );
@@ -219,6 +222,14 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<LoadingFallback />}>
             <TimelinePage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'tasks',
+        element: (
+          <React.Suspense fallback={<LoadingFallback />}>
+            <TasksPage />
           </React.Suspense>
         ),
       },

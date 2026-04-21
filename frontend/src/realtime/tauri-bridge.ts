@@ -27,6 +27,7 @@ const BRIDGE_EVENTS = [
   'context_usage',
   'chat_message_upserted',
   'chat_message_hidden',
+  'background_task_state_changed',
 ] as const;
 
 interface BridgePayload {

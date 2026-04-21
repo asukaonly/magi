@@ -69,3 +69,18 @@ export type {
   TimelineStateMarker,
   TimelineViewportResponse,
 } from './modules/timeline';
+
+export { backgroundTasksApi } from './modules/backgroundTasks';
+export type {
+  BackgroundTaskDTO,
+  BackgroundTaskEventDTO,
+  BackgroundTaskSpecDTO,
+  BackgroundTaskStatus,
+  BackgroundTaskTriggerSource,
+  CancelBackgroundTaskResponse,
+  DismissBackgroundTaskResponse,
+  GetBackgroundTaskResponse,
+  ListBackgroundTasksParams,
+  ListBackgroundTasksResponse,
+  RetryBackgroundTaskResponse,
+} from './modules/backgroundTasks';

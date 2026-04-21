@@ -64,6 +64,7 @@ describe('sidebar navigation', () => {
     expect(screen.getByRole('button', { name: 'shell.memory' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.settings' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.timeline' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.tasks' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'shell.personality' })).not.toBeInTheDocument();
   });
 

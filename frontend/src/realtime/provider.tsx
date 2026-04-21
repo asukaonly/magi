@@ -17,6 +17,7 @@ import { normalizeHistoryMessages, normalizeTraceSummary } from '@/domain/chat/s
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useContextUsageStore } from '@/stores/context-usage';
+import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { TauriBridgeClient } from './tauri-bridge';
 
 export interface RealtimeMessage {
@@ -148,6 +149,14 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
             window_size: payload.window_size as number,
             threshold: (payload.threshold as number) || 0,
           });
+        }
+        return;
+      }
+
+      if (eventName === 'background_task_state_changed' && message.data && typeof message.data === 'object') {
+        const payload = message.data as Record<string, unknown>;
+        if (payload && typeof payload.task_id === 'string' && typeof payload.status === 'string') {
+          useBackgroundTaskStore.getState().upsert(payload as any);
         }
         return;
       }

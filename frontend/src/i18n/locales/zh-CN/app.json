@@ -19,6 +19,7 @@
     "personality": "人格配置",
     "events": "记忆查看",
     "timeline": "时间线",
+    "tasks": "任务",
     "settings": "系统设置"
   },
   "header": {
@@ -52,7 +53,62 @@
     "personality": "人格",
     "memory": "记忆",
     "timeline": "时间线",
+    "tasks": "任务",
     "settings": "设置"
+  },
+  "tasks": {
+    "page": {
+      "title": "后台任务",
+      "subtitle": "从对话中分派出去的长耗时工作。可在不离开对话的情况下取消、重试或清理任务。",
+      "refresh": "刷新",
+      "refreshing": "刷新中..."
+    },
+    "sections": {
+      "running": "进行中",
+      "queued": "等待中",
+      "finished": "已结束"
+    },
+    "empty": {
+      "title": "暂无后台任务",
+      "description": "当规划器判断某个回合应该放到后台执行时，任务会出现在这里。"
+    },
+    "status": {
+      "pending": "排队中",
+      "running": "运行中",
+      "cancelling": "取消中",
+      "cancelled": "已取消",
+      "succeeded": "已完成",
+      "failed": "已失败"
+    },
+    "fields": {
+      "goal": "目标",
+      "session": "来源会话",
+      "created": "创建时间",
+      "started": "启动时间",
+      "finished": "结束时间",
+      "attempt": "第 N 次尝试",
+      "tools": "工具",
+      "summary": "结果摘要",
+      "error": "错误信息",
+      "cancelReason": "取消原因",
+      "events": "事件日志"
+    },
+    "actions": {
+      "cancel": "取消任务",
+      "retry": "重试",
+      "dismiss": "清理",
+      "openSession": "打开会话",
+      "close": "关闭"
+    },
+    "feedback": {
+      "cancelSuccess": "已取消任务。",
+      "cancelFailed": "取消任务失败。",
+      "retrySuccess": "已加入重试队列。",
+      "retryFailed": "重试失败。",
+      "dismissSuccess": "已清理。",
+      "dismissFailed": "清理失败。",
+      "loadFailed": "后台任务加载失败。"
+    }
   },
   "timeline": {
     "title": "时间线",
