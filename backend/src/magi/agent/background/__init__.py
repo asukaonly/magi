@@ -34,7 +34,11 @@ from .launch import (
     build_spec_from_request,
     default_ack_text,
 )
-from .manager import BackgroundTaskManager
+from .manager import (
+    BackgroundTaskListener,
+    BackgroundTaskManager,
+    TERMINAL_BACKGROUND_TASK_STATUSES,
+)
 from .memory_isolation import (
     BACKGROUND_SCOPE_KEY,
     BackgroundFactEmitter,
@@ -59,6 +63,7 @@ __all__ = [
     "BackgroundTask",
     "BackgroundTaskEvent",
     "BackgroundTaskExecutor",
+    "BackgroundTaskListener",
     "BackgroundTaskManager",
     "BackgroundTaskRunFn",
     "BackgroundTaskRunResult",
@@ -66,6 +71,7 @@ __all__ = [
     "BackgroundTaskStatus",
     "BackgroundTaskStore",
     "BackgroundTaskTriggerSource",
+    "TERMINAL_BACKGROUND_TASK_STATUSES",
     "build_background_run_fn",
     "build_spec_from_request",
     "default_ack_text",

@@ -26,7 +26,7 @@ this module.
 from __future__ import annotations
 
 import asyncio
-from typing import Callable
+from typing import Awaitable, Callable
 
 import structlog
 
@@ -40,7 +40,26 @@ from .contracts import (
 from .executor import BackgroundTaskExecutor, BackgroundTaskRunFn
 from .store import BackgroundTaskStore
 
-__all__ = ["BackgroundTaskManager"]
+__all__ = [
+    "BackgroundTaskListener",
+    "BackgroundTaskManager",
+    "TERMINAL_BACKGROUND_TASK_STATUSES",
+]
+
+#: Statuses that represent a run-to-completion outcome worth notifying
+#: external observers about (completion handshake, UI refresh, etc.).
+TERMINAL_BACKGROUND_TASK_STATUSES: frozenset[BackgroundTaskStatus] = frozenset(
+    {
+        BackgroundTaskStatus.SUCCEEDED,
+        BackgroundTaskStatus.FAILED,
+        BackgroundTaskStatus.CANCELLED,
+    }
+)
+
+#: Callback invoked after a background task reaches a terminal status.
+#: Implementations must be coroutine functions; raised exceptions are
+#: caught and logged so one faulty listener cannot block the others.
+BackgroundTaskListener = Callable[[BackgroundTask], Awaitable[None]]
 
 
 logger = structlog.get_logger(__name__)
@@ -69,6 +88,7 @@ class BackgroundTaskManager:
         self._dispatcher_task: asyncio.Task[None] | None = None
         # task_id -> (cancel token, asyncio task running the attempt).
         self._running: dict[str, tuple[EventCancelToken, asyncio.Task[BackgroundTask]]] = {}
+        self._listeners: list[BackgroundTaskListener] = []
         self._started = False
         self._stopping = False
         self._lock = asyncio.Lock()
@@ -337,10 +357,46 @@ class BackgroundTaskManager:
         assert self._executor is not None
         assert self._semaphore is not None
         try:
-            return await self._executor.execute(task, cancel_token)
+            finished = await self._executor.execute(task, cancel_token)
         finally:
             self._running.pop(task.task_id, None)
             self._semaphore.release()
+        if finished.status in TERMINAL_BACKGROUND_TASK_STATUSES:
+            await self._notify_listeners(finished)
+        return finished
+
+    # ------------------------------------------------------------------
+    # Listeners
+    # ------------------------------------------------------------------
+
+    def add_listener(self, listener: BackgroundTaskListener) -> None:
+        """Register a terminal-state listener.
+
+        Listeners fire after each attempt reaches ``SUCCEEDED``,
+        ``FAILED`` or ``CANCELLED``. They are invoked in registration
+        order; one listener raising does not block the others.
+        """
+        if listener in self._listeners:
+            return
+        self._listeners.append(listener)
+
+    def remove_listener(self, listener: BackgroundTaskListener) -> None:
+        """Deregister a previously-added listener. No-op if unknown."""
+        try:
+            self._listeners.remove(listener)
+        except ValueError:
+            return
+
+    async def _notify_listeners(self, task: BackgroundTask) -> None:
+        for listener in list(self._listeners):
+            try:
+                await listener(task)
+            except Exception:  # noqa: BLE001 - listener isolation
+                logger.exception(
+                    "background task listener raised",
+                    bg_task_id=task.task_id,
+                    status=task.status.value,
+                )
 
     # ------------------------------------------------------------------
     # Helpers

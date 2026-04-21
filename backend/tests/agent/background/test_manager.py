@@ -429,3 +429,131 @@ async def test_stop_cancels_in_flight_tasks(tmp_path: Path) -> None:
     assert fetched is not None
     assert fetched.status == BackgroundTaskStatus.CANCELLED
     assert fetched.cancel_reason == "shutdown"
+
+
+# ----------------------------------------------------------------------
+# Listener API
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_listener_is_invoked_on_succeeded_terminal_state(
+    tmp_path: Path,
+) -> None:
+    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+
+    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
+        return BackgroundTaskRunResult(summary="ok", result_payload={})
+
+    seen: list[tuple[str, BackgroundTaskStatus]] = []
+
+    async def listener(task: BackgroundTask) -> None:
+        seen.append((task.task_id, task.status))
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_listener(listener)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec())
+        await _wait_until(
+            _status_reaches(store, task.task_id, BackgroundTaskStatus.SUCCEEDED)
+        )
+        await _wait_until(lambda: len(seen) == 1)
+        assert seen == [(task.task_id, BackgroundTaskStatus.SUCCEEDED)]
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_listener_is_invoked_on_failure_terminal_state(tmp_path: Path) -> None:
+    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+
+    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
+        raise RuntimeError("boom")
+
+    seen: list[BackgroundTaskStatus] = []
+
+    async def listener(task: BackgroundTask) -> None:
+        seen.append(task.status)
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_listener(listener)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec())
+        await _wait_until(
+            _status_reaches(store, task.task_id, BackgroundTaskStatus.FAILED)
+        )
+        await _wait_until(lambda: len(seen) == 1)
+        assert seen == [BackgroundTaskStatus.FAILED]
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_listener_exception_does_not_break_other_listeners(
+    tmp_path: Path,
+) -> None:
+    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+
+    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
+        return BackgroundTaskRunResult(summary="ok", result_payload={})
+
+    async def bad_listener(task: BackgroundTask) -> None:
+        raise ValueError("nope")
+
+    captured: list[str] = []
+
+    async def good_listener(task: BackgroundTask) -> None:
+        captured.append(task.task_id)
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_listener(bad_listener)
+    manager.add_listener(good_listener)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec())
+        await _wait_until(lambda: len(captured) == 1)
+        assert captured == [task.task_id]
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_remove_listener_stops_subsequent_invocations(
+    tmp_path: Path,
+) -> None:
+    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+
+    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
+        return BackgroundTaskRunResult(summary="ok", result_payload={})
+
+    calls: list[str] = []
+
+    async def listener(task: BackgroundTask) -> None:
+        calls.append(task.task_id)
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_listener(listener)
+    # add_listener is idempotent per-reference.
+    manager.add_listener(listener)
+    await manager.start()
+    try:
+        first = await manager.enqueue(_make_spec(origin_turn_id="t1"))
+        await _wait_until(lambda: len(calls) == 1)
+        assert calls == [first.task_id]
+
+        manager.remove_listener(listener)
+        # remove_listener of an unknown listener is a no-op.
+        manager.remove_listener(listener)
+
+        second = await manager.enqueue(_make_spec(origin_turn_id="t2"))
+        await _wait_until(
+            _status_reaches(store, second.task_id, BackgroundTaskStatus.SUCCEEDED)
+        )
+        # Let any pending listener dispatch complete.
+        await asyncio.sleep(0.02)
+        assert calls == [first.task_id]
+    finally:
+        await manager.stop()
+
