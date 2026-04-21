@@ -172,6 +172,11 @@ async def analyze_interaction(
     system_prompt = _build_system_prompt(stp_rules, milestone_conditions)
 
     t0 = time.monotonic()
+    logger.debug(
+        "[analyze_interaction] LLM call start user_chars=%d response_chars=%d",
+        len(user_message),
+        len(assistant_response),
+    )
     try:
         raw = await bridge.chat(
             system_prompt=system_prompt,
@@ -182,10 +187,15 @@ async def analyze_interaction(
             disable_thinking=True,
         )
         elapsed_ms = (time.monotonic() - t0) * 1000
-        logger.debug("Interaction analysis completed elapsed_ms=%.1f", elapsed_ms)
+        logger.debug("[analyze_interaction] LLM call completed elapsed_ms=%.1f", elapsed_ms)
         return parse_analysis(raw, stp_rules=stp_rules)
     except Exception:
-        logger.warning("Interaction analysis LLM call failed", exc_info=True)
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        logger.warning(
+            "[analyze_interaction] LLM call failed elapsed_ms=%.1f",
+            elapsed_ms,
+            exc_info=True,
+        )
         return DEFAULT_ANALYSIS
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import pytest
 
@@ -1900,6 +1901,10 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
     )
 
     outcome = await service.handle(context, result)
+
+    # Memory/reflection updates run as a background task; drain before asserting.
+    if service._background_tasks:
+        await asyncio.gather(*service._background_tasks)
 
     assert outcome.emitted is True
     assert outcome.memory_updated is True

@@ -1,6 +1,7 @@
 """Post-processing and side effects for chat execution results."""
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import time
@@ -86,6 +87,9 @@ class ChatPostProcessService:
         self._started_turn_traces: set[str] = set()
         self._complete_session_run = complete_session_run
         self._resolve_session_run_status = resolve_session_run_status
+        # Track in-flight background memory-update tasks so they are not
+        # garbage collected mid-flight. Entries remove themselves on done.
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     async def persist_turn_supersessions(
         self,
@@ -165,20 +169,20 @@ class ChatPostProcessService:
         self._history_service.append_assistant_message(context.history_key, response_text)
         history_stored = True
 
+        # Schedule memory/reflection updates as a background task so they do not
+        # delay AI_RESPONSE emission. These updates only affect future turns
+        # (persona emotion, relationship profile, milestones, task reflection)
+        # and the currently emitted response does not depend on them.
         memory_updated = False
         if user_message:
-            memory_updated = await self._record_memory_updates(
+            self._schedule_background_memory_updates(
                 user_id=context.user_id,
                 user_message=user_message,
                 response_text=response_text,
+                context=context,
+                result=result,
             )
-        task_reflection_updated = await self._record_task_reflection(
-            context=context,
-            result=result,
-            user_message=user_message,
-            response_text=response_text,
-        )
-        memory_updated = memory_updated or task_reflection_updated
+            memory_updated = True
 
         correlation_id = result.correlation_id or latest_fact.correlation_id
         turn_id = result.turn_id or self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
@@ -742,6 +746,58 @@ class ChatPostProcessService:
             expires_at=time.time() + TACTIC_TTL_SECONDS,
             tactic_id=f"session:{session_id}:{tactic_type}",
         )
+
+    def _schedule_background_memory_updates(
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        response_text: str,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+    ) -> None:
+        """Run memory/reflection updates off the AI_RESPONSE critical path.
+
+        These updates persist relationship profile, emotional state, persona
+        milestones, STP triggers, and (for worker/explore turns) task
+        reflection summaries. None of them influence the response that is
+        about to be emitted; they only shape future turns, so they are safe
+        to run after AI_RESPONSE is published.
+        """
+
+        async def _runner() -> None:
+            t0 = time.monotonic()
+            try:
+                if user_message:
+                    await self._record_memory_updates(
+                        user_id=user_id,
+                        user_message=user_message,
+                        response_text=response_text,
+                    )
+                await self._record_task_reflection(
+                    context=context,
+                    result=result,
+                    user_message=user_message,
+                    response_text=response_text,
+                )
+            except Exception:
+                logger.exception(
+                    "Background memory update failed user_id=%s session_id=%s",
+                    user_id,
+                    context.session_id,
+                )
+            finally:
+                logger.info(
+                    "[chat.handle] background memory updates finished elapsed_ms=%.1f",
+                    (time.monotonic() - t0) * 1000,
+                )
+
+        task = asyncio.create_task(
+            _runner(),
+            name=f"chat-memory-updates:{context.session_id}",
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _record_memory_updates(
         self, *, user_id: str, user_message: str, response_text: str = "",
