@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from magi.agent.cancel import NullCancelToken
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.chat.handlers import DirectLLMHandler, FunctionCallingHandler
 from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
@@ -379,7 +380,7 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
 
 
 class _FakeCoordinator:
-    """Minimal coordinator stub for ``_build_cancel_checker`` tests.
+    """Minimal coordinator stub for ``_build_cancel_token`` tests.
 
     Returns the configured status only when the queried ``(session_id, run_id,
     revision)`` triple matches; returns ``None`` otherwise, mirroring the real
@@ -434,42 +435,43 @@ def _make_cancel_request(
     )
 
 
-def test_build_cancel_checker_returns_none_when_no_coordinator() -> None:
+def test_build_cancel_token_returns_noop_when_no_coordinator() -> None:
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=None))
 
-    checker = handler._build_cancel_checker(_make_cancel_request())
+    token = handler._build_cancel_token(_make_cancel_request())
 
-    assert checker is None
+    assert isinstance(token, NullCancelToken)
 
 
-def test_build_cancel_checker_returns_none_when_session_id_missing() -> None:
+def test_build_cancel_token_returns_noop_when_session_id_missing() -> None:
     coordinator = _FakeCoordinator()
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(_make_cancel_request(session_id=""))
+    token = handler._build_cancel_token(_make_cancel_request(session_id=""))
 
-    assert checker is None
+    assert isinstance(token, NullCancelToken)
 
 
-def test_build_cancel_checker_returns_none_when_run_id_missing() -> None:
+def test_build_cancel_token_returns_noop_when_run_id_missing() -> None:
     coordinator = _FakeCoordinator()
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(_make_cancel_request(session_run_id=None))
+    token = handler._build_cancel_token(_make_cancel_request(session_run_id=None))
 
-    assert checker is None
+    assert isinstance(token, NullCancelToken)
 
 
-def test_build_cancel_checker_false_when_run_is_running() -> None:
+@pytest.mark.asyncio
+async def test_build_cancel_token_false_when_run_is_running() -> None:
     coordinator = _FakeCoordinator(
         session_id="session-1", run_id="run-1", revision=0, status="running"
     )
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(_make_cancel_request())
+    token = handler._build_cancel_token(_make_cancel_request())
 
-    assert checker is not None
-    assert checker() is False
+    assert not isinstance(token, NullCancelToken)
+    assert await token.is_cancelled() is False
     assert coordinator.calls[-1] == {
         "session_id": "session-1",
         "run_id": "run-1",
@@ -477,36 +479,39 @@ def test_build_cancel_checker_false_when_run_is_running() -> None:
     }
 
 
-def test_build_cancel_checker_true_when_run_is_cancelling() -> None:
+@pytest.mark.asyncio
+async def test_build_cancel_token_true_when_run_is_cancelling() -> None:
     coordinator = _FakeCoordinator(
         session_id="session-1", run_id="run-1", revision=0, status="cancelling"
     )
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(_make_cancel_request())
+    token = handler._build_cancel_token(_make_cancel_request())
 
-    assert checker is not None
-    assert checker() is True
+    assert await token.is_cancelled() is True
+    assert token.reason == "session_run_cancelling"
 
 
-def test_build_cancel_checker_true_when_run_is_cancelled() -> None:
+@pytest.mark.asyncio
+async def test_build_cancel_token_true_when_run_is_cancelled() -> None:
     coordinator = _FakeCoordinator(
         session_id="session-1", run_id="run-1", revision=0, status="cancelled"
     )
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(_make_cancel_request())
+    token = handler._build_cancel_token(_make_cancel_request())
 
-    assert checker is not None
-    assert checker() is True
+    assert await token.is_cancelled() is True
+    assert token.reason == "session_run_cancelled"
 
 
-def test_build_cancel_checker_false_when_revision_has_advanced() -> None:
+@pytest.mark.asyncio
+async def test_build_cancel_token_false_when_revision_has_advanced() -> None:
     """A superseded revision must not appear cancelled to the old tool-loop.
 
     After an INTERRUPT, :meth:`SessionRunCoordinator.bump_revision` advances
     the run revision without marking the old revision as ``cancelling``. The
-    cancel checker was bound to the old revision and must therefore stay
+    cancel token was bound to the old revision and must therefore stay
     ``False`` — the superseded loop completes naturally and its result is
     later filtered out by :meth:`SessionRunCoordinator.record_result`.
     """
@@ -515,53 +520,52 @@ def test_build_cancel_checker_false_when_revision_has_advanced() -> None:
     )
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(
+    token = handler._build_cancel_token(
         _make_cancel_request(session_run_revision=0)
     )
 
-    assert checker is not None
-    assert checker() is False
+    assert await token.is_cancelled() is False
 
 
-def test_build_cancel_checker_false_when_run_id_has_changed() -> None:
-    """A new run has replaced the one the checker was bound to."""
+@pytest.mark.asyncio
+async def test_build_cancel_token_false_when_run_id_has_changed() -> None:
+    """A new run has replaced the one the token was bound to."""
     coordinator = _FakeCoordinator(
         session_id="session-1", run_id="run-2", revision=0, status="cancelling"
     )
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(_make_cancel_request())
+    token = handler._build_cancel_token(_make_cancel_request())
 
-    assert checker is not None
-    assert checker() is False
+    assert await token.is_cancelled() is False
 
 
-def test_build_cancel_checker_false_when_active_run_cleared() -> None:
+@pytest.mark.asyncio
+async def test_build_cancel_token_false_when_active_run_cleared() -> None:
     """``get_run_status`` returns ``None`` once the active run is completed."""
     coordinator = _FakeCoordinator(status=None)
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(_make_cancel_request())
+    token = handler._build_cancel_token(_make_cancel_request())
 
-    assert checker is not None
-    assert checker() is False
+    assert await token.is_cancelled() is False
 
 
-def test_build_cancel_checker_reflects_state_transitions_on_each_call() -> None:
-    """The callable polls the coordinator live; no status is cached."""
+@pytest.mark.asyncio
+async def test_build_cancel_token_reflects_state_transitions_on_each_call() -> None:
+    """The token polls the coordinator live; no status is cached."""
     coordinator = _FakeCoordinator(
         session_id="session-1", run_id="run-1", revision=0, status="running"
     )
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    checker = handler._build_cancel_checker(_make_cancel_request())
-    assert checker is not None
+    token = handler._build_cancel_token(_make_cancel_request())
 
-    assert checker() is False
+    assert await token.is_cancelled() is False
     coordinator.status = "cancelling"
-    assert checker() is True
+    assert await token.is_cancelled() is True
     coordinator.status = "cancelled"
-    assert checker() is True
+    assert await token.is_cancelled() is True
     coordinator.status = None
-    assert checker() is False
+    assert await token.is_cancelled() is False
 

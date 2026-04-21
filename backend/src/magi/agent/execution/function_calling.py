@@ -22,6 +22,7 @@ from ...llm.provider_bridge import LLMProviderBridge, ToolStreamResult, _coerce_
 from ...chat.workspace import get_default_chat_workspace_path
 from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
+from ..cancel import CancelToken, null_cancel_token
 from ..message_utils import append_latest_user_message
 from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
 from .context_compactor import ContextCompactor
@@ -221,7 +222,7 @@ class FunctionCallingOrchestrator:
         final_response_json_mode: bool = False,
         thinking_depth: ThinkingDepth | None = None,
         stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
-        cancel_checker: Callable[[], bool] | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ExecutionOutcome:
         """
         Execute with continuous tool calling
@@ -233,13 +234,16 @@ class FunctionCallingOrchestrator:
             user_id: User id for execution context
             conversation_history: Previous conversation
             max_iterations: Maximum tool call iterations
-            cancel_checker: Optional callable polled before each LLM/tool step.
-                When it returns True, the run is aborted and a
-                ``cancelled`` ExecutionOutcome is returned.
+            cancel_token: Cooperative cancellation signal polled before each
+                LLM/tool step. When ``await cancel_token.is_cancelled()``
+                returns True the run is aborted and a ``cancelled``
+                ExecutionOutcome is returned. Pass ``None`` (or omit) to
+                opt out of cancellation.
 
         Returns:
             Structured execution outcome
         """
+        token = cancel_token if cancel_token is not None else null_cancel_token()
         state = self.build_step_state(
             user_message=user_message,
             system_prompt=system_prompt,
@@ -249,7 +253,7 @@ class FunctionCallingOrchestrator:
         self._current_messages = state.messages
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         while state.iteration < max_iterations:
-            if cancel_checker is not None and cancel_checker():
+            if await token.is_cancelled():
                 return ExecutionOutcome(
                     status="cancelled",
                     content="",
@@ -309,7 +313,7 @@ class FunctionCallingOrchestrator:
             llm_timeout_seconds=llm_timeout_seconds,
             final_response_json_mode=final_response_json_mode,
             stream_chunk_callback=stream_chunk_callback,
-            cancel_checker=cancel_checker,
+            cancel_token=token,
         )
 
     async def _try_compact(
@@ -341,11 +345,12 @@ class FunctionCallingOrchestrator:
         llm_timeout_seconds: Optional[float],
         final_response_json_mode: bool,
         stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
-        cancel_checker: Callable[[], bool] | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ExecutionOutcome:
         """Run the legacy no-tools fallback once the bounded step loop stops."""
         logger.info("[FunctionCalling] Reached max iterations, getting final response")
-        if cancel_checker is not None and cancel_checker():
+        token = cancel_token if cancel_token is not None else null_cancel_token()
+        if await token.is_cancelled():
             return ExecutionOutcome(
                 status="cancelled",
                 content="",

@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from ....config.models import ThinkingDepth
 from ....core.logger import get_logger
+from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from ....agent.message_utils import append_latest_user_message
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
@@ -284,7 +285,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             result.streamed = stream_state.get("any_streamed", False)
             return result
 
-        cancel_checker = self._build_cancel_checker(request)
+        cancel_token = self._build_cancel_token(request)
         execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
             user_message=request.context.latest_user_message,
             system_prompt=request.system_prompt,
@@ -305,7 +306,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 else None
             ),
             stream_chunk_callback=fc_stream_callback,
-            cancel_checker=cancel_checker,
+            cancel_token=cancel_token,
         )
 
         streamed = stream_state["chunks_emitted"] > 0 and execution_outcome.status == "completed"
@@ -341,7 +342,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         current_user_message = request.context.latest_user_message
         current_revision = int(getattr(request.context, "session_run_revision", 0) or 0)
         current_turn_id = getattr(request.context.latest_payload, "turn_id", None)
-        cancel_checker = self._build_cancel_checker(request)
+        cancel_token = self._build_cancel_token(request)
         step_state = orchestrator.build_step_state(
             user_message=current_user_message,
             system_prompt=request.system_prompt,
@@ -351,7 +352,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
 
         while step_state.iteration < max_iterations:
-            if cancel_checker is not None and cancel_checker():
+            if await cancel_token.is_cancelled():
                 return FunctionCallingExecutionResult(
                     mode=request.mode,
                     response_text="",
@@ -457,7 +458,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             llm_timeout_seconds=None,
             final_response_json_mode=False,
             stream_chunk_callback=stream_chunk_callback,
-            cancel_checker=cancel_checker,
+            cancel_token=cancel_token,
         )
         return FunctionCallingExecutionResult(
             mode=request.mode,
@@ -468,52 +469,49 @@ class FunctionCallingHandler(BaseExecutionHandler):
             ux_plan=_serialize_ux_plan(request.intent),
         )
 
-    def _build_cancel_checker(
+    def _build_cancel_token(
         self, request: FunctionCallingRequest
-    ) -> Callable[[], bool] | None:
-        """Build a cancel-polling callable bound to one specific run revision.
+    ) -> CancelToken:
+        """Build a :class:`CancelToken` bound to one specific run revision.
 
-        The returned callable is pinned to the ``(session_id, run_id,
-        revision)`` triple captured at build time. It returns ``True`` **only**
-        when :meth:`SessionRunCoordinator.get_run_status` reports the active
-        run for that exact triple is ``cancelling`` or ``cancelled``. In every
-        other case it returns ``False``:
+        The returned token is pinned to the ``(session_id, run_id,
+        revision)`` triple captured at build time. ``is_cancelled()``
+        resolves to ``True`` **only** when
+        :meth:`SessionRunCoordinator.get_run_status` reports the active
+        run for that exact triple is ``cancelling`` or ``cancelled``. In
+        every other case it resolves to ``False``:
 
         * No coordinator is wired, or the request is not bound to a session
-          run → :meth:`_build_cancel_checker` returns ``None`` up front and
-          no polling occurs.
+          run → the noop token is returned and no polling occurs.
         * The active run has been completed / cleared (``get_run_status``
           returns ``None``) → ``False``.
-        * A new ``run_id`` has replaced the one we were bound to → ``False``.
+        * A new ``run_id`` has replaced the one we were bound to →
+          ``False``.
         * The ``revision`` has advanced (e.g. ``bump_revision`` after an
-          INTERRUPT) without an explicit ``request_cancel`` → ``False``. The
-          superseded tool-loop is expected to finish naturally; its result
-          will be flagged ``stale`` by
+          INTERRUPT) without an explicit ``request_cancel`` → ``False``.
+          The superseded tool-loop is expected to finish naturally; its
+          result will be flagged ``stale`` by
           :meth:`SessionRunCoordinator.record_result`.
         * The active run is ``running`` → ``False``.
 
-        This means the checker is a **narrow, opt-in stop signal**: a tool
+        This means the token is a **narrow, opt-in stop signal**: a tool
         loop will only abort when someone has *explicitly* requested
-        cancellation on the exact run/revision it was launched for. Callers
-        that want to react to supersession (revision bump) must wire a
-        separate signal.
+        cancellation on the exact run/revision it was launched for.
+        Callers that want to react to supersession (revision bump) must
+        wire a separate signal.
         """
         coordinator = self._deps.session_run_coordinator
         session_id = str(request.context.session_id or "").strip()
         run_id = str(request.context.session_run_id or "").strip()
         if coordinator is None or not session_id or not run_id:
-            return None
+            return null_cancel_token()
         revision = int(getattr(request.context, "session_run_revision", 0) or 0)
-
-        def _check() -> bool:
-            status = coordinator.get_run_status(
-                session_id=session_id,
-                run_id=run_id,
-                revision=revision,
-            )
-            return status in ("cancelling", "cancelled")
-
-        return _check
+        return SessionRunCancelToken(
+            coordinator=coordinator,
+            session_id=session_id,
+            run_id=run_id,
+            revision=revision,
+        )
 
 
 async def _start_explore_task_agent(

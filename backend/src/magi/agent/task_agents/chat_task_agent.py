@@ -270,7 +270,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         When a USER_MESSAGE arrives while an earlier run is still executing
         and the text matches the INTERRUPT rule patterns, we proactively
         call ``request_cancel`` on the coordinator so the in-flight
-        execution can bail out at the next ``cancel_checker`` probe — even
+        execution can bail out at the next ``cancel_token`` probe — even
         before the run loop gets a chance to pull the fact off the queue
         and classify it.
         """
