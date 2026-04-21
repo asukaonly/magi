@@ -196,7 +196,7 @@ def _serialize_ux_plan(intent: Any) -> dict | None:
 def build_background_run_fn(
     *,
     function_calling_orchestrator: Any,
-    execution_agent_id: str = "background_task",
+    execution_agent_id_prefix: str = "background",
     intent_label: str = "background",
 ) -> BackgroundTaskRunFn:
     """Return a :class:`BackgroundTaskRunFn` bound to ``orchestrator``.
@@ -208,10 +208,17 @@ def build_background_run_fn(
     left blank so the orchestrator falls back to its built-in scenario
     prompt — the spec.goal alone is sufficient once decoupled from the
     original chat turn.
+
+    The ``execution_agent_id`` forwarded to the orchestrator is
+    ``f"{execution_agent_id_prefix}:{task.task_id}"`` so runtime-trace
+    rows can be filtered back to a single background task per the
+    observability requirement in ``docs/dev/background-task-design.md``
+    §15.
     """
 
     async def _run(task: BackgroundTask, cancel_token: CancelToken) -> BackgroundTaskRunResult:
         spec = task.spec
+        execution_agent_id = f"{execution_agent_id_prefix}:{task.task_id}"
         outcome = await function_calling_orchestrator.execute_with_tools(
             user_message=spec.goal,
             system_prompt="",

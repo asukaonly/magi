@@ -307,6 +307,7 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
     assert call["execution_workspace"] == "/w"
     assert call["max_iterations"] == 7
     assert call["intent"] == "background"
+    assert call["execution_agent_id"] == f"background:{task.task_id}"
     # Cancellation is plumbed through.
     assert call["cancel_token"] is not None
 
