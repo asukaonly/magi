@@ -56,7 +56,6 @@ class PersonaLayerItem:
 class BootstrapConfig:
     style_instruction: str = ""
     opening_line: str = ""
-    extract_targets: List[str] = field(default_factory=list)
     max_rounds: int = 3
 
 

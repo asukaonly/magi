@@ -121,6 +121,11 @@ stress, mood, engagement, trigger, relationship_shift, group_atmosphere, public_
 2. Only generate ToM assertions when psychological state evidence is clear and directly from user's own words. Do not infer mood or stress from assistant responses.
 3. For single-event evidence, cap assertion confidence at 0.3.
 4. Respect evidence accumulation: if an existing edge has high observation_count and the new evidence is a single event, do not override.
+5. When the user explicitly states how they want to be addressed, prefer a `preference_profile` assertion instead of a graph edge.
+    - Preferred form of address -> `trait_name = "preference.address.preferred"`
+    - Disallowed form of address -> `trait_name = "preference.address.disallowed"`
+    - Explicit real name -> `trait_name = "preference.address.real_name"`
+    - If multiple forms are listed, encode `trait_value` as a JSON array string.
 
 ## Output Format
 Return JSON only:

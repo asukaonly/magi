@@ -1,13 +1,16 @@
 """Tests for BootstrapDialogueService."""
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
 from magi.personality.bootstrap_service import BootstrapDialogueService
+from magi.personality.bootstrap_service import BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS
+from magi.personality.bootstrap_service import BOOTSTRAP_L2_PRIORITY_MAX_WAIT_SECONDS
+from magi.personality.bootstrap_service import BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS
+from magi.personality.bootstrap_service import build_bootstrap_l2_priority_metadata
 from magi.personality.growth_memory import GrowthMemoryEngine, Milestone, MilestoneType
-from magi.personality.loader import BootstrapConfig, PersonalityConfig
+from magi.personality.loader import PersonalityConfig
 
 
 def _make_config(*, with_bootstrap: bool = True) -> PersonalityConfig:
@@ -23,8 +26,7 @@ def _make_config(*, with_bootstrap: bool = True) -> PersonalityConfig:
         },
         "bootstrap": {
             "style_instruction": "Be direct and friendly.",
-            "opening_line": "Hey! What should I call you?",
-            "extract_targets": ["name", "interests"],
+            "opening_line": "First time meeting, so give me your name, how you want me to call you, and one thing you're into.",
             "max_rounds": 2,
         } if with_bootstrap else None,
     }
@@ -38,8 +40,7 @@ class TestBootstrapConfig:
         config = _make_config(with_bootstrap=True)
         assert config.bootstrap is not None
         assert config.bootstrap.style_instruction == "Be direct and friendly."
-        assert config.bootstrap.opening_line == "Hey! What should I call you?"
-        assert config.bootstrap.extract_targets == ["name", "interests"]
+        assert config.bootstrap.opening_line == "First time meeting, so give me your name, how you want me to call you, and one thing you're into."
         assert config.bootstrap.max_rounds == 2
 
     def test_from_dict_without_bootstrap(self):
@@ -51,7 +52,6 @@ class TestBootstrapConfig:
         assert config.bootstrap is not None
         assert config.bootstrap.max_rounds == 3
         assert config.bootstrap.style_instruction == ""
-        assert config.bootstrap.extract_targets == []
 
 
 class TestBootstrapNeedsCheck:
@@ -68,7 +68,7 @@ class TestBootstrapNeedsCheck:
         assert await service.needs_bootstrap("test") is True
 
     @pytest.mark.asyncio
-    async def test_needs_bootstrap_when_not_completed(self):
+    async def test_needs_bootstrap_when_opening_not_injected(self):
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
         growth.get_milestones.return_value = []
@@ -80,24 +80,65 @@ class TestBootstrapNeedsCheck:
         assert await service.needs_bootstrap("test_persona") is True
 
     @pytest.mark.asyncio
-    async def test_no_bootstrap_when_already_completed(self):
+    async def test_no_bootstrap_when_opening_already_injected(self):
 
-        completed_milestone = Milestone(
+        started_milestone = Milestone(
             id="m1",
-            type=MilestoneType.BOOTSTRAP_COMPLETED,
-            title="bootstrap_completed_test_persona",
-            description="done",
+            type=MilestoneType.BOOTSTRAP_STARTED,
+            title="bootstrap_started_test_persona",
+            description="started",
             timestamp=1000.0,
             metadata={"persona_name": "test_persona"},
         )
         growth = AsyncMock(spec=GrowthMemoryEngine)
-        growth.get_milestones.return_value = [completed_milestone]
+        growth.get_milestones.return_value = [started_milestone]
 
         service = BootstrapDialogueService(
             growth_engine=growth,
         )
 
         assert await service.needs_bootstrap("test_persona") is False
+
+    @pytest.mark.asyncio
+    async def test_needs_bootstrap_init_false_when_opening_already_injected(self):
+
+        started_milestone = Milestone(
+            id="m2",
+            type=MilestoneType.BOOTSTRAP_STARTED,
+            title="bootstrap_started_test_persona",
+            description="started",
+            timestamp=1000.0,
+            metadata={"persona_name": "test_persona"},
+        )
+        growth = AsyncMock(spec=GrowthMemoryEngine)
+        growth.get_milestones.return_value = [started_milestone]
+
+        service = BootstrapDialogueService(
+            growth_engine=growth,
+        )
+
+        assert await service.needs_bootstrap_init("test_persona") is False
+
+    @pytest.mark.asyncio
+    async def test_mark_bootstrap_started_records_started_milestone_once(self):
+
+        growth = AsyncMock(spec=GrowthMemoryEngine)
+        growth.get_milestones.return_value = []
+
+        service = BootstrapDialogueService(growth_engine=growth)
+
+        await service.mark_bootstrap_started(
+            persona_name="test_persona",
+            persona_id="persona-1",
+            user_id="u1",
+            session_id="s1",
+            turn_id="turn-1",
+        )
+
+        growth.record_milestone.assert_awaited_once()
+        kwargs = growth.record_milestone.await_args.kwargs
+        assert kwargs["milestone_type"] == MilestoneType.BOOTSTRAP_STARTED
+        assert kwargs["metadata"]["session_id"] == "s1"
 
 
 class TestBootstrapOpening:
@@ -107,7 +148,7 @@ class TestBootstrapOpening:
         mock_bridge = AsyncMock()
         mock_bridge.chat.return_value = "Hey there, welcome!"
         mock_pool = MagicMock()
-        mock_pool.get.return_value = mock_bridge
+        mock_pool.get.return_value = object()
 
         service = BootstrapDialogueService(
             growth_engine=AsyncMock(),
@@ -115,9 +156,22 @@ class TestBootstrapOpening:
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
             patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             opening = await service.get_opening("test")
         assert opening == "Hey there, welcome!"
+        system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
+        assert "guided first-contact opener" in system_prompt
+        assert "how they want to be addressed" in system_prompt
+        assert "interest, hobby, or topic they care about" in system_prompt
+        mock_bridge.chat.assert_awaited_once_with(
+            system_prompt=ANY,
+            messages=[{"role": "user", "content": "Generate your opening line."}],
+            max_tokens=150,
+            temperature=0.9,
+            disable_thinking=True,
+            timeout_seconds=BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS,
+        )
 
     @pytest.mark.asyncio
     async def test_get_opening_llm_fails_uses_static_fallback(self):
@@ -128,7 +182,7 @@ class TestBootstrapOpening:
         # No LLM pool available → falls back to static opening_line
         with patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)):
             opening = await service.get_opening("test")
-        assert opening == "Hey! What should I call you?"
+        assert opening == "First time meeting, so give me your name, how you want me to call you, and one thing you're into."
 
     @pytest.mark.asyncio
     async def test_get_opening_no_config_synthesizes_and_falls_back(self):
@@ -155,11 +209,12 @@ class TestBootstrapReply:
         mock_bridge.chat.return_value = "Nice to meet you, Alice!"
 
         mock_pool = MagicMock()
-        mock_pool.get.return_value = mock_bridge
+        mock_pool.get.return_value = object()
 
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
             patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             reply = await service.reply(
                 persona_name="test",
@@ -173,8 +228,36 @@ class TestBootstrapReply:
         mock_bridge.chat.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_final_round_records_milestone(self):
-        """On the final round, bootstrap should record a BOOTSTRAP_COMPLETED milestone."""
+    async def test_round_one_prompt_prioritizes_name_and_forms_of_address(self):
+
+        growth = AsyncMock(spec=GrowthMemoryEngine)
+        service = BootstrapDialogueService(
+            growth_engine=growth,
+        )
+
+        mock_bridge = AsyncMock()
+        mock_bridge.chat.return_value = "Nice to meet you."
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = object()
+
+        with (
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
+        ):
+            await service.reply(
+                persona_name="test",
+                user_id="u1",
+                session_id="s1",
+                user_message="Hi",
+                history=[],
+            )
+
+        system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
+        assert "Prioritize learning the user's name and how they like to be addressed" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_final_round_does_not_record_bootstrap_completion(self):
 
         growth = AsyncMock(spec=GrowthMemoryEngine)
         service = BootstrapDialogueService(
@@ -185,7 +268,7 @@ class TestBootstrapReply:
         mock_bridge.chat.return_value = "Got it!"
 
         mock_pool = MagicMock()
-        mock_pool.get.return_value = mock_bridge
+        mock_pool.get.return_value = object()
 
         # Round 2 (final, because max_rounds=2): history has 1 user message already
         history = [
@@ -197,6 +280,7 @@ class TestBootstrapReply:
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
             patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             await service.reply(
                 persona_name="my_persona",
@@ -206,10 +290,45 @@ class TestBootstrapReply:
                 history=history,
             )
 
-        growth.record_milestone.assert_called_once()
-        call_kwargs = growth.record_milestone.call_args[1]
-        assert call_kwargs["milestone_type"] == MilestoneType.BOOTSTRAP_COMPLETED
-        assert call_kwargs["metadata"]["persona_name"] == "my_persona"
+        growth.record_milestone.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_final_round_does_not_run_bootstrap_specific_l2_extraction(self):
+
+        growth = AsyncMock(spec=GrowthMemoryEngine)
+        l2_store = AsyncMock()
+        service = BootstrapDialogueService(
+            growth_engine=growth,
+            l2_store=l2_store,
+        )
+
+        mock_bridge = AsyncMock()
+        mock_bridge.chat.return_value = "Got it!"
+
+        mock_pool = MagicMock()
+        mock_pool.get.return_value = object()
+
+        history = [
+            {"role": "assistant", "content": "Hey!"},
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "What do you do?"},
+        ]
+
+        with (
+            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
+        ):
+            await service.reply(
+                persona_name="my_persona",
+                user_id="u1",
+                session_id="s1",
+                user_message="I'm a developer",
+                history=history,
+            )
+
+        mock_bridge.chat.assert_awaited_once()
+        l2_store.upsert_entity_facet.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_non_final_round_no_milestone(self):
@@ -223,11 +342,12 @@ class TestBootstrapReply:
         mock_bridge = AsyncMock()
         mock_bridge.chat.return_value = "Tell me more!"
         mock_pool = MagicMock()
-        mock_pool.get.return_value = mock_bridge
+        mock_pool.get.return_value = object()
 
         with (
             patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
             patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             await service.reply(
                 persona_name="test",
@@ -240,45 +360,74 @@ class TestBootstrapReply:
         growth.record_milestone.assert_not_called()
 
 
-class TestBootstrapExtraction:
+class TestBootstrapL2PriorityMetadata:
     @pytest.mark.asyncio
-    async def test_extraction_writes_to_l2(self):
+    async def test_returns_fast_flush_metadata_after_recent_opening(self):
 
-        growth = AsyncMock(spec=GrowthMemoryEngine)
-        l2_store = AsyncMock()
-
-        service = BootstrapDialogueService(
-            growth_engine=growth,
-            l2_store=l2_store,
+        started_milestone = Milestone(
+            id="m1",
+            type=MilestoneType.BOOTSTRAP_STARTED,
+            title="bootstrap_started_test",
+            description="started",
+            timestamp=2000.0,
+            metadata={"persona_name": "test", "persona_id": "persona-1", "user_id": "u1", "session_id": "s1"},
         )
 
-        mock_bridge = AsyncMock()
-        # First call: bootstrap reply, second call: extraction
-        mock_bridge.chat.side_effect = [
-            "Great meeting you!",
-            json.dumps({"name": "Alice", "interests": ["coding", "music"]}),
-        ]
-        mock_pool = MagicMock()
-        mock_pool.get.return_value = mock_bridge
-
-        # Final round (round 2 of 2)
-        history = [
-            {"role": "assistant", "content": "Hey!"},
-            {"role": "user", "content": "I'm Alice, I like coding"},
-            {"role": "assistant", "content": "Cool!"},
-        ]
+        growth = AsyncMock(spec=GrowthMemoryEngine)
+        growth.get_milestones.return_value = [started_milestone]
 
         with (
-            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
-            patch("magi.personality.bootstrap_service.require_scenario_llm_pool", return_value=mock_pool),
+            patch(
+                "magi.personality.bootstrap_service.get_shared_growth_engine",
+                new_callable=AsyncMock,
+                return_value=growth,
+            ),
+            patch("magi.personality.bootstrap_service.time.time", return_value=2001.0),
         ):
-            await service.reply(
-                persona_name="test",
+            metadata = await build_bootstrap_l2_priority_metadata(
                 user_id="u1",
                 session_id="s1",
-                user_message="And music",
-                history=history,
+                persona_name="test",
+                persona_id="persona-1",
             )
 
-        # Should have called upsert_entity_facet for name and interests
-        assert l2_store.upsert_entity_facet.call_count == 2
+        assert metadata == {
+            "l2_batch_owner": "bootstrap:u1:persona-1",
+            "l2_batch_max_events": 1,
+            "l2_batch_min_ready_events": 1,
+            "l2_batch_max_wait_seconds": BOOTSTRAP_L2_PRIORITY_MAX_WAIT_SECONDS,
+        }
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_metadata_without_recent_matching_opening(self):
+
+        started_milestone = Milestone(
+            id="m1",
+            type=MilestoneType.BOOTSTRAP_STARTED,
+            title="bootstrap_started_test",
+            description="started",
+            timestamp=1000.0,
+            metadata={"persona_name": "test", "persona_id": "persona-1", "user_id": "u1", "session_id": "s1"},
+        )
+        growth = AsyncMock(spec=GrowthMemoryEngine)
+        growth.get_milestones.return_value = [started_milestone]
+
+        with (
+            patch(
+                "magi.personality.bootstrap_service.get_shared_growth_engine",
+                new_callable=AsyncMock,
+                return_value=growth,
+            ),
+            patch(
+                "magi.personality.bootstrap_service.time.time",
+                return_value=1000.0 + BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS + 1,
+            ),
+        ):
+            metadata = await build_bootstrap_l2_priority_metadata(
+                user_id="u1",
+                session_id="s1",
+                persona_name="test",
+                persona_id="persona-1",
+            )
+
+        assert metadata == {}

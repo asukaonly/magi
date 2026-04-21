@@ -684,9 +684,25 @@ class PromptContextRenderer:
         lines.append(f"* User Name: {profile.user_name}")
 
         prefs = profile.user_preferences or {}
-        if prefs:
+        preferred_address = self._first_profile_text(prefs.get("address.preferred"))
+        stated_real_name = self._first_profile_text(prefs.get("address.real_name"))
+        disallowed_addresses = self._profile_text_list(prefs.get("address.disallowed"))
+
+        if preferred_address:
+            lines.append(f"* Preferred Address: {preferred_address}")
+        if stated_real_name and stated_real_name != profile.user_name:
+            lines.append(f"* Stated Real Name: {stated_real_name}")
+        if disallowed_addresses:
+            lines.append(f"* Avoid Addressing As: {', '.join(disallowed_addresses)}")
+
+        visible_prefs = {
+            key: value
+            for key, value in prefs.items()
+            if key not in {"address.preferred", "address.real_name", "address.disallowed"}
+        }
+        if visible_prefs:
             lines.append("* User Preferences:")
-            for key, value in prefs.items():
+            for key, value in visible_prefs.items():
                 lines.append(f"  - {key}: {value}")
         else:
             lines.append("* User Preferences: (none recorded)")
@@ -703,6 +719,31 @@ class PromptContextRenderer:
         lines.append("")
 
         return lines
+
+    @staticmethod
+    def _first_profile_text(value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                text = str(item or "").strip()
+                if text:
+                    return text
+            return ""
+        if isinstance(value, dict):
+            return str(value.get("value") or "").strip()
+        return ""
+
+    @classmethod
+    def _profile_text_list(cls, value: Any) -> List[str]:
+        if isinstance(value, str):
+            text = value.strip()
+            return [text] if text else []
+        if isinstance(value, (list, tuple)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, dict):
+            return cls._profile_text_list(value.get("value"))
+        return []
 
     def _render_runtime_system(self, runtime: RuntimeSystemContext) -> List[str]:
         """Render runtime system as markdown."""

@@ -215,6 +215,18 @@ L2 holds:
 - Episodes (bounded activity segments formed from L1 events)
 - Durable projection job queue
 
+For user-authored chat, durable self-descriptive profile facts such as naming and
+addressing preferences should land in L2 semantic memory, not in bootstrap-only
+state. For example, "call me Hakimi", "don't call me teacher", and explicit
+real-name statements belong in `preference_profile` assertions under stable
+`preference.address.*` trait names so prompt assembly and retrieval can reuse one
+shared read path.
+
+Bootstrap is only responsible for injecting the first assistant opening for a
+persona. After that opening is persisted, all profile extraction returns to the
+normal chat -> L1 -> L2 pipeline; bootstrap must not own a separate user-profile
+extraction path.
+
 `L2` embedding uses a shared embedding pipeline across all layers; each layer defines its own text builder, chunk strategy, parent-table status writeback, and retrieval collapse logic. The entity catalog uses single-entity-single-vector without chunking. All L2 parent tables record unified embedding observation fields (`embedding_status`, `embedding_profile_id`, `last_embedded_at`). The repository provides [scripts/rebuild-memory-embeddings.py](../scripts/rebuild-memory-embeddings.py) for offline vector rebuilds.
 
 `L2` is the "evidence-backed interpretation layer", not the raw truth layer.

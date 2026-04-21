@@ -33,7 +33,15 @@ class _FakeL2EntityCatalog:
 
 class _FakeL2Store:
     async def get_tom_snapshot(self, entity_id=None, entity_type=None):
-        return {"preferences": {"language": "zh-CN", "style": "concise"}}
+        return {
+            "preferences": {
+                "language": "zh-CN",
+                "style": "concise",
+                "address.preferred": '["哈基米"]',
+                "address.disallowed": '["老师"]',
+                "address.real_name": "明日香",
+            }
+        }
 
 
 class _FakeUnifiedMemory:
@@ -89,6 +97,9 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(i4 > i3)
         self.assertTrue(i5 > i4)
         self.assertIn("weather", prompt)
+        self.assertIn("* User Name: 哈基米", prompt)
+        self.assertIn("* Preferred Address: 哈基米", prompt)
+        self.assertIn("* Avoid Addressing As: 老师", prompt)
 
     async def test_profile_emotion_mapping_uses_relationship_scores(self):
         assembler = PromptContextAssembler(

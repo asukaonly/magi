@@ -1,15 +1,17 @@
 """Tests for personality bootstrap and journal API endpoints."""
 
+from __future__ import annotations
+
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from magi.api.routers.personality_config import (
     BootstrapInitRequest,
-    BootstrapMessageRequest,
     JournalReflectRequest,
+    _wait_for_bootstrap_runtime_ready,
     api_bootstrap_init,
-    api_bootstrap_message,
     api_get_greeting,
     api_journal_reflect,
 )
@@ -18,7 +20,8 @@ from magi.api.routers.personality_config import (
 @pytest.fixture(autouse=True)
 def _reset_growth_engine():
     """Reset the cached growth engine between tests."""
-    import magi.api.routers.personality_config as mod
+    import magi.personality.bootstrap_service as mod
+
     original = mod._growth_engine_instance
     mod._growth_engine_instance = None
     yield
@@ -28,7 +31,7 @@ def _reset_growth_engine():
 def _mock_config(*, with_bootstrap: bool = True):
     config = MagicMock()
     config.name = "TestBot"
-    config.avatar = ""
+    config.avatar = "avatar.png"
     config.persona_entity.basic_profile.name = "TestBot"
     config.persona_entity.core_identity.inner_narrative = "A test persona."
     config.persona_entity.core_identity.language_fingerprint = "Neutral"
@@ -36,7 +39,6 @@ def _mock_config(*, with_bootstrap: bool = True):
         config.bootstrap = MagicMock()
         config.bootstrap.opening_line = "Hey, first time here."
         config.bootstrap.style_instruction = "Speak naturally."
-        config.bootstrap.extract_targets = ["name"]
         config.bootstrap.max_rounds = 3
     else:
         config.bootstrap = None
@@ -44,72 +46,46 @@ def _mock_config(*, with_bootstrap: bool = True):
 
 
 class TestGreetingBootstrapStatus:
-    """Greeting endpoint includes bootstrap status."""
+    """Greeting endpoint includes bootstrap status but does not generate an opening."""
 
     @pytest.mark.asyncio
-    async def test_greeting_includes_needs_bootstrap_true(self):
-        mock_engine = AsyncMock()
-        mock_engine.init = AsyncMock()
-        mock_engine.get_milestones = AsyncMock(return_value=[])
-
+    async def test_greeting_includes_needs_bootstrap_without_generating_opening(self):
         config = _mock_config(with_bootstrap=True)
+        bootstrap_svc = SimpleNamespace(
+            needs_bootstrap=AsyncMock(return_value=True),
+            needs_bootstrap_init=AsyncMock(return_value=True),
+            get_opening=AsyncMock(side_effect=AssertionError("/greeting should not generate opening text")),
+        )
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.get_current_personality_config", return_value=config),
-            patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
-            patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value=""),
-            patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=config),
+            patch("magi.api.routers.personality_config._load_current_config", new_callable=AsyncMock, return_value=config),
+            patch("magi.api.routers.personality_config._resolve_persona_id", new_callable=AsyncMock, return_value="persona-1"),
+            patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, return_value=bootstrap_svc),
+            patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value="/static/avatars/avatar.png"),
         ):
-            mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
-            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-
             resp = await api_get_greeting()
 
-        assert resp.data["needs_bootstrap"] is True
-        assert resp.data["bootstrap_opening"] == "Hey, first time here."
-
-    @pytest.mark.asyncio
-    async def test_greeting_bootstrap_false_when_completed(self):
-        milestone = MagicMock()
-        milestone.metadata = {"persona_name": "testbot"}
-        mock_engine = AsyncMock()
-        mock_engine.init = AsyncMock()
-        mock_engine.get_milestones = AsyncMock(return_value=[milestone])
-
-        config = _mock_config(with_bootstrap=True)
-
-        with (
-            patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.get_current_personality_config", return_value=config),
-            patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
-            patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value=""),
-            patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-        ):
-            mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
-            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-
-            resp = await api_get_greeting()
-
-        assert resp.data["needs_bootstrap"] is False
-        assert resp.data["bootstrap_opening"] is None
+        assert resp.data == {
+            "name": "TestBot",
+            "avatar": "/static/avatars/avatar.png",
+            "needs_bootstrap": True,
+            "needs_bootstrap_init": True,
+            "bootstrap_completed": False,
+        }
+        bootstrap_svc.needs_bootstrap_init.assert_awaited_once()
+        bootstrap_svc.get_opening.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_greeting_bootstrap_graceful_on_error(self):
-        """Bootstrap check failure should not break the greeting."""
         config = _mock_config(with_bootstrap=False)
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.get_current_personality_config", return_value=config),
-            patch("magi.api.routers.personality_config.GrowthMemoryEngine", side_effect=RuntimeError("DB error")),
+            patch("magi.api.routers.personality_config._load_current_config", new_callable=AsyncMock, return_value=config),
+            patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, side_effect=RuntimeError("DB error")),
             patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value=""),
-            patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
         ):
-            mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
-            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-
             resp = await api_get_greeting()
 
         assert resp.success is True
@@ -120,140 +96,135 @@ class TestBootstrapInitEndpoint:
     """POST /bootstrap/init endpoint tests."""
 
     @pytest.mark.asyncio
-    async def test_bootstrap_init_injects_opening(self):
-        mock_engine = AsyncMock()
-        mock_engine.init = AsyncMock()
-        mock_engine.get_milestones = AsyncMock(return_value=[])
+    async def test_wait_for_bootstrap_runtime_ready_ignores_startup_state_until_llm_is_ready(self):
+        snapshots = [
+            {
+                "llm_ready": False,
+                "startup_state": "ready",
+                "deferred_reason": None,
+            },
+            {
+                "llm_ready": True,
+                "startup_state": "ready",
+                "deferred_reason": None,
+            },
+        ]
 
-        config = _mock_config(with_bootstrap=True)
+        async def _fake_snapshot():
+            return snapshots.pop(0)
 
-        mock_chat_store = AsyncMock()
-        mock_chat_store.upsert_turn = AsyncMock()
-        mock_chat_store.next_sequence_no = AsyncMock(return_value=1)
-        mock_chat_store.append_message = AsyncMock()
-        mock_chat_store.bump_history_version = AsyncMock(return_value=1)
+        with (
+            patch("magi.api.routers.personality_config._get_runtime_status_snapshot", new_callable=AsyncMock, side_effect=_fake_snapshot),
+            patch("magi.api.routers.personality_config.asyncio.sleep", new_callable=AsyncMock) as sleep_mock,
+        ):
+            runtime_status = await _wait_for_bootstrap_runtime_ready()
 
-        mock_trace_store = AsyncMock()
-        mock_trace_store.append_notification = AsyncMock(return_value=1)
+        assert runtime_status["llm_ready"] is True
+        sleep_mock.assert_awaited_once_with(0.2)
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_init_injects_opening_and_returns_runtime_state(self):
+        bootstrap_svc = SimpleNamespace(
+            needs_bootstrap=AsyncMock(return_value=True),
+            needs_bootstrap_init=AsyncMock(return_value=True),
+            get_opening=AsyncMock(return_value="Hey, first time here."),
+            mark_bootstrap_started=AsyncMock(),
+        )
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
-            patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=config),
-            patch("magi.core.runtime_bindings.require_chat_store", return_value=mock_chat_store),
-            patch("magi.core.runtime_bindings.require_runtime_trace_store", return_value=mock_trace_store),
+            patch("magi.api.routers.personality_config._resolve_persona_id", new_callable=AsyncMock, return_value="persona-1"),
+            patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, return_value=bootstrap_svc),
+            patch(
+                "magi.api.routers.personality_config._wait_for_bootstrap_runtime_ready",
+                new_callable=AsyncMock,
+                return_value={
+                    "llm_ready": True,
+                    "startup_state": "ready",
+                    "deferred_reason": None,
+                },
+            ),
+            patch(
+                "magi.api.routers.personality_config._persist_bootstrap_assistant_message",
+                new_callable=AsyncMock,
+                return_value="msg_001",
+            ) as persist_message,
         ):
-            mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
-            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-
             request = BootstrapInitRequest(session_id="sess_001")
             resp = await api_bootstrap_init(request)
 
         assert resp.success is True
-        assert resp.data["bootstrap_active"] is True
-        assert resp.data["opening"] == "Hey, first time here."
-        mock_chat_store.upsert_turn.assert_called_once()
-        mock_chat_store.append_message.assert_called_once()
-        mock_trace_store.append_notification.assert_called_once()
+        assert resp.data == {
+            "bootstrap_active": False,
+            "opening": "Hey, first time here.",
+            "needs_bootstrap_init": False,
+            "bootstrap_completed": True,
+            "startup_state": "ready",
+            "deferred_reason": None,
+        }
+        bootstrap_svc.needs_bootstrap_init.assert_awaited_once()
+        bootstrap_svc.get_opening.assert_awaited_once()
+        persist_message.assert_awaited_once()
+        bootstrap_svc.mark_bootstrap_started.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_bootstrap_init_already_completed(self):
-        milestone = MagicMock()
-        milestone.metadata = {"persona_name": "testbot"}
-        mock_engine = AsyncMock()
-        mock_engine.init = AsyncMock()
-        mock_engine.get_milestones = AsyncMock(return_value=[milestone])
+    async def test_bootstrap_init_returns_success_when_runtime_bindings_are_still_starting(self):
+        bootstrap_svc = SimpleNamespace(
+            needs_bootstrap=AsyncMock(return_value=True),
+            needs_bootstrap_init=AsyncMock(return_value=True),
+            get_opening=AsyncMock(return_value="Hey, first time here."),
+            mark_bootstrap_started=AsyncMock(),
+        )
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
-            patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
+            patch("magi.api.routers.personality_config._resolve_persona_id", new_callable=AsyncMock, return_value="persona-1"),
+            patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, return_value=bootstrap_svc),
+            patch(
+                "magi.api.routers.personality_config._wait_for_bootstrap_runtime_ready",
+                new_callable=AsyncMock,
+                return_value={
+                    "llm_ready": False,
+                    "startup_state": "deferred",
+                    "deferred_reason": "llm_selection_pending",
+                },
+            ),
+            patch(
+                "magi.api.routers.personality_config._persist_bootstrap_assistant_message",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("chat_store binding is not initialized"),
+            ),
         ):
-            mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
-            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
+            request = BootstrapInitRequest(session_id="sess_001")
+            resp = await api_bootstrap_init(request)
 
+        assert resp.success is True
+        assert resp.data == {
+            "bootstrap_active": False,
+            "opening": "Hey, first time here.",
+            "needs_bootstrap_init": False,
+            "bootstrap_completed": True,
+            "startup_state": "deferred",
+            "deferred_reason": "llm_selection_pending",
+        }
+        bootstrap_svc.mark_bootstrap_started.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_init_skips_when_opening_already_injected(self):
+        bootstrap_svc = SimpleNamespace(needs_bootstrap_init=AsyncMock(return_value=False))
+
+        with (
+            patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
+            patch("magi.api.routers.personality_config._resolve_persona_id", new_callable=AsyncMock, return_value="persona-1"),
+            patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, return_value=bootstrap_svc),
+        ):
             request = BootstrapInitRequest(session_id="sess_001")
             resp = await api_bootstrap_init(request)
 
         assert resp.data["bootstrap_active"] is False
-
-
-class TestBootstrapMessageEndpoint:
-    """POST /bootstrap/message endpoint tests."""
-
-    @pytest.mark.asyncio
-    async def test_returns_reply(self):
-        mock_engine = AsyncMock()
-        mock_engine.init = AsyncMock()
-        mock_engine.get_milestones = AsyncMock(return_value=[])
-        mock_engine.record_milestone = AsyncMock(return_value=MagicMock(id="m1", timestamp=1.0))
-
-        config = _mock_config(with_bootstrap=True)
-        config.bootstrap.max_rounds = 2
-        config.bootstrap.style_instruction = "Be friendly."
-        config.bootstrap.extract_targets = ["name"]
-
-        mock_chat_store = AsyncMock()
-        mock_chat_store.create_user_turn = AsyncMock(return_value=MagicMock(message_id="msg_user"))
-        mock_chat_store.upsert_turn = AsyncMock()
-        mock_chat_store.next_sequence_no = AsyncMock(return_value=2)
-        mock_chat_store.append_message = AsyncMock()
-        mock_chat_store.bump_history_version = AsyncMock(return_value=1)
-
-        mock_trace_store = AsyncMock()
-        mock_trace_store.append_notification = AsyncMock(return_value=1)
-
-        with (
-            patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
-            patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-            patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=config),
-            patch("magi.personality.bootstrap_service.require_scenario_llm_pool") as mock_pool,
-            patch("magi.core.runtime_bindings.require_chat_store", return_value=mock_chat_store),
-            patch("magi.core.runtime_bindings.require_runtime_trace_store", return_value=mock_trace_store),
-        ):
-            mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
-            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-            mock_pool.return_value.get.return_value.chat = AsyncMock(return_value="Nice to meet you!")
-
-            request = BootstrapMessageRequest(
-                user_message="I'm Alice",
-                history=[],
-                session_id="sess_001",
-            )
-            resp = await api_bootstrap_message(request)
-
-        assert resp.success is True
-        assert resp.data["reply"] == "Nice to meet you!"
-        # Both user turn and assistant reply should be persisted
-        mock_chat_store.create_user_turn.assert_called_once()
-        mock_chat_store.append_message.assert_called_once()
-        mock_trace_store.append_notification.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_already_completed(self):
-        milestone = MagicMock()
-        milestone.metadata = {"persona_name": "testbot"}
-        mock_engine = AsyncMock()
-        mock_engine.init = AsyncMock()
-        mock_engine.get_milestones = AsyncMock(return_value=[milestone])
-
-        config = _mock_config(with_bootstrap=True)
-
-        with (
-            patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
-            patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
-        ):
-            mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
-            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-
-            request = BootstrapMessageRequest(user_message="Hi")
-            resp = await api_bootstrap_message(request)
-
-        assert resp.data["is_complete"] is True
-        assert resp.data["reply"] is None
+        assert resp.data["opening"] is None
+        assert resp.data["needs_bootstrap_init"] is False
+        assert resp.data["bootstrap_completed"] is True
 
 
 class TestJournalReflectEndpoint:
@@ -273,15 +244,14 @@ class TestJournalReflectEndpoint:
 
         with (
             patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
-            patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
+            patch("magi.api.routers.personality_config.get_shared_growth_engine", new_callable=AsyncMock, return_value=mock_engine),
             patch("magi.personality.persona_journal_service.resolve_persona_config", new_callable=AsyncMock, return_value=config),
-            patch("magi.personality.persona_journal_service.PersonaJournalService._call_llm",
-                  new_callable=AsyncMock, return_value="I felt calm today."),
+            patch(
+                "magi.personality.persona_journal_service.PersonaJournalService._call_llm",
+                new_callable=AsyncMock,
+                return_value="I felt calm today.",
+            ),
         ):
-            mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
-            mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"
-
             request = JournalReflectRequest()
             resp = await api_journal_reflect(request)
 
@@ -299,8 +269,11 @@ class TestJournalReflectEndpoint:
             patch("magi.api.routers.personality_config.GrowthMemoryEngine", return_value=mock_engine),
             patch("magi.api.routers.personality_config.get_runtime_paths") as mock_paths,
             patch("magi.personality.persona_journal_service.resolve_persona_config", new_callable=AsyncMock, return_value=None),
-            patch("magi.personality.persona_journal_service.PersonaJournalService._call_llm",
-                  new_callable=AsyncMock, return_value=None),
+            patch(
+                "magi.personality.persona_journal_service.PersonaJournalService._call_llm",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             mock_paths.return_value.growth_db_path = "/tmp/test/growth.db"
             mock_paths.return_value.persona_registry_db_path = "/tmp/test/persona_registry.db"

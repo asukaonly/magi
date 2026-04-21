@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi.responses import FileResponse
 
 from magi.api.routers import messages as messages_router
 from magi.chat.read_service import ChatDisplayMessage
 from magi.api.services.message_dispatch_service import MessageDispatchOutcome
+
+
+async def _runtime_ready(_app):  # type: ignore[no-untyped-def]
+    return {
+        "runtime_ready": True,
+        "runtime_status": "ready",
+        "startup_state": "ready",
+        "deferred_reason": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -21,7 +32,9 @@ async def test_send_user_message_uses_runtime_namespace_for_dispatch(monkeypatch
             turn_id="turn-1",
         )
 
+    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -48,7 +61,9 @@ async def test_send_user_message_defaults_to_desktop_runtime_identity(monkeypatc
             turn_id="turn-1",
         )
 
+    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -75,7 +90,9 @@ async def test_send_user_message_passes_attachments_and_workspace_path(monkeypat
             turn_id="turn-1",
         )
 
+    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -104,7 +121,9 @@ async def test_send_user_message_forwards_reply_target(monkeypatch: pytest.Monke
             turn_id="turn-1",
         )
 
+    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -116,6 +135,120 @@ async def test_send_user_message_forwards_reply_target(monkeypatch: pytest.Monke
 
     assert response.success is True
     assert captured["metadata"] == {"reply_to_message_id": "msg-assistant-1"}
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_rejects_when_runtime_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_runtime_status(_app):  # type: ignore[no-untyped-def]
+        return {
+            "runtime_ready": False,
+            "runtime_status": "deferred",
+            "startup_state": "deferred",
+            "deferred_reason": "llm_selection_pending",
+        }
+
+    dispatch_called = False
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        nonlocal dispatch_called
+        dispatch_called = True
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr(messages_router, "get_runtime_system_status", _fake_runtime_status)
+    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+
+    response = await messages_router.send_user_message(
+        messages_router.UserMessageRequest(
+            message="hello",
+            session_id="session-1",
+        )
+    )
+
+    assert response.success is False
+    assert response.data["error_code"] == "RUNTIME_NOT_READY"
+    assert response.data["startup_state"] == "deferred"
+    assert dispatch_called is False
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_dispatches_when_runtime_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_router, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+
+    response = await messages_router.send_user_message(
+        messages_router.UserMessageRequest(
+            message="hello",
+            session_id="session-1",
+        )
+    )
+
+    assert response.success is True
+    assert captured["message"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_merges_bootstrap_l2_priority_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr(messages_router, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(
+        messages_router,
+        "build_bootstrap_l2_priority_metadata",
+        AsyncMock(
+            return_value={
+                "l2_batch_owner": "bootstrap:u1:test",
+                "l2_batch_max_events": 1,
+                "l2_batch_min_ready_events": 1,
+                "l2_batch_max_wait_seconds": 1.0,
+            }
+        ),
+    )
+
+    response = await messages_router.send_user_message(
+        messages_router.UserMessageRequest(
+            message="hello",
+            user_id="u1",
+            session_id="session-1",
+            metadata={"runtime_namespace": "desktop"},
+        )
+    )
+
+    assert response.success is True
+    assert captured["metadata"] == {
+        "runtime_namespace": "desktop",
+        "l2_batch_owner": "bootstrap:u1:test",
+        "l2_batch_max_events": 1,
+        "l2_batch_min_ready_events": 1,
+        "l2_batch_max_wait_seconds": 1.0,
+    }
 
 
 @pytest.mark.asyncio

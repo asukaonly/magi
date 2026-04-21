@@ -14,6 +14,14 @@ from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE
 
 logger = get_logger(__name__)
 
+_CHAT_PROJECTION_METADATA_KEYS = {
+    "l2_batch_owner",
+    "l2_batch_catch_up_owner",
+    "l2_batch_max_events",
+    "l2_batch_min_ready_events",
+    "l2_batch_max_wait_seconds",
+}
+
 
 CHAT_STORE_NOT_INITIALIZED = "CHAT_STORE_NOT_INITIALIZED"
 CHAT_STORE_PERSIST_FAILED = "CHAT_STORE_PERSIST_FAILED"
@@ -33,6 +41,14 @@ class MessageDispatchOutcome:
     error_code: str | None = None
     error_message: str | None = None
     queue_size: int | None = None
+
+
+def _extract_chat_projection_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key in _CHAT_PROJECTION_METADATA_KEYS and value is not None
+    }
 
 
 async def dispatch_user_message(
@@ -136,6 +152,7 @@ async def dispatch_user_message(
                 turn_id=turn_id,
                 content=normalized_message,
                 created_at_ms=created_at_ms,
+                metadata=_extract_chat_projection_metadata(normalized_metadata),
             )
         except Exception as exc:
             logger.warning("Failed to project chat user message into L1: %s", exc)

@@ -1,40 +1,118 @@
 """Bootstrap dialogue service for first-contact persona conversations.
 
-Manages a short persona-styled dialogue sequence on first interaction with a persona.
-Extracts user information and writes it to L2 memory.
-
-The bootstrap opening is generated via LLM and injected as the first chat message.
-Subsequent messages go through the normal ChatTaskAgent pipeline; the post-process
-hook ``maybe_extract_bootstrap_info`` runs L2 user-info extraction on early turns.
+Bootstrap is a one-shot opening injection, not a separate post-opening chat flow.
+The opening is generated via LLM and persisted as the first assistant message.
+After that, all user messages stay on the normal ChatTaskAgent -> chat projector ->
+UnifiedMemory -> L2 pipeline path. A short-lived queue hint may still request
+faster L2 flushing right after the opening so profile facts become available to
+subsequent turns quickly.
 """
 
 from __future__ import annotations
 
-import json
 import time
-import uuid
 from typing import Any, Dict, List, Optional
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
 from ..core.runtime_bindings import require_scenario_llm_pool
 from ..llm import LLMProviderBridge
+from ..utils.runtime import get_runtime_paths
 from .current_state import resolve_persona_config
 from .growth_memory import GrowthMemoryEngine, MilestoneType
 from .loader import BootstrapConfig, PersonalityConfig
 
 logger = get_logger(__name__)
 
+BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS = 10.0
+BOOTSTRAP_L2_PRIORITY_MAX_WAIT_SECONDS = 1.0
+BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS = 15 * 60
+
+_growth_engine_instance: GrowthMemoryEngine | None = None
+
+
+def _milestone_matches_persona(milestone: Any, persona_name: str, persona_id: str) -> bool:
+    metadata = getattr(milestone, "metadata", {}) or {}
+    if persona_id and metadata.get("persona_id") == persona_id:
+        return True
+    return metadata.get("persona_name") == persona_name
+
+
+def _milestone_matches_scope(
+    milestone: Any,
+    *,
+    persona_name: str,
+    persona_id: str,
+    user_id: str,
+    session_id: str,
+) -> bool:
+    metadata = getattr(milestone, "metadata", {}) or {}
+    if not _milestone_matches_persona(milestone, persona_name, persona_id):
+        return False
+    if user_id and str(metadata.get("user_id") or "") != user_id:
+        return False
+    if session_id and str(metadata.get("session_id") or "") != session_id:
+        return False
+    return True
+
+
+async def get_shared_growth_engine() -> GrowthMemoryEngine:
+    """Return a lazily initialized GrowthMemoryEngine singleton."""
+    global _growth_engine_instance
+    if _growth_engine_instance is None:
+        runtime_paths = get_runtime_paths()
+        _growth_engine_instance = GrowthMemoryEngine(str(runtime_paths.growth_db_path))
+        await _growth_engine_instance.init()
+    return _growth_engine_instance
+
+
+async def build_bootstrap_l2_priority_metadata(
+    *,
+    user_id: str,
+    session_id: str = "",
+    persona_name: str,
+    persona_id: str = "",
+) -> Dict[str, Any]:
+    """Return short-lived queue overrides right after the opening is injected."""
+    normalized_persona_name = str(persona_name or "").strip()
+    if not normalized_persona_name:
+        return {}
+
+    growth_engine = await get_shared_growth_engine()
+    started_milestones = await growth_engine.get_milestones(
+        milestone_type=MilestoneType.BOOTSTRAP_STARTED,
+        limit=20,
+    )
+    matching = next(
+        (
+            milestone
+            for milestone in started_milestones
+            if _milestone_matches_scope(
+                milestone,
+                persona_name=normalized_persona_name,
+                persona_id=persona_id,
+                user_id=user_id,
+                session_id=session_id,
+            )
+        ),
+        None,
+    )
+    if matching is None:
+        return {}
+    if (time.time() - float(getattr(matching, "timestamp", 0.0) or 0.0)) > BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS:
+        return {}
+
+    owner_suffix = str(persona_id or normalized_persona_name).strip() or "default"
+    return {
+        "l2_batch_owner": f"bootstrap:{user_id}:{owner_suffix}",
+        "l2_batch_max_events": 1,
+        "l2_batch_min_ready_events": 1,
+        "l2_batch_max_wait_seconds": BOOTSTRAP_L2_PRIORITY_MAX_WAIT_SECONDS,
+    }
+
 
 class BootstrapDialogueService:
-    """Orchestrates the bootstrap dialogue for a persona's first encounter with a user.
-
-    The bootstrap dialogue is a short (2-4 round) persona-styled conversation that
-    happens the very first time a user interacts with a persona. Its purposes:
-    1. Introduction — the persona introduces itself in-character
-    2. User profiling — gathers basic user info (name, how to be addressed, interests)
-    3. Writes extracted info to L2 entity store
-    """
+    """Orchestrates the one-shot first-contact opening for a persona."""
 
     def __init__(
         self,
@@ -46,16 +124,45 @@ class BootstrapDialogueService:
         self._l2_store = l2_store
 
     async def needs_bootstrap(self, persona_name: str, *, persona_id: str = "") -> bool:
-        """Check whether this persona needs a bootstrap dialogue."""
+        """Return whether the first-contact opening still needs to be injected."""
         milestones = await self._growth_engine.get_milestones(
-            milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
+            milestone_type=MilestoneType.BOOTSTRAP_STARTED,
         )
         for m in milestones:
-            if persona_id and m.metadata.get("persona_id") == persona_id:
-                return False
-            if m.metadata.get("persona_name") == persona_name:
+            if _milestone_matches_persona(m, persona_name, persona_id):
                 return False
         return True
+
+    async def needs_bootstrap_init(self, persona_name: str, *, persona_id: str = "") -> bool:
+        """Backward-compatible alias for opening injection state."""
+        return await self.needs_bootstrap(persona_name, persona_id=persona_id)
+
+    async def mark_bootstrap_started(
+        self,
+        *,
+        persona_name: str,
+        persona_id: str = "",
+        user_id: str = "",
+        session_id: str = "",
+        turn_id: str = "",
+        message_id: str = "",
+    ) -> None:
+        """Record that the bootstrap opening has already been injected."""
+        if not await self.needs_bootstrap_init(persona_name, persona_id=persona_id):
+            return
+        await self._growth_engine.record_milestone(
+            milestone_type=MilestoneType.BOOTSTRAP_STARTED,
+            title=f"bootstrap_started_{persona_id or persona_name}",
+            description=f"Bootstrap opening injected for persona {persona_name}",
+            metadata={
+                "persona_id": persona_id,
+                "persona_name": persona_name,
+                "user_id": user_id,
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "message_id": message_id,
+            },
+        )
 
     def _ensure_bootstrap_config(self, config: PersonalityConfig) -> BootstrapConfig:
         """Return the bootstrap config, synthesizing one from persona traits if absent."""
@@ -68,7 +175,6 @@ class BootstrapDialogueService:
                 f"Keep it brief and natural for a first meeting."
             ),
             opening_line="",
-            extract_targets=["name", "interests"],
             max_rounds=3,
         )
 
@@ -89,7 +195,7 @@ class BootstrapDialogueService:
     async def _generate_opening_via_llm(
         self, config: PersonalityConfig, bootstrap: BootstrapConfig
     ) -> Optional[str]:
-        """Use LLM to generate a natural in-character first greeting."""
+        """Use LLM to generate a guided, in-character first-contact opening."""
         persona = config.persona_entity.basic_profile
         identity = config.persona_entity.core_identity
 
@@ -100,30 +206,57 @@ class BootstrapDialogueService:
         if bootstrap.style_instruction:
             system_prompt += f"Style: {bootstrap.style_instruction}\n"
         system_prompt += (
-            "\nGenerate a single opening line for your FIRST meeting with a new user. "
+            "\nGenerate the FIRST user-visible message for a brand-new conversation with this user. "
+            "This is not a generic greeting; it is a guided first-contact opener.\n"
+            "Goals:\n"
+            "- Naturally make it easy for the user to reply with their name, how they like to be addressed, and one or two things they enjoy\n"
+            "- Encourage the user to answer those points in one natural reply\n"
+            "- Let the wording, attitude, and phrasing come from the persona's own voice\n"
             "Requirements:\n"
             "- Stay fully in character\n"
-            "- 1-2 sentences max, natural and conversational\n"
-            "- Do NOT ask 'what should I call you' — that's a cliché\n"
-            "- Instead, open with something characteristic: a remark, a mood, a question that fits your personality\n"
+            "- 2-3 short sentences max, natural and conversational\n"
+            "- Briefly introduce yourself in a way that fits the persona\n"
+            "- Ask the user's name and how they want to be addressed in a natural way\n"
+            "- Invite one lightweight preference, interest, hobby, or topic they care about\n"
+            "- Do NOT sound like a form, survey, onboarding checklist, or customer support script\n"
             "- Never mention you are an AI or assistant\n"
             "- Output ONLY the greeting text, nothing else"
         )
 
         try:
             pool = require_scenario_llm_pool()
-            bridge = LLMProviderBridge(pool.get(LLMScenario.CORE))
+        except RuntimeError as exc:
+            logger.info(
+                "Bootstrap opening LLM unavailable, using static opening_line: %s",
+                exc,
+            )
+            return None
+
+        try:
+            adapter = pool.get(LLMScenario.CORE)
+            provider_name = getattr(adapter, "provider_name", "unknown")
+            model_name = getattr(adapter, "model_name", "unknown")
+            bridge = LLMProviderBridge(adapter)
             result = await bridge.chat(
                 system_prompt=system_prompt,
                 messages=[{"role": "user", "content": "Generate your opening line."}],
                 max_tokens=150,
                 temperature=0.9,
+                disable_thinking=True,
+                timeout_seconds=BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS,
             )
             text = result.strip().strip('"').strip("'")
             if text:
                 return text
         except Exception as exc:
-            logger.warning("Bootstrap opening LLM generation failed, falling back to static opening_line: %s", exc)
+            logger.warning(
+                "Bootstrap opening LLM generation failed, falling back to static opening_line "
+                "(provider=%s, model=%s, timeout_seconds=%.1f): %s",
+                provider_name,
+                model_name,
+                BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS,
+                exc,
+            )
 
         return None
 
@@ -170,29 +303,11 @@ class BootstrapDialogueService:
                 messages=messages,
                 max_tokens=800,
                 temperature=0.8,
+                disable_thinking=True,
             )
         except Exception as exc:
             logger.error("Bootstrap LLM call failed: %s", exc)
             response = "Hi."
-
-        if is_final_round:
-            await self._extract_and_persist(
-                config=config,
-                bootstrap=bootstrap,
-                user_id=user_id,
-                history=messages + [{"role": "assistant", "content": response}],
-            )
-            await self._growth_engine.record_milestone(
-                milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
-                title=f"bootstrap_completed_{persona_id or persona_name}",
-                description=f"Bootstrap dialogue completed for persona {persona_name}",
-                metadata={
-                    "persona_id": persona_id,
-                    "persona_name": persona_name,
-                    "user_id": user_id,
-                    "rounds": current_round,
-                },
-            )
 
         return response
 
@@ -218,13 +333,20 @@ class BootstrapDialogueService:
             parts.append(f"\n## Style\n{bootstrap.style_instruction}")
 
         parts.append(f"\n## Dialogue Progress\nRound {current_round} of {max_rounds}.")
-
-        if bootstrap.extract_targets:
-            targets_str = ", ".join(bootstrap.extract_targets)
+        parts.append(
+            "\n## Information Goals\n"
+            "Naturally learn the user's name, how they like to be addressed, and one or two things they enjoy.\n"
+            "Do NOT ask all of this at once. Spread it across the conversation and keep it natural."
+        )
+        if current_round == 1:
             parts.append(
-                f"\n## Information Goals\n"
-                f"Naturally weave in questions to learn: {targets_str}.\n"
-                f"Do NOT ask all at once. Spread across rounds. Be conversational, not interrogative."
+                "\n## Round Focus\n"
+                "Prioritize learning the user's name and how they like to be addressed before anything else."
+            )
+        elif current_round == 2:
+            parts.append(
+                "\n## Round Focus\n"
+                "Prioritize learning one or two lightweight interests, preferences, or topics they enjoy."
             )
 
         if is_final_round:
@@ -249,202 +371,3 @@ class BootstrapDialogueService:
 
         return "\n".join(parts)
 
-    async def _extract_and_persist(
-        self,
-        *,
-        config: PersonalityConfig,
-        bootstrap: BootstrapConfig,
-        user_id: str,
-        history: List[Dict[str, str]],
-    ) -> None:
-        """Use LLM to extract user info from the bootstrap dialogue and write to L2."""
-        if not bootstrap.extract_targets or self._l2_store is None:
-            return
-
-        targets_str = ", ".join(bootstrap.extract_targets)
-        transcript = "\n".join(
-            f"{'User' if m['role'] == 'user' else config.persona_entity.basic_profile.name}: {m['content']}"
-            for m in history
-        )
-
-        extraction_prompt = (
-            "Extract user information from this conversation transcript.\n"
-            f"Target fields: {targets_str}\n\n"
-            f"Transcript:\n{transcript}\n\n"
-            "Return a JSON object with extracted fields. Use null for fields not mentioned. "
-            "Example: {\"name\": \"Alice\", \"preferred_address\": \"she/her\", \"interests\": [\"coding\", \"music\"]}\n"
-            "Return ONLY the JSON object."
-        )
-
-        try:
-            pool = require_scenario_llm_pool()
-            bridge = LLMProviderBridge(pool.get(LLMScenario.CORE))
-            raw = await bridge.chat(
-                system_prompt="You are an information extraction assistant. Output valid JSON only.",
-                messages=[{"role": "user", "content": extraction_prompt}],
-                max_tokens=500,
-                temperature=0.1,
-                json_mode=True,
-            )
-            extracted = json.loads(raw)
-        except Exception as exc:
-            logger.warning("Bootstrap extraction failed: %s", exc)
-            return
-
-        if not isinstance(extracted, dict):
-            return
-
-        now = time.time()
-        entity_id = f"user:{user_id}"
-        for facet_name, facet_value in extracted.items():
-            if facet_value is None:
-                continue
-            value_str = json.dumps(facet_value, ensure_ascii=False) if not isinstance(facet_value, str) else facet_value
-            try:
-                await self._l2_store.upsert_entity_facet(
-                    entity_id=entity_id,
-                    entity_type="person",
-                    facet_name=facet_name,
-                    facet_value=value_str,
-                    evidence_event_ids=[],
-                    confidence=0.7,
-                    observed_at=now,
-                    source_type="bootstrap_dialogue",
-                )
-            except Exception as exc:
-                logger.warning("Failed to persist bootstrap facet %s: %s", facet_name, exc)
-
-
-# ---------------------------------------------------------------------------
-# Post-turn bootstrap hook (called from ChatPostProcessService)
-# ---------------------------------------------------------------------------
-
-async def maybe_extract_bootstrap_info(
-    *,
-    growth_engine: GrowthMemoryEngine,
-    l2_store: Any,
-    persona_name: str,
-    persona_id: str,
-    user_id: str,
-    user_message: str,
-    assistant_response: str,
-) -> None:
-    """Run L2 user-info extraction if the persona is still in its bootstrap phase.
-
-    This is called from the normal chat post-processing pipeline so that
-    early turns with a new persona capture user profile information
-    (name, interests, etc.) into L2 entity facets.
-
-    After ``max_rounds`` turns the bootstrap is marked complete and this
-    function becomes a no-op for subsequent turns.
-    """
-    # Fast check — already bootstrapped?
-    milestones = await growth_engine.get_milestones(
-        milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
-    )
-    for m in milestones:
-        if persona_id and m.metadata.get("persona_id") == persona_id:
-            return
-        if m.metadata.get("persona_name") == persona_name:
-            return
-
-    config = await resolve_persona_config(persona_name)
-    if config is None:
-        config = PersonalityConfig()
-
-    bootstrap = config.bootstrap
-    if bootstrap is None:
-        from .loader import BootstrapConfig as _BC
-        bootstrap = _BC(extract_targets=["name", "interests"], max_rounds=3)
-
-    extract_targets = bootstrap.extract_targets or ["name", "interests"]
-    max_rounds = bootstrap.max_rounds or 3
-
-    # Count existing bootstrap turns from milestones metadata
-    round_milestones = await growth_engine.get_milestones(
-        milestone_type=MilestoneType.BOOTSTRAP_ROUND,
-    )
-    current_round = sum(
-        1 for m in round_milestones
-        if (persona_id and m.metadata.get("persona_id") == persona_id)
-        or m.metadata.get("persona_name") == persona_name
-    ) + 1
-
-    # Record this round
-    await growth_engine.record_milestone(
-        milestone_type=MilestoneType.BOOTSTRAP_ROUND,
-        title=f"bootstrap_round_{current_round}",
-        description=f"Bootstrap round {current_round} for persona {persona_name}",
-        metadata={
-            "persona_id": persona_id,
-            "persona_name": persona_name,
-            "user_id": user_id,
-            "round": current_round,
-        },
-    )
-
-    # Extract user info via LLM
-    if l2_store is not None:
-        targets_str = ", ".join(extract_targets)
-        extraction_prompt = (
-            "Extract user information from this single conversation exchange.\n"
-            f"Target fields: {targets_str}\n\n"
-            f"User: {user_message}\n"
-            f"Assistant: {assistant_response}\n\n"
-            "Return a JSON object with extracted fields. Use null for fields not mentioned or not inferable.\n"
-            "Return ONLY the JSON object."
-        )
-        try:
-            pool = require_scenario_llm_pool()
-            bridge = LLMProviderBridge(pool.get(LLMScenario.CORE))
-            raw = await bridge.chat(
-                system_prompt="You are an information extraction assistant. Output valid JSON only.",
-                messages=[{"role": "user", "content": extraction_prompt}],
-                max_tokens=500,
-                temperature=0.1,
-                json_mode=True,
-            )
-            extracted = json.loads(raw)
-            if isinstance(extracted, dict):
-                now = time.time()
-                entity_id = f"user:{user_id}"
-                for facet_name, facet_value in extracted.items():
-                    if facet_value is None:
-                        continue
-                    value_str = (
-                        json.dumps(facet_value, ensure_ascii=False)
-                        if not isinstance(facet_value, str) else facet_value
-                    )
-                    try:
-                        await l2_store.upsert_entity_facet(
-                            entity_id=entity_id,
-                            entity_type="person",
-                            facet_name=facet_name,
-                            facet_value=value_str,
-                            evidence_event_ids=[],
-                            confidence=0.7,
-                            observed_at=now,
-                            source_type="bootstrap_dialogue",
-                        )
-                    except Exception as exc:
-                        logger.warning("Failed to persist bootstrap facet %s: %s", facet_name, exc)
-        except Exception as exc:
-            logger.warning("Bootstrap user-info extraction failed: %s", exc)
-
-    # Mark complete if we've hit max_rounds
-    if current_round >= max_rounds:
-        await growth_engine.record_milestone(
-            milestone_type=MilestoneType.BOOTSTRAP_COMPLETED,
-            title=f"bootstrap_completed_{persona_id or persona_name}",
-            description=f"Bootstrap dialogue completed for persona {persona_name}",
-            metadata={
-                "persona_id": persona_id,
-                "persona_name": persona_name,
-                "user_id": user_id,
-                "rounds": current_round,
-            },
-        )
-        logger.info(
-            "Bootstrap completed for persona %s after %d rounds",
-            persona_name, current_round,
-        )

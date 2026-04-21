@@ -14,6 +14,35 @@ profiles:
     allowed_predicates: all
     allow_graph: true
     allow_assertion: true
+    extraction_instructions: |
+      These events are direct user-authored chat messages.
+
+      Prioritize durable self-descriptive facts the user states about themself,
+      especially during early onboarding-style exchanges.
+
+      Focus areas:
+      - Self-identification: the user's real name when explicitly stated.
+      - Address preferences: nicknames, forms of address, or names the user says
+        are acceptable or unacceptable.
+      - Explicit likes, dislikes, interests, favorite topics, and hobbies.
+
+      Addressing assertion conventions:
+      - When the user says how they want to be addressed, prefer a
+        `preference_profile` assertion with trait_name `preference.address.preferred`.
+      - When the user says a form of address is unwanted, prefer a
+        `preference_profile` assertion with trait_name `preference.address.disallowed`.
+      - When the user explicitly distinguishes their real name from a nickname,
+        store the real name as `preference.address.real_name`.
+      - For multiple accepted or disallowed forms, use a JSON array string in
+        trait_value and keep only the currently valid forms.
+
+      Extraction rules:
+      - Only extract what the user explicitly states. Do not infer from the assistant.
+      - If the user corrects an earlier self-description, prefer the newer statement.
+      - Treat forms of address and nicknames as preference signals unless the user
+        clearly says they are their real name.
+      - Preserve the user's exact wording when it matters for preference or naming.
+      - Skip transient logistics unless they reveal a stable preference or identity fact.
 
   timeline.chrome_history:
     allowed_entity_types:

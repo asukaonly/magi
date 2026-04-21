@@ -7,6 +7,7 @@ and journal reflection features.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 import re
@@ -17,7 +18,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...llm.draft import resolve_adapter_for_scenario
-from ...personality.bootstrap_service import BootstrapDialogueService
+from ...personality.bootstrap_service import BootstrapDialogueService, get_shared_growth_engine
 from ...personality.growth_memory import GrowthMemoryEngine
 from ...personality.persona_journal_service import PersonaJournalService
 from ...personality.persona_repository import PersonaRepository
@@ -38,6 +39,8 @@ from ...core.logger import get_logger
 
 logger = get_logger(__name__)
 personality_config_router = APIRouter()
+
+BOOTSTRAP_RUNTIME_WAIT_SCHEDULE_SECONDS = (0.2, 0.45, 0.9, 1.5)
 
 
 # ============ Data Models ============
@@ -72,7 +75,6 @@ class StateTransitionProtocolItemModel(BaseModel):
 class BootstrapConfigModel(BaseModel):
     style_instruction: str = Field(default="")
     opening_line: str = Field(default="")
-    extract_targets: List[str] = Field(default_factory=lambda: ["name", "interests"])
     max_rounds: int = Field(default=3)
 
 
@@ -159,17 +161,9 @@ async def _load_current_config(slug: str) -> PersonalityConfig:
     return PersonalityConfig()
 
 
-_growth_engine_instance: Optional[GrowthMemoryEngine] = None
-
-
 async def _get_growth_engine() -> GrowthMemoryEngine:
-    """Return a lazily-initialized GrowthMemoryEngine singleton."""
-    global _growth_engine_instance
-    if _growth_engine_instance is None:
-        runtime_paths = get_runtime_paths()
-        _growth_engine_instance = GrowthMemoryEngine(str(runtime_paths.growth_db_path))
-        await _growth_engine_instance.init()
-    return _growth_engine_instance
+    """Return the shared GrowthMemoryEngine singleton."""
+    return await get_shared_growth_engine()
 
 
 async def _get_bootstrap_service() -> BootstrapDialogueService:
@@ -178,6 +172,43 @@ async def _get_bootstrap_service() -> BootstrapDialogueService:
     return BootstrapDialogueService(
         growth_engine=engine,
     )
+
+
+async def _get_runtime_status_snapshot() -> Dict[str, Any]:
+    """Read the current runtime readiness snapshot."""
+    from ..services import get_runtime_system_status
+
+    return await get_runtime_system_status(None)
+
+
+async def _wait_for_bootstrap_runtime_ready() -> Dict[str, Any]:
+    """Wait briefly for the LLM bootstrap path to become available."""
+    runtime_status = await _get_runtime_status_snapshot()
+    if runtime_status.get("llm_ready"):
+        return runtime_status
+
+    waited_seconds = 0.0
+    for delay_seconds in BOOTSTRAP_RUNTIME_WAIT_SCHEDULE_SECONDS:
+        await asyncio.sleep(delay_seconds)
+        waited_seconds += delay_seconds
+        runtime_status = await _get_runtime_status_snapshot()
+        if runtime_status.get("llm_ready"):
+            logger.info(
+                "Bootstrap runtime became llm-ready after %.2fs wait (startup_state=%s, deferred_reason=%s)",
+                waited_seconds,
+                runtime_status.get("startup_state"),
+                runtime_status.get("deferred_reason"),
+            )
+            return runtime_status
+
+    logger.info(
+        "Bootstrap runtime wait exhausted after %.2fs (llm_ready=%s, startup_state=%s, deferred_reason=%s)",
+        waited_seconds,
+        runtime_status.get("llm_ready"),
+        runtime_status.get("startup_state"),
+        runtime_status.get("deferred_reason"),
+    )
+    return runtime_status
 
 
 async def _resolve_persona_id(persona_name: str) -> str:
@@ -216,6 +247,7 @@ async def _persist_bootstrap_assistant_message(
     from ...chat.contracts import ChatMessageRecord, ChatTurnRecord
     from ...core.runtime_bindings import require_chat_store, require_runtime_trace_store
     from ...runtime_trace.contracts import RuntimeNotificationRecord
+    from ...transport.chat_events import broadcast_chat_message_upsert
 
     now_ms = int(_time.time() * 1000)
     message_id = f"msg_{_uuid.uuid4().hex[:16]}"
@@ -257,6 +289,11 @@ async def _persist_bootstrap_assistant_message(
     ))
 
     await chat_store.bump_history_version(session_id)
+    await broadcast_chat_message_upsert(
+        user_id=user_id,
+        session_id=session_id,
+        message_id=message_id,
+    )
 
     try:
         trace_store = require_runtime_trace_store()
@@ -446,8 +483,7 @@ You must output ONLY valid JSON. Do not include markdown formatting like ```json
   ],
   "bootstrap": {
     "style_instruction": "Brief instruction on how this persona speaks in a first meeting — tone, pacing, warmth level",
-    "opening_line": "A short, natural, in-character fallback greeting for the first encounter (1-2 sentences, do NOT ask 'what should I call you')",
-    "extract_targets": ["name", "interests"],
+                "opening_line": "A short, natural, in-character fallback opener for the first encounter that gently invites the user to share their name, how they like to be addressed, and one thing they like or care about",
     "max_rounds": 3
   }
 }
@@ -577,22 +613,20 @@ async def api_set_current_personality(request: Dict[str, str]):
     "/greeting",
     response_model=PersonalityResponse,
     summary="Get personality greeting",
-    description="Return a random greeting phrase from the current personality, including bootstrap status.",
+    description="Return the active persona display data plus whether first-contact bootstrap is still needed.",
 )
 async def api_get_greeting():
     try:
         current_name = get_current_personality_name()
         config = await _load_current_config(current_name)
 
-        # Best-effort bootstrap status
         needs_bootstrap = False
-        bootstrap_opening = None
+        needs_bootstrap_init = False
         try:
             persona_id = await _resolve_persona_id(current_name)
             bootstrap_svc = await _get_bootstrap_service()
-            needs_bootstrap = await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id)
-            if needs_bootstrap:
-                bootstrap_opening = await bootstrap_svc.get_opening(current_name, persona_id=persona_id)
+            needs_bootstrap_init = await bootstrap_svc.needs_bootstrap_init(current_name, persona_id=persona_id)
+            needs_bootstrap = needs_bootstrap_init
         except Exception as exc:
             logger.debug("Bootstrap status check skipped: %s", exc)
 
@@ -603,7 +637,8 @@ async def api_get_greeting():
                 "name": config.name,
                 "avatar": resolve_avatar_public_url(config.avatar or ""),
                 "needs_bootstrap": needs_bootstrap,
-                "bootstrap_opening": bootstrap_opening,
+                "needs_bootstrap_init": needs_bootstrap_init,
+                "bootstrap_completed": not needs_bootstrap_init,
             },
         )
     except Exception as exc:
@@ -869,11 +904,27 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
         persona_id = await _resolve_persona_id(current_name)
         bootstrap_svc = await _get_bootstrap_service()
 
-        if not await bootstrap_svc.needs_bootstrap(current_name, persona_id=persona_id):
+        needs_bootstrap_init = await bootstrap_svc.needs_bootstrap_init(current_name, persona_id=persona_id)
+
+        if not needs_bootstrap_init:
             return PersonalityResponse(
                 success=True,
-                message="Bootstrap already completed",
-                data={"bootstrap_active": False, "opening": None},
+                message="Bootstrap opening already initialized",
+                data={
+                    "bootstrap_active": False,
+                    "opening": None,
+                    "needs_bootstrap_init": False,
+                    "bootstrap_completed": True,
+                },
+            )
+
+        runtime_status = await _wait_for_bootstrap_runtime_ready()
+        if not runtime_status.get("llm_ready"):
+            logger.info(
+                "Bootstrap init proceeding with static opening fallback while runtime startup is incomplete "
+                "(startup_state=%s, deferred_reason=%s)",
+                runtime_status.get("startup_state"),
+                runtime_status.get("deferred_reason"),
             )
 
         opening = await bootstrap_svc.get_opening(current_name, persona_id=persona_id)
@@ -881,7 +932,14 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
             return PersonalityResponse(
                 success=True,
                 message="No opening available",
-                data={"bootstrap_active": True, "opening": None},
+                data={
+                    "bootstrap_active": False,
+                    "opening": None,
+                    "needs_bootstrap_init": True,
+                    "bootstrap_completed": False,
+                    "startup_state": runtime_status.get("startup_state"),
+                    "deferred_reason": runtime_status.get("deferred_reason"),
+                },
             )
 
         turn_id = f"turn_bs_{_uuid.uuid4().hex[:12]}"
@@ -892,15 +950,31 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
                 turn_id=turn_id,
                 content=opening,
             )
+            await bootstrap_svc.mark_bootstrap_started(
+                persona_name=current_name,
+                persona_id=persona_id,
+                user_id=request.user_id,
+                session_id=request.session_id,
+                turn_id=turn_id,
+            )
         except RuntimeError as exc:
-            # chat_store or other runtime bindings may not be ready yet
-            # during early startup; return the opening anyway.
-            logger.warning("Bootstrap opening not persisted (runtime not ready): %s", exc)
+            message = str(exc)
+            if "binding is not initialized" in message:
+                logger.info("Bootstrap opening not persisted yet because runtime bindings are still starting: %s", exc)
+            else:
+                logger.warning("Bootstrap opening not persisted (runtime not ready): %s", exc)
 
         return PersonalityResponse(
             success=True,
             message="Bootstrap opening injected",
-            data={"bootstrap_active": True, "opening": opening},
+            data={
+                "bootstrap_active": False,
+                "opening": opening,
+                "needs_bootstrap_init": False,
+                "bootstrap_completed": True,
+                "startup_state": runtime_status.get("startup_state"),
+                "deferred_reason": runtime_status.get("deferred_reason"),
+            },
         )
     except Exception as exc:
         logger.error("Bootstrap init failed: %s", exc)

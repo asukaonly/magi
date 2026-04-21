@@ -22,6 +22,7 @@ class ChatProjector:
         turn_id: str,
         content: str,
         created_at_ms: int,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         await self._project(
             event_type=EventTypes.USER_MESSAGE,
@@ -31,6 +32,7 @@ class ChatProjector:
             turn_id=turn_id,
             content=content,
             created_at_ms=created_at_ms,
+            metadata=metadata,
         )
 
     async def project_assistant_message(
@@ -63,6 +65,7 @@ class ChatProjector:
         turn_id: str,
         content: str,
         created_at_ms: int,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         normalized_content = str(content or "").strip()
         if not normalized_content:
@@ -85,6 +88,7 @@ class ChatProjector:
             metadata={
                 "chat_message_id": message_id,
                 "chat_projection": True,
+                **dict(metadata or {}),
             },
         )
         memory_event = normalize_runtime_event(event, idempotency_key=message_id)

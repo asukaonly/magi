@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
 import time
 
-from ..services import dispatch_user_message, get_chat_trace_read_service
+from ..services import dispatch_user_message, get_chat_trace_read_service, get_runtime_system_status
 from ...chat import (
     LocalChatAttachmentIngestionService,
     SessionWorkspaceUpdateResult,
@@ -21,11 +21,15 @@ from ...core.logger import get_logger
 from ...core.runtime_bindings import require_agent_runtime, require_chat_store
 from ...agent.runtime.types import TaskAgentType
 from ...runtime_defaults import DEFAULT_RUNTIME_NAMESPACE, DEFAULT_USER_ID
+from ...personality.bootstrap_service import build_bootstrap_l2_priority_metadata
+from ...personality.current_state import get_current_personality
 
 logger = get_logger(__name__)
 agent_logger = get_agent_logger('api')
 
 user_messages_router = APIRouter()
+
+RUNTIME_NOT_READY = "RUNTIME_NOT_READY"
 
 # ============ data Models ============
 
@@ -103,12 +107,61 @@ def _get_chat_attachment_ingestion_service() -> LocalChatAttachmentIngestionServ
     return LocalChatAttachmentIngestionService()
 
 
+async def _ensure_runtime_ready_for_user_message() -> MessageResponse | None:
+    """Return a rejection payload when the runtime cannot consume queued messages yet."""
+    runtime_status = await get_runtime_system_status(None)
+    if runtime_status.get("runtime_ready"):
+        return None
+
+    startup_state = str(runtime_status.get("startup_state") or runtime_status.get("runtime_status") or "offline")
+    deferred_reason = runtime_status.get("deferred_reason")
+    if startup_state == "deferred" and deferred_reason == "llm_selection_pending":
+        message = (
+            "AI runtime is not ready yet. Please complete the core or context_decider model configuration first."
+        )
+    elif startup_state == "deferred" and deferred_reason == "llm_configuration_invalid":
+        message = "AI runtime configuration is invalid. Please check the enabled provider and model selection."
+    elif startup_state == "starting":
+        message = "AI runtime is still starting. Please retry in a moment."
+    else:
+        message = "AI runtime is not ready yet. Please wait for startup to finish and try again."
+
+    return MessageResponse(
+        success=False,
+        message=message,
+        data={
+            "error": message,
+            "error_code": RUNTIME_NOT_READY,
+            "runtime_status": runtime_status.get("runtime_status"),
+            "startup_state": startup_state,
+            "deferred_reason": deferred_reason,
+        },
+    )
+
+
 @user_messages_router.post("/send", response_model=MessageResponse)
 async def send_user_message(
     request: UserMessageRequest,
 ):
     try:
+        runtime_not_ready_response = await _ensure_runtime_ready_for_user_message()
+        if runtime_not_ready_response is not None:
+            agent_logger.warning(
+                "Message dispatch rejected before queueing | User: %s | code: %s | startup_state: %s",
+                request.user_id,
+                RUNTIME_NOT_READY,
+                runtime_not_ready_response.data.get("startup_state") if runtime_not_ready_response.data else None,
+            )
+            return runtime_not_ready_response
+
         normalized_metadata = dict(request.metadata or {})
+        normalized_metadata.update(
+            await build_bootstrap_l2_priority_metadata(
+                user_id=request.user_id,
+                session_id=request.session_id,
+                persona_name=get_current_personality(),
+            )
+        )
         normalized_reply_to_message_id = str(request.reply_to_message_id or "").strip() or None
         if normalized_reply_to_message_id is not None:
             normalized_metadata["reply_to_message_id"] = normalized_reply_to_message_id

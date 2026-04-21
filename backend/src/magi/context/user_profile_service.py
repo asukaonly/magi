@@ -10,6 +10,7 @@ SQLite round-trips during prompt assembly.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict
@@ -19,6 +20,9 @@ from ..core.logger import get_logger
 logger = get_logger(__name__)
 
 _DEFAULT_CACHE_TTL = 300  # 5 minutes
+_ADDRESS_PREFERRED_KEY = "address.preferred"
+_ADDRESS_DISALLOWED_KEY = "address.disallowed"
+_ADDRESS_REAL_NAME_KEY = "address.real_name"
 
 
 @dataclass
@@ -77,12 +81,16 @@ class UserProfileService:
             return entry
 
         entry = _CacheEntry(fetched_at=now)
-        entry.display_name = await self._fetch_display_name(user_id)
         entry.preferences = await self._fetch_preferences(user_id)
+        entry.display_name = await self._fetch_display_name(user_id, preferences=entry.preferences)
         self._cache[user_id] = entry
         return entry
 
-    async def _fetch_display_name(self, user_id: str) -> str:
+    async def _fetch_display_name(self, user_id: str, *, preferences: Dict[str, Any] | None = None) -> str:
+        preferred_name = self._derive_display_name(preferences or {})
+        if preferred_name:
+            return preferred_name
+
         if self._unified_memory is None:
             return "unknown"
 
@@ -117,8 +125,59 @@ class UserProfileService:
                 entity_type="user",
             )
             if snapshot is not None:
-                return dict(snapshot.get("preferences", {}) or {})
+                return self._normalize_preferences(dict(snapshot.get("preferences", {}) or {}))
         except Exception:
             logger.debug("Failed to get preference summary for %s", user_id)
 
         return {}
+
+    @classmethod
+    def _normalize_preferences(cls, preferences: Dict[str, Any]) -> Dict[str, Any]:
+        normalized: Dict[str, Any] = {}
+        for key, value in preferences.items():
+            normalized[str(key)] = cls._normalize_preference_value(value)
+        return normalized
+
+    @classmethod
+    def _normalize_preference_value(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): cls._normalize_preference_value(inner) for key, inner in value.items()}
+        if isinstance(value, list):
+            return [cls._normalize_preference_value(item) for item in value]
+        if not isinstance(value, str):
+            return value
+
+        text = value.strip()
+        if not text or text[0] not in {"[", "{"}:
+            return value
+        try:
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return value
+        return cls._normalize_preference_value(parsed)
+
+    @classmethod
+    def _derive_display_name(cls, preferences: Dict[str, Any]) -> str:
+        preferred = cls._first_text(preferences.get(_ADDRESS_PREFERRED_KEY))
+        if preferred:
+            return preferred
+
+        real_name = cls._first_text(preferences.get(_ADDRESS_REAL_NAME_KEY))
+        if real_name:
+            return real_name
+
+        return ""
+
+    @staticmethod
+    def _first_text(value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                text = str(item or "").strip()
+                if text:
+                    return text
+        if isinstance(value, dict):
+            candidate = value.get("value")
+            return str(candidate or "").strip()
+        return ""

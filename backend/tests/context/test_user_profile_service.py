@@ -15,6 +15,8 @@ class _FakeL2EntityCatalog:
         self.call_count += 1
         if entity_ids and entity_ids[0] == "user:alice":
             return [{"entity_id": "user:alice", "canonical_name": "Alice", "aliases": ["ali"]}]
+        if entity_ids and entity_ids[0] == "user:hakimi":
+            return [{"entity_id": "user:hakimi", "canonical_name": "Asuka", "aliases": ["hakimi"]}]
         return []
 
 
@@ -26,6 +28,14 @@ class _FakeL2Store:
         self.call_count += 1
         if entity_id == "user:alice":
             return {"preferences": {"language": "zh-CN", "theme": "dark"}}
+        if entity_id == "user:hakimi":
+            return {
+                "preferences": {
+                    "address.preferred": '["哈基米", "hakimi"]',
+                    "address.disallowed": '["老师", "asuka-sama"]',
+                    "address.real_name": "明日香",
+                }
+            }
         return None
 
 
@@ -62,6 +72,11 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         name = await svc.get_display_name("nobody")
         self.assertEqual(name, "unknown")
 
+    async def test_get_display_name_prefers_address_preference_over_canonical_name(self):
+        svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
+        name = await svc.get_display_name("hakimi")
+        self.assertEqual(name, "哈基米")
+
     async def test_get_display_name_returns_unknown_when_no_unified_memory(self):
         svc = UserProfileService(unified_memory=None)
         name = await svc.get_display_name("alice")
@@ -88,6 +103,18 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
         prefs = await svc.get_preference_summary("alice")
         self.assertEqual(prefs, {"language": "zh-CN", "theme": "dark"})
+
+    async def test_get_preference_summary_normalizes_addressing_values(self):
+        svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
+        prefs = await svc.get_preference_summary("hakimi")
+        self.assertEqual(
+            prefs,
+            {
+                "address.preferred": ["哈基米", "hakimi"],
+                "address.disallowed": ["老师", "asuka-sama"],
+                "address.real_name": "明日香",
+            },
+        )
 
     async def test_get_preference_summary_returns_empty_for_missing_entity(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())

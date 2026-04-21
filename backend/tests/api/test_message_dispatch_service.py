@@ -57,6 +57,7 @@ class _FakeChatStore:
         message_text: str,
         attachment_payloads: list[dict[str, object]] | None = None,
         created_at_ms: int,
+        reply_to_message_id: str | None = None,
     ) -> _FakeCreatedTurn:
         self.created_turns.append(
             {
@@ -66,6 +67,7 @@ class _FakeChatStore:
                 "message_text": message_text,
                 "attachment_payloads": list(attachment_payloads or []),
                 "created_at_ms": created_at_ms,
+                "reply_to_message_id": reply_to_message_id,
             }
         )
         return _FakeCreatedTurn(
@@ -122,7 +124,36 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypat
     assert chat_store.created_turns[0]["turn_id"] == outcome.turn_id
     assert chat_store.created_turns[0]["message_text"] == "hello"
     assert chat_projector.user_messages[0]["message_id"] == f"msg-{outcome.turn_id}"
+    assert chat_projector.user_messages[0]["metadata"] == {}
     assert len(queue.commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_projects_only_l2_queue_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    chat_projector = _FakeChatProjector()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "require_chat_projector", lambda: chat_projector)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="hello",
+        session_id="session-for-u1",
+        metadata={
+            "origin": "test",
+            "l2_batch_owner": "bootstrap:u1:test",
+            "l2_batch_max_events": 1,
+        },
+    )
+
+    assert outcome.success is True
+    assert chat_projector.user_messages[0]["metadata"] == {
+        "l2_batch_owner": "bootstrap:u1:test",
+        "l2_batch_max_events": 1,
+    }
 
 
 @pytest.mark.asyncio
