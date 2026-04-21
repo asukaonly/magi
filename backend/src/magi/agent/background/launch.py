@@ -24,15 +24,11 @@ coordinator after the dispatcher's verdict.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import structlog
 
 from ..cancel import CancelToken
-from ..task_agents.common.contracts import (
-    ExecutionRequest,
-    ExecutionResult,
-)
 from .contracts import (
     BackgroundTask,
     BackgroundTaskSpec,
@@ -40,6 +36,12 @@ from .contracts import (
 )
 from .executor import BackgroundTaskRunFn, BackgroundTaskRunResult
 from .manager import BackgroundTaskManager
+
+if TYPE_CHECKING:
+    from ..task_agents.common.contracts import (
+        ExecutionRequest,
+        ExecutionResult,
+    )
 
 __all__ = [
     "BackgroundLaunchService",
@@ -79,7 +81,7 @@ def _derive_title(user_message: str) -> str:
 
 
 def build_spec_from_request(
-    request: ExecutionRequest,
+    request: "ExecutionRequest",
     *,
     trigger_source: BackgroundTaskTriggerSource,
     timeout_seconds: int | None = 1800,
@@ -140,12 +142,17 @@ class BackgroundLaunchService:
 
     async def enqueue_from_request(
         self,
-        request: ExecutionRequest,
+        request: "ExecutionRequest",
         *,
         trigger_source: BackgroundTaskTriggerSource,
         timeout_seconds: int | None = 1800,
         max_iterations: int = 20,
-    ) -> ExecutionResult:
+    ) -> "ExecutionResult":
+        # Imported here to avoid a module-load-time cycle:
+        # task_agents.common.contracts -> task_agents/__init__.py ->
+        # chat handlers -> background.launch.
+        from ..task_agents.common.contracts import ExecutionResult
+
         spec = build_spec_from_request(
             request,
             trigger_source=trigger_source,

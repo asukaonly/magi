@@ -28,7 +28,6 @@ from typing import Any
 import structlog
 
 from ...config.models import LLMScenario
-from ..task_agents.common import TaskAgentLLMService
 
 __all__ = [
     "BackgroundDecision",
@@ -179,6 +178,13 @@ class BackgroundDispatcher:
         llm_pool: Any | None = None,
         timeout_seconds: float = MODEL_CLASSIFICATION_TIMEOUT_SECONDS,
     ) -> None:
+        # Lazy import: dispatching lives under ``magi.agent.background`` but
+        # :class:`TaskAgentLLMService` sits under ``magi.agent.task_agents``
+        # which imports the chat handlers which in turn import *this*
+        # module. Deferring the import until instantiation breaks that
+        # import cycle.
+        from ..task_agents.common.llm_service import TaskAgentLLMService
+
         self._llm_adapter = llm_adapter
         self._llm_pool = llm_pool
         self._timeout_seconds = timeout_seconds

@@ -9,6 +9,13 @@ from typing import Any, Awaitable, Callable, Optional
 from ....config.models import ThinkingDepth
 from ....core.logger import get_logger
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
+from ....agent.background.contracts import BackgroundTaskTriggerSource
+from ....agent.background.dispatcher import (
+    BackgroundDecisionContext,
+    BackgroundDecisionSource,
+    BackgroundDispatcher,
+)
+from ....agent.background.launch import BackgroundLaunchService
 from ....agent.message_utils import append_latest_user_message
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
@@ -38,6 +45,19 @@ from .prompt_service import ChatPromptService
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
+
+
+# Translate a :class:`BackgroundDecisionSource` into the trigger source
+# persisted with a :class:`BackgroundTaskSpec`. Kept at module scope so it
+# does not rebuild on every dispatch.
+_BACKGROUND_TRIGGER_SOURCE_BY_DECISION: dict[
+    BackgroundDecisionSource, BackgroundTaskTriggerSource
+] = {
+    BackgroundDecisionSource.PLANNER: BackgroundTaskTriggerSource.PLANNER,
+    BackgroundDecisionSource.RULE: BackgroundTaskTriggerSource.RULE,
+    BackgroundDecisionSource.LLM: BackgroundTaskTriggerSource.CLASSIFIER,
+    BackgroundDecisionSource.FALLBACK: BackgroundTaskTriggerSource.RULE,
+}
 
 
 def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
@@ -93,6 +113,8 @@ class ChatHandlerDependencies:
     get_task_agent_manager: callable
     session_run_coordinator: Any | None = None
     stream_chunk_callback: StreamChunkCallback | None = None
+    background_dispatcher: BackgroundDispatcher | None = None
+    background_launch_service: BackgroundLaunchService | None = None
 
 
 def build_common_handler_dependencies(
@@ -235,6 +257,9 @@ class FunctionCallingHandler(BaseExecutionHandler):
         )
 
     async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
+        background_result = await self._maybe_dispatch_to_background(request)
+        if background_result is not None:
+            return background_result
         execution_workspace = _resolve_execution_workspace(request)
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
         stream_callback = self._deps.stream_chunk_callback
@@ -468,6 +493,51 @@ class FunctionCallingHandler(BaseExecutionHandler):
             turn_id=current_turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
+
+    async def _maybe_dispatch_to_background(
+        self, request: FunctionCallingRequest
+    ) -> ExecutionResult | None:
+        """Delegate to the background runtime when the dispatcher agrees.
+
+        Returns a final :class:`ExecutionResult` carrying a short ack
+        when the turn has been routed to the background task manager,
+        or ``None`` when the foreground path should proceed as usual.
+        Any dispatcher / launch failure degrades silently to foreground.
+        """
+        dispatcher = self._deps.background_dispatcher
+        launch_service = self._deps.background_launch_service
+        if dispatcher is None or launch_service is None:
+            return None
+        try:
+            decision = await dispatcher.classify(
+                BackgroundDecisionContext(
+                    user_text=request.context.latest_user_message or "",
+                    selected_tools=list(request.selected_tools),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
+            logger.warning(
+                "background dispatcher failed; staying on foreground | user_id=%s error=%s",
+                request.context.user_id,
+                exc,
+            )
+            return None
+        if not decision.is_background:
+            return None
+        trigger_source = _BACKGROUND_TRIGGER_SOURCE_BY_DECISION.get(
+            decision.source, BackgroundTaskTriggerSource.RULE
+        )
+        try:
+            return await launch_service.enqueue_from_request(
+                request, trigger_source=trigger_source
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
+            logger.warning(
+                "background launch failed; falling back to foreground | user_id=%s error=%s",
+                request.context.user_id,
+                exc,
+            )
+            return None
 
     def _build_cancel_token(
         self, request: FunctionCallingRequest
