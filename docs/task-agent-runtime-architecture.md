@@ -341,6 +341,71 @@ Current responsibilities:
 
 Workers remain leaf executors and do not recursively create other workers.
 
+## Background Tasks
+
+Long-running goals that the user doesn't want to watch live run in a
+dedicated subsystem under [backend/src/magi/agent/background/](/Users/asuka/code/magi/backend/src/magi/agent/background/).
+It is separate from the `ChatTaskAgent` turn loop so a detached task
+can outlive the originating session, survive a backend restart, and
+report back asynchronously.
+
+Key components:
+
+- `BackgroundTaskStore` ([store.py](/Users/asuka/code/magi/backend/src/magi/agent/background/store.py))
+  — SQLite-backed persistence for task rows and an append-only event
+  log. Owns restart recovery (``running`` / ``cancelling`` rows from a
+  previous process become ``failed(reason="backend_restart")``).
+- `BackgroundTaskManager` ([manager.py](/Users/asuka/code/magi/backend/src/magi/agent/background/manager.py))
+  — runtime-singleton scheduler with a bounded semaphore, pending
+  queue, and a pluggable ``run_fn`` so phases can swap the orchestrator
+  without touching this module. Supports ``enqueue`` / ``cancel`` /
+  ``retry`` / ``list_active`` / ``list_pending`` and fan-outs to
+  listeners after each terminal transition.
+- `BackgroundTaskDispatcher` + `BackgroundTaskLaunchService`
+  ([dispatcher.py](/Users/asuka/code/magi/backend/src/magi/agent/background/dispatcher.py),
+  [launch.py](/Users/asuka/code/magi/backend/src/magi/agent/background/launch.py))
+  — entry points that let planners, rules, or explicit user actions
+  hand a spec to the manager.
+- `BackgroundTaskExecutor` ([executor.py](/Users/asuka/code/magi/backend/src/magi/agent/background/executor.py))
+  — wraps a single attempt: transitions, cancellation plumbing, and
+  persisted ``BackgroundTaskEvent`` entries.
+
+Lifecycle (orchestrated by
+[agent/lifecycle.py](/Users/asuka/code/magi/backend/src/magi/agent/lifecycle.py)):
+
+1. `build_background_task_wiring` composes store + executor + manager +
+   dispatcher + launch service from config.
+2. Two listeners are registered before ``manager.start()``:
+   - `build_completion_handshake_listener` — routes the terminal task
+     through `ChatPostProcessService.deliver_background_task_completion`
+     on the resolved chat task agent, so a ``system`` chat message
+     announces the outcome in the originating session.
+   - `broadcast_background_task_state_changed` (from
+     [transport/chat_events.py](/Users/asuka/code/magi/backend/src/magi/transport/chat_events.py))
+     — writes a ``background_task_state_changed`` row onto the runtime
+     notification channel. The Rust gateway relays that channel onto
+     the Tauri event stream the frontend Tasks page subscribes to.
+3. `manager.start()` runs restart recovery, rehydrates any ``pending``
+   rows, and spawns the dispatcher loop.
+
+Configuration lives under `agent.background_tasks` in
+[config.example.yaml](/Users/asuka/code/magi/backend/configs/config.example.yaml):
+``enabled``, ``max_concurrent``, ``queue_when_full``,
+``auto_detect_long_task``, ``auto_detect_threshold``,
+``default_task_timeout_seconds``, ``history_retention_days``. When
+``enabled`` is ``false`` the lifecycle leaves the dispatcher and launch
+service unwired so the runtime still boots.
+
+REST surface: the `/api/background-tasks` router
+([api/routers/background_tasks.py](/Users/asuka/code/magi/backend/src/magi/api/routers/background_tasks.py))
+exposes `list`, `get`, `cancel`, `retry`, `dismiss` for the Tasks UI;
+each endpoint sits on the public-route allowlist.
+
+Realtime: the manager's listener pipeline is push-only. The UI hydrates
+once from `GET /api/background-tasks`, then replaces or inserts
+individual rows as each ``background_task_state_changed`` notification
+arrives — no polling.
+
 ## Typed Execution Framework
 
 The shared execution framework lives under `agent/task_agents/common/`.
