@@ -122,7 +122,7 @@ class BootstrapDialogueService:
             if text:
                 return text
         except Exception as exc:
-            logger.debug("Bootstrap opening LLM generation failed, using fallback: %s", exc)
+            logger.warning("Bootstrap opening LLM generation failed, falling back to static opening_line: %s", exc)
 
         return None
 
