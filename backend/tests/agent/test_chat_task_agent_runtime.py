@@ -473,3 +473,59 @@ async def test_add_fact_ingress_interrupt_noop_when_no_active_run() -> None:
     assert enqueued is True
     assert agent._session_run_coordinator.get_active_run("s-chat") is None
 
+
+@pytest.mark.asyncio
+async def test_drain_deferred_turns_mints_fresh_turn_id_for_reinjection() -> None:
+    """Re-injected DEFER turns must not reuse the original ``turn_id``.
+
+    The original ``turn_id`` is already persisted in L0 / chat history /
+    timeline under the completed run. Reusing it when re-dispatching the
+    pending turn as a brand-new user message would collide with those
+    records and would also be picked up verbatim as the new run's
+    ``root_turn_id`` by :meth:`SessionRunCoordinator._resolve_turn_id`. The
+    fix mints a fresh UUID and keeps the original in
+    ``payload.metadata.source_turn_id`` for traceability.
+    """
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    captured_facts: list[FactRecord] = []
+
+    class _CapturingManager:
+        async def add_fact_to_agent(self, agent_type, instance_id, fact):  # type: ignore[no-untyped-def]
+            _ = (agent_type, instance_id)
+            captured_facts.append(fact)
+
+    agent._task_agent_manager = _CapturingManager()  # type: ignore[assignment]
+
+    # Seed an active run and queue a DEFER pending turn with a known
+    # original turn_id that must NOT be reused on re-injection.
+    agent._session_run_coordinator.handle_user_turn(
+        SimpleNamespace(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Plan the refactor.",
+            turn_id="turn-root",
+        )  # type: ignore[arg-type]
+    )
+    agent._session_run_coordinator._run_store.append_pending_turn(
+        "s-chat",
+        "turn-deferred-original",
+        "And also draft the release notes after.",
+        disposition="defer",
+    )
+
+    await agent._drain_deferred_turns("s-chat")
+
+    assert len(captured_facts) == 1
+    fact = captured_facts[0]
+    assert isinstance(fact.payload, dict)
+    reinjected_turn_id = fact.payload["turn_id"]
+    assert isinstance(reinjected_turn_id, str) and reinjected_turn_id
+    assert reinjected_turn_id != "turn-deferred-original"
+    assert fact.correlation_id == reinjected_turn_id
+    metadata = fact.payload["metadata"]
+    assert metadata["reinjected_from"] == "deferred_pending_turn"
+    assert metadata["source_turn_id"] == "turn-deferred-original"
+    assert fact.payload["content"] == "And also draft the release notes after."
+
+

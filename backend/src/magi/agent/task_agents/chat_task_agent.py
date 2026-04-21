@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional
+from uuid import uuid4
 
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
@@ -336,15 +337,26 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         from ...events.events import EventTypes
 
         for pending_turn in deferred_turns:
+            # Mint a fresh turn_id for the re-injected fact. Reusing
+            # ``pending_turn.turn_id`` would collide with the original turn
+            # already persisted under the completed run (L0 working memory,
+            # chat history, timeline, event correlation), and the new run
+            # would also adopt it as its ``root_turn_id`` via
+            # :meth:`SessionRunCoordinator._resolve_turn_id`, causing
+            # duplicate rows and ambiguous event correlation downstream.
+            reinjected_turn_id = uuid4().hex
             payload: dict[str, object] = {
                 "session_id": normalized_session_id,
                 "user_id": self.agent_id,
-                "turn_id": pending_turn.turn_id,
+                "turn_id": reinjected_turn_id,
                 "content": pending_turn.content,
                 "author_type": "user",
                 "content_type": "text",
                 "timestamp": pending_turn.created_at,
-                "metadata": {"reinjected_from": "deferred_pending_turn"},
+                "metadata": {
+                    "reinjected_from": "deferred_pending_turn",
+                    "source_turn_id": pending_turn.turn_id,
+                },
             }
             fact = FactRecord(
                 agent_id=self.runtime_key,
@@ -352,7 +364,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
                 agent_instance_id=normalized_session_id,
                 event_type=EventTypes.USER_MESSAGE,
                 payload=payload,
-                correlation_id=pending_turn.turn_id,
+                correlation_id=reinjected_turn_id,
             )
             try:
                 await manager.add_fact_to_agent(
@@ -364,7 +376,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
                 logger.warning(
                     "Failed to reinject deferred user turn",
                     session_id=normalized_session_id,
-                    turn_id=pending_turn.turn_id,
+                    turn_id=reinjected_turn_id,
+                    source_turn_id=pending_turn.turn_id,
                     error=str(exc),
                 )
 
