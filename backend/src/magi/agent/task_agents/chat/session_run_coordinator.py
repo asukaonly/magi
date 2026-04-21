@@ -106,11 +106,12 @@ class SessionRunCoordinator:
             classified_fact.latest_result_fact is not None
             and active_run is not None
             and classified_fact.latest_result_fact.event_type in _CHECKPOINT_EVENT_TYPES
-            and self._current_revision_pending_turns(active_run)
+            and self._current_revision_augment_pending_turns(active_run)
         ):
             checkpoint_pending_turns = self._run_store.consume_pending_turns(
                 classified_fact.session_id,
                 revision=active_run.revision,
+                disposition=InterruptionDisposition.AUGMENT.value,
             )
             refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
             planner_user_message = self._merge_visible_user_message(
@@ -183,11 +184,12 @@ class SessionRunCoordinator:
             classified_fact.latest_result_fact is not None
             and active_run is not None
             and classified_fact.latest_result_fact.event_type in _CHECKPOINT_EVENT_TYPES
-            and self._current_revision_pending_turns(active_run)
+            and self._current_revision_augment_pending_turns(active_run)
         ):
             checkpoint_pending_turns = self._run_store.consume_pending_turns(
                 classified_fact.session_id,
                 revision=active_run.revision,
+                disposition=InterruptionDisposition.AUGMENT.value,
             )
             refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
             planner_user_message = self._merge_visible_user_message(
@@ -277,6 +279,11 @@ class SessionRunCoordinator:
                 payload.session_id,
                 turn_id,
                 payload.content,
+                disposition=(
+                    disposition.value
+                    if isinstance(disposition, InterruptionDisposition)
+                    else InterruptionDisposition.AUGMENT.value
+                ),
             )
             active_run = self._run_store.get_active_run(payload.session_id)
             planner_fact_kind = IncomingFactKind.OTHER_FACT
@@ -349,6 +356,11 @@ class SessionRunCoordinator:
                 payload.session_id,
                 turn_id,
                 payload.content,
+                disposition=(
+                    disposition.value
+                    if isinstance(disposition, InterruptionDisposition)
+                    else InterruptionDisposition.AUGMENT.value
+                ),
             )
             active_run = self._run_store.get_active_run(payload.session_id)
             planner_fact_kind = IncomingFactKind.OTHER_FACT
@@ -370,13 +382,14 @@ class SessionRunCoordinator:
         )
 
     def consume_checkpoint(self, session_id: str) -> CheckpointDecision:
-        """Expose and clear pending turns at a checkpoint boundary."""
+        """Expose and clear AUGMENT pending turns at a checkpoint boundary."""
         active_run = self._run_store.get_active_run(session_id)
         if active_run is None:
             return CheckpointDecision(session_id=session_id, run_id="", revision=0)
         pending_turns = self._run_store.consume_pending_turns(
             session_id,
             revision=active_run.revision,
+            disposition=InterruptionDisposition.AUGMENT.value,
         )
         visible_user_message = self._merge_visible_user_message(
             root_user_message=active_run.root_user_message,
@@ -537,6 +550,39 @@ class SessionRunCoordinator:
             for pending_turn in active_run.pending_turns
             if pending_turn.revision == active_run.revision
         ]
+
+    @staticmethod
+    def _current_revision_augment_pending_turns(active_run: ActiveRun | None) -> list[PendingTurn]:
+        if active_run is None:
+            return []
+        return [
+            pending_turn
+            for pending_turn in active_run.pending_turns
+            if pending_turn.revision == active_run.revision
+            and pending_turn.disposition == InterruptionDisposition.AUGMENT.value
+        ]
+
+    def consume_deferred_turns(
+        self,
+        session_id: str,
+        *,
+        revision: int | None = None,
+    ) -> list[PendingTurn]:
+        """Pop the DEFER pending turns queued on the session run.
+
+        Called after a turn's response has been finalized so that deferred
+        messages trigger a new root user turn rather than getting merged into
+        the just-completed one.
+        """
+        active_run = self._run_store.get_active_run(session_id)
+        if active_run is None:
+            return []
+        target_revision = active_run.revision if revision is None else int(revision)
+        return self._run_store.consume_pending_turns(
+            session_id,
+            revision=target_revision,
+            disposition=InterruptionDisposition.DEFER.value,
+        )
 
     @staticmethod
     def _build_augment_supersessions(

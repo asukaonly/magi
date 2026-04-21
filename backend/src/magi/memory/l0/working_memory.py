@@ -411,6 +411,7 @@ class L0WorkingMemoryStore:
         turn_id: str,
         content: str,
         revision: int,
+        disposition: str = "augment",
     ) -> dict[str, Any]:
         """Append one pending user turn to the execution lane."""
         await self.start_session(session_id=session_id)
@@ -420,6 +421,7 @@ class L0WorkingMemoryStore:
             turn_id=turn_id,
             content=content,
             revision=revision,
+            disposition=disposition,
         )
 
     async def record_execution_result(
@@ -522,15 +524,20 @@ class L0WorkingMemoryStore:
         turn_id: str,
         content: str,
         revision: int,
+        disposition: str = "augment",
     ) -> dict[str, Any]:
         """Synchronously append one pending user turn to the execution lane."""
         self._ensure_session_sync(session_id)
+        normalized_disposition = str(disposition or "augment").strip().lower()
+        if normalized_disposition not in {"augment", "defer"}:
+            normalized_disposition = "augment"
         pending_turn = {
             "session_id": session_id,
             "run_id": run_id,
             "turn_id": turn_id,
             "content": content,
             "revision": int(revision),
+            "disposition": normalized_disposition,
             "created_at": time.time(),
         }
         self._execution_pending_turns.setdefault(session_id, []).append(pending_turn)
@@ -541,23 +548,34 @@ class L0WorkingMemoryStore:
         session_id: str,
         *,
         revision: int | None = None,
+        disposition: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Synchronously return and clear pending execution turns for a session."""
+        """Synchronously return and clear pending execution turns for a session.
+
+        Filters may be combined. When provided, only turns matching *both*
+        revision and disposition are consumed; non-matching turns stay queued.
+        """
         existing = self._execution_pending_turns.get(session_id, [])
-        if revision is None:
-            pending_turns = [dict(item) for item in existing]
-            self._execution_pending_turns[session_id] = []
-            return pending_turns
-        target_revision = int(revision)
-        pending_turns = [
-            dict(item)
-            for item in existing
-            if item.get("revision") is not None and int(item["revision"]) == target_revision
-        ]
+
+        target_revision = int(revision) if revision is not None else None
+        target_disposition = (
+            str(disposition).strip().lower() if disposition is not None else None
+        )
+
+        def _matches(item: dict[str, Any]) -> bool:
+            if target_revision is not None:
+                item_revision = item.get("revision")
+                if item_revision is None or int(item_revision) != target_revision:
+                    return False
+            if target_disposition is not None:
+                item_disposition = str(item.get("disposition") or "augment").strip().lower()
+                if item_disposition != target_disposition:
+                    return False
+            return True
+
+        pending_turns = [dict(item) for item in existing if _matches(item)]
         self._execution_pending_turns[session_id] = [
-            item
-            for item in existing
-            if item.get("revision") is None or int(item["revision"]) != target_revision
+            item for item in existing if not _matches(item)
         ]
         return pending_turns
 

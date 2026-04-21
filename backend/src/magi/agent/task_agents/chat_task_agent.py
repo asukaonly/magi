@@ -186,6 +186,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
                 run_id=run_id,
                 revision=revision,
             ),
+            drain_deferred_turns=self._drain_deferred_turns,
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,
@@ -260,6 +261,64 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         if self.unified_memory is None or self.unified_memory.l4 is None:
             return []
         return await self.unified_memory.l4.get_notable_advisories(task_context=task_context)
+
+    async def _drain_deferred_turns(self, session_id: str) -> None:
+        """Re-inject queued DEFER user turns as fresh user-message facts.
+
+        AUGMENT pending turns merge into the current run at the tool-loop
+        checkpoint; DEFER pending turns wait for the active run to finish and
+        then start a brand-new run. This method is invoked from postprocess
+        right after the active run has been completed.
+        """
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return
+        manager = self._task_agent_manager
+        if manager is None:
+            return
+        try:
+            deferred_turns = self._session_run_coordinator.consume_deferred_turns(
+                normalized_session_id
+            )
+        except ValueError:
+            # Active run already cleared; nothing to drain.
+            return
+        if not deferred_turns:
+            return
+        from ...events.events import EventTypes
+
+        for pending_turn in deferred_turns:
+            payload: dict[str, object] = {
+                "session_id": normalized_session_id,
+                "user_id": self.agent_id,
+                "turn_id": pending_turn.turn_id,
+                "content": pending_turn.content,
+                "author_type": "user",
+                "content_type": "text",
+                "timestamp": pending_turn.created_at,
+                "metadata": {"reinjected_from": "deferred_pending_turn"},
+            }
+            fact = FactRecord(
+                agent_id=self.runtime_key,
+                agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
+                agent_instance_id=normalized_session_id,
+                event_type=EventTypes.USER_MESSAGE,
+                payload=payload,
+                correlation_id=pending_turn.turn_id,
+            )
+            try:
+                await manager.add_fact_to_agent(
+                    TaskAgentType.CHAT,
+                    normalized_session_id,
+                    fact,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to reinject deferred user turn",
+                    session_id=normalized_session_id,
+                    turn_id=pending_turn.turn_id,
+                    error=str(exc),
+                )
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact

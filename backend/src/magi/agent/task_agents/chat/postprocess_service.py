@@ -65,6 +65,7 @@ class ChatPostProcessService:
         chat_projector: ChatProjector | None = None,
         complete_session_run: Callable[[str, str, int], Any] | None = None,
         resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
+        drain_deferred_turns: Callable[[str], Any] | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._history_service = history_service
@@ -87,6 +88,7 @@ class ChatPostProcessService:
         self._started_turn_traces: set[str] = set()
         self._complete_session_run = complete_session_run
         self._resolve_session_run_status = resolve_session_run_status
+        self._drain_deferred_turns = drain_deferred_turns
         # Track in-flight background memory-update tasks so they are not
         # garbage collected mid-flight. Entries remove themselves on done.
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -377,7 +379,32 @@ class ChatPostProcessService:
                 can_cancel=False,
                 label="Run cancelled",
             )
+        await self._drain_deferred_user_turns(context)
         await self._notify_memory_session_end(context.session_id)
+
+    async def _drain_deferred_user_turns(self, context: ChatRuntimeContext) -> None:
+        """Re-inject DEFER pending turns as new user messages after turn completion.
+
+        AUGMENT turns are merged mid-run at the tool-loop checkpoint. DEFER
+        turns must wait until the active run is finalized and then start a
+        fresh run, so we dispatch them back through the runtime command queue
+        as brand-new user messages.
+        """
+        if self._drain_deferred_turns is None:
+            return
+        session_id = str(context.session_id or "").strip()
+        if not session_id:
+            return
+        try:
+            result = self._drain_deferred_turns(session_id)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            logger.warning(
+                "Failed to drain deferred user turns",
+                session_id=session_id,
+                error=str(exc),
+            )
 
     async def _notify_memory_session_end(self, session_id: str | None) -> None:
         """Fire-and-forget L2 session-end review so memory can flush remaining

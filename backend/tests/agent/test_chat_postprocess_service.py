@@ -2054,3 +2054,134 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
     assert payload["state"] == "completed"
     assert payload["turn_id"] == "turn-streamed"
 
+
+@pytest.mark.asyncio
+async def test_drain_deferred_turns_callback_invoked_on_finalize() -> None:
+    calls: list[str] = []
+
+    async def _drain(session_id: str) -> None:
+        calls.append(session_id)
+
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+        drain_deferred_turns=_drain,
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message=None,
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=None,
+        active_run=None,
+        session_run_id=None,
+        session_run_revision=0,
+        planner_fact=None,
+        planner_fact_kind=IncomingFactKind.USER_MESSAGE,
+        planner_payload=None,
+        pending_turns=[],
+    )
+
+    await service._drain_deferred_user_turns(context)
+
+    assert calls == ["session-1"]
+
+
+@pytest.mark.asyncio
+async def test_drain_deferred_turns_callback_absent_is_noop() -> None:
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message=None,
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=None,
+        active_run=None,
+        session_run_id=None,
+        session_run_revision=0,
+        planner_fact=None,
+        planner_fact_kind=IncomingFactKind.USER_MESSAGE,
+        planner_payload=None,
+        pending_turns=[],
+    )
+
+    # Must not raise; simply returns without calling anything.
+    await service._drain_deferred_user_turns(context)
+
+
+@pytest.mark.asyncio
+async def test_drain_deferred_turns_swallows_callback_exception() -> None:
+    def _raising(session_id: str) -> None:
+        raise RuntimeError("boom")
+
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+        drain_deferred_turns=_raising,
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message=None,
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=None,
+        active_run=None,
+        session_run_id=None,
+        session_run_revision=0,
+        planner_fact=None,
+        planner_fact_kind=IncomingFactKind.USER_MESSAGE,
+        planner_payload=None,
+        pending_turns=[],
+    )
+
+    # Exception is logged as a warning but not re-raised.
+    await service._drain_deferred_user_turns(context)
+

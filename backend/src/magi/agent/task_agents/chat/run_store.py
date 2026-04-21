@@ -64,7 +64,14 @@ class SessionRunStore:
             active_run = self._get_run(session_id)
             return deepcopy(active_run) if active_run is not None else None
 
-    def append_pending_turn(self, session_id: str, turn_id: str, content: str) -> PendingTurn:
+    def append_pending_turn(
+        self,
+        session_id: str,
+        turn_id: str,
+        content: str,
+        *,
+        disposition: str = "augment",
+    ) -> PendingTurn:
         """Attach a pending turn to the active run for the session."""
         with self._lock:
             active_run = self._require_run(session_id)
@@ -74,6 +81,7 @@ class SessionRunStore:
                 turn_id=turn_id,
                 content=content,
                 revision=active_run.revision,
+                disposition=disposition,
             )
             pending_turn = self._to_pending_turn(pending_payload)
             logger.info(
@@ -82,6 +90,7 @@ class SessionRunStore:
                 run_id=active_run.run_id,
                 revision=active_run.revision,
                 turn_id=pending_turn.turn_id,
+                disposition=pending_turn.disposition,
             )
             return deepcopy(pending_turn)
 
@@ -227,8 +236,19 @@ class SessionRunStore:
             )
             return deepcopy(active_run)
 
-    def consume_pending_turns(self, session_id: str, *, revision: int | None = None) -> list[PendingTurn]:
-        """Return and clear pending turns for the active run."""
+    def consume_pending_turns(
+        self,
+        session_id: str,
+        *,
+        revision: int | None = None,
+        disposition: str | None = None,
+    ) -> list[PendingTurn]:
+        """Return and clear pending turns for the active run.
+
+        When ``disposition`` is provided, only turns matching both the revision
+        (if given) and the disposition are removed; remaining turns stay
+        queued. This lets AUGMENT and DEFER queues be drained independently.
+        """
         with self._lock:
             self._require_run(session_id)
             pending_turns = [
@@ -236,6 +256,7 @@ class SessionRunStore:
                 for item in self._l0_store.consume_execution_pending_turns_sync(
                     session_id,
                     revision=revision,
+                    disposition=disposition,
                 )
             ]
             return pending_turns
@@ -451,10 +472,14 @@ class SessionRunStore:
 
     @staticmethod
     def _to_pending_turn(payload: dict[str, Any]) -> PendingTurn:
+        disposition = str(payload.get("disposition") or "augment").strip().lower()
+        if disposition not in {"augment", "defer"}:
+            disposition = "augment"
         return PendingTurn(
             turn_id=str(payload["turn_id"]),
             content=str(payload["content"]),
             revision=int(payload["revision"]),
+            disposition=disposition,
             created_at=float(payload.get("created_at") or 0.0),
         )
 

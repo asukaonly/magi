@@ -21,6 +21,7 @@ class PendingTurn:
     turn_id: str
     content: str
     revision: int
+    disposition: str = "augment"
     created_at: float = field(default_factory=time)
 
 

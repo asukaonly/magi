@@ -290,3 +290,162 @@ async def test_async_route_uses_model_interrupt_for_chinese_cancel_text() -> Non
     assert routed.active_run is not None
     assert routed.active_run.revision == 1
     assert routed.active_run.root_user_message == "搞错了，不用做了"
+
+
+def test_defer_pending_turn_is_not_merged_at_checkpoint() -> None:
+    classifier = ChatFactClassifier()
+    coordinator = SessionRunCoordinator()
+    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=first_fact,
+            batch_facts=[first_fact],
+        )
+    )
+    # A plain interjection without AUGMENT keywords defaults to DEFER.
+    defer_fact = _user_fact(
+        "帮我看看 github 的仓库吧",
+        turn_id="turn-2",
+    )
+    defer_routed = coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=defer_fact,
+            batch_facts=[defer_fact],
+        )
+    )
+    assert defer_routed.interruption_disposition == InterruptionDisposition.DEFER
+
+    checkpoint_fact = _checkpoint_fact()
+    routed = coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=checkpoint_fact,
+            batch_facts=[checkpoint_fact],
+        )
+    )
+
+    # DEFER turns must NOT merge at the tool-loop checkpoint; the planner
+    # keeps processing the original root user message.
+    assert routed.run_disposition != InterruptionDisposition.AUGMENT.value
+    assert routed.checkpoint_pending_turns == []
+
+    # And the DEFER turn is still queued, ready to be drained after the run
+    # finalizes.
+    active_run = coordinator.get_active_run("s-chat")
+    assert active_run is not None
+    assert [item.content for item in active_run.pending_turns] == [
+        "帮我看看 github 的仓库吧",
+    ]
+    assert all(
+        item.disposition == InterruptionDisposition.DEFER.value
+        for item in active_run.pending_turns
+    )
+
+
+def test_augment_is_merged_at_checkpoint_while_defer_stays_queued() -> None:
+    classifier = ChatFactClassifier()
+    coordinator = SessionRunCoordinator()
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=_user_fact("Inspect the login flow.", turn_id="turn-1"),
+            batch_facts=[_user_fact("Inspect the login flow.", turn_id="turn-1")],
+        )
+    )
+    augment_fact = _user_fact("Also, use the staging endpoint.", turn_id="turn-augment")
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=augment_fact,
+            batch_facts=[augment_fact],
+        )
+    )
+    defer_fact = _user_fact(
+        "帮我看看 github 的仓库吧",
+        turn_id="turn-defer",
+    )
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=defer_fact,
+            batch_facts=[defer_fact],
+        )
+    )
+    checkpoint_fact = _checkpoint_fact()
+
+    routed = coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=checkpoint_fact,
+            batch_facts=[checkpoint_fact],
+        )
+    )
+
+    # Only AUGMENT merges into the visible planner message.
+    assert routed.run_disposition == InterruptionDisposition.AUGMENT.value
+    assert routed.planner_user_message == "\n\n".join(
+        [
+            "Inspect the login flow.",
+            "Also, use the staging endpoint.",
+        ]
+    )
+    assert [item.turn_id for item in routed.checkpoint_pending_turns] == ["turn-augment"]
+
+    # DEFER stays in the queue for post-run drainage.
+    active_run = coordinator.get_active_run("s-chat")
+    assert active_run is not None
+    assert [item.turn_id for item in active_run.pending_turns] == ["turn-defer"]
+
+
+def test_consume_deferred_turns_returns_and_clears_defer_pending_turns() -> None:
+    classifier = ChatFactClassifier()
+    coordinator = SessionRunCoordinator()
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=_user_fact("Inspect the login flow.", turn_id="turn-1"),
+            batch_facts=[_user_fact("Inspect the login flow.", turn_id="turn-1")],
+        )
+    )
+    augment_fact = _user_fact("Also, use the staging endpoint.", turn_id="turn-augment")
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=augment_fact,
+            batch_facts=[augment_fact],
+        )
+    )
+    defer_fact = _user_fact(
+        "帮我看看 github 的仓库吧",
+        turn_id="turn-defer",
+    )
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=defer_fact,
+            batch_facts=[defer_fact],
+        )
+    )
+
+    drained = coordinator.consume_deferred_turns("s-chat")
+
+    assert [item.turn_id for item in drained] == ["turn-defer"]
+    assert all(
+        item.disposition == InterruptionDisposition.DEFER.value
+        for item in drained
+    )
+
+    # Second call must be empty; AUGMENT remains untouched.
+    assert coordinator.consume_deferred_turns("s-chat") == []
+    active_run = coordinator.get_active_run("s-chat")
+    assert active_run is not None
+    assert [item.turn_id for item in active_run.pending_turns] == ["turn-augment"]
+
+
+def test_consume_deferred_turns_returns_empty_when_no_active_run() -> None:
+    coordinator = SessionRunCoordinator()
+
+    assert coordinator.consume_deferred_turns("unknown-session") == []
+
