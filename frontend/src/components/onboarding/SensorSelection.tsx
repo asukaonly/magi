@@ -46,6 +46,7 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
   const shouldReduceMotion = useReducedMotion();
   const [loading, setLoading] = useState(true);
   const [registryAvailable, setRegistryAvailable] = useState(false);
+  const [registryError, setRegistryError] = useState<string | null>(null);
   const [sensors, setSensors] = useState<SensorItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [installStates, setInstallStates] = useState<Record<string, InstallState>>({});
@@ -77,6 +78,7 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
         if (!cancelled) {
           setSensors(items);
           setRegistryAvailable(true);
+          setRegistryError(null);
 
           // Pre-select recommended sensors that exist in filtered list.
           const recommended = (scenario && SCENARIO_RECOMMENDED_SENSORS[scenario]) ?? [];
@@ -89,10 +91,11 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
           }
           setInstallStates(preInstalled);
         }
-      } catch {
+      } catch (error: any) {
         if (!cancelled) {
           setSensors([]);
           setRegistryAvailable(false);
+          setRegistryError(error?.message || t('sensorSelection.registryUnavailable'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -179,7 +182,12 @@ const SensorSelection: React.FC<SensorSelectionProps> = ({ scenario }) => {
         <div className="rounded-lg border border-border bg-muted/30 p-4">
           <div className="flex items-start gap-2">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">{t('sensorSelection.registryUnavailable')}</p>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('sensorSelection.registryUnavailable')}</p>
+              {registryError ? (
+                <p className="text-xs text-muted-foreground/90">{registryError}</p>
+              ) : null}
+            </div>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">{t('sensorSelection.installLaterHint')}</p>
