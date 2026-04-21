@@ -354,7 +354,9 @@ Key components:
 - `BackgroundTaskStore` ([store.py](/Users/asuka/code/magi/backend/src/magi/agent/background/store.py))
   — SQLite-backed persistence for task rows and an append-only event
   log. Owns restart recovery (``running`` / ``cancelling`` rows from a
-  previous process become ``failed(reason="backend_restart")``).
+  previous process become ``failed(reason="backend_restart")``) and
+  ``purge_expired``, which hard-deletes terminal rows (plus their
+  event log) once they predate the configured retention window.
 - `BackgroundTaskManager` ([manager.py](/Users/asuka/code/magi/backend/src/magi/agent/background/manager.py))
   — runtime-singleton scheduler with a bounded semaphore, pending
   queue, and a pluggable ``run_fn`` so phases can swap the orchestrator
@@ -365,10 +367,16 @@ Key components:
   ([dispatcher.py](/Users/asuka/code/magi/backend/src/magi/agent/background/dispatcher.py),
   [launch.py](/Users/asuka/code/magi/backend/src/magi/agent/background/launch.py))
   — entry points that let planners, rules, or explicit user actions
-  hand a spec to the manager.
+  hand a spec to the manager. ``build_background_run_fn`` tags every
+  orchestrator invocation with ``execution_agent_id=f"background:{task_id}"``
+  so runtime-trace rows can be filtered back to the owning task.
 - `BackgroundTaskExecutor` ([executor.py](/Users/asuka/code/magi/backend/src/magi/agent/background/executor.py))
   — wraps a single attempt: transitions, cancellation plumbing, and
   persisted ``BackgroundTaskEvent`` entries.
+- `BackgroundTaskRetentionGC` ([retention.py](/Users/asuka/code/magi/backend/src/magi/agent/background/retention.py))
+  — periodic purge driven by ``agent.background_tasks.history_retention_days``.
+  Runs one sweep at startup and then hourly; disabled when
+  ``history_retention_days <= 0``.
 
 Lifecycle (orchestrated by
 [agent/lifecycle.py](/Users/asuka/code/magi/backend/src/magi/agent/lifecycle.py)):
@@ -379,14 +387,21 @@ Lifecycle (orchestrated by
    - `build_completion_handshake_listener` — routes the terminal task
      through `ChatPostProcessService.deliver_background_task_completion`
      on the resolved chat task agent, so a ``system`` chat message
-     announces the outcome in the originating session.
+     announces the outcome in the originating session. The persisted
+     message carries ``message_kind="background_task_completion"`` and
+     a ``payload`` with ``background_task_id`` / ``status`` / ``title``
+     / ``attempt``; the chat UI renders it as a dedicated completion
+     card that deep-links into the Tasks drawer via
+     ``/tasks?taskId=...``.
    - `broadcast_background_task_state_changed` (from
      [transport/chat_events.py](/Users/asuka/code/magi/backend/src/magi/transport/chat_events.py))
      — writes a ``background_task_state_changed`` row onto the runtime
      notification channel. The Rust gateway relays that channel onto
      the Tauri event stream the frontend Tasks page subscribes to.
 3. `manager.start()` runs restart recovery, rehydrates any ``pending``
-   rows, and spawns the dispatcher loop.
+   rows, and spawns the dispatcher loop. ``retention_gc.start()`` is
+   invoked right after, so the first purge sees the just-recovered
+   rows as ordinary terminal entries.
 
 Configuration lives under `agent.background_tasks` in
 [config.example.yaml](/Users/asuka/code/magi/backend/configs/config.example.yaml):
