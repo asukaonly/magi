@@ -221,6 +221,7 @@ class FunctionCallingOrchestrator:
         final_response_json_mode: bool = False,
         thinking_depth: ThinkingDepth | None = None,
         stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
+        cancel_checker: Callable[[], bool] | None = None,
     ) -> ExecutionOutcome:
         """
         Execute with continuous tool calling
@@ -232,6 +233,9 @@ class FunctionCallingOrchestrator:
             user_id: User id for execution context
             conversation_history: Previous conversation
             max_iterations: Maximum tool call iterations
+            cancel_checker: Optional callable polled before each LLM/tool step.
+                When it returns True, the run is aborted and a
+                ``cancelled`` ExecutionOutcome is returned.
 
         Returns:
             Structured execution outcome
@@ -245,6 +249,12 @@ class FunctionCallingOrchestrator:
         self._current_messages = state.messages
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         while state.iteration < max_iterations:
+            if cancel_checker is not None and cancel_checker():
+                return ExecutionOutcome(
+                    status="cancelled",
+                    content="",
+                    iterations=state.iteration,
+                )
             step_outcome = await self.step_executor.execute_step(
                 state=state,
                 user_message=user_message,
@@ -299,6 +309,7 @@ class FunctionCallingOrchestrator:
             llm_timeout_seconds=llm_timeout_seconds,
             final_response_json_mode=final_response_json_mode,
             stream_chunk_callback=stream_chunk_callback,
+            cancel_checker=cancel_checker,
         )
 
     async def _try_compact(
@@ -330,9 +341,16 @@ class FunctionCallingOrchestrator:
         llm_timeout_seconds: Optional[float],
         final_response_json_mode: bool,
         stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
+        cancel_checker: Callable[[], bool] | None = None,
     ) -> ExecutionOutcome:
         """Run the legacy no-tools fallback once the bounded step loop stops."""
         logger.info("[FunctionCalling] Reached max iterations, getting final response")
+        if cancel_checker is not None and cancel_checker():
+            return ExecutionOutcome(
+                status="cancelled",
+                content="",
+                iterations=state.iteration,
+            )
         await self._emit_loop_event(
             {
                 "stage": "max_iterations_reached",

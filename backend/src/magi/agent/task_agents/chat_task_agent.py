@@ -129,14 +129,15 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
         )
+        self._interruption_classifier = InterruptionClassifier(
+            llm_adapter=llm_adapter,
+            llm_pool=llm_pool,
+        )
         self._session_run_coordinator = SessionRunCoordinator(
             run_store=SessionRunStore(
                 l0_store=(unified_memory.l0 if unified_memory is not None else None),
             ),
-            interruption_classifier=InterruptionClassifier(
-                llm_adapter=llm_adapter,
-                llm_pool=llm_pool,
-            ),
+            interruption_classifier=self._interruption_classifier,
         )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
@@ -261,6 +262,53 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         if self.unified_memory is None or self.unified_memory.l4 is None:
             return []
         return await self.unified_memory.l4.get_notable_advisories(task_context=task_context)
+
+    async def add_fact(self, fact: FactRecord) -> bool:
+        """Enqueue the fact, fast-pathing obvious INTERRUPT user turns.
+
+        When a USER_MESSAGE arrives while an earlier run is still executing
+        and the text matches the INTERRUPT rule patterns, we proactively
+        call ``request_cancel`` on the coordinator so the in-flight
+        execution can bail out at the next ``cancel_checker`` probe — even
+        before the run loop gets a chance to pull the fact off the queue
+        and classify it.
+        """
+        try:
+            from ...events.events import EventTypes
+
+            if fact.event_type == EventTypes.USER_MESSAGE:
+                payload = fact.payload or {}
+                session_id = str(payload.get("session_id") or "").strip()
+                content = str(payload.get("content") or "")
+                turn_id = str(payload.get("turn_id") or "").strip() or None
+                if (
+                    session_id
+                    and content
+                    and self._interruption_classifier._looks_like_interrupt(content)
+                ):
+                    active_run = self._session_run_coordinator.get_active_run(session_id)
+                    if (
+                        active_run is not None
+                        and active_run.status in ("running", "cancelling")
+                    ):
+                        self._session_run_coordinator.request_cancel(
+                            session_id=session_id,
+                            requested_by="user",
+                            reason="ingress_interrupt",
+                            anchor_turn_id=turn_id,
+                        )
+                        logger.info(
+                            "Ingress INTERRUPT detected; requested cancel",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                        )
+        except Exception as exc:
+            # Ingress classification is best-effort; never block enqueue.
+            logger.debug(
+                "Ingress INTERRUPT classification failed",
+                error=str(exc),
+            )
+        return await super().add_fact(fact)
 
     async def _drain_deferred_turns(self, session_id: str) -> None:
         """Re-inject queued DEFER user turns as fresh user-message facts.

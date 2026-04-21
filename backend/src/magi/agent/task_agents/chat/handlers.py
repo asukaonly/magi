@@ -284,6 +284,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             result.streamed = stream_state.get("any_streamed", False)
             return result
 
+        cancel_checker = self._build_cancel_checker(request)
         execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
             user_message=request.context.latest_user_message,
             system_prompt=request.system_prompt,
@@ -304,6 +305,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 else None
             ),
             stream_chunk_callback=fc_stream_callback,
+            cancel_checker=cancel_checker,
         )
 
         streamed = stream_state["chunks_emitted"] > 0 and execution_outcome.status == "completed"
@@ -339,6 +341,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         current_user_message = request.context.latest_user_message
         current_revision = int(getattr(request.context, "session_run_revision", 0) or 0)
         current_turn_id = getattr(request.context.latest_payload, "turn_id", None)
+        cancel_checker = self._build_cancel_checker(request)
         step_state = orchestrator.build_step_state(
             user_message=current_user_message,
             system_prompt=request.system_prompt,
@@ -348,6 +351,21 @@ class FunctionCallingHandler(BaseExecutionHandler):
         max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
 
         while step_state.iteration < max_iterations:
+            if cancel_checker is not None and cancel_checker():
+                return FunctionCallingExecutionResult(
+                    mode=request.mode,
+                    response_text="",
+                    root_user_message=current_user_message,
+                    execution_outcome={
+                        "status": "cancelled",
+                        "content": "",
+                        "failure_reason": None,
+                        "tool_failures": list(getattr(step_state, "tool_failures", [])),
+                        "iterations": step_state.iteration,
+                    },
+                    turn_id=current_turn_id,
+                    ux_plan=_serialize_ux_plan(request.intent),
+                )
             step_outcome = await orchestrator.step_executor.execute_step(
                 state=step_state,
                 user_message=current_user_message,
@@ -439,6 +457,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             llm_timeout_seconds=None,
             final_response_json_mode=False,
             stream_chunk_callback=stream_chunk_callback,
+            cancel_checker=cancel_checker,
         )
         return FunctionCallingExecutionResult(
             mode=request.mode,
@@ -448,6 +467,34 @@ class FunctionCallingHandler(BaseExecutionHandler):
             turn_id=current_turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
+
+    def _build_cancel_checker(
+        self, request: FunctionCallingRequest
+    ) -> Callable[[], bool] | None:
+        """Build a cancel-polling callable tied to the current session run.
+
+        Returns ``None`` when no coordinator is available or the request is
+        not bound to a session run (no cancellation is possible). The
+        callable returns ``True`` once the coordinator has recorded a
+        ``cancelling`` or ``cancelled`` status for the matching (session,
+        run, revision) tuple.
+        """
+        coordinator = self._deps.session_run_coordinator
+        session_id = str(request.context.session_id or "").strip()
+        run_id = str(request.context.session_run_id or "").strip()
+        if coordinator is None or not session_id or not run_id:
+            return None
+        revision = int(getattr(request.context, "session_run_revision", 0) or 0)
+
+        def _check() -> bool:
+            status = coordinator.get_run_status(
+                session_id=session_id,
+                run_id=run_id,
+                revision=revision,
+            )
+            return status in ("cancelling", "cancelled")
+
+        return _check
 
 
 async def _start_explore_task_agent(

@@ -224,6 +224,86 @@ async def test_interrupt_turn_stops_continuation_and_replans() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancel_before_first_step_returns_cancelled_without_executing() -> None:
+    coordinator = SessionRunCoordinator()
+    first_turn = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+    # Simulate an ingress-time INTERRUPT: the coordinator is asked to cancel
+    # before the handler ever runs a step.
+    coordinator.request_cancel(
+        session_id="s-chat",
+        requested_by="user",
+        reason="ingress_interrupt",
+        anchor_turn_id="turn-interrupt",
+    )
+
+    orchestrator = _FakeOrchestrator(step_results=[])
+    handler = _make_handler(orchestrator, coordinator)
+    context = _make_context(
+        active_run=first_turn.active_run,
+        revision=first_turn.active_run.revision,
+        latest_user_message="Inspect the login flow.",
+    )
+
+    result = await handler.execute(_make_request(context))
+
+    assert result.response_text == ""
+    assert result.execution_outcome["status"] == "cancelled"
+    # The handler must not have invoked any step_executor call.
+    assert orchestrator.build_step_state_calls == ["Inspect the login flow."]
+
+
+@pytest.mark.asyncio
+async def test_cancel_between_steps_short_circuits_loop() -> None:
+    coordinator = SessionRunCoordinator()
+    first_turn = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+
+    def _cancel_after_first_step(_state):  # type: ignore[no-untyped-def]
+        if coordinator.get_active_run("s-chat").status == "running":
+            coordinator.request_cancel(
+                session_id="s-chat",
+                requested_by="user",
+                reason="ingress_interrupt",
+                anchor_turn_id="turn-interrupt",
+            )
+
+    orchestrator = _FakeOrchestrator(
+        step_results=[
+            FunctionCallingStepOutcome(status="continue", iteration=1),
+            # If cancel is honored, we never reach the second outcome.
+            FunctionCallingStepOutcome(status="completed", iteration=2, content="should not run"),
+        ],
+        on_step=_cancel_after_first_step,
+    )
+    handler = _make_handler(orchestrator, coordinator)
+    context = _make_context(
+        active_run=first_turn.active_run,
+        revision=first_turn.active_run.revision,
+        latest_user_message="Inspect the login flow.",
+    )
+
+    result = await handler.execute(_make_request(context))
+
+    assert result.execution_outcome["status"] == "cancelled"
+    assert result.response_text == ""
+    # Only one step state built (for iteration 0); cancel fires before iter 1.
+    assert len(orchestrator.build_step_state_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_function_calling_handler_passes_prompt_workspace_to_execute_with_tools() -> None:
     orchestrator = _FakeOrchestrator(step_results=[])
     deps = ChatHandlerDependencies(

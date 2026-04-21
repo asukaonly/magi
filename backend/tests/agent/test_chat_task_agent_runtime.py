@@ -357,3 +357,66 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
 
     assert emitted == []
 
+
+@pytest.mark.asyncio
+async def test_add_fact_ingress_interrupt_requests_cancel_on_active_run() -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    # Prime an active run as if a turn is in flight.
+    agent._session_run_coordinator.handle_user_turn(
+        SimpleNamespace(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )  # type: ignore[arg-type]
+    )
+    assert agent._session_run_coordinator.get_active_run("s-chat").status == "running"
+
+    # Enqueue a fact that matches the INTERRUPT rule patterns.
+    interrupt_fact = _user_fact("stop, cancel that", turn_id="turn-interrupt")
+    enqueued = await agent.add_fact(interrupt_fact)
+
+    assert enqueued is True
+    active_run = agent._session_run_coordinator.get_active_run("s-chat")
+    assert active_run is not None
+    assert active_run.status == "cancelling"
+    assert active_run.cancel_requested_by == "user"
+    assert active_run.cancel_reason == "ingress_interrupt"
+    assert active_run.cancel_anchor_turn_id == "turn-interrupt"
+
+
+@pytest.mark.asyncio
+async def test_add_fact_non_interrupt_does_not_cancel_active_run() -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    agent._session_run_coordinator.handle_user_turn(
+        SimpleNamespace(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )  # type: ignore[arg-type]
+    )
+
+    augment_fact = _user_fact("Also, include the staging endpoint.", turn_id="turn-aug")
+    enqueued = await agent.add_fact(augment_fact)
+
+    assert enqueued is True
+    active_run = agent._session_run_coordinator.get_active_run("s-chat")
+    assert active_run is not None
+    # AUGMENT must not hijack the cancellation path.
+    assert active_run.status == "running"
+    assert active_run.cancel_requested_by is None
+
+
+@pytest.mark.asyncio
+async def test_add_fact_ingress_interrupt_noop_when_no_active_run() -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    # No active run exists; the ingress fast-path must stay silent and
+    # simply enqueue the fact.
+    interrupt_fact = _user_fact("stop now", turn_id="turn-only")
+    enqueued = await agent.add_fact(interrupt_fact)
+
+    assert enqueued is True
+    assert agent._session_run_coordinator.get_active_run("s-chat") is None
+
