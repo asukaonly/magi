@@ -45,7 +45,7 @@ class ProfileMemoryContext:
     """Module 3: User profile memory."""
 
     user_id: str = ""
-    user_name: str = "unknown"
+    user_name: str = ""
     user_preferences: Dict[str, Any] = field(default_factory=dict)
     recent_emotion: Dict[str, Any] = field(default_factory=dict)
 

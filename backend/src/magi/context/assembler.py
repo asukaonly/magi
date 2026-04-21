@@ -308,44 +308,52 @@ class PromptContextAssembler:
         return active_layers
 
     async def _build_profile_memory_context(self, *, self_memory, user_id: str) -> ProfileMemoryContext:
-        user_name = "unknown"
+        user_name = ""
         preferences: Dict[str, Any] = {}
 
         if self.user_profile_service is not None and user_id:
-            user_name = await self.user_profile_service.get_display_name(user_id)
+            fetched_name = await self.user_profile_service.get_display_name(user_id)
+            if fetched_name and fetched_name != "unknown":
+                user_name = fetched_name
             preferences = await self.user_profile_service.get_preference_summary(user_id)
 
         relation: Dict[str, Any] = {}
         if self_memory is not None and user_id:
             relation = await self_memory.get_relationship(user_id) or {}
 
-        sentiment = float(relation.get("sentiment_score", 0.0)) if relation else 0.0
-        trust = float(relation.get("trust_level", 0.5)) if relation else 0.5
+        recent_emotion: Dict[str, Any] = {}
+        # Only surface emotion when we actually have a relationship record; otherwise
+        # the defaults (neutral / medium) are noise the LLM can misread as facts.
+        if relation:
+            sentiment = float(relation.get("sentiment_score", 0.0))
+            trust = float(relation.get("trust_level", 0.5))
 
-        if sentiment >= 0.3:
-            emotion_label = "positive"
-        elif sentiment <= -0.3:
-            emotion_label = "negative"
-        else:
-            emotion_label = "neutral"
+            if sentiment >= 0.3:
+                emotion_label = "positive"
+            elif sentiment <= -0.3:
+                emotion_label = "negative"
+            else:
+                emotion_label = "neutral"
 
-        if trust >= 0.7:
-            trust_label = "high"
-        elif trust >= 0.4:
-            trust_label = "medium"
-        else:
-            trust_label = "low"
+            if trust >= 0.7:
+                trust_label = "high"
+            elif trust >= 0.4:
+                trust_label = "medium"
+            else:
+                trust_label = "low"
+
+            recent_emotion = {
+                "sentiment_score": sentiment,
+                "emotion_label": emotion_label,
+                "trust_level": trust,
+                "trust_label": trust_label,
+            }
 
         return ProfileMemoryContext(
             user_id=user_id,
             user_name=user_name,
             user_preferences=preferences,
-            recent_emotion={
-                "sentiment_score": sentiment,
-                "emotion_label": emotion_label,
-                "trust_level": trust,
-                "trust_label": trust_label,
-            },
+            recent_emotion=recent_emotion,
         )
 
     def _build_runtime_system_context(
@@ -677,11 +685,12 @@ class PromptContextRenderer:
         return lines
 
     def _render_profile_memory(self, profile: ProfileMemoryContext) -> List[str]:
-        """Render profile memory as markdown."""
-        lines = ["# Profile Memory"]
+        """Render profile memory as markdown, omitting unknown/empty fields."""
+        body: List[str] = []
 
-        lines.append(f"* User ID: {profile.user_id or 'unknown'}")
-        lines.append(f"* User Name: {profile.user_name}")
+        user_name = (profile.user_name or "").strip()
+        if user_name and user_name.lower() != "unknown":
+            body.append(f"* User Name: {user_name}")
 
         prefs = profile.user_preferences or {}
         preferred_address = self._first_profile_text(prefs.get("address.preferred"))
@@ -689,11 +698,11 @@ class PromptContextRenderer:
         disallowed_addresses = self._profile_text_list(prefs.get("address.disallowed"))
 
         if preferred_address:
-            lines.append(f"* Preferred Address: {preferred_address}")
-        if stated_real_name and stated_real_name != profile.user_name:
-            lines.append(f"* Stated Real Name: {stated_real_name}")
+            body.append(f"* Preferred Address: {preferred_address}")
+        if stated_real_name and stated_real_name != user_name:
+            body.append(f"* Stated Real Name: {stated_real_name}")
         if disallowed_addresses:
-            lines.append(f"* Avoid Addressing As: {', '.join(disallowed_addresses)}")
+            body.append(f"* Avoid Addressing As: {', '.join(disallowed_addresses)}")
 
         visible_prefs = {
             key: value
@@ -701,24 +710,24 @@ class PromptContextRenderer:
             if key not in {"address.preferred", "address.real_name", "address.disallowed"}
         }
         if visible_prefs:
-            lines.append("* User Preferences:")
+            body.append("* User Preferences:")
             for key, value in visible_prefs.items():
-                lines.append(f"  - {key}: {value}")
-        else:
-            lines.append("* User Preferences: (none recorded)")
+                body.append(f"  - {key}: {value}")
 
         emotion = profile.recent_emotion or {}
         if emotion:
-            lines.append("* Recent Emotion:")
+            body.append("* Recent Emotion:")
             sentiment = emotion.get("sentiment_score", 0.0)
             label = emotion.get("emotion_label", "neutral")
             trust = emotion.get("trust_level", 0.5)
             trust_label = emotion.get("trust_label", "medium")
-            lines.append(f"  - Sentiment: {label} (score: {sentiment:.2f})")
-            lines.append(f"  - Trust: {trust_label} (level: {trust:.2f})")
-        lines.append("")
+            body.append(f"  - Sentiment: {label} (score: {sentiment:.2f})")
+            body.append(f"  - Trust: {trust_label} (level: {trust:.2f})")
 
-        return lines
+        if not body:
+            return []
+
+        return ["# Profile Memory", *body, ""]
 
     @staticmethod
     def _first_profile_text(value: Any) -> str:
