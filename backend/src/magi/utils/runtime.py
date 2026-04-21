@@ -212,6 +212,11 @@ class RuntimePaths:
         return self.runtime_dir / "sensor_state.db"
 
     @property
+    def background_tasks_db_path(self) -> Path:
+        """Background-task persistence database path."""
+        return self.runtime_dir / "background_tasks.db"
+
+    @property
     def task_orchestrations_path(self) -> Path:
         """Task-orchestration recovery store path."""
         return self.runtime_dir / "task_orchestrations.json"

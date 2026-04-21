@@ -1,7 +1,7 @@
 """Runtime task agent for chat facts."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from ...agent.orchestration import get_orchestration_store
@@ -84,6 +84,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
         chat_projector: ChatProjector | None = None,
+        background_dispatcher: Any | None = None,
+        background_launch_service: Any | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -211,6 +213,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             get_task_agent_manager=lambda: self._task_agent_manager,
             session_run_coordinator=self._session_run_coordinator,
             stream_chunk_callback=self._emit_stream_chunk,
+            background_dispatcher=background_dispatcher,
+            background_launch_service=background_launch_service,
         )
         self._handler_registry = ExecutionHandlerRegistry()
         common_handler_deps = build_common_handler_dependencies(handler_deps)
@@ -235,6 +239,16 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         # Keep these aliases so existing read paths and tests see the same underlying stores.
         self._conversation_history = self._history_service._conversation_history
         self._tool_interactions = self._history_service._tool_interactions
+
+    @property
+    def postprocess_service(self) -> ChatPostProcessService:
+        """Expose the chat post-process service for external wiring.
+
+        Used by the background-task completion handshake so the bootstrap
+        listener can route terminal-state tasks back into the chat session
+        via :meth:`ChatPostProcessService.deliver_background_task_completion`.
+        """
+        return self._postprocess_service
 
     async def _emit_stream_chunk(
         self,

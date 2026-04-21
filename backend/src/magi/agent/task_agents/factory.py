@@ -29,6 +29,8 @@ def create_chat_agent_factory(
     chat_store: ChatStore | None,
     chat_projector: ChatProjector | None,
     config: AppConfig,
+    background_dispatcher: Any | None = None,
+    background_launch_service: Any | None = None,
 ) -> Callable[[str], ChatTaskAgent]:
     """Return a factory callable that creates ChatTaskAgent instances."""
 
@@ -48,6 +50,8 @@ def create_chat_agent_factory(
             runtime_trace_store=runtime_trace_store,
             chat_store=chat_store,
             chat_projector=chat_projector,
+            background_dispatcher=background_dispatcher,
+            background_launch_service=background_launch_service,
         )
 
     return _create
