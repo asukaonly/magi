@@ -728,6 +728,7 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "llm.selections": {
             selection_id: _prune_sparse_value(selection.model_dump(exclude_none=True))
             for selection_id, selection in config.llm.selections.items()
+            if str(selection.provider_id or "").strip() and str(selection.model or "").strip()
         },
         "llm.model_runtime_overrides": model_runtime_overrides,
         "agent.memory.db_path": config.memory.db_path,
