@@ -142,6 +142,7 @@ class AgentRuntimeBootstrapState:
     sensor_sync_executor: Any = None
     agent_runtime: AgentRuntime | None = None
     task_agent_manager: TaskAgentManager | None = None
+    background_task_manager: Any = None
 
 
 @dataclass

@@ -131,6 +131,13 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/seed": {"POST"},
         "/{persona_id}": {"GET", "PUT", "DELETE"},
     },
+    "background_tasks": {
+        "": {"GET"},
+        "/{task_id}": {"GET"},
+        "/{task_id}/cancel": {"POST"},
+        "/{task_id}/retry": {"POST"},
+        "/{task_id}/dismiss": {"POST"},
+    },
 
 }
 
@@ -167,6 +174,7 @@ def register_api_routes(app: FastAPI) -> None:
         plugins_router,
         local_embedding_router,
         local_reranker_router,
+        background_tasks_router,
     )
 
     app.include_router(
@@ -237,4 +245,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(local_reranker_router, _PUBLIC_ROUTE_METHODS["local_reranker"]),
         prefix="/api/local-reranker",
         tags=["Local Reranker"],
+    )
+    app.include_router(
+        _build_public_router(background_tasks_router, _PUBLIC_ROUTE_METHODS["background_tasks"]),
+        prefix="/api/background-tasks",
+        tags=["Background Tasks"],
     )

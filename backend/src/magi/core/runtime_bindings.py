@@ -104,3 +104,8 @@ def require_skill_runner():
 def require_runtime_trace_store():
     """Return the active runtime trace store binding."""
     return _require_binding("runtime_trace_store")
+
+
+def require_background_task_manager():
+    """Return the active background-task manager binding."""
+    return _require_binding("background_task_manager")

@@ -114,3 +114,35 @@ async def broadcast_chat_message_hidden(
         ))
     except Exception as exc:
         logger.debug("Failed to write chat_message_hidden notification", error=str(exc))
+
+
+async def broadcast_background_task_state_changed(task) -> None:
+    """Write a background-task state change notification for the UI bridge.
+
+    Registered as a :class:`BackgroundTaskManager` listener so every
+    terminal transition (``succeeded`` / ``failed`` / ``cancelled``)
+    is mirrored into the runtime trace notification channel. The Rust
+    gateway relays these onto the websocket stream consumed by the
+    Tasks page.
+    """
+    try:
+        payload = task.to_dict()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Failed to serialize background task", error=str(exc))
+        return
+    user_id = str(getattr(task.spec, "user_id", "") or "")
+    session_id = str(getattr(task.spec, "session_id", "") or "")
+    try:
+        store = require_runtime_trace_store()
+        await store.append_notification(RuntimeNotificationRecord(
+            notification_id=0,
+            channel="background_task_state_changed",
+            user_id=user_id,
+            session_id=session_id,
+            payload_json=json.dumps(payload, default=str),
+        ))
+    except Exception as exc:
+        logger.debug(
+            "Failed to write background_task_state_changed notification",
+            error=str(exc),
+        )

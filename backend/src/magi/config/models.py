@@ -434,6 +434,44 @@ class RuntimeSettings(BaseModel):
     chat_history_fetch_limit: int = Field(default=200, ge=1)
 
 
+class BackgroundTasksSettings(BaseModel):
+    """Background-task subsystem configuration.
+
+    Controls the detach-and-run pipeline that lets a chat session spawn
+    long-running work without blocking the foreground turn loop. The
+    ``enabled`` flag is a hard kill-switch: when ``false`` the dispatcher
+    short-circuits to a foreground decision and the manager is still
+    constructed but never receives work.
+    """
+
+    enabled: bool = Field(default=True, description="Feature flag; default on.")
+    max_concurrent: int = Field(default=2, ge=1, description="Hard cap on simultaneously running tasks.")
+    queue_when_full: bool = Field(
+        default=True,
+        description="Queue tasks when at cap; when false, falls back to foreground.",
+    )
+    auto_detect_long_task: bool = Field(
+        default=True,
+        description="Enable the dispatcher's LLM classifier fallback.",
+    )
+    auto_detect_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Minimum classifier confidence to pick background.",
+    )
+    default_task_timeout_seconds: int = Field(
+        default=1800,
+        ge=60,
+        description="Wall-clock timeout applied to each attempt.",
+    )
+    history_retention_days: int = Field(
+        default=30,
+        ge=1,
+        description="How long terminal rows are kept for the history tab.",
+    )
+
+
 class TimelineSourceSettings(BaseModel):
     """Per-source timeline ingestion settings."""
 
@@ -480,6 +518,7 @@ class AgentSettings(BaseModel):
     message_bus: MessageBusSettings = Field(default_factory=MessageBusSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     maintenance: MaintenanceSettings = Field(default_factory=MaintenanceSettings)
+    background_tasks: BackgroundTasksSettings = Field(default_factory=BackgroundTasksSettings)
 
 
 # =============================================================================

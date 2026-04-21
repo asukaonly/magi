@@ -17,6 +17,7 @@ from .timeline import timeline_router
 from .plugins import plugins_router
 from .local_embedding import local_embedding_router
 from .local_reranker import local_reranker_router
+from .background_tasks import background_tasks_router
 
 __all__ = [
     "tools_router",
@@ -33,4 +34,5 @@ __all__ = [
     "plugins_router",
     "local_embedding_router",
     "local_reranker_router",
+    "background_tasks_router",
 ]

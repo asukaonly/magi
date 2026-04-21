@@ -10,6 +10,7 @@ from ..bootstrap.background_tasks import (
 )
 from ..core.logger import get_logger
 from ..tools import tool_registry
+from ..transport.chat_events import broadcast_background_task_state_changed
 from ..utils.runtime import get_runtime_paths
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .task_agents.factory import create_chat_agent_factory, create_default_agent_factory
@@ -58,14 +59,17 @@ class AgentRuntimeModule(LifecycleModule):
         sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
 
         runtime_paths = get_runtime_paths()
+        bg_settings = config.agent.background_tasks
         background_wiring = build_background_task_wiring(
             store_db_path=str(runtime_paths.background_tasks_db_path),
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
             skill_runner=self._context.skills.skill_runner,
             runtime_trace_store=runtime_trace_store,
+            max_concurrent=bg_settings.max_concurrent,
         )
         self._background_wiring = background_wiring
+        self._context.agent_runtime.background_task_manager = background_wiring.manager
 
         task_agent_manager = TaskAgentManager(
             create_chat_agent=create_chat_agent_factory(
@@ -81,8 +85,8 @@ class AgentRuntimeModule(LifecycleModule):
                 chat_store=chat_store,
                 chat_projector=chat_projector,
                 config=config,
-                background_dispatcher=background_wiring.dispatcher,
-                background_launch_service=background_wiring.launch_service,
+                background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
+                background_launch_service=background_wiring.launch_service if bg_settings.enabled else None,
             ),
             create_default_agent=create_default_agent_factory(
                 llm_adapter=llm_adapter,
@@ -126,14 +130,20 @@ class AgentRuntimeModule(LifecycleModule):
             get_task_agent_manager=lambda: self._context.agent_runtime.task_agent_manager,
         )
         background_wiring.manager.add_listener(handshake_listener)
+        background_wiring.manager.add_listener(broadcast_background_task_state_changed)
         await background_wiring.manager.start()
 
-        logger.info("AgentRuntime started (L11)")
+        logger.info(
+            "AgentRuntime started (L11)",
+            background_tasks_enabled=bg_settings.enabled,
+            background_tasks_max_concurrent=bg_settings.max_concurrent,
+        )
 
     async def shutdown(self) -> None:
         if self._background_wiring is not None:
             await self._background_wiring.manager.stop()
             self._background_wiring = None
+            self._context.agent_runtime.background_task_manager = None
         if self._context.agent_runtime.agent_runtime is not None:
             await self._context.agent_runtime.agent_runtime.stop()
             self._context.agent_runtime.agent_runtime = None

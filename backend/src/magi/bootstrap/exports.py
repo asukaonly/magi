@@ -65,6 +65,10 @@ class RuntimeExportsModule(LifecycleModule):
         container.sensor_registry.override(providers.Object(sensor_registry))
         container.runtime_trace_store.override(providers.Object(runtime_trace_store))
 
+        background_task_manager = self._context.agent_runtime.background_task_manager
+        if background_task_manager is not None:
+            container.background_task_manager.override(providers.Object(background_task_manager))
+
         if self._context.scheduler.scheduler_service is not None:
             container.scheduler_service.override(providers.Object(self._context.scheduler.scheduler_service))
         if self._context.agent_runtime.sensor_scheduler_contrib is not None:
@@ -107,3 +111,4 @@ class RuntimeExportsModule(LifecycleModule):
         container.skill_indexer.reset_override()
         container.skill_loader.reset_override()
         container.skill_runner.reset_override()
+        container.background_task_manager.reset_override()

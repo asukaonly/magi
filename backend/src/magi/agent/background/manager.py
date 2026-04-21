@@ -94,6 +94,15 @@ class BackgroundTaskManager:
         self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
+    # Accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def store(self) -> BackgroundTaskStore:
+        """Expose the underlying persistence store for read-only queries."""
+        return self._store
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

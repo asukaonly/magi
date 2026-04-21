@@ -102,6 +102,18 @@ agent:
     max_queue_size: 1000
     num_workers: 4
 
+  # Background tasks: detach long-running work from the foreground chat loop.
+  # The feature flag is a hard kill-switch; when disabled the dispatcher
+  # short-circuits to a foreground decision and never enqueues work.
+  background_tasks:
+    enabled: true
+    max_concurrent: 2
+    queue_when_full: true
+    auto_detect_long_task: true
+    auto_detect_threshold: 0.7
+    default_task_timeout_seconds: 1800
+    history_retention_days: 30
+
 # =============================================================================
 # Server Configuration
 # =============================================================================

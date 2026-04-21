@@ -75,6 +75,7 @@ class Container(containers.DeclarativeContainer):
     skill_runner: providers.Singleton[Any] = providers.Singleton(object)
     runtime_orchestrator: providers.Singleton[ModuleLifecycleOrchestrator] = providers.Singleton(object)
     runtime_bootstrap_context: providers.Singleton[RuntimeBootstrapContext] = providers.Singleton(object)
+    background_task_manager: providers.Singleton[Any] = providers.Singleton(object)
 
     # Factory providers for per-request instances
     chat_read_service = providers.Factory(_create_chat_read_service)
