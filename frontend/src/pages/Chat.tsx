@@ -128,6 +128,8 @@ const LABEL_EMOJI_OPTIONS = ['😀', '🙂', '😍', '😮', '😂', '😎', '�
 const MAX_CUSTOM_LABEL_LENGTH = 4;
 const LABEL_POPOVER_WIDTH = 336;
 const LABEL_POPOVER_HEIGHT = 272;
+const BOOTSTRAP_PENDING_TURN_ID = 'bootstrap-init-pending';
+const BOOTSTRAP_PENDING_MESSAGE_ID = 'bootstrap-init-pending';
 
 type MessageContextMenuState = {
   message: ChatTimelineMessage;
@@ -721,13 +723,26 @@ export const ChatPage: React.FC = () => {
           name?: string;
           avatar?: string;
           needs_bootstrap?: boolean;
+          needs_bootstrap_init?: boolean;
         } | undefined;
         if (data) {
           setAiName(data.name || 'AI');
           setAiAvatar(data.avatar || '');
 
-          if (data.needs_bootstrap && currentSessionId && !bootstrapInitDoneRef.current) {
+          const shouldInitBootstrap = Boolean(data.needs_bootstrap_init ?? data.needs_bootstrap);
+          if (shouldInitBootstrap && currentSessionId && !bootstrapInitDoneRef.current) {
             bootstrapInitDoneRef.current = true;
+            const bootstrapPendingMessage: ChatTimelineMessage = {
+              id: BOOTSTRAP_PENDING_MESSAGE_ID,
+              messageId: BOOTSTRAP_PENDING_MESSAGE_ID,
+              role: 'assistant',
+              kind: 'status',
+              content: t('chat.bootstrapInit.preparing'),
+              timestamp: Date.now(),
+              turnId: BOOTSTRAP_PENDING_TURN_ID,
+              traceAvailable: false,
+            };
+            upsertMessage(currentSessionId, bootstrapPendingMessage);
             try {
               await personasApi.bootstrapInit(currentSessionId, USER_ID);
               // Re-fetch history so the persisted opening message appears in the chat
@@ -736,6 +751,8 @@ export const ChatPage: React.FC = () => {
             } catch {
               bootstrapInitDoneRef.current = false;
               // Bootstrap init failed — proceed without bootstrap
+            } finally {
+              removeMessage(currentSessionId, BOOTSTRAP_PENDING_MESSAGE_ID);
             }
           }
         }
@@ -743,7 +760,7 @@ export const ChatPage: React.FC = () => {
         // Non-critical — keep default AI name
       }
     },
-    [currentSessionId, requestHistory]
+    [currentSessionId, removeMessage, requestHistory, t, upsertMessage]
   );
 
   const handleExecutionTraceUpdate = useCallback(
@@ -1291,6 +1308,7 @@ export const ChatPage: React.FC = () => {
 
   const renderStatusCard = (message: ChatTimelineMessage) => {
     const turnId = String(message.turnId || '').trim();
+    const isBootstrapInitPending = turnId === BOOTSTRAP_PENDING_TURN_ID;
     const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
     const traceStatus = String(message.traceSummary?.status || '').trim() || 'running';
     const executionState = executionControl?.state || traceStatus;
@@ -1413,7 +1431,9 @@ export const ChatPage: React.FC = () => {
               {indicator}
               <span className="text-sm font-medium text-foreground">{statusTitle}</span>
             </div>
-            <div className="mt-1 text-xs leading-5 text-muted-foreground">{t(subtitleKey)}</div>
+            {!isBootstrapInitPending && (
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">{t(subtitleKey)}</div>
+            )}
             {planStageSummary && (
               <div className="mt-3 rounded-lg border border-border/50 bg-background/70 px-3 py-2 text-xs font-medium text-foreground/80">
                 {planStageSummary}

@@ -258,6 +258,9 @@
     "loadHistoryFailed": "加载历史失败",
     "greetingFallback": "👋 欢迎使用 Magi AI Agent Framework！\n\n你可以在这里与 Agent 对话。发送消息后，Agent 会通过感知器接收消息，处理后实时推送回复。",
     "greetingSimpleFallback": "👋 欢迎使用 Magi AI Agent Framework！",
+    "bootstrapInit": {
+      "preparing": "正在初始化 AI，并准备第一条消息..."
+    },
     "reconnectFailed": "重连失败，请刷新页面",
     "trace": {
       "title": "调用链路",
@@ -653,6 +656,11 @@
         "skills": {
           "description": "配置工具技能记忆的抽取开关，决定哪些成功或失败模式会沉淀成可复用经验。"
         }
+      },
+      "dangerZone": {
+        "title": "危险操作",
+        "description": "永久清除当前实例的全部记忆数据。此操作不可撤销，执行后 AI 需要重新积累记忆。",
+        "clearButton": "清除全部记忆"
       },
       "fields": {
         "db_path": {
@@ -1969,6 +1977,12 @@
     },
     "health": {
       "degraded": "后端服务运行中，但可能需要关注。",
+      "degradedStarting": "后端正在继续启动，若持续一段时间仍未恢复，请稍后检查运行时状态。",
+      "degradedDeferredSelectionPending": "后端已运行，但 AI 运行时还未完成配置。请补全 core 或 context_decider 的模型设置。",
+      "degradedDeferredInvalid": "后端已运行，但当前 AI 运行时配置无效。请检查启用的 provider 和 model。",
+      "degradedHeartbeatStale": "后端心跳已过期，运行时状态可能不同步。",
+      "degradedLlmNotReady": "后端已运行，但 LLM 运行时尚未就绪。",
+      "degradedAgentRuntimeNotReady": "后端已运行，但 agent runtime 尚未完成初始化。",
       "offline": "后端无响应，部分功能可能不可用。",
       "exited": "后端进程已意外停止。"
     }

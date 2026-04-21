@@ -22,6 +22,7 @@
     "next": "Next",
     "finish": "Finish",
     "saving": "Saving...",
+    "startingRuntime": "Starting runtime...",
     "enterApp": "Enter App",
     "enableL1": "Enable L1"
   },
@@ -30,7 +31,8 @@
     "requiredFieldMissing": "Please complete required fields before continuing.",
     "chooseModeFirst": "Please select a mode before continuing.",
     "completedTitle": "Setup Complete",
-    "completedDesc": "You can update these settings anytime later."
+    "completedDesc": "You can update these settings anytime later.",
+    "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background."
   },
   "language": {
     "label": "Interface Language",

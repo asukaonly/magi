@@ -8,6 +8,7 @@ import { useChatTraceStore } from '@/stores';
 import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/domain/chat/state';
 import { messagesApi } from '@/api';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
+import { personasApi } from '@/api/modules/personas';
 
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
 const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -143,6 +144,8 @@ describe('ChatPage', () => {
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
     toastWarningMock.mockReset();
+    vi.mocked(personasApi.getGreeting).mockReset().mockResolvedValue({ success: true, data: { name: 'AI', greeting: '', needs_bootstrap: false } } as any);
+    vi.mocked(personasApi.bootstrapInit).mockReset().mockResolvedValue({ success: true, data: { bootstrap_active: false, opening: null } } as any);
     vi.mocked(messagesApi.labelMessage).mockReset();
     vi.mocked(messagesApi.deleteMessage).mockReset();
     vi.mocked(messagesApi.sendMessage).mockReset().mockResolvedValue({ success: true, message: 'ok', data: { user_id: 'local_user', session_id: 'session-1', message_length: 0, timestamp: Date.now() / 1000 } });
@@ -184,6 +187,50 @@ describe('ChatPage', () => {
     expect(screen.getByTestId('chat-workspace-message-count')).toHaveTextContent('2');
     expect(screen.getByText('hello').parentElement).toHaveClass('rounded-xl', 'rounded-tr-sm');
     expect(screen.getByText('world').parentElement?.parentElement).toHaveClass('rounded-xl', 'rounded-tl-sm');
+  });
+
+  it('shows a bootstrap loading status card while the first assistant opening is being initialized', async () => {
+    let resolveBootstrapInit: (() => void) | null = null;
+    vi.mocked(personasApi.getGreeting).mockResolvedValueOnce({
+      success: true,
+      data: { name: 'AI', greeting: '', needs_bootstrap: true },
+    } as any);
+    vi.mocked(personasApi.bootstrapInit).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveBootstrapInit = () => resolve({ success: true, data: { bootstrap_active: true, opening: 'hi' } } as any);
+      })
+    );
+    vi.mocked(messagesApi.getHistory).mockResolvedValueOnce({ messages: [] } as any);
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('chat.bootstrapInit.preparing')).toBeInTheDocument();
+
+    resolveBootstrapInit?.();
+
+    await waitFor(() => {
+      expect(screen.queryByText('chat.bootstrapInit.preparing')).not.toBeInTheDocument();
+    });
+    expect(personasApi.bootstrapInit).toHaveBeenCalledWith('session-1', 'local_user');
+  });
+
+  it('does not call bootstrap init again once the opening has already been injected', async () => {
+    vi.mocked(personasApi.getGreeting).mockResolvedValueOnce({
+      success: true,
+      data: {
+        name: 'AI',
+        greeting: '',
+        needs_bootstrap: true,
+        needs_bootstrap_init: false,
+      },
+    } as any);
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(personasApi.getGreeting).toHaveBeenCalled();
+    });
+    expect(personasApi.bootstrapInit).not.toHaveBeenCalled();
   });
 
   it('updates and clears the current session workspace from the status bar', async () => {

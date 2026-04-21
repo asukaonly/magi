@@ -107,8 +107,16 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
             "data": {
                 "status": runtime_status["status"],
                 "version": "1.0.0",
+                "api_ready": runtime_status["api_ready"],
                 "runtime_ready": runtime_status["runtime_ready"],
+                "worker_ready": runtime_status["worker_ready"],
+                "infrastructure_ready": runtime_status["infrastructure_ready"],
+                "llm_ready": runtime_status["llm_ready"],
+                "agent_runtime_ready": runtime_status["agent_runtime_ready"],
                 "runtime_status": runtime_status["runtime_status"],
+                "startup_state": runtime_status["startup_state"],
+                "deferred_reason": runtime_status["deferred_reason"],
+                "startup_detail": runtime_status["startup_detail"],
                 "queue_backlog_healthy": runtime_status["queue_backlog_healthy"],
                 "runtime_heartbeat_age_ms": runtime_status["runtime_heartbeat_age_ms"],
                 "pending_commands": runtime_status["pending_commands"],
@@ -122,10 +130,15 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
             "success": True,
             "message": "Backend startup state",
             "data": {
-                "ready": True,
+                "ready": runtime_status["runtime_ready"] and runtime_status["queue_backlog_healthy"],
                 "status": runtime_status["status"],
                 "runtime_ready": runtime_status["runtime_ready"],
+                "worker_ready": runtime_status["worker_ready"],
+                "llm_ready": runtime_status["llm_ready"],
+                "agent_runtime_ready": runtime_status["agent_runtime_ready"],
                 "runtime_status": runtime_status["runtime_status"],
+                "startup_state": runtime_status["startup_state"],
+                "deferred_reason": runtime_status["deferred_reason"],
             },
         }
 

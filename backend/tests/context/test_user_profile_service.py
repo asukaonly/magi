@@ -23,6 +23,7 @@ class _FakeL2EntityCatalog:
 class _FakeL2Store:
     def __init__(self):
         self.call_count = 0
+        self.assertion_call_count = 0
 
     async def get_tom_snapshot(self, entity_id=None, entity_type=None):
         self.call_count += 1
@@ -37,6 +38,19 @@ class _FakeL2Store:
                 }
             }
         return None
+
+    async def list_tom_assertions(self, entity_id=None, entity_type=None, **kwargs):
+        self.assertion_call_count += 1
+        if entity_id == "user:pending":
+            return [
+                {
+                    "trait_family": "preference_profile",
+                    "trait_name": "preference.address.preferred",
+                    "trait_value": "哈基米",
+                    "validation_state": "tentative",
+                }
+            ]
+        return []
 
 
 class _FakeUnifiedMemory:
@@ -71,6 +85,11 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
         name = await svc.get_display_name("nobody")
         self.assertEqual(name, "unknown")
+
+    async def test_get_display_name_falls_back_to_tentative_assertion_preferences(self):
+        svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
+        name = await svc.get_display_name("pending")
+        self.assertEqual(name, "哈基米")
 
     async def test_get_display_name_prefers_address_preference_over_canonical_name(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
@@ -120,6 +139,11 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
         prefs = await svc.get_preference_summary("nobody")
         self.assertEqual(prefs, {})
+
+    async def test_get_preference_summary_falls_back_to_tentative_assertions(self):
+        svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
+        prefs = await svc.get_preference_summary("pending")
+        self.assertEqual(prefs, {"address.preferred": "哈基米"})
 
     async def test_get_preference_summary_returns_empty_when_no_unified_memory(self):
         svc = UserProfileService(unified_memory=None)
@@ -186,6 +210,15 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         await svc.get_display_name("alice")
         await svc.get_display_name("alice")
         # With TTL=0, every call re-fetches.
+        self.assertEqual(um.l2_entity_catalog.call_count, 2)
+
+    async def test_empty_cache_uses_shorter_ttl(self):
+        um = _FakeUnifiedMemory()
+        svc = UserProfileService(unified_memory=um, cache_ttl=300, empty_cache_ttl=0)
+
+        await svc.get_display_name("nobody")
+        await svc.get_display_name("nobody")
+
         self.assertEqual(um.l2_entity_catalog.call_count, 2)
 
 

@@ -55,29 +55,108 @@ This keeps ownership explicit and stops bootstrap assembly from becoming a hidde
 
 Lifecycle modules are built in dependency order in `bootstrap/builder.py`.
 
-The current sequence is:
+The ordered runtime-worker phase catalog is centralized in `bootstrap/runtime_worker_builder.py` via `get_runtime_worker_phase_definitions()` and `describe_runtime_worker_phase_plan()`. Keep docs, readiness surfaces, and operational logs aligned with that manifest.
 
-1. core dependencies
-2. configuration
-3. runtime command queue
-4. message bus
-5. plugin system
-6. llm runtime
-7. memory stores
-8. tools
-9. skills
-10. personality
-11. sensors and event emission
-12. context assembly
-13. agent runtime
-14. timeline service
-15. scheduler engine
-16. sensor schedule registration
-17. runtime exports
-18. L2 maintenance schedule registration
-19. maintenance dependencies
+The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
+
+### Phase 1: infrastructure bring-up
+
+1. `runtime_core_dependencies`
+2. `runtime_configuration`
+3. `runtime_command_queue`
+4. `runtime_message_bus`
+5. `runtime_chat_store`
+6. `runtime_plugin_system`
+7. `runtime_llm`
+
+### Phase 2: stateful services and read/write stores
+
+8. `runtime_memory`
+9. `runtime_chat_projector`
+10. `runtime_trace`
+11. `runtime_tools`
+12. `runtime_skills`
+13. `runtime_personality`
+14. `runtime_sensor_hub`
+15. `runtime_context`
+16. `runtime_agent_core`
+
+### Phase 3: long-running processors and business services
+
+17. `runtime_command_processor`
+18. `runtime_plugin_ingress_processor`
+19. `runtime_timeline`
+20. `runtime_scheduler`
+21. `runtime_sensor_scheduler`
+22. `runtime_sensor_sync_executor`
+
+### Phase 4: exports and maintenance registration
+
+23. `runtime_exports`
+24. `runtime_l2_maintenance_scheduler`
+25. `runtime_l3_summary_scheduler`
+26. `runtime_l3_digest_scheduler`
+27. `runtime_other_dependencies`
+28. `runtime_channels`
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
+
+Important rule: `runtime_llm` is the current deferral boundary. If LLM selections are incomplete or invalid during onboarding, startup stops there and later phases do not run.
+
+## Deferred Startup Mode
+
+When `LLMRuntimeModule` cannot initialize, startup enters a deliberate deferred mode instead of failing the whole worker process.
+
+In this mode:
+
+- already-started infrastructure modules stay alive
+- the worker heartbeat reports `startup_state=deferred`
+- `/api/ready` and `/api/health` report degraded startup state instead of pretending the full runtime is ready
+- lightweight configuration and skills flows remain available
+- bootstrap opening generation must fall back to static persona config until `scenario_llm_pool` becomes available
+
+The modules that are expected to remain usable in deferred mode are:
+
+- runtime command queue
+- message bus
+- chat store
+- plugin manager
+- sensor registry
+- runtime trace store
+
+This is why onboarding and early settings screens can still function before the full agent runtime is online.
+
+## Readiness States
+
+The runtime now exposes two layers of state:
+
+- worker liveness
+  Derived from the persisted IPC worker heartbeat in `runtime_trace.db`
+
+- full runtime readiness
+  Derived from heartbeat plus critical bindings such as `scenario_llm_pool` and `agent_runtime`
+
+Current startup-state values are:
+
+- `offline`
+  No live worker heartbeat is available
+
+- `starting`
+  The worker is still assembling lifecycle modules
+
+- `deferred`
+  Infrastructure is up, but the LLM/runtime boundary has not completed yet
+
+- `ready`
+  Full runtime is online and exported to the DI container
+
+- `failed`
+  Startup or shutdown hit a non-recoverable runtime error
+
+- `stopping`
+  Runtime shutdown is in progress
+
+Frontend flows should treat `ready` as the only state that guarantees first-chat bootstrap and normal agent execution are fully available. `deferred` is intentionally usable for onboarding and configuration, but not equivalent to a fully initialized runtime.
 
 ## Main Runtime Flow
 

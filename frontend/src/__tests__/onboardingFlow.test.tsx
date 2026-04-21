@@ -2,10 +2,24 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+const { localStorageMock } = vi.hoisted(() => {
+  const mock = {
+    getItem: vi.fn(() => null),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  };
+  vi.stubGlobal('localStorage', mock);
+  return { localStorageMock: mock };
+});
+
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import OnboardingFlow from '@/components/onboarding/OnboardingFlow';
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: {
+    type: '3rdParty',
+    init: vi.fn(),
+  },
   useTranslation: () => ({
     t: (key: string) => key,
     i18n: {
@@ -25,12 +39,7 @@ vi.mock('react-router-dom', () => ({
 describe('OnboardingFlow', () => {
   it('shows the welcome entrypoint first and keeps quick mode focused on scenario and provider setup', async () => {
     const user = userEvent.setup();
-
-    vi.stubGlobal('localStorage', {
-      getItem: vi.fn(() => null),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    });
+    localStorageMock.getItem.mockReturnValue(null);
 
     const { container } = render(
       <OnboardingFlow
@@ -58,12 +67,7 @@ describe('OnboardingFlow', () => {
 
   it('includes a dedicated model-selection step after entering expert mode', async () => {
     const user = userEvent.setup();
-
-    vi.stubGlobal('localStorage', {
-      getItem: vi.fn(() => null),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    });
+    localStorageMock.getItem.mockReturnValue(null);
 
     render(
       <OnboardingFlow
@@ -84,11 +88,7 @@ describe('OnboardingFlow', () => {
   });
 
   it('renders the welcome mode selection entrypoint with both mode cards', () => {
-    vi.stubGlobal('localStorage', {
-      getItem: vi.fn(() => null),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    });
+    localStorageMock.getItem.mockReturnValue(null);
 
     render(
       <OnboardingFlow

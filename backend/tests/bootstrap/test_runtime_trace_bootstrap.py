@@ -23,6 +23,8 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = object()
     context.message_bus.message_bus = object()
+    context.chat.store = object()
+    context.chat.projector = object()
     context.agent_runtime.agent_runtime = object()
     context.memory.memory_integration = object()
     context.memory.unified_memory = object()

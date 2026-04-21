@@ -67,8 +67,36 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_exports",
         "runtime_l2_maintenance_scheduler",
         "runtime_l3_summary_scheduler",
+        "runtime_l3_digest_scheduler",
         "runtime_other_dependencies",
+        "runtime_channels",
     ]
+
+
+def test_runtime_worker_phase_metadata_matches_built_module_order() -> None:
+    """Verify exported phase metadata stays aligned with the actual builder output."""
+    from magi.bootstrap import (
+        describe_runtime_worker_phase_plan,
+        get_runtime_worker_module_order,
+        get_runtime_worker_phase_definitions,
+    )
+    from magi.bootstrap.builder import build_runtime_modules
+    from magi.bootstrap.context import RuntimeBootstrapContext
+
+    phase_definitions = get_runtime_worker_phase_definitions()
+    assert [phase.phase_id for phase in phase_definitions] == [
+        "infrastructure",
+        "stateful_services",
+        "processing",
+        "exports_and_maintenance",
+    ]
+
+    modules = build_runtime_modules(RuntimeBootstrapContext())
+    assert tuple(module.name for module in modules) == get_runtime_worker_module_order()
+
+    phase_plan = describe_runtime_worker_phase_plan()
+    assert "infrastructure=runtime_core_dependencies" in phase_plan
+    assert "exports_and_maintenance=runtime_exports" in phase_plan
 
 
 def test_tools_module_does_not_initialize_shared_skills_runtime() -> None:

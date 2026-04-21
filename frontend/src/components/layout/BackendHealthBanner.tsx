@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, WifiOff, XCircle } from 'lucide-react';
-import { useBackendHealthStore, type BackendStatus } from '@/stores/backend-health';
+import { useBackendHealthStore, type BackendHealthState, type BackendStatus } from '@/stores/backend-health';
 
 const iconByStatus: Record<Exclude<BackendStatus, 'healthy'>, React.ElementType> = {
   degraded: AlertTriangle,
@@ -8,14 +8,59 @@ const iconByStatus: Record<Exclude<BackendStatus, 'healthy'>, React.ElementType>
   exited: XCircle,
 };
 
+export function getBackendHealthMessageKey(
+  health: Pick<
+    BackendHealthState,
+    'status' | 'runtimeStatus' | 'startupState' | 'deferredReason' | 'llmReady' | 'agentRuntimeReady'
+  >,
+): `desktop.health.${string}` {
+  if (health.status === 'offline' || health.status === 'exited') {
+    return `desktop.health.${health.status}`;
+  }
+
+  if (health.startupState === 'starting') {
+    return 'desktop.health.degradedStarting';
+  }
+
+  if (health.startupState === 'deferred') {
+    if (health.deferredReason === 'llm_selection_pending') {
+      return 'desktop.health.degradedDeferredSelectionPending';
+    }
+    if (health.deferredReason === 'llm_configuration_invalid') {
+      return 'desktop.health.degradedDeferredInvalid';
+    }
+  }
+
+  if (health.runtimeStatus === 'stale') {
+    return 'desktop.health.degradedHeartbeatStale';
+  }
+
+  if (health.llmReady === false) {
+    return 'desktop.health.degradedLlmNotReady';
+  }
+
+  if (health.agentRuntimeReady === false) {
+    return 'desktop.health.degradedAgentRuntimeNotReady';
+  }
+
+  return 'desktop.health.degraded';
+}
+
 const BackendHealthBanner: React.FC = () => {
   const { t } = useTranslation('app');
-  const status = useBackendHealthStore((s) => s.status);
+  const health = useBackendHealthStore((s) => ({
+    status: s.status,
+    runtimeStatus: s.runtimeStatus,
+    startupState: s.startupState,
+    deferredReason: s.deferredReason,
+    llmReady: s.llmReady,
+    agentRuntimeReady: s.agentRuntimeReady,
+  }));
 
-  if (status === 'healthy') return null;
+  if (health.status === 'healthy') return null;
 
-  const Icon = iconByStatus[status];
-  const i18nKey = `desktop.health.${status}` as const;
+  const Icon = iconByStatus[health.status];
+  const i18nKey = getBackendHealthMessageKey(health);
 
   return (
     <div

@@ -251,13 +251,26 @@ export const personasApi = {
 
   /** Get a greeting from the active persona. */
   getGreeting: () =>
-    api.get<{ greeting: string; name: string; needs_bootstrap?: boolean }>('/personality/greeting'),
+    api.get<{
+      name: string;
+      avatar?: string;
+      needs_bootstrap?: boolean;
+      needs_bootstrap_init?: boolean;
+      bootstrap_completed?: boolean;
+    }>('/personality/greeting'),
 
   /** Init a bootstrap session for the active persona. */
   bootstrapInit: (sessionId: string, userId: string = 'default_user') =>
-    api.post<{ bootstrap_active: boolean; opening: string | null }>('/personality/bootstrap/init', {
+    api.post<{
+      bootstrap_active: boolean;
+      opening: string | null;
+      startup_state?: string;
+      deferred_reason?: string | null;
+    }>('/personality/bootstrap/init', {
       session_id: sessionId,
       user_id: userId,
+    }, {
+      timeout: 20000,
     }),
 };
 

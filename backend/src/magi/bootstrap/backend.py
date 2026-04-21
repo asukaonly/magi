@@ -12,8 +12,20 @@ from .context import RuntimeBootstrapContext
 from .lifecycle import ModuleLifecycleOrchestrator
 from .builder import build_runtime_modules
 from ..llm.lifecycle import RuntimeInitializationDeferred
+from .runtime_startup_state import set_runtime_startup_state
+from .runtime_worker_builder import describe_runtime_worker_phase_plan
 
 logger = get_logger(__name__)
+
+
+def _bind_runtime_bootstrap_state(
+    orchestrator: ModuleLifecycleOrchestrator,
+    context: RuntimeBootstrapContext,
+) -> None:
+    """Expose the current bootstrap context and orchestrator through DI."""
+    container = get_container()
+    container.runtime_orchestrator.override(providers.Object(orchestrator))
+    container.runtime_bootstrap_context.override(providers.Object(context))
 
 
 def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) -> None:
@@ -103,25 +115,40 @@ def refresh_runtime_llm_config(config: AppConfig | None = None) -> None:
 
 
 def _is_runtime_initialized() -> bool:
-    """Check whether agent runtime has been initialized."""
-    return _resolve_from_container("runtime_orchestrator") is not None
+    """Check whether the full agent runtime is available for message handling."""
+    return _resolve_from_container("agent_runtime") is not None
 
 
 async def initialize_agent_runtime() -> None:
     """Initialize agent runtime on application startup."""
     if _is_runtime_initialized():
+        set_runtime_startup_state("ready")
         logger.warning("Agent runtime already initialized")
         return
 
+    existing_orchestrator = _resolve_from_container("runtime_orchestrator")
+    if existing_orchestrator is not None:
+        logger.info("Cleaning up previously deferred runtime before reinitializing")
+        await shutdown_agent_runtime()
+
     context = RuntimeBootstrapContext()
     orchestrator = ModuleLifecycleOrchestrator(build_runtime_modules(context))
+    set_runtime_startup_state("starting")
 
     try:
         logger.info("Initializing Agent Runtime...")
+        logger.info("Runtime worker phase plan: %s", describe_runtime_worker_phase_plan())
         await orchestrator.startup()
     except RuntimeInitializationDeferred as exc:
+        _bind_runtime_bootstrap_state(orchestrator, context)
         _export_available_infrastructure_bindings(context)
         _initialize_skills_bindings_for_configuration_mode(context.core.config or get_config())
+        deferred_reason = "llm_selection_pending" if exc.pending_selection else "llm_configuration_invalid"
+        set_runtime_startup_state(
+            "deferred",
+            reason=deferred_reason,
+            detail=str(exc.cause) if exc.cause else None,
+        )
         if exc.pending_selection:
             logger.info(
                 "LLM runtime initialization deferred: required selections are incomplete "
@@ -135,25 +162,28 @@ async def initialize_agent_runtime() -> None:
             logger.warning("=" * 60)
         return
     except Exception as exc:
+        set_runtime_startup_state("failed", reason="runtime_init_failed", detail=str(exc))
         logger.error("Failed to initialize agent runtime: %s", exc, exc_info=True)
         raise
 
-    container = get_container()
-    container.runtime_orchestrator.override(providers.Object(orchestrator))
-    container.runtime_bootstrap_context.override(providers.Object(context))
+    _bind_runtime_bootstrap_state(orchestrator, context)
+    set_runtime_startup_state("ready")
     logger.info("Agent runtime initialized successfully")
 
 
 async def shutdown_agent_runtime() -> None:
     """Shutdown agent runtime."""
     orchestrator = _resolve_from_container("runtime_orchestrator")
+    set_runtime_startup_state("stopping")
     try:
         if orchestrator is not None:
             await orchestrator.shutdown()
     except Exception as exc:
+        set_runtime_startup_state("failed", reason="runtime_shutdown_failed", detail=str(exc))
         logger.error("Failed to stop agent runtime: %s", exc, exc_info=True)
     finally:
         container = get_container()
         container.runtime_orchestrator.reset_override()
         container.runtime_bootstrap_context.reset_override()
+        set_runtime_startup_state("offline")
         logger.info("Agent runtime stopped")

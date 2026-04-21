@@ -258,6 +258,9 @@
     "loadHistoryFailed": "Failed to load history",
     "greetingFallback": "👋 Welcome to Magi AI Agent Framework!\n\nYou can chat with the agent here. After sending a message, the agent will process it and stream replies back in real time.",
     "greetingSimpleFallback": "👋 Welcome to Magi AI Agent Framework!",
+    "bootstrapInit": {
+      "preparing": "Initializing the AI and preparing the first message..."
+    },
     "reconnectFailed": "Reconnection failed, please refresh the page",
     "trace": {
       "title": "Call Trace",
@@ -654,6 +657,11 @@
         "skills": {
           "description": "Configure skill memory extraction and decide which successful or failed patterns become reusable experience."
         }
+      },
+      "dangerZone": {
+        "title": "Danger Zone",
+        "description": "Permanently clear all memory data for this instance. This action cannot be undone, and the AI will need to rebuild its memory from scratch.",
+        "clearButton": "Clear All Memory"
       },
       "fields": {
         "db_path": {
@@ -1901,6 +1909,12 @@
     },
     "health": {
       "degraded": "Backend services are running but may need attention.",
+      "degradedStarting": "Backend startup is still in progress. If this continues for a while, check the runtime status.",
+      "degradedDeferredSelectionPending": "Backend is running, but the AI runtime still needs model configuration for core or context_decider.",
+      "degradedDeferredInvalid": "Backend is running, but the current AI runtime configuration is invalid. Check the enabled provider and model.",
+      "degradedHeartbeatStale": "Backend heartbeat is stale, so runtime status may be out of date.",
+      "degradedLlmNotReady": "Backend is running, but the LLM runtime is not ready yet.",
+      "degradedAgentRuntimeNotReady": "Backend is running, but the agent runtime has not finished initializing.",
       "offline": "Backend is not responding. Some features may be unavailable.",
       "exited": "Backend process has stopped unexpectedly."
     }

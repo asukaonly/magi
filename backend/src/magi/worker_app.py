@@ -18,6 +18,7 @@ from .core.container import get_container, wire_container
 from .core.logger import configure_logging, get_logger
 from .core.runtime_bindings import require_runtime_command_queue, require_runtime_trace_store
 from .bootstrap import initialize_agent_runtime, shutdown_agent_runtime
+from .bootstrap.runtime_startup_state import get_runtime_startup_snapshot
 from .runtime_trace import RuntimeHeartbeatRecord
 from .utils.runtime import get_runtime_paths
 
@@ -85,20 +86,20 @@ async def _run_worker() -> None:
     # Heartbeat
     instance_id = uuid.uuid4().hex
     started_at_ms = int(time.time() * 1000)
-    heartbeat_status = {"value": "ready"}
     heartbeat_stop = asyncio.Event()
+    startup_snapshot = get_runtime_startup_snapshot()
 
     await _publish_runtime_heartbeat(
         instance_id=instance_id,
         started_at_ms=started_at_ms,
-        status="ready",
+        status=startup_snapshot.startup_state,
+        last_error=startup_snapshot.reason or startup_snapshot.detail,
     )
     heartbeat_task = asyncio.create_task(
         _heartbeat_loop(
             stop_event=heartbeat_stop,
             instance_id=instance_id,
             started_at_ms=started_at_ms,
-            status_ref=heartbeat_status,
         )
     )
 
@@ -107,7 +108,12 @@ async def _run_worker() -> None:
     health_file.parent.mkdir(parents=True, exist_ok=True)
     health_file.write_text(str(os.getpid()))
     total_ms = round((time.monotonic() - worker_t0) * 1000, 1)
-    logger.info("IPC worker ready (pid=%d, startup_ms=%.1f)", os.getpid(), total_ms)
+    logger.info(
+        "IPC worker ready (pid=%d, startup_ms=%.1f, startup_state=%s)",
+        os.getpid(),
+        total_ms,
+        startup_snapshot.startup_state,
+    )
 
     # Wait for shutdown signal
     shutdown_event = asyncio.Event()
@@ -130,12 +136,13 @@ async def _run_worker() -> None:
     logger.info("IPC worker shutting down")
 
     # Cleanup
-    heartbeat_status["value"] = "draining"
     await _begin_runtime_drain(timeout_seconds=DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS)
+    shutdown_snapshot = get_runtime_startup_snapshot()
     await _publish_runtime_heartbeat(
         instance_id=instance_id,
         started_at_ms=started_at_ms,
-        status="stopping",
+        status=shutdown_snapshot.startup_state,
+        last_error=shutdown_snapshot.reason or shutdown_snapshot.detail,
     )
     heartbeat_stop.set()
     heartbeat_task.cancel()
@@ -172,14 +179,15 @@ async def _heartbeat_loop(
     stop_event: asyncio.Event,
     instance_id: str,
     started_at_ms: int,
-    status_ref: dict[str, str],
     interval_seconds: float = DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_SECONDS,
 ) -> None:
     while not stop_event.is_set():
+        snapshot = get_runtime_startup_snapshot()
         await _publish_runtime_heartbeat(
             instance_id=instance_id,
             started_at_ms=started_at_ms,
-            status=status_ref["value"],
+            status=snapshot.startup_state,
+            last_error=snapshot.reason or snapshot.detail,
         )
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)

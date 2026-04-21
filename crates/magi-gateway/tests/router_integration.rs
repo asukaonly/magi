@@ -84,6 +84,7 @@ async fn ready_returns_json() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["success"], true);
     assert!(json["data"]["ready"].is_boolean());
+    assert!(json["data"]["startup_state"].is_string());
 }
 
 #[tokio::test]

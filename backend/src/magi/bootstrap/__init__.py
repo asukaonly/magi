@@ -42,6 +42,9 @@ __all__ = [
     "ModuleLifecycleOrchestrator",
     # Builder
     "build_runtime_modules",
+    "describe_runtime_worker_phase_plan",
+    "get_runtime_worker_module_order",
+    "get_runtime_worker_phase_definitions",
     # Backend entrypoints
     "initialize_agent_runtime",
     "shutdown_agent_runtime",
@@ -56,6 +59,23 @@ def __getattr__(name: str):
         from .builder import build_runtime_modules
 
         return build_runtime_modules
+
+    if name in {
+        "describe_runtime_worker_phase_plan",
+        "get_runtime_worker_module_order",
+        "get_runtime_worker_phase_definitions",
+    }:
+        from .runtime_worker_builder import (
+            describe_runtime_worker_phase_plan,
+            get_runtime_worker_module_order,
+            get_runtime_worker_phase_definitions,
+        )
+
+        return {
+            "describe_runtime_worker_phase_plan": describe_runtime_worker_phase_plan,
+            "get_runtime_worker_module_order": get_runtime_worker_module_order,
+            "get_runtime_worker_phase_definitions": get_runtime_worker_phase_definitions,
+        }[name]
 
     if name in {
         "initialize_agent_runtime",

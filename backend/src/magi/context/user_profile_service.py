@@ -20,9 +20,12 @@ from ..core.logger import get_logger
 logger = get_logger(__name__)
 
 _DEFAULT_CACHE_TTL = 300  # 5 minutes
+_DEFAULT_EMPTY_CACHE_TTL = 5  # Refresh empty profile reads quickly while L2 catches up.
 _ADDRESS_PREFERRED_KEY = "address.preferred"
 _ADDRESS_DISALLOWED_KEY = "address.disallowed"
 _ADDRESS_REAL_NAME_KEY = "address.real_name"
+_PROFILE_ASSERTION_FAMILIES = ["preference_profile", "taste_profile"]
+_PROFILE_ASSERTION_STATES = ["stable", "corroborated", "tentative"]
 
 
 @dataclass
@@ -40,9 +43,15 @@ class UserProfileService:
     back-to-back messages) do not issue duplicate DB queries.
     """
 
-    def __init__(self, unified_memory=None, cache_ttl: float = _DEFAULT_CACHE_TTL):
+    def __init__(
+        self,
+        unified_memory=None,
+        cache_ttl: float = _DEFAULT_CACHE_TTL,
+        empty_cache_ttl: float = _DEFAULT_EMPTY_CACHE_TTL,
+    ):
         self._unified_memory = unified_memory
         self._cache_ttl = cache_ttl
+        self._empty_cache_ttl = max(0.0, float(empty_cache_ttl))
         self._cache: Dict[str, _CacheEntry] = {}
 
     # ------------------------------------------------------------------
@@ -77,7 +86,7 @@ class UserProfileService:
 
         now = time.monotonic()
         entry = self._cache.get(user_id)
-        if entry is not None and (now - entry.fetched_at) < self._cache_ttl:
+        if entry is not None and (now - entry.fetched_at) < self._ttl_for_entry(entry):
             return entry
 
         entry = _CacheEntry(fetched_at=now)
@@ -119,17 +128,65 @@ class UserProfileService:
             return {}
 
         entity_id = f"user:{user_id}"
+        snapshot_preferences: Dict[str, Any] = {}
         try:
             snapshot = await l2.get_tom_snapshot(
                 entity_id=entity_id,
                 entity_type="user",
             )
             if snapshot is not None:
-                return self._normalize_preferences(dict(snapshot.get("preferences", {}) or {}))
+                snapshot_preferences = self._normalize_preferences(dict(snapshot.get("preferences", {}) or {}))
         except Exception:
             logger.debug("Failed to get preference summary for %s", user_id)
 
-        return {}
+        assertion_preferences = await self._fetch_assertion_preferences(
+            l2=l2,
+            entity_id=entity_id,
+        )
+        if not assertion_preferences:
+            return snapshot_preferences
+
+        if not snapshot_preferences:
+            return assertion_preferences
+
+        merged = dict(snapshot_preferences)
+        for key, value in assertion_preferences.items():
+            merged.setdefault(key, value)
+        return merged
+
+    async def _fetch_assertion_preferences(self, *, l2: Any, entity_id: str) -> Dict[str, Any]:
+        list_assertions = getattr(l2, "list_tom_assertions", None)
+        if list_assertions is None:
+            return {}
+
+        try:
+            assertions = await list_assertions(
+                entity_id=entity_id,
+                entity_type="user",
+                trait_families=_PROFILE_ASSERTION_FAMILIES,
+                validation_states=_PROFILE_ASSERTION_STATES,
+                include_expired=False,
+                limit=50,
+            )
+        except Exception:
+            logger.debug("Failed to get preference assertions for %s", entity_id)
+            return {}
+
+        preferences: Dict[str, Any] = {}
+        for assertion in assertions:
+            raw_trait_name = str(assertion.get("trait_name") or "").strip()
+            if not raw_trait_name:
+                continue
+            preference_key = raw_trait_name.split(".", 1)[1] if raw_trait_name.startswith("preference.") else raw_trait_name
+            if not preference_key or preference_key in preferences:
+                continue
+            preferences[preference_key] = self._normalize_preference_value(assertion.get("trait_value"))
+        return preferences
+
+    def _ttl_for_entry(self, entry: _CacheEntry) -> float:
+        if entry.display_name != "unknown" or entry.preferences:
+            return self._cache_ttl
+        return min(self._cache_ttl, self._empty_cache_ttl)
 
     @classmethod
     def _normalize_preferences(cls, preferences: Dict[str, Any]) -> Dict[str, Any]:

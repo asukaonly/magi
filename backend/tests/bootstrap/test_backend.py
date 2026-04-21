@@ -104,3 +104,31 @@ async def test_initialize_agent_runtime_exports_infra_bindings_when_deferred(
     container.chat_store.reset_override()
     container.message_bus.reset_override()
     container.runtime_command_queue.reset_override()
+
+
+@pytest.mark.asyncio
+async def test_initialize_agent_runtime_restarts_previously_deferred_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class _SuccessfulOrchestrator:
+        async def startup(self) -> None:
+            calls.append("startup")
+
+    async def _fake_shutdown() -> None:
+        calls.append("shutdown")
+
+    def _fake_resolve(attr: str):
+        if attr == "runtime_orchestrator":
+            return object()
+        return None
+
+    monkeypatch.setattr(backend_module, "_resolve_from_container", _fake_resolve)
+    monkeypatch.setattr(backend_module, "build_runtime_modules", lambda context, role=None: [])
+    monkeypatch.setattr(backend_module, "ModuleLifecycleOrchestrator", lambda modules: _SuccessfulOrchestrator())
+    monkeypatch.setattr(backend_module, "shutdown_agent_runtime", _fake_shutdown)
+
+    await backend_module.initialize_agent_runtime()
+
+    assert calls == ["shutdown", "startup"]

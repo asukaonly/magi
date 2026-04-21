@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
+import { apiClient } from '@/api/client';
 import { configApi } from '../../api/modules/config';
 import type { SystemConfig, EmbeddingConfig, CrossEncoderConfig } from '../../api/modules/config';
 import { personasApi } from '../../api/modules/personas';
@@ -26,7 +27,51 @@ type Phase = 'welcome' | 'guided';
 
 const STORAGE_KEY = 'magi_onboarding_state';
 const BUILTIN_SCENARIOS = ['context_decider', 'core', 'embedding'] as const;
+const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
+const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
+
+interface RuntimeReadyResponse {
+  success: boolean;
+  data?: {
+    ready: boolean;
+    status: string;
+    runtime_ready: boolean;
+    runtime_status: string;
+    startup_state?: string;
+    deferred_reason?: string | null;
+  };
+}
+
+
+function waitFor(durationMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, durationMs);
+  });
+}
+
+
+async function waitForRuntimeReadyAfterOnboarding() {
+  const deadline = Date.now() + RUNTIME_READY_WAIT_TIMEOUT_MS;
+  let lastSnapshot: RuntimeReadyResponse['data'] | null = null;
+
+  while (Date.now() <= deadline) {
+    try {
+      const response = await apiClient.get<RuntimeReadyResponse>('/ready');
+      const snapshot = response.data?.data;
+      lastSnapshot = snapshot || null;
+      if (snapshot?.runtime_ready) {
+        return snapshot;
+      }
+    } catch {
+      // Keep polling for a short window while the runtime finishes starting.
+    }
+
+    await waitFor(RUNTIME_READY_WAIT_INTERVAL_MS);
+  }
+
+  return lastSnapshot;
+}
 
 /** Scenario preset config overrides for quick mode.
  *
@@ -114,6 +159,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   );
   const [current, setCurrent] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [finishingRuntime, setFinishingRuntime] = useState(false);
   const [renderLanguage, setRenderLanguage] = useState(i18n.resolvedLanguage || i18n.language);
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | undefined>(
     () => initialConfig.memory?.embedding
@@ -309,6 +355,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     } catch {
       // Persona registry is best-effort during onboarding;
       // the backend lifecycle fallback handles missing registry state.
+    }
+
+    setFinishingRuntime(true);
+    const runtimeSnapshot = await waitForRuntimeReadyAfterOnboarding();
+    setFinishingRuntime(false);
+
+    if (!runtimeSnapshot?.runtime_ready) {
+      toast.warning(t('messages.runtimeStartingSlow'));
     }
 
     localStorage.removeItem(STORAGE_KEY);
@@ -575,7 +629,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
                 {t('actions.previous')}
               </Button>
               <Button onClick={handleNext} disabled={saving}>
-                {saving ? t('actions.saving') : isLastStep ? t('actions.finish') : t('actions.next')}
+                {saving
+                  ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
+                  : isLastStep
+                    ? t('actions.finish')
+                    : t('actions.next')}
               </Button>
             </div>
           )}

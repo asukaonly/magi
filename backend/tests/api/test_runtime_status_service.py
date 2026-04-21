@@ -23,21 +23,32 @@ class _FakeRuntimeCommandQueue:
         return {"pending_count": self.pending_count}
 
 
-async def test_get_runtime_system_status_reports_degraded_when_runtime_heartbeat_missing(monkeypatch) -> None:
+def _snapshot(*, startup_state: str, reason: str | None = None, detail: str | None = None):
+    return SimpleNamespace(startup_state=startup_state, reason=reason, detail=detail)
+
+
+async def test_get_runtime_system_status_reports_deferred_when_runtime_heartbeat_missing(monkeypatch) -> None:
     app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
 
     monkeypatch.setattr(service, "require_runtime_trace_store", lambda: _FakeRuntimeTraceStore(None))
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(2))
+    monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="deferred", reason="llm_selection_pending"))
+    monkeypatch.setattr(service, "_resolve_binding", lambda _name: None)
 
     status = await service.get_runtime_system_status(app)
 
     assert status["api_ready"] is True
+    assert status["worker_ready"] is False
+    assert status["llm_ready"] is False
+    assert status["agent_runtime_ready"] is False
     assert status["runtime_ready"] is False
     assert status["status"] == "degraded"
     assert status["runtime_status"] == "offline"
+    assert status["startup_state"] == "deferred"
+    assert status["deferred_reason"] == "llm_selection_pending"
 
 
-async def test_get_runtime_system_status_reports_ready_for_api_role(monkeypatch) -> None:
+async def test_get_runtime_system_status_reports_ready_when_runtime_and_bindings_exist(monkeypatch) -> None:
     app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
     heartbeat = RuntimeHeartbeatRecord(
         role="ipc_worker",
@@ -54,10 +65,52 @@ async def test_get_runtime_system_status_reports_ready_for_api_role(monkeypatch)
 
     monkeypatch.setattr(service, "require_runtime_trace_store", lambda: _FakeRuntimeTraceStore(heartbeat))
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(0))
+    monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="ready"))
+    monkeypatch.setattr(service, "_resolve_binding", lambda _name: object())
 
     status = await service.get_runtime_system_status(app)
 
     assert status["api_ready"] is True
+    assert status["worker_ready"] is True
+    assert status["infrastructure_ready"] is True
+    assert status["llm_ready"] is True
+    assert status["agent_runtime_ready"] is True
     assert status["runtime_ready"] is True
     assert status["status"] == "ready"
     assert status["runtime_status"] == "ready"
+    assert status["startup_state"] == "ready"
+    assert status["deferred_reason"] is None
+
+
+async def test_get_runtime_system_status_uses_deferred_heartbeat_reason_when_snapshot_has_none(monkeypatch) -> None:
+    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
+    heartbeat = RuntimeHeartbeatRecord(
+        role="ipc_worker",
+        instance_id="runtime-1",
+        pid=4321,
+        started_at_ms=1_711_260_000_000,
+        last_seen_at_ms=int(service.time.time() * 1000),
+        status="deferred",
+        queue_backlog=0,
+        active_turns=0,
+        active_workers=0,
+        last_error="llm_configuration_invalid",
+    )
+
+    def _resolve_binding(name: str):
+        if name in {"runtime_command_queue", "chat_store", "message_bus", "runtime_trace_store"}:
+            return object()
+        return None
+
+    monkeypatch.setattr(service, "require_runtime_trace_store", lambda: _FakeRuntimeTraceStore(heartbeat))
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(0))
+    monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="offline"))
+    monkeypatch.setattr(service, "_resolve_binding", _resolve_binding)
+
+    status = await service.get_runtime_system_status(app)
+
+    assert status["worker_ready"] is True
+    assert status["runtime_ready"] is False
+    assert status["runtime_status"] == "deferred"
+    assert status["startup_state"] == "deferred"
+    assert status["deferred_reason"] == "llm_configuration_invalid"
