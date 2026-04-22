@@ -215,3 +215,65 @@ async def test_orchestrator_without_gateway_behaves_as_before() -> None:
     # Gateway off → the registry ran (dev hasn't opted in yet).
     assert result.success is True
     assert registry.executed == [("bash", {"command": "rm -rf /"})]
+
+
+@pytest.mark.asyncio
+async def test_session_rule_inherited_by_subagent_same_session() -> None:
+    """A session-scoped allow rule set at the parent scope must apply to
+    subagent tool calls that share the same ``session_id``.
+
+    Subagents (workers, explore orchestrator, background tasks) reuse
+    the parent's ``session_id`` end-to-end, so the rule store's
+    session bucket naturally covers them. This test nails that
+    behaviour down so future refactors can't silently break it.
+    """
+    from magi.agent.control.permission import PermissionRule, PermissionScope
+
+    captured: list = []
+
+    class _ShouldNotPrompt:
+        async def __call__(self, request, *, timeout_seconds):
+            captured.append(request)
+            return UserPromptResponse(allow=False)
+
+    registry = _FakeToolRegistry(dangerous=True)
+    rules = PermissionRuleStore(db_path=None)
+    await rules.initialize()
+    await rules.add(
+        PermissionRule(
+            rule_id=PermissionRule.new_id(),
+            tool_name="bash",
+            scope=PermissionScope.SESSION,
+            matcher={"command": "npm install react"},
+            allow=True,
+        ),
+        session_id="parent-session",
+    )
+    gateway = PermissionGateway(
+        classifier=RiskClassifier(),
+        rules=rules,
+        broker=InteractionBroker(),
+        settings_provider=lambda: ControlSettings(permission_mode=PermissionMode.OFF),
+        prompter=_ShouldNotPrompt(),
+        prompt_timeout_seconds=1.0,
+    )
+    orch = _orchestrator(registry=registry, gateway=gateway)
+
+    result = await orch._execute_tool_call(
+        tool_call=ToolCall(
+            id="c1", name="bash", arguments={"command": "npm install react"}
+        ),
+        user_id="u",
+        session_id="parent-session",
+        turn_id="t",
+        intent="worker_explore",  # subagent intent
+        execution_agent_id="a",
+        execution_workspace=None,
+        orchestration_strategy=None,
+    )
+
+    assert result.success is True
+    assert registry.executed == [("bash", {"command": "npm install react"})]
+    # Rule matched → prompter was never invoked, even though the
+    # classifier would otherwise flag this as high-risk.
+    assert captured == []
