@@ -73,7 +73,7 @@ class BackgroundTaskSpec:
     workspace_path: str | None = None
     trigger_source: BackgroundTaskTriggerSource = BackgroundTaskTriggerSource.RULE
     priority: int = 0
-    max_iterations: int = 20
+    max_iterations: int = 50
     timeout_seconds: int | None = 1800
     initial_messages: list[dict[str, Any]] | None = None
     """Optional resume payload from an orchestrator snapshot.

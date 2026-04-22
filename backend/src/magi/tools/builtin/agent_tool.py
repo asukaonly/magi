@@ -135,9 +135,9 @@ class AgentTool(Tool):
                     type=ParameterType.INTEGER,
                     description="Maximum internal tool-loop iterations for this worker",
                     required=False,
-                    default=8,
+                    default=20,
                     min_value=1,
-                    max_value=30,
+                    max_value=50,
                 ),
                 ToolParameter(
                     name="timeout_seconds",

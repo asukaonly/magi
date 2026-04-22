@@ -85,7 +85,7 @@ def build_spec_from_request(
     *,
     trigger_source: BackgroundTaskTriggerSource,
     timeout_seconds: int | None = 1800,
-    max_iterations: int = 20,
+    max_iterations: int = 50,
     initial_messages: list[dict[str, Any]] | None = None,
 ) -> BackgroundTaskSpec:
     """Construct a :class:`BackgroundTaskSpec` from a chat
@@ -158,7 +158,7 @@ class BackgroundLaunchService:
         *,
         trigger_source: BackgroundTaskTriggerSource,
         timeout_seconds: int | None = 1800,
-        max_iterations: int = 20,
+        max_iterations: int = 50,
         initial_messages: list[dict[str, Any]] | None = None,
     ) -> "ExecutionResult":
         # Imported here to avoid a module-load-time cycle:

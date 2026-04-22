@@ -125,7 +125,7 @@ class FunctionCallingOrchestrator:
     Supports continuous tool calling with multi-turn conversations.
     """
 
-    MAX_ITERATIONS = 10  # Maximum tool calls in a single loop
+    MAX_ITERATIONS = 30  # Maximum tool calls in a single loop
     _RAW_TOOL_HISTORY_LIMIT = 4
     _FAILED_ITERATION_REPLAN_LIMIT = 2
     _NON_REPLAN_ERROR_CODES = {

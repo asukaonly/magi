@@ -205,9 +205,9 @@ class WorkerAgentManager(Tool):
                     type=ParameterType.INTEGER,
                     description="Maximum internal tool-loop iterations for this worker",
                     required=False,
-                    default=8,
+                    default=20,
                     min_value=1,
-                    max_value=30,
+                    max_value=50,
                 ),
                 ToolParameter(
                     name="timeout_seconds",
@@ -441,7 +441,7 @@ class WorkerAgentManager(Tool):
 
         description = str(parameters.get("description", "")).strip()
         prompt = str(parameters.get("prompt", "")).strip()
-        max_iterations = int(parameters.get("max_iterations", 8))
+        max_iterations = int(parameters.get("max_iterations", 20))
         orchestration_id = _optional_string(parameters.get("orchestration_id"))
         subtask_id = _optional_string(parameters.get("subtask_id"))
         retry_count = int(parameters.get("retry_count", 0))
@@ -544,7 +544,7 @@ class WorkerAgentManager(Tool):
 
         run_in_background = bool(parameters.get("run_in_background", False))
         parallel = bool(parameters.get("parallel", True))
-        default_max_iterations = int(parameters.get("max_iterations", 8))
+        default_max_iterations = int(parameters.get("max_iterations", 20))
 
         run_states: List[WorkerRunState] = []
         for worker in workers:
