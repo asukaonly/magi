@@ -557,3 +557,76 @@ async def test_remove_listener_stops_subsequent_invocations(
     finally:
         await manager.stop()
 
+
+@pytest.mark.asyncio
+async def test_suspend_and_resume_waiting_user(tmp_path: Path) -> None:
+    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+    running = asyncio.Event()
+    proceed = asyncio.Event()
+
+    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
+        running.set()
+        await proceed.wait()
+        return BackgroundTaskRunResult()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec())
+        await running.wait()
+        await _wait_until(
+            _status_reaches(store, task.task_id, BackgroundTaskStatus.RUNNING)
+        )
+
+        assert (
+            await manager.suspend_waiting_user(
+                task.task_id, reason="awaiting_user_answer"
+            )
+            is True
+        )
+        fetched = await store.get_task(task.task_id)
+        assert fetched is not None
+        assert fetched.status == BackgroundTaskStatus.SUSPENDED_WAITING_USER
+
+        # Suspending twice is a no-op (only RUNNING → SUSPENDED allowed).
+        assert (
+            await manager.suspend_waiting_user(task.task_id)
+            is False
+        )
+
+        assert await manager.resume_from_wait(task.task_id) is True
+        fetched = await store.get_task(task.task_id)
+        assert fetched is not None
+        assert fetched.status == BackgroundTaskStatus.RUNNING
+
+        proceed.set()
+        await _wait_until(
+            _status_reaches(store, task.task_id, BackgroundTaskStatus.SUCCEEDED)
+        )
+
+        events = await store.list_events(task.task_id)
+        transitions = [e.to_status for e in events]
+        assert BackgroundTaskStatus.SUSPENDED_WAITING_USER in transitions
+        # After resume the task should be RUNNING again before succeeding.
+        assert transitions.count(BackgroundTaskStatus.RUNNING) >= 2
+        assert transitions[-1] == BackgroundTaskStatus.SUCCEEDED
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_resume_from_wait_unknown_or_non_suspended(tmp_path: Path) -> None:
+    store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
+
+    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
+        return BackgroundTaskRunResult()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        # Unknown task.
+        assert await manager.resume_from_wait("bg_missing") is False
+        assert await manager.suspend_waiting_user("bg_missing") is False
+    finally:
+        await manager.stop()
+

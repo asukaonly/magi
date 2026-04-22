@@ -272,6 +272,72 @@ class BackgroundTaskManager:
             )
             return True
 
+    async def suspend_waiting_user(
+        self, task_id: str, *, reason: str = "awaiting_user_answer"
+    ) -> bool:
+        """Mark a running task as ``SUSPENDED_WAITING_USER``.
+
+        Used by tools like ``ask_user_question`` while awaiting a
+        frontend response. Returns ``True`` when the transition
+        happened, ``False`` when the task is unknown or not currently
+        ``RUNNING``.
+
+        This method only updates durable state + the event log; it does
+        not pause execution of the underlying coroutine. Callers are
+        expected to continue awaiting their broker/response signal and
+        then call :meth:`resume_from_wait` once the user has replied.
+        """
+        self._require_started()
+        task = await self._store.get_task(task_id)
+        if task is None:
+            return False
+        if task.status != BackgroundTaskStatus.RUNNING:
+            return False
+        previous = task.status
+        task.status = BackgroundTaskStatus.SUSPENDED_WAITING_USER
+        now = self._clock() if self._clock is not None else task.created_at
+        task.updated_at = now
+        await self._store.update_task(task)
+        await self._store.append_event(
+            BackgroundTaskEvent.transition(
+                task_id=task.task_id,
+                attempt_index=task.attempt_index,
+                from_status=previous,
+                to_status=BackgroundTaskStatus.SUSPENDED_WAITING_USER,
+                message=reason,
+            )
+        )
+        return True
+
+    async def resume_from_wait(self, task_id: str) -> bool:
+        """Transition a suspended task back to ``RUNNING``.
+
+        Symmetric to :meth:`suspend_waiting_user`. Returns ``True`` on
+        a successful transition, ``False`` when the task is unknown or
+        not in ``SUSPENDED_WAITING_USER``.
+        """
+        self._require_started()
+        task = await self._store.get_task(task_id)
+        if task is None:
+            return False
+        if task.status != BackgroundTaskStatus.SUSPENDED_WAITING_USER:
+            return False
+        previous = task.status
+        task.status = BackgroundTaskStatus.RUNNING
+        now = self._clock() if self._clock is not None else task.created_at
+        task.updated_at = now
+        await self._store.update_task(task)
+        await self._store.append_event(
+            BackgroundTaskEvent.transition(
+                task_id=task.task_id,
+                attempt_index=task.attempt_index,
+                from_status=previous,
+                to_status=BackgroundTaskStatus.RUNNING,
+                message="resumed_from_wait",
+            )
+        )
+        return True
+
     async def retry(self, task_id: str) -> BackgroundTask | None:
         """Re-queue a terminal task as a new attempt.
 
