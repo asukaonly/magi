@@ -20,7 +20,7 @@ from typing import Awaitable, Callable, Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge, ToolStreamResult, _coerce_thinking_depth
-from ...llm.streaming_events import get_stream_sink
+from ...llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stream_sink
 from ...chat.workspace import get_default_chat_workspace_path
 from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
@@ -374,10 +374,10 @@ class FunctionCallingOrchestrator:
                 llm_timeout_seconds=llm_timeout_seconds,
             )
             if step_outcome.status == "continue":
-                # No text_flush between steps: subsequent text_delta events
-                # must keep appending into the same streaming bubble. A flush
-                # would mark the bubble finalised and the next delta would
-                # create a second bubble within the same turn.
+                # Flush any intermediate streamed text so the UI can close
+                # the current bubble before tool execution continues.
+                if get_stream_sink() is not None:
+                    await emit_stream_event(LLMStreamEvent(kind="text_flush"))
                 # --- context compaction check after each tool-use round ---
                 await self._try_compact(state, system_prompt)
                 continue
@@ -537,7 +537,7 @@ class FunctionCallingOrchestrator:
                 execution_agent_id=execution_agent_id,
                 started_at_ms=None,
                 status="failed",
-                error_text=self._classify_exception_failure(exc),
+                error_text=self._format_exception_trace_text(exc),
             )
             return ExecutionOutcome(
                 status="failed",
@@ -621,7 +621,7 @@ class FunctionCallingOrchestrator:
                     execution_agent_id=execution_agent_id,
                     started_at_ms=None,
                     status="failed",
-                    error_text=self._classify_exception_failure(exc),
+                    error_text=self._format_exception_trace_text(exc),
                 )
                 return ExecutionOutcome(
                     status="failed",
@@ -1094,6 +1094,8 @@ class FunctionCallingOrchestrator:
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
+            tool_count=len(tools),
+            tool_names=[str(t.get("function", {}).get("name", "")) for t in tools],
         )
 
         try:
@@ -1194,6 +1196,20 @@ class FunctionCallingOrchestrator:
                 duration_ms=duration_ms,
             )
             logger.error(f"[FunctionCalling] LLM call failed: {e}")
+            # Dump the tools schema once at error-time so provider 400s
+            # (e.g. GLM 1210 "API 调用参数有误") can be diagnosed. ``tools``
+            # is not in the default LLM request debug log because it can be
+            # bulky; on failure the trade-off flips.
+            try:
+                tools_blob = json.dumps(tools, ensure_ascii=False, default=str)
+                logger.error(
+                    "[FunctionCalling] LLM call failed | request_id=%s | model=%s | tools=%s",
+                    request_id,
+                    model_name,
+                    tools_blob if len(tools_blob) <= 8000 else tools_blob[:8000] + "…",
+                )
+            except Exception:  # pragma: no cover - logging must not mask the original error
+                pass
             raise
 
     async def _call_llm_without_tools(
@@ -1929,6 +1945,23 @@ class FunctionCallingOrchestrator:
         if "timeout" in message:
             return "WORKER_TIMEOUT"
         return "EXECUTION_ERROR"
+
+    def _format_exception_trace_text(self, exc: Exception, *, max_length: int = 600) -> str:
+        """Compose trace-visible error text that keeps the raw upstream message.
+
+        ``failure_reason`` stays as the coarse bucket returned by
+        :meth:`_classify_exception_failure` because downstream retry and
+        classification paths key off it. The UI trace, however, needs to show
+        the real provider error (e.g. GLM 400/1210 ``API 调用参数有误``) so
+        operators can actually diagnose the failure.
+        """
+        bucket = self._classify_exception_failure(exc)
+        raw = str(exc).strip()
+        if not raw:
+            return bucket
+        if len(raw) > max_length:
+            raw = raw[: max_length - 1] + "…"
+        return f"{bucket}: {raw}"
 
     @classmethod
     def _is_rate_limit_exception(cls, exc: Exception) -> bool:
