@@ -71,6 +71,15 @@ class BackgroundTaskSpec:
     priority: int = 0
     max_iterations: int = 20
     timeout_seconds: int | None = 1800
+    initial_messages: list[dict[str, Any]] | None = None
+    """Optional resume payload from an orchestrator snapshot.
+
+    When set, the background runner seeds the orchestrator with these
+    messages as ``conversation_history`` and leaves ``user_message``
+    empty so the latest user turn is not duplicated. This is how a
+    detached foreground run hands off its in-progress state to the
+    background worker without losing any context.
+    """
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +95,11 @@ class BackgroundTaskSpec:
             "max_iterations": int(self.max_iterations),
             "timeout_seconds": (
                 int(self.timeout_seconds) if self.timeout_seconds is not None else None
+            ),
+            "initial_messages": (
+                [dict(m) for m in self.initial_messages]
+                if self.initial_messages is not None
+                else None
             ),
         }
 
@@ -111,6 +125,11 @@ class BackgroundTaskSpec:
             timeout_seconds=(
                 int(data["timeout_seconds"])
                 if data.get("timeout_seconds") is not None
+                else None
+            ),
+            initial_messages=(
+                [dict(m) for m in data["initial_messages"]]
+                if data.get("initial_messages") is not None
                 else None
             ),
         )

@@ -219,8 +219,21 @@ def build_background_run_fn(
     async def _run(task: BackgroundTask, cancel_token: CancelToken) -> BackgroundTaskRunResult:
         spec = task.spec
         execution_agent_id = f"{execution_agent_id_prefix}:{task.task_id}"
+        # Resume path: when a foreground run detached and handed us its
+        # OrchestratorSnapshot, start with the captured messages instead
+        # of reseeding goal as a fresh user turn. Keep ``user_message``
+        # empty so ``append_latest_user_message`` does not duplicate the
+        # final user entry already present in the snapshot.
+        if spec.initial_messages:
+            user_message: str = ""
+            conversation_history: list[dict[str, Any]] = [
+                dict(m) for m in spec.initial_messages
+            ]
+        else:
+            user_message = spec.goal
+            conversation_history = []
         outcome = await function_calling_orchestrator.execute_with_tools(
-            user_message=spec.goal,
+            user_message=user_message,
             system_prompt="",
             selected_tools=list(spec.selected_tools),
             user_id=spec.user_id,
@@ -228,7 +241,7 @@ def build_background_run_fn(
             session_run_id=None,
             session_run_revision=0,
             turn_id=spec.origin_turn_id or None,
-            conversation_history=[],
+            conversation_history=conversation_history,
             max_iterations=spec.max_iterations,
             intent=intent_label,
             execution_agent_id=execution_agent_id,

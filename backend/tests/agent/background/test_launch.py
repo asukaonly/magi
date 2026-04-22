@@ -337,3 +337,77 @@ async def test_run_fn_passes_cancel_token_through() -> None:
 
     assert result.summary == ""
     assert orchestrator.calls[0]["cancel_token"] is token
+
+
+@pytest.mark.asyncio
+async def test_run_fn_resumes_from_initial_messages_when_present() -> None:
+    """When a spec carries an OrchestratorSnapshot's messages, the run
+    function must pass them as ``conversation_history`` and leave
+    ``user_message`` empty so the resumed turn is not duplicated.
+    """
+    outcome = ExecutionOutcome(
+        status="completed", content="resumed answer", tool_failures=[], iterations=2
+    )
+    orchestrator = _RecordingOrchestrator(outcome)
+    run_fn = build_background_run_fn(function_calling_orchestrator=orchestrator)
+
+    snapshot_messages = [
+        {"role": "user", "content": "please analyse the repo"},
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "c1"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "{}"},
+    ]
+    spec = BackgroundTaskSpec(
+        user_id="u1",
+        session_id="s1",
+        origin_turn_id="turn-1",
+        title="T",
+        goal="please analyse the repo",
+        selected_tools=["deep_research"],
+        trigger_source=BackgroundTaskTriggerSource.MANUAL,
+        initial_messages=snapshot_messages,
+    )
+    from magi.agent.background.contracts import BackgroundTask
+
+    task = BackgroundTask.new(spec)
+    result = await run_fn(task, null_cancel_token())
+
+    assert result.summary == "resumed answer"
+    call = orchestrator.calls[0]
+    assert call["user_message"] == ""
+    assert call["conversation_history"] == snapshot_messages
+    # The background runner must deep-copy so a later mutation of the
+    # spec payload cannot retroactively change the live orchestrator
+    # input.
+    assert call["conversation_history"] is not snapshot_messages
+
+
+def test_spec_roundtrip_preserves_initial_messages() -> None:
+    messages = [{"role": "user", "content": "resume me"}]
+    spec = BackgroundTaskSpec(
+        user_id="u",
+        session_id="s",
+        origin_turn_id="t",
+        title="T",
+        goal="g",
+        trigger_source=BackgroundTaskTriggerSource.MANUAL,
+        initial_messages=messages,
+    )
+    restored = BackgroundTaskSpec.from_dict(spec.to_dict())
+    assert restored.initial_messages == messages
+    # Deep copy: mutating the original must not reach the restored spec.
+    messages[0]["content"] = "edited"
+    assert restored.initial_messages is not None
+    assert restored.initial_messages[0]["content"] == "resume me"
+
+
+def test_spec_roundtrip_without_initial_messages_stays_none() -> None:
+    spec = BackgroundTaskSpec(
+        user_id="u",
+        session_id="s",
+        origin_turn_id="t",
+        title="T",
+        goal="g",
+        trigger_source=BackgroundTaskTriggerSource.RULE,
+    )
+    restored = BackgroundTaskSpec.from_dict(spec.to_dict())
+    assert restored.initial_messages is None
