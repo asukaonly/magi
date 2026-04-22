@@ -164,6 +164,7 @@ class FunctionCallingOrchestrator:
         runtime_trace_store: RuntimeTraceStore | None = None,
         scenario_llm_pool=None,
         context_window: int | None = None,
+        permission_gateway: Any = None,
     ):
         """
         initialize the executor
@@ -184,6 +185,7 @@ class FunctionCallingOrchestrator:
         self.tool_result_callback = tool_result_callback
         self.loop_event_callback = loop_event_callback
         self.runtime_trace_store = runtime_trace_store
+        self.permission_gateway = permission_gateway
         self.step_executor = FunctionCallingStepExecutor(self)
         self._current_messages: List[Dict[str, Any]] = []
         self._context_compactor = ContextCompactor(
@@ -1429,6 +1431,25 @@ class FunctionCallingOrchestrator:
                     orchestration_strategy=orchestration_strategy,
                 )
 
+            # Permission gateway — opt-in via the orchestrator ctor. When
+            # wired, it intercepts between the LLM decision and the tool
+            # registry. A denied/kill-listed/timed-out decision short-
+            # circuits into a tool-error so the LLM sees the reason.
+            if self.permission_gateway is not None:
+                denied_result = await self._gate_tool_call(
+                    tool_call=tool_call,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    agent_id=execution_agent_id,
+                    session_id=session_id,
+                    task_id=turn_id,
+                    workspace=context.workspace,
+                    intent=intent,
+                    start_time=start_time,
+                )
+                if denied_result is not None:
+                    return denied_result
+
             logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
             result = await self.tool_registry.execute(tool_name, arguments, context)
             if not result.success:
@@ -1456,6 +1477,103 @@ class FunctionCallingOrchestrator:
                 error=str(e),
                 execution_time=time.time() - start_time,
             )
+
+    async def _gate_tool_call(
+        self,
+        *,
+        tool_call: ToolCall,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        agent_id: str,
+        session_id: Optional[str],
+        task_id: Optional[str],
+        workspace: Optional[str],
+        intent: str,
+        start_time: float,
+    ) -> Optional[ToolCallResult]:
+        """Run the permission gateway; return a failure result if blocked.
+
+        Returns ``None`` when the gateway allows the call (the caller
+        proceeds to registry execution); otherwise returns a populated
+        :class:`ToolCallResult` whose error text the LLM will see.
+        """
+        try:
+            from ..control.permission import (
+                PermissionOutcome,
+                ToolOrigin,
+            )
+            from ...tools.schema import ToolErrorCode
+        except Exception as exc:  # defensive — should never fire post-wiring
+            logger.error(f"[FunctionCalling] permission gateway import failed: {exc}")
+            return None
+
+        tool_info = self.tool_registry.get_tool_info(tool_name) or {}
+        origin = (
+            ToolOrigin.SUBAGENT
+            if isinstance(intent, str) and intent.startswith("worker_")
+            else ToolOrigin.CHAT
+        )
+
+        try:
+            decision = await self.permission_gateway.gate(
+                tool_name=tool_name,
+                arguments=arguments,
+                agent_id=agent_id,
+                origin=origin,
+                session_id=session_id,
+                task_id=task_id,
+                workspace=workspace,
+                tool_is_dangerous=bool(tool_info.get("dangerous", False)),
+            )
+        except Exception as exc:
+            logger.exception("[FunctionCalling] permission gateway raised")
+            return ToolCallResult(
+                tool_call_id=tool_call.id,
+                tool_name=tool_name,
+                success=False,
+                error=f"permission gateway error: {exc}",
+                error_code=ToolErrorCode.PERMISSION_DENIED.value,
+                execution_time=time.time() - start_time,
+            )
+
+        if decision.allowed:
+            return None
+
+        # Translate the decision into an LLM-visible error message.
+        if decision.outcome is PermissionOutcome.KILL_LISTED:
+            message = (
+                f"This invocation is blocked by the system safety fuse: "
+                f"{decision.reason or 'kill-listed pattern'}. Rephrase your "
+                f"approach — do not retry this exact command."
+            )
+        elif decision.outcome is PermissionOutcome.TIMED_OUT:
+            message = (
+                "The user did not respond to the permission prompt in time; "
+                "the call was not executed. Ask the user how they want to proceed."
+            )
+        elif decision.outcome is PermissionOutcome.DENIED:
+            message = (
+                f"The user denied this tool invocation"
+                + (f": {decision.reason}" if decision.reason else "")
+                + ". Respect the decision and choose a different approach."
+            )
+        else:
+            message = f"permission gateway blocked the call ({decision.outcome.value})"
+
+        logger.info(
+            "[FunctionCalling] permission blocked tool=%s outcome=%s source=%s",
+            tool_name,
+            decision.outcome.value,
+            decision.source,
+        )
+        return ToolCallResult(
+            tool_call_id=tool_call.id,
+            tool_name=tool_name,
+            success=False,
+            error=message,
+            error_code=ToolErrorCode.PERMISSION_DENIED.value,
+            execution_time=time.time() - start_time,
+        )
 
     def _apply_worker_explore_guardrails(
         self,
