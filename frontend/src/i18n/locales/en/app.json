@@ -264,6 +264,11 @@
     "failed": "Failed",
     "you": "You",
     "system": "System",
+    "thinking": {
+      "label": "Thinking",
+      "expand": "Show thinking",
+      "collapse": "Hide thinking"
+    },
     "connectingHint": "Connecting to server...",
     "inputPlaceholder": "Type your message... (Enter to send, Shift+Enter for new line)",
     "send": "Send",

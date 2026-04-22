@@ -6,6 +6,7 @@ import re
 from typing import Any, AsyncIterator
 
 from ....config.models import LLMScenario, ThinkingDepth
+from ....llm.streaming_events import LLMStreamEvent
 from ...orchestration import WorkerResult
 from ..common import TaskAgentLLMService
 from .contracts import ChatReplyContext
@@ -58,16 +59,20 @@ class ChatPromptService:
         messages: list[dict[str, str]],
         disable_thinking: bool = True,
         thinking_depth: ThinkingDepth | None = None,
-    ) -> AsyncIterator[str]:
-        """Streaming variant of call_llm(). Yields text chunks."""
-        async for chunk in self._llm_service.call_stream(
+        json_mode: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> AsyncIterator[LLMStreamEvent]:
+        """Streaming variant of call_llm(). Yields typed LLM stream events."""
+        async for event in self._llm_service.call_stream(
             system_prompt=system_prompt,
             messages=messages,
             disable_thinking=disable_thinking,
             thinking_depth=thinking_depth,
             temperature=0.7,
+            json_mode=json_mode,
+            timeout_seconds=timeout_seconds,
         ):
-            yield chunk
+            yield event
 
     def filter_history_for_aggregation(self, history: list[dict[str, Any]]) -> list[dict[str, str]]:
         filtered: list[dict[str, str]] = []

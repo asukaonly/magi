@@ -55,7 +55,7 @@ class _FakePromptService:
 
 @pytest.mark.asyncio
 async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> None:
-    handler = DirectLLMHandler(SimpleNamespace(prompt_service=_FakePromptService(), stream_chunk_callback=None))
+    handler = DirectLLMHandler(SimpleNamespace(prompt_service=_FakePromptService()))
     context = ChatRuntimeContext(
         latest_fact=None,
         recent_facts=[],

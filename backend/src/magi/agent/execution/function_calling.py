@@ -20,6 +20,7 @@ from typing import Awaitable, Callable, Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge, ToolStreamResult, _coerce_thinking_depth
+from ...llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stream_sink
 from ...chat.workspace import get_default_chat_workspace_path
 from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
@@ -250,7 +251,6 @@ class FunctionCallingOrchestrator:
         llm_timeout_seconds: Optional[float] = None,
         final_response_json_mode: bool = False,
         thinking_depth: ThinkingDepth | None = None,
-        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
         cancel_token: CancelToken | None = None,
         steer_inbox: SteerInbox | None = None,
         detach_signal: DetachSignal | None = None,
@@ -304,7 +304,6 @@ class FunctionCallingOrchestrator:
                 thinking_depth=thinking_depth,
                 disable_thinking=disable_thinking,
                 final_response_json_mode=final_response_json_mode,
-                stream_chunk_callback=stream_chunk_callback,
                 cancel_token=cancel_token,
                 steer_inbox=steer_inbox,
                 detach_signal=detach_signal,
@@ -331,7 +330,6 @@ class FunctionCallingOrchestrator:
         thinking_depth: Optional[ThinkingDepth],
         disable_thinking: bool,
         final_response_json_mode: bool,
-        stream_chunk_callback: Callable[[str], Awaitable[None]] | None,
         cancel_token: CancelToken | None,
         steer_inbox: SteerInbox | None,
         detach_signal: DetachSignal | None,
@@ -374,13 +372,12 @@ class FunctionCallingOrchestrator:
                 execution_workspace=execution_workspace,
                 orchestration_strategy=orchestration_strategy,
                 llm_timeout_seconds=llm_timeout_seconds,
-                stream_chunk_callback=stream_chunk_callback,
             )
             if step_outcome.status == "continue":
-                # Flush any intermediate streamed text so external channels
-                # can deliver partial responses before tool execution continues.
-                if stream_chunk_callback is not None:
-                    await stream_chunk_callback("", True)
+                # Flush any intermediate streamed text so the UI can close
+                # the current bubble before tool execution continues.
+                if get_stream_sink() is not None:
+                    await emit_stream_event(LLMStreamEvent(kind="text_flush"))
                 # --- context compaction check after each tool-use round ---
                 await self._try_compact(state, system_prompt)
                 continue
@@ -413,7 +410,6 @@ class FunctionCallingOrchestrator:
             orchestration_strategy=orchestration_strategy,
             llm_timeout_seconds=llm_timeout_seconds,
             final_response_json_mode=final_response_json_mode,
-            stream_chunk_callback=stream_chunk_callback,
             cancel_token=token,
         )
 
@@ -499,7 +495,6 @@ class FunctionCallingOrchestrator:
         orchestration_strategy: Optional[Dict[str, Any]],
         llm_timeout_seconds: Optional[float],
         final_response_json_mode: bool,
-        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
         cancel_token: CancelToken | None = None,
     ) -> ExecutionOutcome:
         """Run the legacy no-tools fallback once the bounded step loop stops."""
@@ -534,7 +529,6 @@ class FunctionCallingOrchestrator:
                 turn_id=turn_id,
                 intent=intent,
                 execution_agent_id=execution_agent_id,
-                stream_chunk_callback=stream_chunk_callback,
             )
         except Exception as exc:
             await self._complete_iteration_trace(
@@ -1077,7 +1071,6 @@ class FunctionCallingOrchestrator:
         turn_id: Optional[str] = None,
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
-        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> Dict[str, Any]:
         """
         Call LLM with tools parameter
@@ -1105,7 +1098,7 @@ class FunctionCallingOrchestrator:
 
         try:
             streamed = False
-            if stream_chunk_callback is not None:
+            if get_stream_sink() is not None:
                 stream_result: ToolStreamResult = await self._invoke_with_rate_limit_backoff(
                     lambda: self.provider_bridge.chat_with_tools_stream(
                         system_prompt=system_prompt,
@@ -1124,7 +1117,6 @@ class FunctionCallingOrchestrator:
                             "correlation_id": turn_id,
                             "intent": intent,
                         },
-                        chunk_callback=stream_chunk_callback,
                     ),
                     label="chat_with_tools_stream",
                 )
@@ -1215,7 +1207,6 @@ class FunctionCallingOrchestrator:
         turn_id: Optional[str] = None,
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
-        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> Dict[str, Any]:
         """Call LLM without tools for final response"""
         import time
@@ -1236,9 +1227,9 @@ class FunctionCallingOrchestrator:
 
         try:
             streamed = False
-            if stream_chunk_callback is not None and not json_mode:
+            if get_stream_sink() is not None and not json_mode:
                 chunks: List[str] = []
-                async for chunk in self.provider_bridge.chat_response_stream(
+                async for event in self.provider_bridge.chat_response_stream(
                     system_prompt=system_prompt,
                     messages=messages,
                     max_tokens=DEFAULT_MAX_TOKENS,
@@ -1246,8 +1237,8 @@ class FunctionCallingOrchestrator:
                     thinking_depth=thinking_depth,
                     timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
                 ):
-                    chunks.append(chunk)
-                    await stream_chunk_callback(chunk)
+                    if event.kind == "text_delta" and event.text:
+                        chunks.append(event.text)
                 content = "".join(chunks)
                 streamed = True
                 provider_response = None

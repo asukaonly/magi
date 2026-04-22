@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from ...config.models import ThinkingDepth
 
@@ -53,7 +53,6 @@ class FunctionCallingStepExecutor:
         execution_workspace: str | None = None,
         orchestration_strategy: dict[str, Any] | None = None,
         llm_timeout_seconds: float | None = None,
-        stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> FunctionCallingStepOutcome:
         """Run one bounded loop iteration and return control to the caller."""
         state.iteration += 1
@@ -86,7 +85,6 @@ class FunctionCallingStepExecutor:
                 turn_id=turn_id,
                 intent=intent,
                 execution_agent_id=execution_agent_id,
-                stream_chunk_callback=stream_chunk_callback,
             )
         except Exception as exc:
             failure_reason = self._driver._classify_exception_failure(exc)

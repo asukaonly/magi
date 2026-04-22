@@ -36,7 +36,14 @@ export interface ChatTimelineMessage {
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
   streaming?: boolean;
+  reasoning?: ReasoningTrace[];
   payload?: Record<string, unknown> | null;
+}
+
+export interface ReasoningTrace {
+  source: string;
+  stepLabel?: string | null;
+  content: string;
 }
 
 export interface ChatTimelineReplyPreview {

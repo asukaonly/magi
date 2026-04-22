@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from ....agent.trace import now_wall_ms
 from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord
+from ....llm.streaming_events import LLMStreamEvent
 from ....runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
 
 REACTION_EMOJI_BY_STYLE = {
@@ -526,15 +527,13 @@ class ChatRuntimeNotifier:
             )
         )
 
-    async def emit_stream_chunk(
+    async def emit_stream_event(
         self,
         *,
+        event: LLMStreamEvent,
         user_id: str,
         session_id: str,
         turn_id: str | None,
-        content_delta: str,
-        is_final: bool,
-        retract: bool = False,
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._runtime_trace_store is None or not normalized_turn_id:
@@ -543,12 +542,9 @@ class ChatRuntimeNotifier:
             "user_id": user_id,
             "session_id": session_id,
             "turn_id": normalized_turn_id,
-            "content_delta": content_delta,
-            "is_final": is_final,
+            "event": event.to_wire_dict(),
             "timestamp": time.time(),
         }
-        if retract:
-            payload["retract"] = True
         await self._runtime_trace_store.append_notification(
             RuntimeNotificationRecord(
                 notification_id=0,

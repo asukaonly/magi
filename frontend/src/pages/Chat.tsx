@@ -24,6 +24,7 @@ import { useRealtime } from '@/realtime/provider';
 import { useChatTraceStore, useConversationStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { ContextUsageRing } from '@/components/chat/ContextUsageRing';
+import { ThinkingPanel } from '@/components/chat/ThinkingPanel';
 import { SessionControlRail } from '@/components/control';
 import { useContextUsageStore } from '@/stores/context-usage';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
@@ -1992,6 +1993,7 @@ export const ChatPage: React.FC = () => {
                     {renderMessageAttachments(msg.attachments, msg.role)}
                     {msg.role === 'assistant' ? (
                       <div className="max-w-none text-current">
+                        <ThinkingPanel reasoning={msg.reasoning} streaming={msg.streaming} />
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                           {msg.content}
                         </ReactMarkdown>

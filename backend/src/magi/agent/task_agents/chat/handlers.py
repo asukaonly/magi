@@ -103,9 +103,6 @@ def _resolve_turn_workspace_path(context: object) -> str | None:
     return workspace_path or None
 
 
-StreamChunkCallback = Callable[[str, str, str | None, str, bool, bool], Awaitable[None]]
-
-
 @dataclass(slots=True)
 class ChatHandlerDependencies:
     """Shared dependencies passed to chat execution handlers."""
@@ -119,7 +116,6 @@ class ChatHandlerDependencies:
     agent_id: str
     get_task_agent_manager: callable
     session_run_coordinator: Any | None = None
-    stream_chunk_callback: StreamChunkCallback | None = None
     background_dispatcher: BackgroundDispatcher | None = None
     background_launch_service: BackgroundLaunchService | None = None
     persist_turn_supersessions: (
@@ -173,38 +169,22 @@ class DirectLLMHandler(BaseExecutionHandler):
     async def execute(self, request: DirectLLMRequest) -> ExecutionResult:
         llm_trace: dict[str, object] = {}
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
-        stream_callback = self._deps.stream_chunk_callback
 
         async def _capture_llm_trace(payload: dict[str, object]) -> None:
             llm_trace.update(payload)
 
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
 
-        if streaming_enabled and stream_callback is not None:
+        if streaming_enabled:
             chunks: list[str] = []
-            async for chunk in self._deps.prompt_service.call_llm_stream(
+            async for event in self._deps.prompt_service.call_llm_stream(
                 system_prompt=request.system_prompt,
                 messages=request.messages,
                 thinking_depth=request.thinking_depth,
             ):
-                chunks.append(chunk)
-                await stream_callback(
-                    request.context.user_id,
-                    request.context.session_id,
-                    turn_id,
-                    chunk,
-                    False,
-                    False,
-                )
+                if event.kind == "text_delta" and event.text:
+                    chunks.append(event.text)
             response_text = "".join(chunks)
-            await stream_callback(
-                request.context.user_id,
-                request.context.session_id,
-                turn_id,
-                "",
-                True,
-                False,
-            )
             return ExecutionResult(
                 mode=request.mode,
                 response_text=response_text,
@@ -212,7 +192,7 @@ class DirectLLMHandler(BaseExecutionHandler):
                 turn_id=turn_id,
                 llm_trace=dict(llm_trace),
                 ux_plan=_serialize_ux_plan(request.intent),
-                streamed=True,
+                streamed=bool(response_text),
             )
 
         response_text = await self._deps.prompt_service.call_llm(
@@ -272,41 +252,9 @@ class FunctionCallingHandler(BaseExecutionHandler):
             return background_result
         execution_workspace = _resolve_execution_workspace(request)
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
-        stream_callback = self._deps.stream_chunk_callback
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
         detach_signal = self._build_detach_signal()
         steer_inbox = await self._build_steer_inbox(request)
-
-        fc_stream_callback = None
-        stream_state = {"chunks_emitted": 0, "retracted": False, "any_streamed": False}
-        if streaming_enabled and stream_callback is not None:
-            async def _fc_chunk_callback(text: str, is_step_final: bool = False) -> None:
-                if is_step_final:
-                    # Flush accumulated intermediate chunks so channels
-                    # can deliver partial responses before tool execution.
-                    if stream_state["chunks_emitted"] > 0:
-                        await stream_callback(
-                            request.context.user_id,
-                            request.context.session_id,
-                            turn_id,
-                            "",
-                            True,
-                            False,
-                        )
-                        stream_state["chunks_emitted"] = 0
-                    return
-                stream_state["chunks_emitted"] += 1
-                stream_state["any_streamed"] = True
-                await stream_callback(
-                    request.context.user_id,
-                    request.context.session_id,
-                    turn_id,
-                    text,
-                    False,
-                    False,
-                )
-
-            fc_stream_callback = _fc_chunk_callback
 
         if (
             self._deps.session_run_coordinator is not None
@@ -317,11 +265,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
             result = await self._execute_with_session_checkpoints(
                 request,
                 execution_workspace=execution_workspace,
-                stream_chunk_callback=fc_stream_callback,
                 detach_signal=detach_signal,
                 steer_inbox=steer_inbox,
             )
-            result.streamed = stream_state.get("any_streamed", False)
+            result.streamed = streaming_enabled
             handoff = await self._maybe_handoff_detached_outcome(request, result)
             if handoff is not None:
                 return handoff
@@ -347,22 +294,12 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 if request.intent.orchestration_plan is not None
                 else None
             ),
-            stream_chunk_callback=fc_stream_callback,
             cancel_token=cancel_token,
             detach_signal=detach_signal,
             steer_inbox=steer_inbox,
         )
 
-        streamed = stream_state["chunks_emitted"] > 0 and execution_outcome.status == "completed"
-        if streamed and stream_callback is not None:
-            await stream_callback(
-                request.context.user_id,
-                request.context.session_id,
-                turn_id,
-                "",
-                True,
-                False,
-            )
+        streamed = streaming_enabled and execution_outcome.status == "completed"
 
         fc_result = FunctionCallingExecutionResult(
             mode=request.mode,
@@ -383,7 +320,6 @@ class FunctionCallingHandler(BaseExecutionHandler):
         request: FunctionCallingRequest,
         *,
         execution_workspace: str | None,
-        stream_chunk_callback: Any | None = None,
         detach_signal: DetachSignal | None = None,
         steer_inbox: SteerInbox | None = None,
     ) -> ExecutionResult:
@@ -452,12 +388,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
                         if request.intent.orchestration_plan is not None
                         else None
                     ),
-                    stream_chunk_callback=stream_chunk_callback,
                 )
                 if step_outcome.status == "completed":
-                    # Flush any remaining intermediate streamed chunks.
-                    if stream_chunk_callback is not None:
-                        await stream_chunk_callback("", True)
                     execution_outcome = {
                         "status": "completed",
                         "content": step_outcome.content,
@@ -477,10 +409,6 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     # Instead of returning an empty response, let the LLM
                     # generate a final answer using the error context.
                     break
-
-                # Flush intermediate streamed text before continuing.
-                if stream_chunk_callback is not None:
-                    await stream_chunk_callback("", True)
 
                 # Re-check detach after the tool batch runs so a tool that
                 # flipped the signal this iteration exits before the next
@@ -542,7 +470,6 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 ),
                 llm_timeout_seconds=None,
                 final_response_json_mode=False,
-                stream_chunk_callback=stream_chunk_callback,
                 cancel_token=cancel_token,
             )
         return FunctionCallingExecutionResult(

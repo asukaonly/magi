@@ -15,6 +15,7 @@ from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
 from .concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
 from .parsers import parse_legacy_tool_calls, sanitize_llm_text
+from .streaming_events import LLMStreamEvent, emit_stream_event
 from .usage_events import LLMCallEventPayload, LLMUsageEventPublisher, publish_llm_call_event
 from ..config import get_config
 from ..config.loader import get_llm_provider_registry_file
@@ -373,8 +374,16 @@ class LLMProviderBridge:
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
         thinking_depth: ThinkingDepth | None = None,
-    ) -> AsyncIterator[str]:
-        """Streaming variant of chat_response(). Yields text chunks."""
+    ) -> AsyncIterator[LLMStreamEvent]:
+        """Streaming variant of chat_response().
+
+        Yields :class:`LLMStreamEvent` — one ``text_delta`` per visible
+        text fragment, one ``reasoning_delta`` per thinking/reasoning
+        fragment (GLM ``delta.reasoning_content`` or Anthropic
+        ``thinking`` blocks), an optional final ``usage``, and a
+        terminal ``done``. Each event is also forwarded to the
+        contextual stream sink via :func:`emit_stream_event`.
+        """
         depth = _coerce_thinking_depth(thinking_depth, None)
         if self.is_anthropic():
             api_messages = self._convert_messages_to_anthropic(messages)
@@ -390,9 +399,47 @@ class LLMProviderBridge:
                 anthropic_kwargs["timeout"] = timeout_seconds
             anthropic_kwargs = self._apply_provider_options(anthropic_kwargs, depth)
             stream = await self.llm._client.messages.create(**anthropic_kwargs)
+            in_thinking = False
+            usage_data: Any = None
             async for event in stream:
-                if event.type == "content_block_delta" and hasattr(event.delta, "text"):
-                    yield event.delta.text
+                event_type = getattr(event, "type", None)
+                if event_type == "content_block_start":
+                    block = getattr(event, "content_block", None)
+                    block_type = getattr(block, "type", None) if block is not None else None
+                    in_thinking = block_type == "thinking"
+                elif event_type == "content_block_delta":
+                    delta = event.delta
+                    delta_type = getattr(delta, "type", None)
+                    # Anthropic emits thinking via ``thinking_delta``
+                    # with a ``thinking`` attribute, or as text inside
+                    # a thinking content block.
+                    if delta_type == "thinking_delta":
+                        text = getattr(delta, "thinking", None) or getattr(delta, "text", None)
+                        if text:
+                            ev = LLMStreamEvent(kind="reasoning_delta", text=text)
+                            await emit_stream_event(ev)
+                            yield ev
+                    elif in_thinking and getattr(delta, "text", None):
+                        ev = LLMStreamEvent(kind="reasoning_delta", text=delta.text)
+                        await emit_stream_event(ev)
+                        yield ev
+                    elif getattr(delta, "text", None):
+                        ev = LLMStreamEvent(kind="text_delta", text=delta.text)
+                        await emit_stream_event(ev)
+                        yield ev
+                elif event_type == "content_block_stop":
+                    in_thinking = False
+                elif event_type == "message_delta":
+                    usage_data = getattr(event, "usage", usage_data)
+                elif event_type == "message_start":
+                    msg = getattr(event, "message", None)
+                    if msg is not None:
+                        usage_data = getattr(msg, "usage", usage_data)
+            usage_payload = self._anthropic_usage_to_wire(usage_data)
+            if usage_payload is not None:
+                usage_ev = LLMStreamEvent(kind="usage", usage=usage_payload)
+                await emit_stream_event(usage_ev)
+                yield usage_ev
         else:
             full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
             chat_kwargs: Dict[str, Any] = {
@@ -409,12 +456,68 @@ class LLMProviderBridge:
             if getattr(self.llm, "_client", None) is not None:
                 chat_kwargs["model"] = self.llm.model_name
                 stream = await self.llm._client.chat.completions.create(**chat_kwargs)
+                usage_data: Any = None
                 async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                        yield chunk.choices[0].delta.content
+                    if not getattr(chunk, "choices", None):
+                        if hasattr(chunk, "usage") and chunk.usage is not None:
+                            usage_data = chunk.usage
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta is None:
+                        continue
+                    # GLM / DashScope-compatible reasoning fields.
+                    reasoning_text = (
+                        getattr(delta, "reasoning_content", None)
+                        or getattr(delta, "reasoning", None)
+                    )
+                    if reasoning_text:
+                        ev = LLMStreamEvent(kind="reasoning_delta", text=reasoning_text)
+                        await emit_stream_event(ev)
+                        yield ev
+                    content = getattr(delta, "content", None)
+                    if content:
+                        ev = LLMStreamEvent(kind="text_delta", text=content)
+                        await emit_stream_event(ev)
+                        yield ev
+                    if hasattr(chunk, "usage") and chunk.usage is not None:
+                        usage_data = chunk.usage
+                usage_payload = self._openai_usage_to_wire(usage_data)
+                if usage_payload is not None:
+                    usage_ev = LLMStreamEvent(kind="usage", usage=usage_payload)
+                    await emit_stream_event(usage_ev)
+                    yield usage_ev
             else:
                 content = await self.llm.chat(**chat_kwargs)
-                yield content
+                if content:
+                    ev = LLMStreamEvent(kind="text_delta", text=content)
+                    await emit_stream_event(ev)
+                    yield ev
+        done_ev = LLMStreamEvent(kind="done")
+        await emit_stream_event(done_ev)
+        yield done_ev
+
+    @staticmethod
+    def _openai_usage_to_wire(usage_data: Any) -> Optional[Dict[str, int]]:
+        if usage_data is None:
+            return None
+        return {
+            "prompt_tokens": int(getattr(usage_data, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(usage_data, "completion_tokens", 0) or 0),
+            "total_tokens": int(getattr(usage_data, "total_tokens", 0) or 0),
+            "reasoning_tokens": int(getattr(usage_data, "reasoning_tokens", 0) or 0),
+        }
+
+    @staticmethod
+    def _anthropic_usage_to_wire(usage_data: Any) -> Optional[Dict[str, int]]:
+        if usage_data is None:
+            return None
+        prompt_tokens = int(getattr(usage_data, "input_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage_data, "output_tokens", 0) or 0)
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
 
     async def chat_with_tools(
         self,
@@ -494,16 +597,15 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
-        chunk_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> ToolStreamResult:
         """Streaming variant of chat_with_tools().
 
-        Streams text chunks via *chunk_callback* while the LLM generates.
-        If the LLM decides to call tools instead, streaming stops and
-        tool_calls are collected into the returned ``ToolStreamResult``.
-
-        When tool_calls are detected *after* some text chunks were already
-        emitted, the caller is responsible for retracting the partial text.
+        All events (text deltas, reasoning deltas, tool-call lifecycle,
+        usage) are forwarded to the stream sink bound via
+        :func:`magi.llm.streaming_events.stream_scope`. If no sink is
+        set this behaves like a silent aggregator — the returned
+        ``ToolStreamResult`` still contains the complete assembled
+        response.
         """
         depth = _coerce_thinking_depth(thinking_depth, None)
         started_at = time.time()
@@ -519,7 +621,6 @@ class LLMProviderBridge:
                     temperature=temperature,
                     thinking_depth=depth,
                     timeout_seconds=timeout_seconds,
-                    chunk_callback=chunk_callback,
                 ),
             )
 
@@ -647,14 +748,14 @@ class LLMProviderBridge:
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
-        chunk_callback: Optional[Callable[[str], Awaitable[None]]],
     ) -> ToolStreamResult:
         """Stream an LLM call with tools.
 
-        Text deltas are forwarded via *chunk_callback* until tool_calls
-        are detected, at which point text forwarding stops.  The full
-        ``ProviderResponse`` (including any tool_calls) is assembled from
-        the accumulated stream events and returned inside ``ToolStreamResult``.
+        All events (text, reasoning, tool-call lifecycle) are forwarded
+        to the contextual stream sink via
+        :func:`magi.llm.streaming_events.emit_stream_event`. The full
+        assembled ``ProviderResponse`` (including any tool_calls) is
+        returned inside ``ToolStreamResult``.
         """
         if self.is_anthropic():
             return await self._stream_anthropic_with_tools(
@@ -665,7 +766,6 @@ class LLMProviderBridge:
                 temperature=temperature,
                 thinking_depth=thinking_depth,
                 timeout_seconds=timeout_seconds,
-                chunk_callback=chunk_callback,
             )
         return await self._stream_openai_with_tools(
             system_prompt=system_prompt,
@@ -675,7 +775,6 @@ class LLMProviderBridge:
             temperature=temperature,
             thinking_depth=thinking_depth,
             timeout_seconds=timeout_seconds,
-            chunk_callback=chunk_callback,
         )
 
     async def _stream_anthropic_with_tools(
@@ -688,7 +787,6 @@ class LLMProviderBridge:
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
-        chunk_callback: Optional[Callable[[str], Awaitable[None]]],
     ) -> ToolStreamResult:
         api_messages = self._convert_messages_to_anthropic(messages)
         anthropic_kwargs: Dict[str, Any] = {
@@ -709,6 +807,7 @@ class LLMProviderBridge:
         assistant_blocks: List[Dict[str, Any]] = []
         has_tool_calls = False
         chunks_emitted = 0
+        in_thinking = False
         # Track current tool_use block being streamed
         current_tool_id: str | None = None
         current_tool_name: str | None = None
@@ -716,27 +815,52 @@ class LLMProviderBridge:
         usage_data: Any = None
 
         async for event in stream:
-            if event.type == "content_block_start":
+            event_type = getattr(event, "type", None)
+            if event_type == "content_block_start":
                 block = getattr(event, "content_block", None)
-                if block is not None and getattr(block, "type", None) == "tool_use":
+                block_type = getattr(block, "type", None) if block is not None else None
+                if block_type == "tool_use":
                     has_tool_calls = True
                     current_tool_id = block.id
                     current_tool_name = block.name
                     current_tool_json_parts = []
-            elif event.type == "content_block_delta":
+                    await emit_stream_event(LLMStreamEvent(
+                        kind="tool_call_start",
+                        tool_call_id=block.id,
+                        tool_name=block.name,
+                    ))
+                elif block_type == "thinking":
+                    in_thinking = True
+            elif event_type == "content_block_delta":
                 delta = event.delta
-                if hasattr(delta, "text") and not has_tool_calls:
+                delta_type = getattr(delta, "type", None)
+                if delta_type == "thinking_delta":
+                    text = getattr(delta, "thinking", None) or getattr(delta, "text", None)
+                    if text:
+                        await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text=text))
+                elif in_thinking and getattr(delta, "text", None):
+                    await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text=delta.text))
+                elif hasattr(delta, "text") and not has_tool_calls:
                     text = delta.text
-                    content_parts.append(text)
-                    if chunk_callback is not None:
-                        await chunk_callback(text)
+                    if text:
+                        content_parts.append(text)
+                        await emit_stream_event(LLMStreamEvent(kind="text_delta", text=text))
                         chunks_emitted += 1
                 elif hasattr(delta, "text") and has_tool_calls:
                     # Text arriving after tool_use detected — collect but don't emit
-                    content_parts.append(delta.text)
-                elif getattr(delta, "type", None) == "input_json_delta":
-                    current_tool_json_parts.append(delta.partial_json)
-            elif event.type == "content_block_stop":
+                    if delta.text:
+                        content_parts.append(delta.text)
+                elif delta_type == "input_json_delta":
+                    partial = getattr(delta, "partial_json", "")
+                    if partial:
+                        current_tool_json_parts.append(partial)
+                        await emit_stream_event(LLMStreamEvent(
+                            kind="tool_call_args",
+                            tool_call_id=current_tool_id,
+                            tool_name=current_tool_name,
+                            tool_args_delta=partial,
+                        ))
+            elif event_type == "content_block_stop":
                 if current_tool_id is not None:
                     raw_json = "".join(current_tool_json_parts)
                     try:
@@ -754,12 +878,19 @@ class LLMProviderBridge:
                         "name": current_tool_name,
                         "input": arguments,
                     })
+                    await emit_stream_event(LLMStreamEvent(
+                        kind="tool_call_end",
+                        tool_call_id=current_tool_id,
+                        tool_name=current_tool_name,
+                        tool_arguments=arguments,
+                    ))
                     current_tool_id = None
                     current_tool_name = None
                     current_tool_json_parts = []
-            elif event.type == "message_delta":
+                in_thinking = False
+            elif event_type == "message_delta":
                 usage_data = getattr(event, "usage", usage_data)
-            elif event.type == "message_start":
+            elif event_type == "message_start":
                 msg = getattr(event, "message", None)
                 if msg is not None:
                     usage_data = getattr(msg, "usage", usage_data)
@@ -769,6 +900,9 @@ class LLMProviderBridge:
             assistant_blocks.insert(0, {"type": "text", "text": content_text})
 
         usage = self._extract_anthropic_stream_usage(stream, usage_data)
+        usage_payload = self._anthropic_usage_to_wire(usage_data)
+        if usage_payload is not None:
+            await emit_stream_event(LLMStreamEvent(kind="usage", usage=usage_payload))
 
         if tool_calls:
             provider_response = ProviderResponse(
@@ -811,7 +945,6 @@ class LLMProviderBridge:
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
-        chunk_callback: Optional[Callable[[str], Awaitable[None]]],
     ) -> ToolStreamResult:
         full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
         kwargs: Dict[str, Any] = {
@@ -848,26 +981,66 @@ class LLMProviderBridge:
                 has_tool_calls = True
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
-                    if idx not in tool_calls_by_index:
-                        tool_calls_by_index[idx] = {
+                    existing = tool_calls_by_index.get(idx)
+                    if existing is None:
+                        entry = {
                             "id": getattr(tc_delta, "id", None) or "",
                             "name": "",
                             "arguments_parts": [],
+                            "start_emitted": False,
                         }
-                    entry = tool_calls_by_index[idx]
+                        tool_calls_by_index[idx] = entry
+                    else:
+                        entry = existing
                     if tc_delta.id:
                         entry["id"] = tc_delta.id
                     if hasattr(tc_delta, "function") and tc_delta.function:
                         if tc_delta.function.name:
                             entry["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            entry["arguments_parts"].append(tc_delta.function.arguments)
+                        args_fragment = tc_delta.function.arguments
+                        if args_fragment:
+                            entry["arguments_parts"].append(args_fragment)
+                    # Emit tool_call_start once we have both id and name
+                    if not entry["start_emitted"] and entry["id"] and entry["name"]:
+                        entry["start_emitted"] = True
+                        await emit_stream_event(LLMStreamEvent(
+                            kind="tool_call_start",
+                            tool_call_id=entry["id"],
+                            tool_name=entry["name"],
+                        ))
+                    # Emit tool_call_args for any fragment seen this chunk
+                    if (
+                        entry["start_emitted"]
+                        and hasattr(tc_delta, "function")
+                        and tc_delta.function
+                        and tc_delta.function.arguments
+                    ):
+                        await emit_stream_event(LLMStreamEvent(
+                            kind="tool_call_args",
+                            tool_call_id=entry["id"],
+                            tool_name=entry["name"],
+                            tool_args_delta=tc_delta.function.arguments,
+                        ))
 
-            # Collect and emit text content
+            # Reasoning (GLM / compatible providers)
+            reasoning_text = (
+                getattr(delta, "reasoning_content", None)
+                or getattr(delta, "reasoning", None)
+            )
+            if reasoning_text:
+                await emit_stream_event(LLMStreamEvent(
+                    kind="reasoning_delta",
+                    text=reasoning_text,
+                ))
+
+            # Visible text
             if hasattr(delta, "content") and delta.content:
                 content_parts.append(delta.content)
-                if not has_tool_calls and chunk_callback is not None:
-                    await chunk_callback(delta.content)
+                if not has_tool_calls:
+                    await emit_stream_event(LLMStreamEvent(
+                        kind="text_delta",
+                        text=delta.content,
+                    ))
                     chunks_emitted += 1
 
             if hasattr(chunk, "usage") and chunk.usage is not None:
@@ -898,8 +1071,17 @@ class LLMProviderBridge:
                     "arguments": raw_args or "{}",
                 },
             })
+            await emit_stream_event(LLMStreamEvent(
+                kind="tool_call_end",
+                tool_call_id=entry["id"],
+                tool_name=entry["name"],
+                tool_arguments=arguments,
+            ))
 
         usage = self._extract_openai_stream_usage(usage_data)
+        usage_payload = self._openai_usage_to_wire(usage_data)
+        if usage_payload is not None:
+            await emit_stream_event(LLMStreamEvent(kind="usage", usage=usage_payload))
 
         if tool_calls:
             provider_response = ProviderResponse(

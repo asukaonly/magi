@@ -20,6 +20,7 @@ from ...tools.registry import tool_registry
 from ...runtime_trace import RuntimeTraceStore
 from ...utils.runtime import get_runtime_paths
 from ..execution.function_calling import FunctionCallingOrchestrator
+from ...llm.streaming_events import LLMStreamEvent, stream_scope
 from .chat.interruption_classifier import InterruptionClassifier
 from .chat import (
     ChatExecutionCoordinator,
@@ -212,7 +213,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             agent_id=self.agent_id,
             get_task_agent_manager=lambda: self._task_agent_manager,
             session_run_coordinator=self._session_run_coordinator,
-            stream_chunk_callback=self._emit_stream_chunk,
             background_dispatcher=background_dispatcher,
             background_launch_service=background_launch_service,
             persist_turn_supersessions=self._persist_turn_supersessions_from_handler,
@@ -267,23 +267,40 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             updated_at_ms=updated_at_ms,
         )
 
-    async def _emit_stream_chunk(
+    async def _emit_stream_event(
         self,
+        *,
+        event: LLMStreamEvent,
         user_id: str,
         session_id: str,
         turn_id: str | None,
-        content_delta: str,
-        is_final: bool,
-        retract: bool = False,
     ) -> None:
-        await self._postprocess_service._runtime_notifier.emit_stream_chunk(
+        """Forward an LLM stream event to the runtime notifier wire."""
+        await self._postprocess_service._runtime_notifier.emit_stream_event(
+            event=event,
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
-            content_delta=content_delta,
-            is_final=is_final,
-            retract=retract,
         )
+
+    def _build_stream_sink(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+    ):
+        agent = self
+
+        async def sink(event: LLMStreamEvent) -> None:
+            await agent._emit_stream_event(
+                event=event,
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+
+        return sink
 
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
         summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
@@ -491,11 +508,27 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         return await self._coordinator.assemble_request(context, intent_result, tool_result)
 
     async def call_llm(self, context: ChatRuntimeContext, llm_params: ExecutionRequest) -> ExecutionResult:
+        sink = None
+        turn_id = str(getattr(context.latest_payload, "turn_id", "") or "").strip() or None
+        if context.user_id and context.session_id and turn_id and self._streaming_enabled(context.user_id):
+            sink = self._build_stream_sink(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=turn_id,
+            )
         try:
-            return await self._coordinator.execute(llm_params)
+            async with stream_scope(sink, source="chat"):
+                return await self._coordinator.execute(llm_params)
         except Exception as exc:
             await self._emit_llm_error(context, exc)
             raise
+
+    def _streaming_enabled(self, user_id: str) -> bool:
+        try:
+            pref = get_user_preference(user_id)
+            return bool(getattr(pref, "streaming_chat_enabled", True))
+        except Exception:
+            return True
 
     async def _emit_llm_error(self, context: ChatRuntimeContext, exc: Exception) -> None:
         """Emit a user-visible error message when LLM call fails."""
@@ -503,19 +536,17 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         if not (context.user_id and context.session_id and turn_id):
             return
         error_text = _format_llm_error(exc)
-        await self._emit_stream_chunk(
+        await self._emit_stream_event(
+            event=LLMStreamEvent(kind="text_delta", text=error_text),
             user_id=context.user_id,
             session_id=context.session_id,
             turn_id=turn_id,
-            content_delta=error_text,
-            is_final=False,
         )
-        await self._emit_stream_chunk(
+        await self._emit_stream_event(
+            event=LLMStreamEvent(kind="text_flush"),
             user_id=context.user_id,
             session_id=context.session_id,
             turn_id=turn_id,
-            content_delta="",
-            is_final=True,
         )
 
     async def parse_result(self, context: ChatRuntimeContext, raw_result: ExecutionResult) -> None:

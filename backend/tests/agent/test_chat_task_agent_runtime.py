@@ -271,10 +271,10 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
 
     emitted: list[dict] = []
 
-    async def _fake_emit(*, user_id, session_id, turn_id, content_delta, is_final, retract=False):
-        emitted.append({"content_delta": content_delta, "is_final": is_final})
+    async def _fake_emit(*, event, user_id, session_id, turn_id):
+        emitted.append({"kind": event.kind, "text": event.text})
 
-    monkeypatch.setattr(agent, "_emit_stream_chunk", _fake_emit)
+    monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
 
     class _FakeCoordinator:
         async def execute(self, _params):
@@ -307,10 +307,9 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
         await agent.call_llm(ctx, SimpleNamespace())
 
     assert len(emitted) == 2
-    assert emitted[0]["is_final"] is False
-    assert "rate" in emitted[0]["content_delta"].lower()
-    assert emitted[1]["is_final"] is True
-    assert emitted[1]["content_delta"] == ""
+    assert emitted[0]["kind"] == "text_delta"
+    assert "rate" in emitted[0]["text"].lower()
+    assert emitted[1]["kind"] == "text_flush"
 
 
 @pytest.mark.asyncio
@@ -323,7 +322,7 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
     async def _fake_emit(**kwargs):
         emitted.append(kwargs)
 
-    monkeypatch.setattr(agent, "_emit_stream_chunk", _fake_emit)
+    monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
 
     class _FakeCoordinator:
         async def execute(self, _params):

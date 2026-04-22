@@ -264,6 +264,11 @@
     "failed": "发送失败",
     "you": "你",
     "system": "系统",
+    "thinking": {
+      "label": "思考过程",
+      "expand": "展开思考",
+      "collapse": "收起思考"
+    },
     "connectingHint": "正在连接服务器...",
     "inputPlaceholder": "输入你的消息...（按 Enter 发送，Shift + Enter 换行）",
     "send": "发送",

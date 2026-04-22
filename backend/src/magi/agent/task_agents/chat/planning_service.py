@@ -10,6 +10,7 @@ from ....chat.workspace import get_default_chat_workspace_path
 from ....core.logger import get_logger
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
+from ....llm.streaming_events import get_stream_sink, stream_source
 from ....tools.registry import ToolRegistry
 from ....tools.schema import ToolExecutionContext
 from ...orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrationState
@@ -122,11 +123,23 @@ class ChatPlanningService:
             }
         ]
         try:
-            response = await self._prompt_service.call_llm(
-                system_prompt=system_prompt,
-                messages=messages,
-                disable_thinking=False,
-            )
+            if get_stream_sink() is not None:
+                chunks: list[str] = []
+                async with stream_source("aggregator"):
+                    async for event in self._prompt_service.call_llm_stream(
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        disable_thinking=False,
+                    ):
+                        if event.kind == "text_delta" and event.text:
+                            chunks.append(event.text)
+                response = "".join(chunks)
+            else:
+                response = await self._prompt_service.call_llm(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    disable_thinking=False,
+                )
         except Exception as exc:
             logger.warning(
                 "Parent aggregation LLM call failed | orchestration_id=%s error=%s",
@@ -205,13 +218,27 @@ class ChatPlanningService:
                 "Do not answer the user request directly. Produce execution-ready leaf tasks only."
             )
         try:
-            response = await self._prompt_service.call_llm(
-                system_prompt=system_prompt,
-                messages=[{"role": "user", "content": json.dumps(planning_prompt, ensure_ascii=False)}],
-                disable_thinking=False,
-                json_mode=True,
-                timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
-            )
+            if get_stream_sink() is not None:
+                chunks: list[str] = []
+                async with stream_source("planner"):
+                    async for event in self._prompt_service.call_llm_stream(
+                        system_prompt=system_prompt,
+                        messages=[{"role": "user", "content": json.dumps(planning_prompt, ensure_ascii=False)}],
+                        disable_thinking=False,
+                        json_mode=True,
+                        timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
+                    ):
+                        if event.kind == "text_delta" and event.text:
+                            chunks.append(event.text)
+                response = "".join(chunks)
+            else:
+                response = await self._prompt_service.call_llm(
+                    system_prompt=system_prompt,
+                    messages=[{"role": "user", "content": json.dumps(planning_prompt, ensure_ascii=False)}],
+                    disable_thinking=False,
+                    json_mode=True,
+                    timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
+                )
         except Exception as exc:
             logger.warning("Task-agent planning call failed | error=%s", exc)
             return None

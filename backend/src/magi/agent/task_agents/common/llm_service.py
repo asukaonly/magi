@@ -10,6 +10,7 @@ from ....config.models import LLMScenario, ThinkingDepth
 from ....config.constants import DEFAULT_MAX_TOKENS
 from ....core.logger import get_logger
 from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
+from ....llm.streaming_events import LLMStreamEvent
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 logger = get_logger(__name__)
@@ -121,8 +122,15 @@ class TaskAgentLLMService:
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: float | None = None,
-    ) -> AsyncIterator[str]:
-        """Streaming variant of call(). Yields text chunks as they arrive."""
+    ) -> AsyncIterator[LLMStreamEvent]:
+        """Streaming variant of call().
+
+        Yields :class:`LLMStreamEvent` instances — typically one
+        ``text_delta`` per visible fragment plus optional
+        ``reasoning_delta`` / ``usage`` / ``done`` events. Each event is
+        also forwarded to the contextual stream sink by the underlying
+        provider bridge, so UI consumers do not need to re-wire.
+        """
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
         llm = self._resolve_llm()
@@ -137,7 +145,7 @@ class TaskAgentLLMService:
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
         collected = ""
         try:
-            async for chunk in self._provider_bridge.chat_response_stream(
+            async for event in self._provider_bridge.chat_response_stream(
                 system_prompt=system_prompt,
                 messages=messages,
                 max_tokens=self._llm_max_tokens(),
@@ -146,8 +154,9 @@ class TaskAgentLLMService:
                 json_mode=json_mode,
                 timeout_seconds=timeout_seconds,
             ):
-                collected += chunk
-                yield chunk
+                if event.kind == "text_delta" and event.text:
+                    collected += event.text
+                yield event
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
                 self._llm_logger,
