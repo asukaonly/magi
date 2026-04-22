@@ -65,6 +65,35 @@ def _pick(dc_cls: type, raw: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in raw.items() if k in allowed}
 
 
+def _parse_interim_lines(raw: Any) -> Dict[str, List[str]]:
+    """Normalize ``interim_lines`` from persona JSON into ``{mode: [str, ...]}``.
+
+    Accepts either a single string or a list of strings per key. Invalid
+    entries are silently dropped so a malformed persona never crashes the
+    coordinator's interim-text lookup.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    result: Dict[str, List[str]] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            continue
+        lines: List[str] = []
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                lines.append(text)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, str):
+                    text = item.strip()
+                    if text:
+                        lines.append(text)
+        if lines:
+            result[key] = lines
+    return result
+
+
 def _synthesize_core_identity(persona: Dict[str, Any]) -> Dict[str, str]:
     """Build core_identity from legacy psychological_traits / social_responses / behavioral_strategies."""
     psych = persona.get("psychological_traits", {})
@@ -114,6 +143,13 @@ class PersonalityConfig:
     persona_layers: List[PersonaLayerItem] = field(default_factory=list)
     milestone_conditions: Dict[str, str] = field(default_factory=dict)
     scenario_prompts: Dict[str, str] = field(default_factory=dict)
+    # Per-mode interim placeholder lines spoken while an orchestration / explore
+    # run is still working. Shape: ``{mode_key: [candidate lines...]}`` where
+    # ``mode_key`` is one of ``"orchestration_launch"`` or ``"explore_task"``.
+    # A personality picks its own phrasing (e.g. Echo-01's flat service
+    # cadence vs. a casual persona's "稍等我看看"). Missing keys fall back to
+    # localized generics inside the coordinator.
+    interim_lines: Dict[str, List[str]] = field(default_factory=dict)
     bootstrap: Optional[BootstrapConfig] = None
 
     @property
@@ -161,6 +197,7 @@ class PersonalityConfig:
             ],
             milestone_conditions=dict(data.get("milestone_conditions", {})),
             scenario_prompts=dict(scenario_prompts_raw) if isinstance(scenario_prompts_raw, dict) else {},
+            interim_lines=_parse_interim_lines(data.get("interim_lines")),
             bootstrap=BootstrapConfig(**{**asdict(BootstrapConfig()), **_pick(BootstrapConfig, bootstrap_raw)})
             if isinstance(bootstrap_raw, dict) else None,
         )

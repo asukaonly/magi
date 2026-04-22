@@ -4,11 +4,13 @@ from __future__ import annotations
 import inspect
 import os
 import platform
+import random
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List
 
 from ....agent.message_utils import build_recent_messages
 from ....core.logger import get_logger
+from ....personality.current_state import get_current_personality_config
 from ....tools.context_decider import ContextDecider
 from ....tools.context_decider_context import ContextDeciderContext
 from ..common import (
@@ -283,23 +285,28 @@ class ChatExecutionCoordinator:
             return TurnUXPlan(
                 assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
                 thinking_indicator=ThinkingIndicatorMode.HIDDEN,
-                trace_display_mode=TraceDisplayMode.NONE,
+                trace_display_mode=TraceDisplayMode.COLLAPSIBLE,
             )
         if execution_mode == ExecutionMode.FUNCTION_CALLING:
             return TurnUXPlan(
                 assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
                 thinking_indicator=ThinkingIndicatorMode.HIDDEN,
-                trace_display_mode=TraceDisplayMode.COLLAPSIBLE,
+                trace_display_mode=TraceDisplayMode.PROMINENT,
                 allow_trace_collapse=bool(tools),
             )
         if execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH:
-            interim_text = "Let me think this through and check for you."
-            if orchestration_plan is not None and orchestration_plan.route_to_explore_task_agent:
-                interim_text = "Let me inspect this in detail and I will come back with the result."
+            is_explore = bool(
+                orchestration_plan is not None
+                and orchestration_plan.route_to_explore_task_agent
+            )
+            interim_text = self._resolve_interim_text(
+                mode_key="explore_task" if is_explore else "orchestration_launch",
+                user_message=user_message,
+            )
             return TurnUXPlan(
                 assistant_surface_mode=AssistantSurfaceMode.INTERIM_THEN_FINAL,
                 thinking_indicator=ThinkingIndicatorMode.SUBTLE,
-                trace_display_mode=TraceDisplayMode.COLLAPSIBLE,
+                trace_display_mode=TraceDisplayMode.PROMINENT,
                 allow_trace_collapse=True,
                 interim_text=interim_text,
             )
@@ -307,7 +314,62 @@ class ChatExecutionCoordinator:
             return TurnUXPlan(
                 assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
                 thinking_indicator=ThinkingIndicatorMode.HIDDEN,
-                trace_display_mode=TraceDisplayMode.COLLAPSIBLE,
+                trace_display_mode=TraceDisplayMode.PROMINENT,
                 allow_trace_collapse=True,
             )
         return TurnUXPlan()
+
+    # -- interim-text resolution -------------------------------------------------
+
+    _INTERIM_FALLBACK_LINES: Dict[str, Dict[str, List[str]]] = {
+        "zh": {
+            "orchestration_launch": ["让我仔细想想再回复你。"],
+            "explore_task": ["我去仔细看一下，稍后把结果给你。"],
+        },
+        "en": {
+            "orchestration_launch": ["Let me think this through and check for you."],
+            "explore_task": ["Let me inspect this in detail and I will come back with the result."],
+        },
+    }
+
+    @staticmethod
+    def _detect_message_language(message: str) -> str:
+        """Return ``"zh"`` if the message contains CJK, otherwise ``"en"``."""
+        for ch in message or "":
+            # CJK Unified Ideographs block; sufficient for mandarin-leaning UX.
+            if "\u4e00" <= ch <= "\u9fff":
+                return "zh"
+        return "en"
+
+    def _resolve_interim_text(self, *, mode_key: str, user_message: str) -> str:
+        """Pick the interim placeholder line for the active persona.
+
+        Resolution order:
+
+        1. ``interim_lines[mode_key]`` on the active ``PersonalityConfig``.
+        2. ``interim_lines[mode_key]`` defaults for the user's message
+           language (zh / en).
+        3. Generic English fallback (never empty).
+
+        When a key maps to multiple candidate lines one is chosen at random
+        so the bubble does not feel copy-pasted across turns.
+        """
+        persona_config = None
+        try:
+            persona_config = get_current_personality_config()
+        except Exception:  # pragma: no cover - defensive, persona cache should never raise
+            persona_config = None
+        persona_lines: List[str] = []
+        if persona_config is not None:
+            persona_lines = list(
+                getattr(persona_config, "interim_lines", {}).get(mode_key, [])
+            )
+        if persona_lines:
+            return random.choice(persona_lines)
+        lang = self._detect_message_language(user_message)
+        fallback = self._INTERIM_FALLBACK_LINES.get(lang, {}).get(mode_key)
+        if fallback:
+            return random.choice(fallback)
+        # Ultimate safety net: English orchestration_launch line. Keeps the
+        # UI contract that interim_text is always a non-empty string.
+        return self._INTERIM_FALLBACK_LINES["en"]["orchestration_launch"][0]

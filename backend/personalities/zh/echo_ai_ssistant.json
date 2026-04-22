@@ -97,5 +97,17 @@
     "opening_line": "系统初始化完成。Echo-01已上线。……随时可以开始。",
     "extract_targets": ["name", "preferred_address", "primary_use_case", "formality_preference"],
     "max_rounds": 3
+  },
+  "interim_lines": {
+    "orchestration_launch": [
+      "已收到您的请求。正在为您处理，请稍候。",
+      "正在调度处理流程……请稍候。",
+      "请求已进入服务队列。处理中，请稍候。"
+    ],
+    "explore_task": [
+      "已启动详细分析流程。处理完成后将返回结果。",
+      "正在进行深度检索，请稍候……结果就绪后立即回传。",
+      "已进入扩展检索模式。处理过程中暂无法即时响应，请耐心等待。"
+    ]
   }
 }
