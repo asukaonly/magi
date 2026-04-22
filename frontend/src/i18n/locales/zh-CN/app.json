@@ -507,6 +507,7 @@
       "actions": "执行器",
       "channels": "接入渠道",
       "channelsTelegram": "Telegram",
+      "control": "控制面",
       "system": "系统"
     },
     "preferencesDesc": "配置界面语言、主题和桌面行为",

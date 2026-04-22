@@ -507,6 +507,7 @@
       "actions": "Actions",
       "channels": "Channels",
       "channelsTelegram": "Telegram",
+      "control": "Control Plane",
       "system": "System"
     },
     "preferencesDesc": "Configure interface language, theme, and desktop behavior",

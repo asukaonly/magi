@@ -31,6 +31,7 @@ import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
+import { ControlSettingsPanel } from '@/components/control';
 import PersonalityModern from '@/pages/PersonalityModern';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import { Button } from '@/components/ui/button';
@@ -702,6 +703,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             reloading={reloadingActionPlugins}
           />
         );
+
+      case 'control':
+        return <ControlSettingsPanel />;
 
       default:
         return null;

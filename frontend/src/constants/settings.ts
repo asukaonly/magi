@@ -14,6 +14,7 @@ import {
   PlugZap,
   Send,
   Radio,
+  ShieldCheck,
 } from 'lucide-react';
 
 import type { NavItem } from '@/types/settings';
@@ -51,6 +52,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'actions', icon: Send },
   { id: 'channels', icon: Radio },
   { id: 'tools', icon: Wrench },
+  { id: 'control', icon: ShieldCheck },
   {
     id: 'statistics',
     icon: BarChart3,
