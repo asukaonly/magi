@@ -129,6 +129,10 @@ class PermissionRequest:
         return uuid.uuid4().hex
 
     def to_dict(self) -> dict[str, Any]:
+        # ``turn_id`` is the canonical runtime identifier; ``task_id`` is
+        # emitted as a compatibility alias for older consumers. They carry
+        # the same value because the gateway is invoked with the active
+        # turn id as the agent-task id.
         return {
             "request_id": self.request_id,
             "tool_name": self.tool_name,
@@ -137,6 +141,7 @@ class PermissionRequest:
             "origin": self.origin.value,
             "agent_id": self.agent_id,
             "session_id": self.session_id,
+            "turn_id": self.task_id,
             "task_id": self.task_id,
             "workspace": self.workspace,
             "preview": self.preview,

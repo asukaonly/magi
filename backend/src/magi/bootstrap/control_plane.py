@@ -129,6 +129,8 @@ class ControlPlaneModule(LifecycleModule):
         async def _publish_permission_event(
             channel: str, payload: dict
         ) -> None:
+            # ``turn_id`` is canonical; ``task_id`` is accepted as a
+            # legacy alias for payloads coming from older code paths.
             await publish_control_event(
                 channel,
                 payload,
