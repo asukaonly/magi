@@ -421,6 +421,64 @@ once from `GET /api/background-tasks`, then replaces or inserts
 individual rows as each ``background_task_state_changed`` notification
 arrives — no polling.
 
+### Mid-turn detach to background
+
+Some chat turns reveal mid-flight that a goal is too long to finish
+synchronously (e.g. a multi-step research crawl). Rather than forcing
+the user to cancel and resubmit, the orchestrator lets a running tool
+loop hand itself off to the background runtime while preserving the
+exact tool-loop state.
+
+Primitives (in
+[agent/run_control.py](/Users/asuka/code/magi/backend/src/magi/agent/run_control.py)):
+
+- ``DetachSignal`` — one-shot flag flipped by a tool or a user action.
+  Exposes ``request(payload)`` and ``is_requested()``.
+- ``OrchestratorSnapshot`` — serializable view of ``state.messages``
+  plus ``iterations`` / ``reason`` / ``note``.
+- ``bind_detach_signal(signal)`` — context manager that publishes the
+  signal to tools via a ``ContextVar`` bridge
+  (``current_detach_signal()``). A ``None`` signal is a no-op.
+
+The
+[``detach_to_background`` tool](/Users/asuka/code/magi/backend/src/magi/tools/builtin/detach_to_background_tool.py)
+reads ``current_detach_signal()`` and calls ``signal.request(...)``.
+Outside a bound context it returns ``error_code="detach_not_supported"``.
+
+Flow inside a chat turn
+([agent/task_agents/chat/handlers.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/chat/handlers.py)):
+
+1. ``FunctionCallingHandler.execute()`` builds a fresh ``DetachSignal``
+   via ``_build_detach_signal()`` — only when a ``BackgroundLaunchService``
+   is wired. Without a launch service there is nowhere to hand off, so
+   the signal is ``None`` and the tool correctly reports
+   ``detach_not_supported``.
+2. The signal is threaded into both execution paths:
+   - ``execute_with_tools`` (plain path) wraps its body in
+     ``bind_detach_signal(signal)`` and, on trip, returns an
+     ``ExecutionOutcome`` with ``status="detached"`` and the current
+     ``OrchestratorSnapshot``.
+   - ``_execute_with_session_checkpoints`` (the hand-rolled loop that
+     bypasses ``execute_with_tools`` to cooperate with
+     ``SessionRunCoordinator``) wraps its own ``while`` loop plus the
+     fallback final response inside ``bind_detach_signal(signal)`` and
+     polls the signal at two boundaries per iteration — before the
+     next LLM call and after each tool batch — so a tool that flipped
+     the signal this iteration exits before burning another LLM round.
+3. ``_maybe_handoff_detached_outcome`` inspects the result. When
+   ``execution_outcome.status == "detached"``, it re-enqueues the run
+   via ``BackgroundLaunchService.enqueue_from_request`` with
+   ``trigger_source=MANUAL`` and ``initial_messages=<snapshot.messages>``.
+   ``build_background_run_fn`` honors ``spec.initial_messages`` by
+   passing them as ``conversation_history`` with ``user_message=""``,
+   so the background task resumes from the exact tool-loop state
+   instead of replaying the user message from scratch.
+4. Hand-off is degrade-safe: if ``enqueue_from_request`` raises, the
+   original detached result is surfaced and
+   ``ChatPostProcessService`` emits
+   ``"Failed to move this task to the background."`` so the user never
+   silently loses the turn.
+
 ## Typed Execution Framework
 
 The shared execution framework lives under `agent/task_agents/common/`.
