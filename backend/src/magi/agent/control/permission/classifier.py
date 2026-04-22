@@ -413,7 +413,27 @@ _RULES: dict[str, Callable[[dict[str, Any]], ClassificationResult]] = {
     "send_message": _classify_send_message,
     "send_email": _classify_send_message,
     "telegram_send": _classify_send_message,
+    "email_send": _classify_send_message,
+    "post_message": _classify_send_message,
+    "publish_message": _classify_send_message,
+    "notify_user": _classify_send_message,
+    "notification_send": _classify_send_message,
+    "sms_send": _classify_send_message,
 }
+
+
+# Tools matching these substrings are treated as external-side-effect HIGH
+# by default (floor behaviour) even when plugins forget to mark them as
+# ``dangerous``. Applied only when no explicit rule matches.
+_EXTERNAL_SEND_SUBSTRINGS: tuple[str, ...] = (
+    "send_message",
+    "send_email",
+    "send_sms",
+    "send_notification",
+    "post_message",
+    "publish_message",
+    "notify_user",
+)
 
 
 class RiskClassifier:
@@ -444,6 +464,9 @@ class RiskClassifier:
         rule = _RULES.get(tool_name)
         if rule is not None:
             return rule(dict(arguments))
+        lowered = tool_name.lower()
+        if any(marker in lowered for marker in _EXTERNAL_SEND_SUBSTRINGS):
+            return _classify_send_message(dict(arguments))
         if tool_is_dangerous:
             return ClassificationResult(
                 level=self._default_dangerous_level,

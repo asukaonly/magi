@@ -77,6 +77,28 @@ def test_unknown_tool_dangerous_flag_promotes_to_high(
     assert any(s.key == "tool_flagged_dangerous" for s in result.signals)
 
 
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "custom_send_message",
+        "slack_send_message",
+        "acme_send_email",
+        "discord_post_message",
+        "publish_message_to_bus",
+        "notify_user_via_push",
+        "foo_send_sms",
+    ],
+)
+def test_external_send_substring_fallback_high(
+    classifier: RiskClassifier, tool_name: str
+) -> None:
+    """Plugins that forget dangerous=True still get gated if the name
+    contains a canonical external-send substring."""
+    result = classifier.classify(tool_name=tool_name, arguments={"channel": "#x"})
+    assert result.level is RiskLevel.HIGH
+    assert any(s.key == "external_side_effect" for s in result.signals)
+
+
 def test_empty_shell_command_low(classifier: RiskClassifier) -> None:
     result = classifier.classify(tool_name="bash", arguments={"command": "   "})
     assert result.level is RiskLevel.LOW
