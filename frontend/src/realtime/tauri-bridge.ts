@@ -28,6 +28,14 @@ const BRIDGE_EVENTS = [
   'chat_message_upserted',
   'chat_message_hidden',
   'background_task_state_changed',
+  // Control-plane channels (forwarded by the Rust bridge; see
+  // backend/src/magi/agent/control/common/events.py).
+  'control.permission.requested',
+  'control.ask.requested',
+  'control.todo.updated',
+  'control.plan.updated',
+  'control.background.suspended',
+  'control.background.resumed',
 ] as const;
 
 interface BridgePayload {

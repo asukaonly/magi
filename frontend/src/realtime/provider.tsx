@@ -34,7 +34,7 @@ type RealtimeContextValue = {
   subscribe: (listener: (message: RealtimeMessage) => void) => () => void;
 };
 
-const RealtimeContext = createContext<RealtimeContextValue | null>(null);
+export const RealtimeContext = createContext<RealtimeContextValue | null>(null);
 
 class RealtimeDispatcher {
   private listeners = new Set<(message: RealtimeMessage) => void>();

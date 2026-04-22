@@ -1,10 +1,11 @@
 /**
  * Side panel that lists the current session's todo items.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getTodos, TodoItemDTO, TodoStatus } from '@/api/modules/control';
+import { useControlEvents } from '@/realtime/useControlEvents';
 
 export interface TodoPanelProps {
   sessionId: string | null | undefined;
@@ -17,32 +18,44 @@ const statusIcons: Record<TodoStatus, string> = {
   completed: '●',
 };
 
-export function TodoPanel({ sessionId, intervalMs = 2000 }: TodoPanelProps) {
+export function TodoPanel({ sessionId, intervalMs = 10000 }: TodoPanelProps) {
   const { t } = useTranslation('control');
   const [items, setItems] = useState<TodoItemDTO[]>([]);
+
+  const pull = useCallback(async () => {
+    if (!sessionId) {
+      setItems([]);
+      return;
+    }
+    try {
+      const next = await getTodos(sessionId);
+      setItems(next);
+    } catch {
+      // ignore
+    }
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
       setItems([]);
       return;
     }
-    let cancelled = false;
-    const pull = async () => {
-      try {
-        const next = await getTodos(sessionId);
-        if (!cancelled) setItems(next);
-      } catch {
-        // ignore
-      }
-    };
     void pull();
     if (intervalMs <= 0) return () => undefined;
-    const handle = setInterval(pull, intervalMs);
+    const handle = setInterval(() => {
+      void pull();
+    }, intervalMs);
     return () => {
-      cancelled = true;
       clearInterval(handle);
     };
-  }, [sessionId, intervalMs]);
+  }, [sessionId, intervalMs, pull]);
+
+  useControlEvents({
+    sessionId: sessionId ?? null,
+    onTodoUpdated: () => {
+      void pull();
+    },
+  });
 
   return (
     <Card data-testid="todo-panel">

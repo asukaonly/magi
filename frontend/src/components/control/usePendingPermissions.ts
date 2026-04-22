@@ -12,6 +12,7 @@ import {
   listPendingPermissions,
   PendingPermissionDTO,
 } from '@/api/modules/control';
+import { useControlEvents } from '@/realtime/useControlEvents';
 
 interface UsePendingPermissionsOptions {
   sessionId?: string | null;
@@ -21,7 +22,7 @@ interface UsePendingPermissionsOptions {
 
 export function usePendingPermissions({
   sessionId,
-  intervalMs = 1500,
+  intervalMs = 5000,
   enabled = true,
 }: UsePendingPermissionsOptions) {
   const [items, setItems] = useState<PendingPermissionDTO[]>([]);
@@ -65,6 +66,13 @@ export function usePendingPermissions({
       }
     };
   }, [enabled, sessionId, intervalMs, refresh]);
+
+  useControlEvents({
+    sessionId: sessionId ?? null,
+    onPermissionRequested: () => {
+      void refresh();
+    },
+  });
 
   return { items, loading, error, refresh };
 }

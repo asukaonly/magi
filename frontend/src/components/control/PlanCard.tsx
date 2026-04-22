@@ -1,43 +1,56 @@
 /**
  * Card that renders the current plan-mode state for a session.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { getPlanState, PlanStateDTO } from '@/api/modules/control';
+import { useControlEvents } from '@/realtime/useControlEvents';
 
 export interface PlanCardProps {
   sessionId: string | null | undefined;
   intervalMs?: number;
 }
 
-export function PlanCard({ sessionId, intervalMs = 2000 }: PlanCardProps) {
+export function PlanCard({ sessionId, intervalMs = 10000 }: PlanCardProps) {
   const { t } = useTranslation('control');
   const [state, setState] = useState<PlanStateDTO | null>(null);
+
+  const pull = useCallback(async () => {
+    if (!sessionId) {
+      setState(null);
+      return;
+    }
+    try {
+      const next = await getPlanState(sessionId);
+      setState(next);
+    } catch {
+      // ignore
+    }
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
       setState(null);
       return;
     }
-    let cancelled = false;
-    const pull = async () => {
-      try {
-        const next = await getPlanState(sessionId);
-        if (!cancelled) setState(next);
-      } catch {
-        // ignore
-      }
-    };
     void pull();
     if (intervalMs <= 0) return () => undefined;
-    const handle = setInterval(pull, intervalMs);
+    const handle = setInterval(() => {
+      void pull();
+    }, intervalMs);
     return () => {
-      cancelled = true;
       clearInterval(handle);
     };
-  }, [sessionId, intervalMs]);
+  }, [sessionId, intervalMs, pull]);
+
+  useControlEvents({
+    sessionId: sessionId ?? null,
+    onPlanUpdated: () => {
+      void pull();
+    },
+  });
 
   if (!state) return null;
 

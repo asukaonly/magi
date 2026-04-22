@@ -3,7 +3,7 @@
  * a reply. Fetches the current ask state for the session and posts
  * the user's answer via ``respondAsk``.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -21,6 +21,7 @@ import {
   getAskState,
   respondAsk,
 } from '@/api/modules/control';
+import { useControlEvents } from '@/realtime/useControlEvents';
 
 export interface AskDialogProps {
   sessionId: string | null | undefined;
@@ -34,7 +35,7 @@ export interface AskDialogProps {
 
 export function AskDialog({
   sessionId,
-  intervalMs = 1500,
+  intervalMs = 5000,
   onAnswered,
   background = false,
 }: AskDialogProps) {
@@ -45,35 +46,46 @@ export function AskDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const pull = useCallback(async () => {
+    if (!sessionId) {
+      setAsk(null);
+      return;
+    }
+    try {
+      const current = await getAskState(sessionId);
+      if (current && current.status === 'pending') {
+        setAsk((prev) =>
+          prev && prev.request_id === current.request_id ? prev : current,
+        );
+      } else {
+        setAsk(null);
+      }
+    } catch {
+      // swallow — transient fetch errors shouldn't crash the host
+    }
+  }, [sessionId]);
+
   useEffect(() => {
     if (!sessionId) {
       setAsk(null);
       return;
     }
-    let cancelled = false;
-    const pull = async () => {
-      try {
-        const current = await getAskState(sessionId);
-        if (cancelled) return;
-        if (current && current.status === 'pending') {
-          setAsk((prev) =>
-            prev && prev.request_id === current.request_id ? prev : current,
-          );
-        } else {
-          setAsk(null);
-        }
-      } catch {
-        // swallow — transient fetch errors shouldn't crash the host
-      }
-    };
     void pull();
     if (intervalMs <= 0) return () => undefined;
-    const handle = setInterval(pull, intervalMs);
+    const handle = setInterval(() => {
+      void pull();
+    }, intervalMs);
     return () => {
-      cancelled = true;
       clearInterval(handle);
     };
-  }, [sessionId, intervalMs]);
+  }, [sessionId, intervalMs, pull]);
+
+  useControlEvents({
+    sessionId: sessionId ?? null,
+    onAskRequested: () => {
+      void pull();
+    },
+  });
 
   const canSubmit = useMemo(() => {
     if (!ask) return false;
