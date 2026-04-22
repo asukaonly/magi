@@ -1,18 +1,20 @@
 import React, { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { useChatShellStore } from '@/stores';
+import { useChatShellStore, useConversationStore } from '@/stores';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import { panelByPathname } from '@/pages/chat-route-helpers';
 import AppShellProviders from './AppShellProviders';
 import BackendHealthBanner from './BackendHealthBanner';
 import Sidebar from './Sidebar';
 import ShellOverlays from './ShellOverlays';
+import { PermissionModalHost, AskDialog } from '@/components/control';
 
 const SHELL_DRAG_STRIP_LEFT = '84px';
 
 const MainLayout: React.FC = () => {
   const location = useLocation();
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const currentSessionId = useConversationStore((state) => state.currentSessionId);
   useBackendHealth();
 
   useEffect(() => {
@@ -44,6 +46,10 @@ const MainLayout: React.FC = () => {
           <ShellOverlays />
         </div>
       </div>
+      {/* Control-plane hosts are mounted app-wide so prompts from
+          background subagents surface regardless of the active page. */}
+      <PermissionModalHost sessionId={currentSessionId} />
+      <AskDialog sessionId={currentSessionId} />
     </AppShellProviders>
   );
 };

@@ -24,7 +24,7 @@ import { useRealtime } from '@/realtime/provider';
 import { useChatTraceStore, useConversationStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { ContextUsageRing } from '@/components/chat/ContextUsageRing';
-import { PermissionModalHost, AskDialog } from '@/components/control';
+import { SessionControlRail } from '@/components/control';
 import { useContextUsageStore } from '@/stores/context-usage';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
@@ -1845,8 +1845,7 @@ export const ChatPage: React.FC = () => {
       transition={{ duration: 0.15 }}
       className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
     >
-      <PermissionModalHost sessionId={currentSessionId} />
-      <AskDialog sessionId={currentSessionId} />
+      <SessionControlRail sessionId={currentSessionId} />
       {currentSessionId && (
         <div className="mb-2 shrink-0 px-2 py-1">
           <div className="flex flex-col gap-2 text-sm text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
