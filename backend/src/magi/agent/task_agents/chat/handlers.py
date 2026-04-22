@@ -17,6 +17,7 @@ from ....agent.background.dispatcher import (
 )
 from ....agent.background.launch import BackgroundLaunchService
 from ....agent.message_utils import append_latest_user_message
+from ....agent.run_control import DetachSignal, OrchestratorSnapshot, bind_detach_signal
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
 from ....context.service import ContextAssemblyService
@@ -264,6 +265,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
         stream_callback = self._deps.stream_chunk_callback
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
+        detach_signal = self._build_detach_signal()
 
         fc_stream_callback = None
         stream_state = {"chunks_emitted": 0, "retracted": False, "any_streamed": False}
@@ -306,8 +308,12 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 request,
                 execution_workspace=execution_workspace,
                 stream_chunk_callback=fc_stream_callback,
+                detach_signal=detach_signal,
             )
             result.streamed = stream_state.get("any_streamed", False)
+            handoff = await self._maybe_handoff_detached_outcome(request, result)
+            if handoff is not None:
+                return handoff
             return result
 
         cancel_token = self._build_cancel_token(request)
@@ -332,6 +338,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             ),
             stream_chunk_callback=fc_stream_callback,
             cancel_token=cancel_token,
+            detach_signal=detach_signal,
         )
 
         streamed = stream_state["chunks_emitted"] > 0 and execution_outcome.status == "completed"
@@ -345,7 +352,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 False,
             )
 
-        return FunctionCallingExecutionResult(
+        fc_result = FunctionCallingExecutionResult(
             mode=request.mode,
             response_text=execution_outcome.content,
             root_user_message=request.context.latest_user_message,
@@ -354,6 +361,10 @@ class FunctionCallingHandler(BaseExecutionHandler):
             ux_plan=_serialize_ux_plan(request.intent),
             streamed=streamed,
         )
+        handoff = await self._maybe_handoff_detached_outcome(request, fc_result)
+        if handoff is not None:
+            return handoff
+        return fc_result
 
     async def _execute_with_session_checkpoints(
         self,
@@ -361,6 +372,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         *,
         execution_workspace: str | None,
         stream_chunk_callback: Any | None = None,
+        detach_signal: DetachSignal | None = None,
     ) -> ExecutionResult:
         orchestrator = self._deps.function_calling_orchestrator
         session_run_coordinator = self._deps.session_run_coordinator
@@ -376,25 +388,117 @@ class FunctionCallingHandler(BaseExecutionHandler):
         )
         max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
 
-        while step_state.iteration < max_iterations:
-            if await cancel_token.is_cancelled():
-                return FunctionCallingExecutionResult(
-                    mode=request.mode,
-                    response_text="",
-                    root_user_message=current_user_message,
-                    execution_outcome={
-                        "status": "cancelled",
-                        "content": "",
+        with bind_detach_signal(detach_signal):
+            while step_state.iteration < max_iterations:
+                if await cancel_token.is_cancelled():
+                    return FunctionCallingExecutionResult(
+                        mode=request.mode,
+                        response_text="",
+                        root_user_message=current_user_message,
+                        execution_outcome={
+                            "status": "cancelled",
+                            "content": "",
+                            "failure_reason": None,
+                            "tool_failures": list(getattr(step_state, "tool_failures", [])),
+                            "iterations": step_state.iteration,
+                        },
+                        turn_id=current_turn_id,
+                        ux_plan=_serialize_ux_plan(request.intent),
+                    )
+                if detach_signal is not None and detach_signal.is_requested():
+                    return self._build_detached_chat_result(
+                        request=request,
+                        step_state=step_state,
+                        detach_signal=detach_signal,
+                        current_user_message=current_user_message,
+                        current_turn_id=current_turn_id,
+                    )
+                step_outcome = await orchestrator.step_executor.execute_step(
+                    state=step_state,
+                    user_message=current_user_message,
+                    thinking_depth=request.thinking_depth,
+                    user_id=request.context.user_id,
+                    session_id=request.context.session_id,
+                    session_run_id=request.context.session_run_id,
+                    session_run_revision=current_revision,
+                    turn_id=current_turn_id,
+                    intent=request.intent.intent,
+                    execution_agent_id=request.context.runtime_key,
+                    execution_workspace=execution_workspace,
+                    orchestration_strategy=(
+                        request.intent.orchestration_plan.to_strategy_dict()
+                        if request.intent.orchestration_plan is not None
+                        else None
+                    ),
+                    stream_chunk_callback=stream_chunk_callback,
+                )
+                if step_outcome.status == "completed":
+                    # Flush any remaining intermediate streamed chunks.
+                    if stream_chunk_callback is not None:
+                        await stream_chunk_callback("", True)
+                    execution_outcome = {
+                        "status": "completed",
+                        "content": step_outcome.content,
                         "failure_reason": None,
                         "tool_failures": list(getattr(step_state, "tool_failures", [])),
-                        "iterations": step_state.iteration,
-                    },
-                    turn_id=current_turn_id,
-                    ux_plan=_serialize_ux_plan(request.intent),
-                )
-            step_outcome = await orchestrator.step_executor.execute_step(
+                        "iterations": step_outcome.iteration,
+                    }
+                    return FunctionCallingExecutionResult(
+                        mode=request.mode,
+                        response_text=step_outcome.content,
+                        root_user_message=current_user_message,
+                        execution_outcome=execution_outcome,
+                        turn_id=current_turn_id,
+                        ux_plan=_serialize_ux_plan(request.intent),
+                    )
+                if step_outcome.status == "failed":
+                    # Instead of returning an empty response, let the LLM
+                    # generate a final answer using the error context.
+                    break
+
+                # Flush intermediate streamed text before continuing.
+                if stream_chunk_callback is not None:
+                    await stream_chunk_callback("", True)
+
+                # Re-check detach after the tool batch runs so a tool that
+                # flipped the signal this iteration exits before the next
+                # LLM call.
+                if detach_signal is not None and detach_signal.is_requested():
+                    return self._build_detached_chat_result(
+                        request=request,
+                        step_state=step_state,
+                        detach_signal=detach_signal,
+                        current_user_message=current_user_message,
+                        current_turn_id=current_turn_id,
+                    )
+
+                active_run = session_run_coordinator.get_active_run(request.context.session_id)
+                if active_run is not None and active_run.revision != current_revision:
+                    current_revision = active_run.revision
+                    current_user_message = str(active_run.root_user_message or current_user_message)
+                    current_turn_id = active_run.root_turn_id or current_turn_id
+                    step_state = orchestrator.build_step_state(
+                        user_message=current_user_message,
+                        system_prompt=request.system_prompt,
+                        selected_tools=request.selected_tools,
+                        conversation_history=request.context.history,
+                    )
+                    continue
+
+                checkpoint = session_run_coordinator.consume_checkpoint(request.context.session_id)
+                if checkpoint.pending_turns:
+                    current_user_message = str(checkpoint.visible_user_message or current_user_message)
+                    current_turn_id = checkpoint.pending_turns[-1].turn_id or current_turn_id
+                    step_state = orchestrator.build_step_state(
+                        user_message=current_user_message,
+                        system_prompt=request.system_prompt,
+                        selected_tools=request.selected_tools,
+                        conversation_history=request.context.history,
+                    )
+                    continue
+
+            execution_outcome = await orchestrator._execute_fallback_final_response(
                 state=step_state,
-                user_message=current_user_message,
                 thinking_depth=request.thinking_depth,
                 user_id=request.context.user_id,
                 session_id=request.context.session_id,
@@ -409,87 +513,57 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     if request.intent.orchestration_plan is not None
                     else None
                 ),
+                llm_timeout_seconds=None,
+                final_response_json_mode=False,
                 stream_chunk_callback=stream_chunk_callback,
+                cancel_token=cancel_token,
             )
-            if step_outcome.status == "completed":
-                # Flush any remaining intermediate streamed chunks.
-                if stream_chunk_callback is not None:
-                    await stream_chunk_callback("", True)
-                execution_outcome = {
-                    "status": "completed",
-                    "content": step_outcome.content,
-                    "failure_reason": None,
-                    "tool_failures": list(getattr(step_state, "tool_failures", [])),
-                    "iterations": step_outcome.iteration,
-                }
-                return FunctionCallingExecutionResult(
-                    mode=request.mode,
-                    response_text=step_outcome.content,
-                    root_user_message=current_user_message,
-                    execution_outcome=execution_outcome,
-                    turn_id=current_turn_id,
-                    ux_plan=_serialize_ux_plan(request.intent),
-                )
-            if step_outcome.status == "failed":
-                # Instead of returning an empty response, let the LLM
-                # generate a final answer using the error context.
-                break
-
-            # Flush intermediate streamed text before continuing.
-            if stream_chunk_callback is not None:
-                await stream_chunk_callback("", True)
-
-            active_run = session_run_coordinator.get_active_run(request.context.session_id)
-            if active_run is not None and active_run.revision != current_revision:
-                current_revision = active_run.revision
-                current_user_message = str(active_run.root_user_message or current_user_message)
-                current_turn_id = active_run.root_turn_id or current_turn_id
-                step_state = orchestrator.build_step_state(
-                    user_message=current_user_message,
-                    system_prompt=request.system_prompt,
-                    selected_tools=request.selected_tools,
-                    conversation_history=request.context.history,
-                )
-                continue
-
-            checkpoint = session_run_coordinator.consume_checkpoint(request.context.session_id)
-            if checkpoint.pending_turns:
-                current_user_message = str(checkpoint.visible_user_message or current_user_message)
-                current_turn_id = checkpoint.pending_turns[-1].turn_id or current_turn_id
-                step_state = orchestrator.build_step_state(
-                    user_message=current_user_message,
-                    system_prompt=request.system_prompt,
-                    selected_tools=request.selected_tools,
-                    conversation_history=request.context.history,
-                )
-                continue
-
-        execution_outcome = await orchestrator._execute_fallback_final_response(
-            state=step_state,
-            thinking_depth=request.thinking_depth,
-            user_id=request.context.user_id,
-            session_id=request.context.session_id,
-            session_run_id=request.context.session_run_id,
-            session_run_revision=current_revision,
-            turn_id=current_turn_id,
-            intent=request.intent.intent,
-            execution_agent_id=request.context.runtime_key,
-            execution_workspace=execution_workspace,
-            orchestration_strategy=(
-                request.intent.orchestration_plan.to_strategy_dict()
-                if request.intent.orchestration_plan is not None
-                else None
-            ),
-            llm_timeout_seconds=None,
-            final_response_json_mode=False,
-            stream_chunk_callback=stream_chunk_callback,
-            cancel_token=cancel_token,
-        )
         return FunctionCallingExecutionResult(
             mode=request.mode,
             response_text=execution_outcome.content,
             root_user_message=current_user_message,
             execution_outcome=execution_outcome.to_dict(),
+            turn_id=current_turn_id,
+            ux_plan=_serialize_ux_plan(request.intent),
+        )
+
+    def _build_detached_chat_result(
+        self,
+        *,
+        request: FunctionCallingRequest,
+        step_state: Any,
+        detach_signal: DetachSignal,
+        current_user_message: str,
+        current_turn_id: str | None,
+    ) -> "FunctionCallingExecutionResult":
+        """Wrap a detach-triggered exit as a ``FunctionCallingExecutionResult``.
+
+        Produces the same ``execution_outcome`` shape that
+        :meth:`ExecutionOutcome.to_dict` would emit from
+        :meth:`FunctionCallingOrchestrator._build_detached_outcome`, so
+        downstream handoff logic only needs one code path.
+        """
+        payload = detach_signal.payload
+        reason = payload.reason if payload is not None else "detached"
+        note = payload.note if payload is not None else ""
+        snapshot = OrchestratorSnapshot(
+            messages=[dict(msg) for msg in step_state.messages],
+            iterations=step_state.iteration,
+            reason=reason,
+            note=note,
+        )
+        return FunctionCallingExecutionResult(
+            mode=request.mode,
+            response_text="",
+            root_user_message=current_user_message,
+            execution_outcome={
+                "status": "detached",
+                "content": "",
+                "failure_reason": None,
+                "tool_failures": list(getattr(step_state, "tool_failures", [])),
+                "iterations": step_state.iteration,
+                "snapshot": snapshot.to_dict(),
+            },
             turn_id=current_turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
@@ -534,6 +608,66 @@ class FunctionCallingHandler(BaseExecutionHandler):
         except Exception as exc:  # noqa: BLE001 - degrade safe to foreground
             logger.warning(
                 "background launch failed; falling back to foreground | user_id=%s error=%s",
+                request.context.user_id,
+                exc,
+            )
+            return None
+
+    def _build_detach_signal(self) -> DetachSignal | None:
+        """Return a fresh :class:`DetachSignal` for this turn, or ``None``.
+
+        The signal is only useful when a :class:`BackgroundLaunchService`
+        is wired — otherwise there is no place to hand the run off to and
+        the ``detach_to_background`` tool should continue to surface as
+        unsupported. Returning ``None`` in that case keeps
+        :func:`bind_detach_signal` a no-op.
+        """
+        if self._deps.background_launch_service is None:
+            return None
+        return DetachSignal()
+
+    async def _maybe_handoff_detached_outcome(
+        self,
+        request: FunctionCallingRequest,
+        result: ExecutionResult,
+    ) -> ExecutionResult | None:
+        """If ``result`` carries a ``detached`` outcome, enqueue a background
+        task seeded from its snapshot and return the ack result.
+
+        Returns ``None`` when the result is not a detach (so callers fall
+        through to their normal return path) or when no launch service is
+        wired. Any launch failure degrades silently and the original
+        detached result is returned so the chat surface shows an error
+        rather than pretending the work continues.
+        """
+        launch_service = self._deps.background_launch_service
+        if launch_service is None:
+            return None
+        if not isinstance(result, FunctionCallingExecutionResult):
+            return None
+        execution_outcome = result.execution_outcome
+        if not isinstance(execution_outcome, dict):
+            return None
+        if execution_outcome.get("status") != "detached":
+            return None
+        snapshot = execution_outcome.get("snapshot")
+        initial_messages: list[dict[str, Any]] | None = None
+        if isinstance(snapshot, dict):
+            raw_messages = snapshot.get("messages")
+            if isinstance(raw_messages, list):
+                initial_messages = [
+                    dict(msg) for msg in raw_messages if isinstance(msg, dict)
+                ]
+        try:
+            return await launch_service.enqueue_from_request(
+                request,
+                trigger_source=BackgroundTaskTriggerSource.MANUAL,
+                initial_messages=initial_messages,
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade safe: surface detach
+            logger.warning(
+                "detach hand-off failed; keeping detached outcome visible | "
+                "user_id=%s error=%s",
                 request.context.user_id,
                 exc,
             )

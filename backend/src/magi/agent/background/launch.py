@@ -86,6 +86,7 @@ def build_spec_from_request(
     trigger_source: BackgroundTaskTriggerSource,
     timeout_seconds: int | None = 1800,
     max_iterations: int = 20,
+    initial_messages: list[dict[str, Any]] | None = None,
 ) -> BackgroundTaskSpec:
     """Construct a :class:`BackgroundTaskSpec` from a chat
     :class:`ExecutionRequest`.
@@ -94,6 +95,12 @@ def build_spec_from_request(
     can rerun the same task without replaying the whole chat turn. The
     live chat history is intentionally not included — on retry the
     executor will rebuild its own prompt package.
+
+    When the caller already has an :class:`OrchestratorSnapshot` in hand
+    (typical for detach-to-background hand-offs), pass its
+    ``messages`` through ``initial_messages`` so the background run can
+    resume from the same LLM turn instead of restarting from
+    ``spec.goal``.
     """
     context = request.context
     latest_payload = getattr(context, "latest_payload", None)
@@ -111,6 +118,11 @@ def build_spec_from_request(
         trigger_source=trigger_source,
         timeout_seconds=timeout_seconds,
         max_iterations=max_iterations,
+        initial_messages=(
+            [dict(m) for m in initial_messages]
+            if initial_messages is not None
+            else None
+        ),
     )
 
 
@@ -147,6 +159,7 @@ class BackgroundLaunchService:
         trigger_source: BackgroundTaskTriggerSource,
         timeout_seconds: int | None = 1800,
         max_iterations: int = 20,
+        initial_messages: list[dict[str, Any]] | None = None,
     ) -> "ExecutionResult":
         # Imported here to avoid a module-load-time cycle:
         # task_agents.common.contracts -> task_agents/__init__.py ->
@@ -158,6 +171,7 @@ class BackgroundLaunchService:
             trigger_source=trigger_source,
             timeout_seconds=timeout_seconds,
             max_iterations=max_iterations,
+            initial_messages=initial_messages,
         )
         task = await self._manager.enqueue(spec)
         ack = self._ack_builder(spec, task)
