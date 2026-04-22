@@ -24,6 +24,7 @@ from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
 from ..cancel import CancelToken, null_cancel_token
 from ..message_utils import append_latest_user_message
+from ..run_control import DetachSignal, OrchestratorSnapshot, SteerInbox, SteerMessage
 from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
 from .context_compactor import ContextCompactor
 from .function_calling_postprocessor import FunctionCallingPostprocessor
@@ -74,17 +75,30 @@ class ToolCallResult:
 
 @dataclass
 class ExecutionOutcome:
-    """Structured result for function-calling execution."""
+    """Structured result for function-calling execution.
+
+    When ``status == "detached"`` the orchestrator observed a
+    :class:`~magi.agent.run_control.DetachSignal` request at a tool
+    boundary and exited gracefully; ``snapshot`` then carries the
+    serialisable messages list the background executor can resume
+    from, and ``content`` is left empty because no final assistant
+    response was produced in the foreground turn.
+    """
 
     status: str
     content: str
     failure_reason: Optional[str] = None
     tool_failures: List[Dict[str, Any]] = field(default_factory=list)
     iterations: int = 0
+    snapshot: Optional["OrchestratorSnapshot"] = None
 
     @property
     def succeeded(self) -> bool:
         return self.status == "completed"
+
+    @property
+    def detached(self) -> bool:
+        return self.status == "detached"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -93,6 +107,7 @@ class ExecutionOutcome:
             "failure_reason": self.failure_reason,
             "tool_failures": list(self.tool_failures),
             "iterations": self.iterations,
+            "snapshot": self.snapshot.to_dict() if self.snapshot is not None else None,
         }
 
 
@@ -223,6 +238,8 @@ class FunctionCallingOrchestrator:
         thinking_depth: ThinkingDepth | None = None,
         stream_chunk_callback: Callable[[str], Awaitable[None]] | None = None,
         cancel_token: CancelToken | None = None,
+        steer_inbox: SteerInbox | None = None,
+        detach_signal: DetachSignal | None = None,
     ) -> ExecutionOutcome:
         """
         Execute with continuous tool calling
@@ -239,6 +256,16 @@ class FunctionCallingOrchestrator:
                 returns True the run is aborted and a ``cancelled``
                 ExecutionOutcome is returned. Pass ``None`` (or omit) to
                 opt out of cancellation.
+            steer_inbox: Optional :class:`SteerInbox` drained at each tool
+                boundary. Any enqueued :class:`SteerMessage` is appended as
+                a ``user`` message before the next LLM call, allowing the
+                chat layer to route mid-run follow-ups into the active
+                orchestrator loop instead of superseding it.
+            detach_signal: Optional :class:`DetachSignal` polled at each
+                tool boundary. When the signal has been requested the
+                orchestrator exits with ``status="detached"`` and a
+                populated ``snapshot`` carrying the current messages so a
+                background worker can resume from the same LLM turn.
 
         Returns:
             Structured execution outcome
@@ -259,6 +286,10 @@ class FunctionCallingOrchestrator:
                     content="",
                     iterations=state.iteration,
                 )
+            if steer_inbox is not None:
+                await self._apply_steer_messages(state, steer_inbox)
+            if detach_signal is not None and detach_signal.is_requested():
+                return self._build_detached_outcome(state, detach_signal)
             step_outcome = await self.step_executor.execute_step(
                 state=state,
                 user_message=user_message,
@@ -327,6 +358,58 @@ class FunctionCallingOrchestrator:
         result = await self._context_compactor.compact(state.messages, system_prompt)
         if result.compacted:
             state.messages[:] = result.messages
+
+    async def _apply_steer_messages(
+        self,
+        state: FunctionCallingStepState,
+        steer_inbox: SteerInbox,
+    ) -> None:
+        """Drain ``steer_inbox`` and append each message to ``state.messages``.
+
+        Each drained :class:`SteerMessage` becomes a single ``user`` message
+        appended verbatim. Ordering matches the producer's push order.
+        Empty-content messages are skipped to avoid polluting the history.
+        """
+        pending = await steer_inbox.drain()
+        if not pending:
+            return
+        for message in pending:
+            content = (message.content or "").strip()
+            if not content:
+                continue
+            state.messages.append({"role": "user", "content": content})
+            logger.info(
+                "[FunctionCalling] Steer message injected at iteration=%s reason=%s",
+                state.iteration,
+                message.reason,
+            )
+
+    def _build_detached_outcome(
+        self,
+        state: FunctionCallingStepState,
+        detach_signal: DetachSignal,
+    ) -> ExecutionOutcome:
+        """Assemble the ``detached`` :class:`ExecutionOutcome` at a boundary."""
+        payload = detach_signal.payload
+        reason = payload.reason if payload is not None else "detached"
+        note = payload.note if payload is not None else ""
+        snapshot = OrchestratorSnapshot(
+            messages=[dict(msg) for msg in state.messages],
+            iterations=state.iteration,
+            reason=reason,
+            note=note,
+        )
+        logger.info(
+            "[FunctionCalling] Detach signal observed at iteration=%s reason=%s",
+            state.iteration,
+            reason,
+        )
+        return ExecutionOutcome(
+            status="detached",
+            content="",
+            iterations=state.iteration,
+            snapshot=snapshot,
+        )
 
     async def _execute_fallback_final_response(
         self,
