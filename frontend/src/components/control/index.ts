@@ -11,6 +11,8 @@ export { PlanCard } from './PlanCard';
 export type { PlanCardProps } from './PlanCard';
 export { TodoPanel } from './TodoPanel';
 export type { TodoPanelProps } from './TodoPanel';
+export { SessionControlRail } from './SessionControlRail';
+export type { SessionControlRailProps } from './SessionControlRail';
 export { ControlSettingsPanel } from './ControlSettingsPanel';
 export type { ControlSettingsPanelProps } from './ControlSettingsPanel';
 export { usePendingPermissions } from './usePendingPermissions';
