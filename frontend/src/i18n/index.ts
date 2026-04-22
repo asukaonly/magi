@@ -2,8 +2,10 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import enApp from './locales/en/app.json';
 import enOnboarding from './locales/en/onboarding.json';
+import enControl from './locales/en/control.json';
 import zhApp from './locales/zh-CN/app.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
+import zhControl from './locales/zh-CN/control.json';
 
 const savedLanguage = localStorage.getItem('magi_language');
 const browserLanguage = typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'en';
@@ -17,10 +19,12 @@ void i18n.use(initReactI18next).init({
     'zh-CN': {
       app: zhApp,
       onboarding: zhOnboarding,
+      control: zhControl,
     },
     en: {
       app: enApp,
       onboarding: enOnboarding,
+      control: enControl,
     },
   },
   lng: defaultLanguage,
@@ -29,7 +33,7 @@ void i18n.use(initReactI18next).init({
     escapeValue: false,
   },
   defaultNS: 'app',
-  ns: ['app', 'onboarding'],
+  ns: ['app', 'onboarding', 'control'],
 });
 
 document.documentElement.lang = defaultLanguage;

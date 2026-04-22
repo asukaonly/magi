@@ -1,0 +1,84 @@
+{
+  "permission": {
+    "title": "权限请求",
+    "subtitle": "在允许工具执行之前请先确认。",
+    "tool": "工具",
+    "risk": "风险",
+    "risk_low": "低",
+    "risk_medium": "中",
+    "risk_high": "高",
+    "risk_critical": "严重",
+    "origin": "来源",
+    "task": "任务",
+    "allow": "允许",
+    "deny": "拒绝",
+    "scope": "范围",
+    "scope_one_shot": "仅本次",
+    "scope_session": "本会话",
+    "scope_persistent_exact": "始终允许（此完全匹配调用）",
+    "scope_persistent_pattern": "始终允许（按模式匹配）",
+    "pattern_label": "匹配模式",
+    "pattern_placeholder": "例如：git status",
+    "reason_label": "备注（可选）",
+    "reason_placeholder": "补充说明…",
+    "empty": "暂无待处理权限请求。",
+    "preview": "预览",
+    "tool_args": "参数",
+    "waiting_since": "自 {{time}} 起等待"
+  },
+  "ask": {
+    "title": "智能体提问",
+    "question": "问题",
+    "options": "可选回答",
+    "answer_placeholder": "输入你的回答…",
+    "submit": "回答",
+    "background_badge": "后台任务已挂起",
+    "free_text_disabled": "请从下列选项中选择。"
+  },
+  "plan": {
+    "badge_active": "计划模式",
+    "badge_inactive": "计划",
+    "entered": "正在制定计划…",
+    "exited": "计划已呈现",
+    "empty": "尚无计划。",
+    "view_plan": "查看计划"
+  },
+  "todo": {
+    "title": "待办列表",
+    "empty": "暂无待办。",
+    "status": {
+      "not_started": "未开始",
+      "in_progress": "进行中",
+      "completed": "已完成"
+    }
+  },
+  "settings": {
+    "title": "控制面板",
+    "permission_mode": "权限模式",
+    "permission_mode_description": "智能体如何处理高风险的工具调用。",
+    "mode": {
+      "default": "默认（高风险调用需确认）",
+      "accept_edits": "接受编辑（自动允许写入）",
+      "plan": "仅规划（禁止执行）",
+      "bypass_permissions": "绕过（全部允许）"
+    },
+    "plan_approval_required": "需要计划审批",
+    "plan_approval_description": "开启后，智能体必须先呈现计划再执行。",
+    "save": "保存",
+    "session_override": "会话级覆盖",
+    "session_override_description": "仅对当前会话生效的临时覆盖。",
+    "clear_override": "清除覆盖",
+    "rules_title": "已保存的权限规则",
+    "rules_empty": "暂无规则。",
+    "delete_rule": "删除",
+    "clear_session_rules": "清空会话规则"
+  },
+  "background": {
+    "suspended_title": "后台任务已暂停",
+    "suspended_description": "等待你的回答…"
+  },
+  "common": {
+    "cancel": "取消",
+    "close": "关闭"
+  }
+}

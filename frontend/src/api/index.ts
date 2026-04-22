@@ -84,3 +84,21 @@ export type {
   ListBackgroundTasksResponse,
   RetryBackgroundTaskResponse,
 } from './modules/backgroundTasks';
+
+export * as controlApi from './modules/control';
+export type {
+  AskStateDTO,
+  ControlSettingsDTO,
+  PendingPermissionDTO,
+  PermissionMode,
+  PermissionOutcome,
+  PermissionRespondInput,
+  PermissionRuleDTO,
+  PermissionScope,
+  PlanStateDTO,
+  SessionControlOverrideDTO,
+  SessionSettingsBundleDTO,
+  SessionSettingsUpdateInput,
+  TodoItemDTO,
+  TodoStatus,
+} from './modules/control';

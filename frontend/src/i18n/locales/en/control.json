@@ -1,0 +1,84 @@
+{
+  "permission": {
+    "title": "Permission request",
+    "subtitle": "Review the tool call before allowing it to run.",
+    "tool": "Tool",
+    "risk": "Risk",
+    "risk_low": "Low",
+    "risk_medium": "Medium",
+    "risk_high": "High",
+    "risk_critical": "Critical",
+    "origin": "Origin",
+    "task": "Task",
+    "allow": "Allow",
+    "deny": "Deny",
+    "scope": "Scope",
+    "scope_one_shot": "Just this once",
+    "scope_session": "This session",
+    "scope_persistent_exact": "Always (this exact call)",
+    "scope_persistent_pattern": "Always (matching pattern)",
+    "pattern_label": "Match pattern",
+    "pattern_placeholder": "e.g. git status",
+    "reason_label": "Reason (optional)",
+    "reason_placeholder": "Add an optional note...",
+    "empty": "No permission requests waiting.",
+    "preview": "Preview",
+    "tool_args": "Arguments",
+    "waiting_since": "Waiting since {{time}}"
+  },
+  "ask": {
+    "title": "Question from the agent",
+    "question": "Question",
+    "options": "Options",
+    "answer_placeholder": "Type your answer...",
+    "submit": "Answer",
+    "background_badge": "Background task suspended",
+    "free_text_disabled": "Please select one of the options."
+  },
+  "plan": {
+    "badge_active": "Plan mode",
+    "badge_inactive": "Plan",
+    "entered": "Planning in progress...",
+    "exited": "Plan presented",
+    "empty": "No plan yet.",
+    "view_plan": "View plan"
+  },
+  "todo": {
+    "title": "Todo list",
+    "empty": "No todos yet.",
+    "status": {
+      "not_started": "Not started",
+      "in_progress": "In progress",
+      "completed": "Completed"
+    }
+  },
+  "settings": {
+    "title": "Control plane",
+    "permission_mode": "Permission mode",
+    "permission_mode_description": "How the agent handles risky tool calls.",
+    "mode": {
+      "default": "Default (ask for high-risk calls)",
+      "accept_edits": "Accept edits (auto-allow writes)",
+      "plan": "Plan only (no execution)",
+      "bypass_permissions": "Bypass (allow all)"
+    },
+    "plan_approval_required": "Require plan approval",
+    "plan_approval_description": "When on, the agent must present a plan before executing.",
+    "save": "Save",
+    "session_override": "Session override",
+    "session_override_description": "Temporary per-session overrides.",
+    "clear_override": "Clear override",
+    "rules_title": "Saved permission rules",
+    "rules_empty": "No saved rules.",
+    "delete_rule": "Delete",
+    "clear_session_rules": "Clear session rules"
+  },
+  "background": {
+    "suspended_title": "Background task paused",
+    "suspended_description": "Waiting for your answer..."
+  },
+  "common": {
+    "cancel": "Cancel",
+    "close": "Close"
+  }
+}
