@@ -1449,7 +1449,14 @@ class WorkerAgentManager(Tool):
     def _resolve_tools_for_type(self, subagent_type: str) -> List[str]:
         available_tools = set(self._tool_registry.list_tools())
         if subagent_type == self.TYPE_GENERAL:
-            return sorted([name for name in available_tools if name != "agent"])
+            # ``todo_write`` is planner-owned — the ``TaskOrchestrator``
+            # mirrors its subtask list onto the session todo store, so
+            # leaf workers must not rewrite it mid-flight.
+            return sorted(
+                name
+                for name in available_tools
+                if name not in {"agent", "todo_write"}
+            )
         if subagent_type == self.TYPE_EXPLORE:
             return [name for name in self._EXPLORE_TOOL_CANDIDATES if name in available_tools]
         if subagent_type == self.TYPE_PLAN:

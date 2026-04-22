@@ -140,6 +140,11 @@ class TaskOrchestrator:
             subtasks=subtasks,
         )
         await self._orchestration_store.save_orchestration(state)
+        # Planner-owned todo list: publish the planned subtasks as the
+        # session's todo list before any worker runs. Worker-side
+        # ``todo_write`` is intentionally retired — the planner (i.e. this
+        # orchestrator) is the single source of truth for todo lifecycle.
+        await self._publish_session_todos(state)
 
         launch_error = await self._launch_workers(
             state,
@@ -243,6 +248,7 @@ class TaskOrchestrator:
 
         for state in touched_states.values():
             await self._orchestration_store.save_orchestration(state)
+            await self._publish_session_todos(state)
 
         completed_payloads: list[OrchestrationExecutionResult] = []
         for state in touched_states.values():
@@ -602,3 +608,85 @@ class TaskOrchestrator:
             item.status in {"completed", "failed", "cancelled"}
             for item in state.subtasks
         )
+
+    # ------------------------------------------------------------------
+    # Planner-owned session todo list
+    # ------------------------------------------------------------------
+
+    # Map orchestration subtask statuses onto control-plane TodoStatus
+    # values. ``cancelled`` collapses to ``not_started`` so the UI does
+    # not display a ghost "in progress" todo after a cancellation.
+    _SUBTASK_TO_TODO_STATUS = {
+        "pending": "not_started",
+        "running": "in_progress",
+        "completed": "completed",
+        "failed": "completed",
+        "cancelled": "not_started",
+    }
+
+    async def _publish_session_todos(self, state: TaskOrchestrationState) -> None:
+        """Mirror orchestration subtasks onto the session's todo list.
+
+        The control-plane ``ControlSessionStore`` caps ``in_progress`` to
+        one item. We honour that by keeping only the first running
+        subtask as ``in_progress`` and demoting the rest to
+        ``not_started`` for display purposes — their real status remains
+        tracked on ``state.subtasks``.
+        """
+        session_id = str(getattr(state, "session_id", "") or "").strip()
+        if not session_id or not state.subtasks:
+            return
+        try:
+            from ..core.runtime_bindings import require_control_session_store
+
+            store = require_control_session_store()
+        except Exception:
+            # Control plane not wired (e.g. unit tests) — todo mirror is
+            # purely a UX concern, never block orchestration on it.
+            return
+
+        items: list[dict[str, Any]] = []
+        running_seen = False
+        for subtask in state.subtasks:
+            mapped = self._SUBTASK_TO_TODO_STATUS.get(subtask.status, "not_started")
+            if mapped == "in_progress":
+                if running_seen:
+                    mapped = "not_started"
+                else:
+                    running_seen = True
+            title = (subtask.description or "").strip() or subtask.subtask_id
+            items.append(
+                {
+                    "id": subtask.subtask_id,
+                    "title": title,
+                    "status": mapped,
+                }
+            )
+
+        try:
+            await store.replace_todos(session_id, items)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug(
+                "planner_todos.replace_failed",
+                session_id=session_id,
+                orchestration_id=state.orchestration_id,
+                error=str(exc),
+            )
+            return
+
+        try:
+            from .control.common.events import publish_control_event
+
+            await publish_control_event(
+                "control.todo.updated",
+                {
+                    "session_id": session_id,
+                    "orchestration_id": state.orchestration_id,
+                    "items": items,
+                },
+                session_id=session_id,
+                user_id=state.user_id,
+                turn_id=state.turn_id,
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("planner_todos.event_failed", exc_info=True)

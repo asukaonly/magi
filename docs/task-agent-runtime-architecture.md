@@ -526,8 +526,14 @@ Event channels (all published via
 - ``control.plan_mode_entered`` / ``control.plan_mode_exited`` — emitted
   when the plan-mode tool toggles. Carries ``session_id`` plus optional
   plan text.
-- ``control.todos_updated`` — emitted whenever the todo list is
-  rewritten by the write-todos tool.
+- ``control.todos_updated`` — emitted whenever the session todo list
+  is rewritten. The authoritative writer is the planner side of the
+  orchestration runtime (``TaskOrchestrator._publish_session_todos``),
+  which mirrors the planned subtasks and their live status onto the
+  control-plane store at ``start_orchestration`` and after every
+  worker progress/completion/failure fact. Leaf workers do not own the
+  todo list; their ``todo_write`` tool is removed from worker tool
+  allowlists so the planner stays the single source of truth.
 
 All payloads include ``session_id`` and, where a tool context is
 available, ``turn_id`` derived from ``ToolExecutionContext.env_vars``.
