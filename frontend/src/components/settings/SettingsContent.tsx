@@ -437,6 +437,22 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 />
               </div>
             </SettingsGroup>
+
+            <SettingsGroup
+              title={t('settings.fields.allowAskInBackground')}
+              description={t('settings.allowAskInBackgroundDesc')}
+            >
+              <div className="flex items-center justify-between border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                <span className="text-sm">{t('settings.allowAskInBackgroundLabel')}</span>
+                <Switch
+                  aria-label={t('settings.fields.allowAskInBackground')}
+                  checked={draftConfig.preferences.allow_ask_in_background}
+                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                    draft.preferences.allow_ask_in_background = checked;
+                  })}
+                />
+              </div>
+            </SettingsGroup>
           </SettingsSectionShell>
         );
 

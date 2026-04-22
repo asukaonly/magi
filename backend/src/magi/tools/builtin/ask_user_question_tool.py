@@ -3,9 +3,10 @@
 The tool opens an :class:`AskState` in the control session store,
 then awaits the matching answer on the shared
 :class:`InteractionBroker`. A background / subagent caller is refused
-unless the call site explicitly marked the invocation as interactive
-via ``ToolExecutionContext.enabled_features`` — background tasks
-cannot block on a human prompt by default.
+unless either the user preference ``allow_ask_in_background`` is on
+or the call site explicitly marked the invocation as interactive via
+``ToolExecutionContext.enabled_features`` — background tasks cannot
+block on a human prompt by default.
 """
 
 from __future__ import annotations
@@ -105,10 +106,22 @@ class AskUserQuestionTool(Tool):
         intent = str(context.env_vars.get("intent") or "").strip()
         turn_id = str(context.env_vars.get("turn_id") or "").strip() or None
         # Background and scheduled tasks don't have a human waiting on
-        # the UI; refuse unless the call site opts in via a feature
-        # flag (``allow_ask_in_background``).
-        if intent.startswith("background") and (
-            "allow_ask_in_background" not in set(context.enabled_features or [])
+        # the UI; refuse unless either the user preference
+        # ``allow_ask_in_background`` is on or the call site opted in
+        # via a ``allow_ask_in_background`` feature flag on the
+        # execution context.
+        pref_allow_ask = False
+        try:
+            from ...config import get_user_preference
+
+            pref_allow_ask = bool(
+                get_user_preference("allow_ask_in_background", False)
+            )
+        except Exception:  # pragma: no cover - defensive
+            pref_allow_ask = False
+        if intent.startswith("background") and not (
+            pref_allow_ask
+            or "allow_ask_in_background" in set(context.enabled_features or [])
         ):
             return ToolResult(
                 success=False,

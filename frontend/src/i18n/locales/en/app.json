@@ -524,6 +524,9 @@
     "streamingChatDesc": "When enabled, messages appear word by word. When disabled, the full reply is shown at once.",
     "allowInterjectionLabel": "Allow interjection",
     "allowInterjectionDesc": "When enabled, you can send messages while the AI is replying. When disabled, the input is locked until the current reply finishes.",
+    "allowAskInBackgroundLabel": "Let background tasks ask questions",
+    "allowAskInBackgroundDesc": "When enabled, a task running in the background may open a question dialog and wait for your answer. When disabled, background tasks may not block on user input and will error out if they try.",
+
     "llmDesc": "Manage provider connections and scenario-specific model choices.",
     "llmProvidersDesc": "Configure provider connection details, availability, and model sources.",
     "llmModelsDesc": "Assign models for each task — the planning model handles quick decisions, the core model handles deep reasoning.",
@@ -607,6 +610,7 @@
       "defaultChatWorkspace": "Default chat workspace",
       "streamingChat": "Streaming output",
       "allowInterjection": "Allow interjection",
+      "allowAskInBackground": "Let background tasks ask questions",
       "userMode": "User Mode",
       "provider": "Provider",
       "modelName": "Model Name",

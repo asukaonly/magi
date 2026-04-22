@@ -524,6 +524,9 @@
     "streamingChatDesc": "开启后消息将逐字显示，关闭则等待完整回复后一次性呈现。",
     "allowInterjectionLabel": "允许插话",
     "allowInterjectionDesc": "开启后可在 AI 回复过程中发送新消息打断当前回复。关闭后需等待回复完成才能发送下一条消息。",
+    "allowAskInBackgroundLabel": "允许后台任务向我提问",
+    "allowAskInBackgroundDesc": "开启后，在后台运行的任务可以弹出问题对话框并等待你的回复。关闭时，后台任务尝试提问会直接报错，不会阻塞等待。",
+
     "llmDesc": "管理大模型的供应商和场景模型设置",
     "llmProvidersDesc": "配置模型供应商的连接信息、启用状态和可用模型。",
     "llmModelsDesc": "为不同场景分别选择模型——规划模型负责快速决策，核心模型负责深度推理。",
@@ -607,6 +610,7 @@
       "defaultChatWorkspace": "默认对话目录",
       "streamingChat": "流式输出",
       "allowInterjection": "允许插话",
+      "allowAskInBackground": "允许后台任务向我提问",
       "userMode": "用户模式",
       "provider": "提供商",
       "modelName": "模型名称",
