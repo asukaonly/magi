@@ -283,7 +283,7 @@ Tool management covers:
 
 Expected product behavior:
 
-- users can inspect discovered plugin packages in a dedicated Extensions area
+- users can inspect discovered plugin packages in a dedicated Plugins area
 - users can enable, disable, reload, and rescan plugin packages
 - plugin-provided settings are rendered from backend field metadata rather than custom plugin frontend code
 - tool surfaces should continue to reflect runtime-registered tools rather than hardcoded frontend lists
@@ -431,9 +431,9 @@ For internal runtime implementation details, read:
 
 - [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
 
-For unified extension loading and plugin-backed sensors, read:
+For unified plugin loading and plugin-backed sensors, read:
 
-- [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
+- [Unified Plugin Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
 - [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
 
 For a high-level repository and architecture introduction, read:

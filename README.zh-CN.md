@@ -148,7 +148,7 @@ Magi 是一个本地优先的 Agent 运行时系统，强调分层与职责边�
   - `TaskOrchestrator`：父任务编排
   - `WorkerAgentManager`：叶子 Worker 生命周期管理
 - 记忆体系：生命周期模型 `L0` 到 `L4`
-- 扩展体系：tools、plugins、skills、sensors/actions
+- 插件体系：tools、plugins、skills、sensors、channels
 - 运行形态：
   - Web：React 前端 + Python 后端
   - Desktop：Tauri 壳 + React WebView + Python sidecar 后端
@@ -171,7 +171,7 @@ magi/
 - [项目概览](./docs/project-overview.md)
 - [产品配置指南](./docs/product-configuration-guide.md)
 - [Task-Agent Runtime 架构](./docs/task-agent-runtime-architecture.md)
-- [插件扩展架构](./docs/plugin-extension-architecture.md)
+- [统一插件架构](./docs/plugin-extension-architecture.md)
 - [插件开发指南](./docs/plugin-development-guide.md)
 - [记忆系统设计](./docs/memory-system-design.md)
 

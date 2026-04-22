@@ -33,7 +33,7 @@ Current release expectations are:
 - local-first deployment and data ownership
 - a layered backend with explicit ownership boundaries
 - a pragmatic but extensible task-agent runtime
-- unified extension loading for built-ins and external packages
+- unified plugin loading for built-ins and external packages
 - a product surface that makes the runtime operable through onboarding and settings
 
 ## Non-Goals
@@ -237,5 +237,5 @@ This keeps workers leaf-only while preserving a conversational entry point.
 
 - Runtime contributors should read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md).
 - Product and settings contributors should read [Product Configuration Guide](./product-configuration-guide.md).
-- Extension contributors should read [Unified Plugin Extension Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
+- Plugin contributors should read [Unified Plugin Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
 - Memory contributors should read [Memory System Design](./memory-system-design.md).

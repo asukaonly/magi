@@ -20,5 +20,4 @@ export { LLMStatisticsSection } from './LLMStatisticsSection';
 export { RuntimeStatisticsSection } from './RuntimeStatisticsSection';
 export { StatisticsPageFrame } from './StatisticsPageFrame';
 export { TimelineSourcesSection } from './TimelineSourcesSection';
-export { ExtensionsSection } from './ExtensionsSection';
-export { ActionsSection } from './ActionsSection';
+export { PluginsSection } from './PluginsSection';

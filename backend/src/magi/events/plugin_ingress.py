@@ -1,28 +1,13 @@
-"""Plugin ingress event routing contracts."""
+"""Plugin ingress contracts - re-exported from magi-plugin-sdk."""
 
-from __future__ import annotations
+from magi_plugin_sdk.ingress import (  # noqa: F401
+    PluginIngressEventHandler,
+    PluginIngressEventRecord,
+    PluginIngressHandlerRegistration,
+)
 
-from dataclasses import dataclass
-from typing import Any, Protocol
-
-from ..runtime_trace import PluginIngressEventRecord
-
-
-class PluginIngressEventHandler(Protocol):
-    """Consumes one claimed plugin ingress event."""
-
-    async def handle_event(
-        self,
-        event: PluginIngressEventRecord,
-        payload: dict[str, Any],
-    ) -> None:
-        """Process one ingress event payload."""
-
-
-@dataclass(frozen=True, slots=True)
-class PluginIngressHandlerRegistration:
-    """Static routing entry for the plugin ingress processor."""
-
-    plugin_target: str
-    event_type: str
-    handler: PluginIngressEventHandler
+__all__ = [
+    "PluginIngressEventHandler",
+    "PluginIngressEventRecord",
+    "PluginIngressHandlerRegistration",
+]

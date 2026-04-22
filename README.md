@@ -163,7 +163,7 @@ Magi is built as a local-first agent runtime with clear layering and ownership b
   - `TaskOrchestrator` for bounded orchestration
   - `WorkerAgentManager` for leaf worker execution
 - Memory model: lifecycle-based `L0` to `L4`
-- Extension model: tools, plugins, skills, sensors/actions
+- Plugin model: tools, plugins, skills, sensors, channels
 - Runtime target: desktop-only via Tauri + React WebView + Python sidecar backend
 
 ## Repository Layout
@@ -184,7 +184,7 @@ magi/
 - [Project Overview](./docs/project-overview.md)
 - [Product Configuration Guide](./docs/product-configuration-guide.md)
 - [Task-Agent Runtime Architecture](./docs/task-agent-runtime-architecture.md)
-- [Plugin Extension Architecture](./docs/plugin-extension-architecture.md)
+- [Unified Plugin Architecture](./docs/plugin-extension-architecture.md)
 - [Plugin Development Guide](./docs/plugin-development-guide.md)
 - [Memory System Design](./docs/memory-system-design.md)
 

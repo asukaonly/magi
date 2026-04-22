@@ -500,9 +500,9 @@
       "memoryReflection": "摘要反思记忆",
       "memorySkills": "工具技能记忆",
       "timeline": "传感器",
-      "extensions": "扩展",
-      "extensionsInstalled": "已安装",
-      "extensionsMarketplace": "插件市场",
+      "plugins": "插件",
+      "pluginsInstalled": "已安装",
+      "pluginsMarketplace": "插件市场",
       "tools": "工具",
       "actions": "执行器",
       "channels": "接入渠道",
@@ -537,9 +537,9 @@
     "personalityDesc": "管理 AI 人格配置",
     "memoryDesc": "控制 L0-L4 记忆生命周期、回放策略和各层抽取管线。",
     "timelineDesc": "配置时间线接入默认策略，并分别调整每个来源的行为",
-    "extensionsDesc": "统一查看、启停和重载插件包，并检查它们贡献的能力。",
-    "extensionsInstalledDesc": "管理已安装的插件，启停和重载插件包。",
-    "extensionsMarketplaceDesc": "浏览和下载可用的插件扩展。",
+    "pluginsDesc": "统一查看、启停和重载插件包，并检查它们贡献的能力。",
+    "pluginsInstalledDesc": "管理已安装的插件，启停和重载插件包。",
+    "pluginsMarketplaceDesc": "浏览和下载可用插件。",
     "toolsDesc": "配置内置工具和技能",
     "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
     "channelsDesc": "接入外部消息平台（如 Telegram），通过现有聊天链路与 AI 交互。",
@@ -1230,11 +1230,11 @@
         "resourceLoadFailed": "读取资源失败：{{message}}"
       }
     },
-    "extensions": {
-      "loading": "正在加载扩展...",
+    "pluginPackages": {
+      "loading": "正在加载插件...",
       "summary": "已发现 {{count}} 个插件包",
       "emptyDescription": "这个插件没有提供额外描述。",
-      "emptySettings": "这个插件当前没有 extensions 面的声明式设置项。",
+      "emptySettings": "这个插件当前没有可配置的声明式设置项。",
       "emptyState": "还没有扫描到任何插件包。",
       "actions": {
         "rescan": "重新扫描",

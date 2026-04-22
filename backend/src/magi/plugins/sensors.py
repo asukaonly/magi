@@ -1,25 +1,10 @@
 """Sensor contribution contracts and registry."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .contracts import ExtensionFieldSpec, PluginContribution
-
-
-@dataclass(slots=True)
-class SensorSpec:
-    """Declarative metadata for a sensor contribution."""
-
-    sensor_id: str
-    display_name: str
-    description: str = ""
-    domain: str = "general"
-    surface: str = "extensions"
-    sync_mode: str = "manual"
-    polling_mode: str = "manual"
-    fields: list[ExtensionFieldSpec] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+from .contracts import PluginContribution
+from magi_plugin_sdk.sensors import SensorSpec  # noqa: F401
 
 
 class SensorRegistry:
@@ -81,7 +66,7 @@ class SensorRegistry:
                     contribution_type="sensor",
                     display_name=spec.display_name,
                     description=spec.description,
-                    surface=spec.surface if spec.surface in {"extensions", "tools", "timeline", "actions"} else "extensions",
+                    surface=spec.surface if spec.surface in {"extensions", "tools", "timeline"} else "extensions",
                     fields=list(spec.fields),
                     metadata={
                         "domain": spec.domain,

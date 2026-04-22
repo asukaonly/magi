@@ -500,9 +500,9 @@
       "memoryReflection": "Reflection Memory",
       "memorySkills": "Skill Memory",
       "timeline": "Sensors",
-      "extensions": "Extensions",
-      "extensionsInstalled": "Installed",
-      "extensionsMarketplace": "Marketplace",
+      "plugins": "Plugins",
+      "pluginsInstalled": "Installed",
+      "pluginsMarketplace": "Marketplace",
       "tools": "Tools",
       "actions": "Actions",
       "channels": "Channels",
@@ -537,9 +537,9 @@
     "personalityDesc": "Manage AI personality configuration",
     "memoryDesc": "Control the L0-L4 memory lifecycle, replay posture, and extraction pipelines.",
     "timelineDesc": "Configure timeline ingestion defaults and tune each source independently",
-    "extensionsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
-    "extensionsInstalledDesc": "Manage installed plugin packages — enable, disable, and reload.",
-    "extensionsMarketplaceDesc": "Browse and download available plugin extensions.",
+    "pluginsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
+    "pluginsInstalledDesc": "Manage installed plugin packages — enable, disable, and reload.",
+    "pluginsMarketplaceDesc": "Browse and download available plugins.",
     "toolsDesc": "Configure built-in tools and skills",
     "actionsDesc": "Configure outbound action capabilities and their declarative settings.",
     "channelsDesc": "Connect external messaging platforms (e.g. Telegram) to chat with AI via the existing pipeline.",
@@ -1231,11 +1231,11 @@
         "resourceLoadFailed": "Failed to load resource: {{message}}"
       }
     },
-    "extensions": {
-      "loading": "Loading extensions...",
+    "pluginPackages": {
+      "loading": "Loading plugins...",
       "summary": "{{count}} plugin packages discovered",
       "emptyDescription": "This plugin did not provide extra description text.",
-      "emptySettings": "This plugin does not expose declarative settings on the extensions surface.",
+      "emptySettings": "This plugin does not expose declarative settings on the Plugins page.",
       "emptyState": "No plugin packages have been discovered yet.",
       "actions": {
         "rescan": "Rescan",

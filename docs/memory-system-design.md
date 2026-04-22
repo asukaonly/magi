@@ -12,7 +12,7 @@ Related root documents:
 - [Project Overview](./project-overview.md)
 - [Layered Agent Architecture](./layered-agent-architecture.md)
 - [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
-- [Unified Plugin Extension Architecture](./plugin-extension-architecture.md)
+- [Unified Plugin Architecture](./plugin-extension-architecture.md)
 
 If this document conflicts with the above, they should be revised together. This document refines the memory subsystem; it does not redefine project-level boundaries.
 

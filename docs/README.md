@@ -26,7 +26,7 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 6. [Memory System Design](./memory-system-design.md)
   Maintainer-level implementation design for the lifecycle-based memory model.
 
-7. [Unified Plugin Extension Architecture](./plugin-extension-architecture.md)
+7. [Unified Plugin Architecture](./plugin-extension-architecture.md)
   Current design for plugin discovery, contribution registration, and settings metadata.
 
 8. [Plugin Development Guide](./plugin-development-guide.md)
@@ -49,8 +49,8 @@ Local-only working drafts, design spikes, and execution plans belong under `docs
 - Memory maintainers
   Read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), then [Memory System Design](./memory-system-design.md).
 
-- Extension and plugin maintainers
-  Read [Unified Plugin Extension Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
+- Plugin maintainers
+  Read [Unified Plugin Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
 
 - Release maintainers
   Start with [Project Overview](./project-overview.md) for the current desktop distribution and GitHub Release automation flow.

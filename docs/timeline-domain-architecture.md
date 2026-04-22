@@ -4,7 +4,7 @@
 
 This document describes the timeline domain (L12) — a reactive read-model layer that projects sensor outputs into scale-aware temporal views for the frontend.
 
-Read together with [Layered Agent Architecture](./layered-agent-architecture.md), [Unified Plugin Extension Architecture](./plugin-extension-architecture.md), and [Memory System Design](./memory-system-design.md).
+Read together with [Layered Agent Architecture](./layered-agent-architecture.md), [Unified Plugin Architecture](./plugin-extension-architecture.md), and [Memory System Design](./memory-system-design.md).
 
 ## Scope
 

@@ -54,7 +54,7 @@ export const buildPluginDraftSnapshotFromPackages = (
     plugins.map((plugin) => [
       plugin.manifest.plugin_id,
       buildPluginFieldValueMap(
-        collectPluginSurfaceFields(plugin, ['extensions', 'actions']),
+        collectPluginSurfaceFields(plugin, ['extensions']),
         plugin.current_settings
       ),
     ])

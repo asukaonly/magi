@@ -10,7 +10,7 @@ Use it to answer three questions:
 - which dependencies are allowed across layers
 - where lifecycle assembly stops and business logic begins
 
-Read it together with [Project Overview](./project-overview.md), [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), and [Unified Plugin Extension Architecture](./plugin-extension-architecture.md).
+Read it together with [Project Overview](./project-overview.md), [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), and [Unified Plugin Architecture](./plugin-extension-architecture.md).
 
 ## Core Rules
 
