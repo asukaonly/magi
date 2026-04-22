@@ -218,6 +218,11 @@ class ChatPostProcessService:
             if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "failed":
                 failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
                 response_text = f"Execution failed: {failure_reason}"
+            elif isinstance(execution_outcome, dict) and execution_outcome.get("status") == "detached":
+                # A detached outcome reaches postprocess only when the
+                # background hand-off declined or failed. Surface that so
+                # the user does not silently lose the turn.
+                response_text = "Failed to move this task to the background."
         if not response_text:
             if await self._complete_turn_without_visible_response(
                 context=context,
