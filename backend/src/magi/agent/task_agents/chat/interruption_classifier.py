@@ -26,6 +26,7 @@ class InterruptionDisposition(str, Enum):
 
     INTERRUPT = "interrupt"
     AUGMENT = "augment"
+    STEER = "steer"
     DEFER = "defer"
 
 
@@ -85,6 +86,21 @@ class InterruptionClassifier:
         "搞错了",
     )
     _AUGMENT_PATTERNS = (
+        # Re-scope phrases: the user is modifying *what* the agent is doing,
+        # so the existing tool-loop progress may no longer be valid and we
+        # fall back to the safer merge-and-restart path.
+        "instead of",
+        "rather than",
+        "switch to",
+        "replace with",
+        "改用",
+        "换成",
+        "改成",
+    )
+    _STEER_PATTERNS = (
+        # Additive info phrases: the user is *adding* context to the same
+        # task. Preserve in-flight tool results by appending to the running
+        # message history rather than rebuilding the prompt.
         "also",
         "additionally",
         "by the way",
@@ -93,7 +109,6 @@ class InterruptionClassifier:
         "more context",
         "more detail",
         "in addition",
-        "instead of",
         "only happens after",
         "only happens when",
         "happens after",
@@ -113,8 +128,13 @@ class InterruptionClassifier:
             return InterruptionDisposition.DEFER
         if self._looks_like_interrupt(context.user_text):
             return InterruptionDisposition.INTERRUPT
+        # Re-scope (AUGMENT) must win over additive (STEER) because the
+        # rescope phrases typically co-occur with additive ones (e.g.
+        # "also, use python instead of js").
         if self._looks_like_augment(context.user_text):
             return InterruptionDisposition.AUGMENT
+        if self._looks_like_steer(context.user_text):
+            return InterruptionDisposition.STEER
         return InterruptionDisposition.DEFER
 
     async def aclassify(self, context: InterruptionContext) -> InterruptionDisposition:
@@ -194,6 +214,10 @@ class InterruptionClassifier:
         normalized_text = user_text.lower()
         return any(pattern in normalized_text for pattern in self._AUGMENT_PATTERNS)
 
+    def _looks_like_steer(self, user_text: str) -> bool:
+        normalized_text = user_text.lower()
+        return any(pattern in normalized_text for pattern in self._STEER_PATTERNS)
+
     def _can_use_model_classifier(self) -> bool:
         if self._llm_pool is not None:
             return True
@@ -211,9 +235,12 @@ class InterruptionClassifier:
                     "You classify how a new user chat message should affect an already-running task. "
                     "Return JSON only with one field: disposition. "
                     "Choose interrupt when the user wants to stop, cancel, replace, or abandon the active task. "
-                    "Choose augment when the new message adds constraints, clarifications, or extra context to the same task. "
+                    "Choose augment when the new message re-scopes the task (changes the target, swaps a tool, "
+                    "or otherwise invalidates progress already made). "
+                    "Choose steer when the new message adds context or constraints to the same task without "
+                    "changing its target (e.g. 'also include 2024 data', 'by the way, focus on Europe'). "
                     "Choose defer when the intent is unclear or should not change the active task yet. "
-                    'Valid dispositions are: "interrupt", "augment", "defer".'
+                    'Valid dispositions are: "interrupt", "augment", "steer", "defer".'
                 ),
                 messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
                 disable_thinking=True,

@@ -22,7 +22,7 @@ def test_explicit_stop_or_change_goal_text_interrupts_when_step_is_idle() -> Non
     assert disposition == InterruptionDisposition.INTERRUPT
 
 
-def test_additive_context_text_augment_when_step_is_idle() -> None:
+def test_additive_context_text_steer_when_step_is_idle() -> None:
     classifier = InterruptionClassifier()
 
     disposition = classifier.classify(
@@ -31,10 +31,10 @@ def test_additive_context_text_augment_when_step_is_idle() -> None:
         )
     )
 
-    assert disposition == InterruptionDisposition.AUGMENT
+    assert disposition == InterruptionDisposition.STEER
 
 
-def test_additive_context_with_causal_detail_augment_when_step_is_idle() -> None:
+def test_additive_context_with_causal_detail_steer_when_step_is_idle() -> None:
     classifier = InterruptionClassifier()
 
     disposition = classifier.classify(
@@ -43,10 +43,10 @@ def test_additive_context_with_causal_detail_augment_when_step_is_idle() -> None
         )
     )
 
-    assert disposition == InterruptionDisposition.AUGMENT
+    assert disposition == InterruptionDisposition.STEER
 
 
-def test_additive_context_with_targeting_detail_augment_when_step_is_idle() -> None:
+def test_additive_context_with_targeting_detail_steer_when_step_is_idle() -> None:
     classifier = InterruptionClassifier()
 
     disposition = classifier.classify(
@@ -55,10 +55,10 @@ def test_additive_context_with_targeting_detail_augment_when_step_is_idle() -> N
         )
     )
 
-    assert disposition == InterruptionDisposition.AUGMENT
+    assert disposition == InterruptionDisposition.STEER
 
 
-def test_additive_refinement_with_instead_does_not_interrupt() -> None:
+def test_additive_refinement_with_instead_falls_back_to_augment() -> None:
     classifier = InterruptionClassifier()
 
     disposition = classifier.classify(
@@ -67,6 +67,8 @@ def test_additive_refinement_with_instead_does_not_interrupt() -> None:
         )
     )
 
+    # 'instead of' signals a re-scope even when the sentence begins with
+    # an additive cue, so AUGMENT wins over STEER.
     assert disposition == InterruptionDisposition.AUGMENT
 
 

@@ -473,7 +473,7 @@ class SessionRunStore:
     @staticmethod
     def _to_pending_turn(payload: dict[str, Any]) -> PendingTurn:
         disposition = str(payload.get("disposition") or "augment").strip().lower()
-        if disposition not in {"augment", "defer"}:
+        if disposition not in {"augment", "defer", "steer"}:
             disposition = "augment"
         return PendingTurn(
             turn_id=str(payload["turn_id"]),

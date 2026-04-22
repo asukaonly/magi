@@ -129,6 +129,7 @@ class L0WorkingMemoryStore:
                     turn_id TEXT NOT NULL,
                     content TEXT NOT NULL,
                     revision INTEGER NOT NULL,
+                    disposition TEXT NOT NULL DEFAULT 'augment',
                     created_at REAL NOT NULL
                 );
 
@@ -144,6 +145,7 @@ class L0WorkingMemoryStore:
                 """
             )
             await self._ensure_execution_run_columns(db)
+            await self._ensure_execution_pending_turn_columns(db)
             await db.commit()
 
         if self.restore_on_restart:
@@ -529,7 +531,7 @@ class L0WorkingMemoryStore:
         """Synchronously append one pending user turn to the execution lane."""
         self._ensure_session_sync(session_id)
         normalized_disposition = str(disposition or "augment").strip().lower()
-        if normalized_disposition not in {"augment", "defer"}:
+        if normalized_disposition not in {"augment", "defer", "steer"}:
             normalized_disposition = "augment"
         pending_turn = {
             "session_id": session_id,
@@ -835,8 +837,8 @@ class L0WorkingMemoryStore:
                 await db.execute(
                     """
                     INSERT INTO l0_execution_pending_turns(
-                        session_id, run_id, turn_id, content, revision, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        session_id, run_id, turn_id, content, revision, disposition, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         session_id,
@@ -844,6 +846,7 @@ class L0WorkingMemoryStore:
                         pending_turn["turn_id"],
                         pending_turn["content"],
                         int(pending_turn["revision"]),
+                        str(pending_turn.get("disposition") or "augment"),
                         float(pending_turn["created_at"]),
                     ),
                 )
@@ -1055,6 +1058,12 @@ class L0WorkingMemoryStore:
             ) as cursor:
                 async for row in cursor:
                     session_id = str(row["session_id"])
+                    row_keys = row.keys() if hasattr(row, "keys") else ()
+                    raw_disposition = (
+                        str(row["disposition"])
+                        if "disposition" in row_keys and row["disposition"] is not None
+                        else "augment"
+                    )
                     self._execution_pending_turns.setdefault(session_id, []).append(
                         {
                             "session_id": session_id,
@@ -1062,6 +1071,7 @@ class L0WorkingMemoryStore:
                             "turn_id": str(row["turn_id"]),
                             "content": str(row["content"]),
                             "revision": int(row["revision"]),
+                            "disposition": raw_disposition,
                             "created_at": float(row["created_at"]),
                         }
                     )
@@ -1105,6 +1115,24 @@ class L0WorkingMemoryStore:
             await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_requested_by TEXT")
         if "cancel_anchor_turn_id" not in column_names:
             await db.execute("ALTER TABLE l0_execution_runs ADD COLUMN cancel_anchor_turn_id TEXT")
+
+    @staticmethod
+    async def _ensure_execution_pending_turn_columns(db: aiosqlite.Connection) -> None:
+        """Backfill pending-turn columns for older checkpoint databases.
+
+        The ``disposition`` column was added when the STEER disposition joined
+        AUGMENT and DEFER; older databases stored all rows as implicit
+        ``augment`` turns. Re-attach the column with the legacy default so
+        round-trips preserve intent for AUGMENT / DEFER / STEER.
+        """
+        async with db.execute("PRAGMA table_info(l0_execution_pending_turns)") as cursor:
+            rows = await cursor.fetchall()
+        column_names = {str(row[1]) for row in rows}
+        if "disposition" not in column_names:
+            await db.execute(
+                "ALTER TABLE l0_execution_pending_turns "
+                "ADD COLUMN disposition TEXT NOT NULL DEFAULT 'augment'"
+            )
 
 
 __all__ = ["L0WorkingMemoryStore"]

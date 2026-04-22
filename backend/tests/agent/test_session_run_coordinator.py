@@ -77,7 +77,10 @@ def test_interjection_during_active_run_is_classified_and_stored() -> None:
             batch_facts=[first_fact],
         )
     )
-    augment_fact = _user_fact("Also, use the staging endpoint.", turn_id="turn-2")
+    augment_fact = _user_fact(
+        "Instead of the login flow, inspect the signup flow.",
+        turn_id="turn-2",
+    )
 
     classified = classifier.classify(
         agent_id="u-chat",
@@ -92,8 +95,49 @@ def test_interjection_during_active_run_is_classified_and_stored() -> None:
     assert routed.active_run is not None
     assert routed.active_run.revision == 0
     assert [item.content for item in routed.active_run.pending_turns] == [
-        "Also, use the staging endpoint."
+        "Instead of the login flow, inspect the signup flow."
     ]
+    assert routed.active_run.pending_turns[0].disposition == (
+        InterruptionDisposition.AUGMENT.value
+    )
+
+
+def test_steer_interjection_is_queued_with_steer_disposition() -> None:
+    classifier = ChatFactClassifier()
+    coordinator = SessionRunCoordinator()
+    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
+    coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=first_fact,
+            batch_facts=[first_fact],
+        )
+    )
+    steer_fact = _user_fact("Also, use the staging endpoint.", turn_id="turn-2")
+
+    routed = coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=steer_fact,
+            batch_facts=[steer_fact],
+        )
+    )
+
+    assert routed.interruption_disposition == InterruptionDisposition.STEER
+    assert routed.active_run is not None
+    assert [
+        (item.content, item.disposition) for item in routed.active_run.pending_turns
+    ] == [
+        ("Also, use the staging endpoint.", InterruptionDisposition.STEER.value)
+    ]
+    # STEER pending turns must not surface as a visible AUGMENT merge at the
+    # next checkpoint — they are drained by the handler instead.
+    assert coordinator.consume_checkpoint("s-chat").pending_turns == []
+    # peek_steer_turns returns the queued turns without clearing them.
+    assert [item.turn_id for item in coordinator.peek_steer_turns("s-chat")] == ["turn-2"]
+    drained = coordinator.consume_steer_turns("s-chat")
+    assert [item.turn_id for item in drained] == ["turn-2"]
+    assert coordinator.peek_steer_turns("s-chat") == []
 
 
 def test_second_turn_starts_fresh_run_after_previous_run_completes() -> None:
@@ -177,7 +221,10 @@ def test_augment_is_visible_at_next_checkpoint() -> None:
             batch_facts=[first_fact],
         )
     )
-    augment_fact = _user_fact("Also, use the staging endpoint.", turn_id="turn-2")
+    augment_fact = _user_fact(
+        "Instead of the login flow, inspect the signup flow.",
+        turn_id="turn-2",
+    )
     coordinator.route(
         classifier.classify(
             agent_id="u-chat",
@@ -200,11 +247,11 @@ def test_augment_is_visible_at_next_checkpoint() -> None:
     assert routed.planner_user_message == "\n\n".join(
         [
             "Inspect the login flow.",
-            "Also, use the staging endpoint.",
+            "Instead of the login flow, inspect the signup flow.",
         ]
     )
     assert [item.content for item in routed.checkpoint_pending_turns] == [
-        "Also, use the staging endpoint."
+        "Instead of the login flow, inspect the signup flow."
     ]
 
 
@@ -354,7 +401,10 @@ def test_augment_is_merged_at_checkpoint_while_defer_stays_queued() -> None:
             batch_facts=[_user_fact("Inspect the login flow.", turn_id="turn-1")],
         )
     )
-    augment_fact = _user_fact("Also, use the staging endpoint.", turn_id="turn-augment")
+    augment_fact = _user_fact(
+        "Instead of the login flow, inspect the signup flow.",
+        turn_id="turn-augment",
+    )
     coordinator.route(
         classifier.classify(
             agent_id="u-chat",
@@ -388,7 +438,7 @@ def test_augment_is_merged_at_checkpoint_while_defer_stays_queued() -> None:
     assert routed.planner_user_message == "\n\n".join(
         [
             "Inspect the login flow.",
-            "Also, use the staging endpoint.",
+            "Instead of the login flow, inspect the signup flow.",
         ]
     )
     assert [item.turn_id for item in routed.checkpoint_pending_turns] == ["turn-augment"]

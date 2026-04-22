@@ -562,6 +562,17 @@ class SessionRunCoordinator:
             and pending_turn.disposition == InterruptionDisposition.AUGMENT.value
         ]
 
+    @staticmethod
+    def _current_revision_steer_pending_turns(active_run: ActiveRun | None) -> list[PendingTurn]:
+        if active_run is None:
+            return []
+        return [
+            pending_turn
+            for pending_turn in active_run.pending_turns
+            if pending_turn.revision == active_run.revision
+            and pending_turn.disposition == InterruptionDisposition.STEER.value
+        ]
+
     def consume_deferred_turns(
         self,
         session_id: str,
@@ -584,12 +595,94 @@ class SessionRunCoordinator:
             disposition=InterruptionDisposition.DEFER.value,
         )
 
+    def peek_steer_turns(
+        self,
+        session_id: str,
+        *,
+        revision: int | None = None,
+    ) -> list[PendingTurn]:
+        """Return STEER pending turns without removing them from the store.
+
+        Used by :class:`FunctionCallingHandler` to hydrate a freshly built
+        :class:`SteerInbox` at turn start after a backend restart — messages
+        must survive until the orchestrator actually drains them.
+        """
+        active_run = self._run_store.get_active_run(session_id)
+        if active_run is None:
+            return []
+        target_revision = active_run.revision if revision is None else int(revision)
+        return [
+            pending_turn
+            for pending_turn in active_run.pending_turns
+            if pending_turn.revision == target_revision
+            and pending_turn.disposition == InterruptionDisposition.STEER.value
+        ]
+
+    def consume_steer_turns(
+        self,
+        session_id: str,
+        *,
+        revision: int | None = None,
+    ) -> list[PendingTurn]:
+        """Pop STEER pending turns queued on the active run.
+
+        Called by the chat handler at each tool boundary to drain the
+        persistent queue and push the messages into an in-memory
+        :class:`SteerInbox` for orchestrator consumption.
+        """
+        active_run = self._run_store.get_active_run(session_id)
+        if active_run is None:
+            return []
+        target_revision = active_run.revision if revision is None else int(revision)
+        return self._run_store.consume_pending_turns(
+            session_id,
+            revision=target_revision,
+            disposition=InterruptionDisposition.STEER.value,
+        )
+
     @staticmethod
     def _build_augment_supersessions(
         *,
         root_turn_id: str | None,
         pending_turns: list[PendingTurn],
         anchor_turn_id: str | None,
+    ) -> list[TurnSupersession]:
+        return SessionRunCoordinator._build_merge_supersessions(
+            root_turn_id=root_turn_id,
+            pending_turns=pending_turns,
+            anchor_turn_id=anchor_turn_id,
+            reason=InterruptionDisposition.AUGMENT.value,
+        )
+
+    @staticmethod
+    def _build_steer_supersessions(
+        *,
+        root_turn_id: str | None,
+        pending_turns: list[PendingTurn],
+        anchor_turn_id: str | None,
+    ) -> list[TurnSupersession]:
+        """Bookkeeping for STEER merges — same shape as :meth:`_build_augment_supersessions`.
+
+        Both AUGMENT and STEER produce a single assistant response anchored
+        at the latest pending turn, so root + intermediate pending turns get
+        marked as superseded by the anchor. They differ only in *how* the
+        orchestrator consumes the queued turns (prompt rebuild vs
+        ``state.messages`` append), not in the timeline-level relationship.
+        """
+        return SessionRunCoordinator._build_merge_supersessions(
+            root_turn_id=root_turn_id,
+            pending_turns=pending_turns,
+            anchor_turn_id=anchor_turn_id,
+            reason=InterruptionDisposition.STEER.value,
+        )
+
+    @staticmethod
+    def _build_merge_supersessions(
+        *,
+        root_turn_id: str | None,
+        pending_turns: list[PendingTurn],
+        anchor_turn_id: str | None,
+        reason: str,
     ) -> list[TurnSupersession]:
         normalized_anchor_turn_id = str(anchor_turn_id or "").strip()
         if not normalized_anchor_turn_id:
@@ -602,7 +695,7 @@ class SessionRunCoordinator:
                 TurnSupersession(
                     turn_id=normalized_root_turn_id,
                     anchor_turn_id=normalized_anchor_turn_id,
-                    reason=InterruptionDisposition.AUGMENT.value,
+                    reason=reason,
                 )
             )
             seen_turn_ids.add(normalized_root_turn_id)
@@ -614,7 +707,7 @@ class SessionRunCoordinator:
                 TurnSupersession(
                     turn_id=turn_id,
                     anchor_turn_id=normalized_anchor_turn_id,
-                    reason=InterruptionDisposition.AUGMENT.value,
+                    reason=reason,
                 )
             )
             seen_turn_ids.add(turn_id)
