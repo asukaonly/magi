@@ -34,7 +34,6 @@ and IPC event emission can be layered on later.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from dependency_injector import providers
@@ -114,7 +113,7 @@ class ControlPlaneModule(LifecycleModule):
         runtime_paths = self._context.core.runtime_paths
         db_path: str | None = None
         if runtime_paths is not None:
-            base = Path(runtime_paths.base) / "runtime"
+            base = runtime_paths.runtime_dir
             base.mkdir(parents=True, exist_ok=True)
             db_path = str(base / "permission_rules.db")
 

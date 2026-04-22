@@ -35,7 +35,7 @@ from magi.core.runtime_bindings import (
 
 class _FakeRuntimePaths:
     def __init__(self, base) -> None:
-        self.base = str(base)
+        self.runtime_dir = base
 
 
 @pytest.mark.asyncio

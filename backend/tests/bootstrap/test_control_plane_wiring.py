@@ -30,7 +30,7 @@ from magi.core.runtime_bindings import (
 
 class _FakeRuntimePaths:
     def __init__(self, base: Path) -> None:
-        self.base = str(base)
+        self.runtime_dir = base
 
 
 @pytest.mark.asyncio
@@ -76,8 +76,8 @@ async def test_control_plane_module_wires_all_singletons(tmp_path: Path) -> None
         assert decision.outcome is PermissionOutcome.DENIED
         assert decision.source == "plan_mode"
 
-        # The permission_rules.db was created under runtime/ as configured.
-        assert (tmp_path / "runtime" / "permission_rules.db").exists()
+        # The permission_rules.db was created under runtime_dir.
+        assert (tmp_path / "permission_rules.db").exists()
     finally:
         await module.shutdown()
 

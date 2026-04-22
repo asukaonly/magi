@@ -1984,11 +1984,11 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
     """Streamed turns must emit turn_execution_control(completed) so the frontend unlocks the input."""
-    action_emitter = _FakeActionEmitter()
+    action_emitter = _FakeEventEmitter()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
-        get_action_emitter=lambda: action_emitter,
+        get_event_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
