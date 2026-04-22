@@ -268,6 +268,29 @@ Important rule: chat UI behavior should not depend directly on raw intent-classi
 
 `TurnUXPlan` is now persisted on `chat_turns.ux_plan_json` and reused by both runtime notifications and history read models. This keeps reload behavior aligned with the same presentation contract that was active when the turn originally ran.
 
+### Interruption Dispositions
+
+When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/agent/task_agents/chat/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.
+
+- `INTERRUPT`
+  The new message contradicts or cancels the running turn (for example, "stop", "wait", "nevermind"). The active run is cancelled and a new root turn starts from scratch. The `ActiveRun` revision bumps and in-flight tool results are discarded.
+
+- `AUGMENT`
+  The new message re-scopes the running turn (for example, "instead of …", "switch to …", "改用 …"). The two turns are merged at the next planner checkpoint: the root user message and the augmenting turn are concatenated into a single visible user message, the prompt is rebuilt from `conversation_history`, and any tool results that belonged only to the abandoned scope are dropped. The merge shape is captured as `TurnSupersession(turn_id=root, anchor_turn_id=newest, reason="augment")` entries.
+
+- `STEER`
+  The new message adds information without changing scope (for example, "also …", "by the way …", "补充 …", "另外 …"). The tool loop keeps running and tool results are preserved; the steer text is drained from the persistent queue at the top of the next iteration and appended to `state.messages` as a plain user message, so the next LLM call sees it without rebuilding the prompt. Supersession bookkeeping uses `reason="steer"` with the same root-plus-intermediate shape as AUGMENT.
+
+- `DEFER`
+  The new message is unrelated or better treated as a follow-up (for example, "帮我看看 github 的仓库吧" while an email draft is in flight). It stays on the queue until the current turn finalizes, then triggers a new root turn via `consume_deferred_turns`.
+
+All four dispositions are persisted to L0 working memory on `l0_execution_pending_turns.disposition`, so a backend restart preserves queued AUGMENT / STEER / DEFER turns and the next chat turn drains them instead of losing them.
+
+AUGMENT and STEER share the same persistent queue and the same supersession shape but differ in when and how they are consumed:
+
+- AUGMENT waits for the next planner checkpoint, is consumed through `consume_pending_turns(disposition="augment")` in `SessionRunCoordinator.aroute`, and rebuilds the prompt. It is appropriate when in-flight tool results would be invalidated by the new scope.
+- STEER is consumed every iteration through `consume_steer_turns` driven by `FunctionCallingHandler._drain_pending_steer_turns`, pushes into a per-turn `SteerInbox`, and is applied via `FunctionCallingOrchestrator.apply_steer_messages`. It is appropriate when in-flight tool results are still valuable and only need additional context to finish well.
+
 ### Context-owned prompt assembly
 
 Prompt assembly ownership lives in `backend/src/magi/context/`.
