@@ -146,7 +146,7 @@ async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
         UserMessagePayload(
             user_id="u-chat",
             session_id="s-chat",
-            content="Also, use the staging endpoint.",
+            content="Instead of the login flow, inspect the signup flow.",
             turn_id="turn-2",
         )
     )
@@ -172,7 +172,7 @@ async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
     assert result.turn_id == "turn-2"
     assert orchestrator.build_step_state_calls == [
         "Inspect the login flow.",
-        "Inspect the login flow.\n\nAlso, use the staging endpoint.",
+        "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow.",
     ]
 
 

@@ -111,13 +111,13 @@ async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint(monke
     first_context = await agent.build_context(await agent.merge_facts([first_fact]))
     await agent.match_intent(first_context)
 
-    augment_fact = _user_fact("Also, use the staging endpoint.", turn_id="turn-2")
+    augment_fact = _user_fact("Instead of the login flow, inspect the signup flow.", turn_id="turn-2")
     augment_context = await agent.build_context(await agent.merge_facts([augment_fact]))
 
     assert augment_context.planner_fact_kind == IncomingFactKind.OTHER_FACT
     assert augment_context.session_run_id
     assert [item.content for item in augment_context.pending_turns] == [
-        "Also, use the staging endpoint."
+        "Instead of the login flow, inspect the signup flow."
     ]
 
     checkpoint_fact = _tool_loop_fact()
@@ -129,13 +129,13 @@ async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint(monke
     assert checkpoint_context.latest_user_message == "\n\n".join(
         [
             "Inspect the login flow.",
-            "Also, use the staging endpoint.",
+            "Instead of the login flow, inspect the signup flow.",
         ]
     )
     assert checkpoint_decision.execution_mode == ExecutionMode.DIRECT_LLM
     assert seen_messages == [
         "Inspect the login flow.",
-        "Inspect the login flow.\n\nAlso, use the staging endpoint.",
+        "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow.",
     ]
 
 
@@ -154,7 +154,7 @@ async def test_chat_task_agent_marks_augmented_turn_as_merged(tmp_path: Path, mo
         session_id="s-chat",
         user_id="u-chat",
         turn_id="turn-2",
-        message_text="Also, use the staging endpoint.",
+        message_text="Instead of the login flow, inspect the signup flow.",
         created_at_ms=200,
     )
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter(), chat_store=chat_store)
@@ -168,7 +168,7 @@ async def test_chat_task_agent_marks_augmented_turn_as_merged(tmp_path: Path, mo
     first_context = await agent.build_context(await agent.merge_facts([first_fact]))
     await agent.match_intent(first_context)
 
-    augment_fact = _user_fact("Also, use the staging endpoint.", turn_id="turn-2")
+    augment_fact = _user_fact("Instead of the login flow, inspect the signup flow.", turn_id="turn-2")
     await agent.build_context(await agent.merge_facts([augment_fact]))
 
     checkpoint_fact = _tool_loop_fact()

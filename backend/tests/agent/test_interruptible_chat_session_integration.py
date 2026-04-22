@@ -104,12 +104,12 @@ async def test_interruptible_chat_sessions_do_not_cross_streams_and_merge_at_own
 
     augment_a = _user_fact(
         session_id="session-a",
-        content="Also, use the staging endpoint.",
+        content="Instead of the login flow, inspect the signup flow.",
         turn_id="turn-a2",
     )
     augment_b = _user_fact(
         session_id="session-b",
-        content="Also, include receipts.",
+        content="Instead of the billing flow, inspect the refund flow.",
         turn_id="turn-b2",
     )
 
@@ -132,16 +132,16 @@ async def test_interruptible_chat_sessions_do_not_cross_streams_and_merge_at_own
     assert decision_checkpoint_a.execution_mode == ExecutionMode.DIRECT_LLM
     assert decision_checkpoint_b.execution_mode == ExecutionMode.DIRECT_LLM
     assert checkpoint_a.latest_user_message == (
-        "Inspect the login flow.\n\nAlso, use the staging endpoint."
+        "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow."
     )
     assert checkpoint_b.latest_user_message == (
-        "Inspect the billing flow.\n\nAlso, include receipts."
+        "Inspect the billing flow.\n\nInstead of the billing flow, inspect the refund flow."
     )
     assert seen_messages == [
         ("session-a", "Inspect the login flow."),
         ("session-b", "Inspect the billing flow."),
-        ("session-a", "Inspect the login flow.\n\nAlso, use the staging endpoint."),
-        ("session-b", "Inspect the billing flow.\n\nAlso, include receipts."),
+        ("session-a", "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow."),
+        ("session-b", "Inspect the billing flow.\n\nInstead of the billing flow, inspect the refund flow."),
     ]
 
 
@@ -168,7 +168,7 @@ async def test_interruptible_chat_recovers_pending_turns_from_l0_checkpoint(
     first_fact = _user_fact(session_id="session-a", content="Inspect the login flow.", turn_id="turn-a1")
     augment_fact = _user_fact(
         session_id="session-a",
-        content="Also, use the staging endpoint.",
+        content="Instead of the login flow, inspect the signup flow.",
         turn_id="turn-a2",
     )
 
@@ -202,5 +202,5 @@ async def test_interruptible_chat_recovers_pending_turns_from_l0_checkpoint(
 
     assert checkpoint_context.planner_fact_kind == IncomingFactKind.USER_MESSAGE
     assert checkpoint_context.latest_user_message == (
-        "Inspect the login flow.\n\nAlso, use the staging endpoint."
+        "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow."
     )

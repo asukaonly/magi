@@ -17,7 +17,13 @@ from ....agent.background.dispatcher import (
 )
 from ....agent.background.launch import BackgroundLaunchService
 from ....agent.message_utils import append_latest_user_message
-from ....agent.run_control import DetachSignal, OrchestratorSnapshot, bind_detach_signal
+from ....agent.run_control import (
+    DetachSignal,
+    OrchestratorSnapshot,
+    SteerInbox,
+    SteerMessage,
+    bind_detach_signal,
+)
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
 from ....context.service import ContextAssemblyService
@@ -116,6 +122,9 @@ class ChatHandlerDependencies:
     stream_chunk_callback: StreamChunkCallback | None = None
     background_dispatcher: BackgroundDispatcher | None = None
     background_launch_service: BackgroundLaunchService | None = None
+    persist_turn_supersessions: (
+        Callable[[list[Any], int], Awaitable[None]] | None
+    ) = None
 
 
 def build_common_handler_dependencies(
@@ -266,6 +275,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         stream_callback = self._deps.stream_chunk_callback
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
         detach_signal = self._build_detach_signal()
+        steer_inbox = await self._build_steer_inbox(request)
 
         fc_stream_callback = None
         stream_state = {"chunks_emitted": 0, "retracted": False, "any_streamed": False}
@@ -309,6 +319,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 execution_workspace=execution_workspace,
                 stream_chunk_callback=fc_stream_callback,
                 detach_signal=detach_signal,
+                steer_inbox=steer_inbox,
             )
             result.streamed = stream_state.get("any_streamed", False)
             handoff = await self._maybe_handoff_detached_outcome(request, result)
@@ -339,6 +350,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             stream_chunk_callback=fc_stream_callback,
             cancel_token=cancel_token,
             detach_signal=detach_signal,
+            steer_inbox=steer_inbox,
         )
 
         streamed = stream_state["chunks_emitted"] > 0 and execution_outcome.status == "completed"
@@ -373,6 +385,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         execution_workspace: str | None,
         stream_chunk_callback: Any | None = None,
         detach_signal: DetachSignal | None = None,
+        steer_inbox: SteerInbox | None = None,
     ) -> ExecutionResult:
         orchestrator = self._deps.function_calling_orchestrator
         session_run_coordinator = self._deps.session_run_coordinator
@@ -413,6 +426,15 @@ class FunctionCallingHandler(BaseExecutionHandler):
                         current_user_message=current_user_message,
                         current_turn_id=current_turn_id,
                     )
+                await self._drain_pending_steer_turns(
+                    session_id=request.context.session_id,
+                    revision=current_revision,
+                    steer_inbox=steer_inbox,
+                    step_state=step_state,
+                    latest_fact_timestamp=getattr(
+                        request.context.latest_payload, "timestamp", None
+                    ),
+                )
                 step_outcome = await orchestrator.step_executor.execute_step(
                     state=step_state,
                     user_message=current_user_message,
@@ -483,6 +505,11 @@ class FunctionCallingHandler(BaseExecutionHandler):
                         selected_tools=request.selected_tools,
                         conversation_history=request.context.history,
                     )
+                    if steer_inbox is not None:
+                        # Pending STEER turns from the prior revision are no
+                        # longer relevant once the run is rebuilt from a new
+                        # root, so drop anything still queued in-process.
+                        await steer_inbox.drain()
                     continue
 
                 checkpoint = session_run_coordinator.consume_checkpoint(request.context.session_id)
@@ -625,6 +652,106 @@ class FunctionCallingHandler(BaseExecutionHandler):
         if self._deps.background_launch_service is None:
             return None
         return DetachSignal()
+
+    async def _build_steer_inbox(
+        self, request: FunctionCallingRequest
+    ) -> SteerInbox | None:
+        """Return a :class:`SteerInbox` seeded with any persisted STEER turns.
+
+        Without a :class:`SessionRunCoordinator` there is no persistent
+        queue to drain, so returning ``None`` keeps the orchestrator's
+        steer path a no-op. When a coordinator is wired we drain any
+        STEER pending turns that were queued while this turn was offline
+        (e.g. the backend restarted mid-run) and push them into the inbox
+        so the first iteration picks them up alongside any newly arriving
+        turns.
+        """
+        coordinator = self._deps.session_run_coordinator
+        session_id = str(getattr(request.context, "session_id", "") or "").strip()
+        if coordinator is None or not session_id:
+            return None
+        inbox = SteerInbox()
+        active_run = coordinator.get_active_run(session_id)
+        if active_run is None:
+            return inbox
+        drained = coordinator.consume_steer_turns(
+            session_id, revision=active_run.revision
+        )
+        for pending_turn in drained:
+            await inbox.push(
+                SteerMessage(
+                    content=pending_turn.content,
+                    reason="steer",
+                    metadata={"turn_id": pending_turn.turn_id},
+                )
+            )
+        return inbox
+
+    async def _drain_pending_steer_turns(
+        self,
+        *,
+        session_id: str,
+        revision: int,
+        steer_inbox: SteerInbox | None,
+        step_state: Any,
+        latest_fact_timestamp: float | None,
+    ) -> None:
+        """Pull freshly persisted STEER turns into ``steer_inbox``.
+
+        Called at the top of each checkpoint iteration so STEER turns
+        that arrived while the previous tool batch was running get
+        injected into ``state.messages`` before the next LLM call.
+        Emits supersession bookkeeping (root + intermediate STEER
+        pending turns → the newest drained turn) so downstream
+        timeline/trace persistence mirrors the AUGMENT merge shape.
+        """
+        coordinator = self._deps.session_run_coordinator
+        if coordinator is None or steer_inbox is None or not session_id:
+            return
+        apply_steer = getattr(
+            self._deps.function_calling_orchestrator, "_apply_steer_messages", None
+        )
+        if apply_steer is None:
+            return
+        drained = coordinator.consume_steer_turns(session_id, revision=revision)
+        if not drained:
+            # The inbox may already carry messages from a previous
+            # iteration (e.g. hydrated at turn start). Drain-and-apply
+            # still needs to run so they land on ``state.messages``.
+            await apply_steer(step_state, steer_inbox)
+            return
+
+        for pending_turn in drained:
+            await steer_inbox.push(
+                SteerMessage(
+                    content=pending_turn.content,
+                    reason="steer",
+                    metadata={"turn_id": pending_turn.turn_id},
+                )
+            )
+        await apply_steer(step_state, steer_inbox)
+
+        # Bookkeeping: mark root + intermediate STEER pending turns as
+        # superseded by the newest drained turn, same shape as AUGMENT.
+        persist = self._deps.persist_turn_supersessions
+        if persist is None:
+            return
+        active_run = coordinator.get_active_run(session_id)
+        if active_run is None:
+            return
+        supersessions = coordinator._build_steer_supersessions(
+            root_turn_id=active_run.root_turn_id,
+            pending_turns=drained,
+            anchor_turn_id=drained[-1].turn_id,
+        )
+        if not supersessions:
+            return
+        updated_at_ms = (
+            int(latest_fact_timestamp * 1000)
+            if latest_fact_timestamp is not None
+            else int(time.time() * 1000)
+        )
+        await persist(supersessions, updated_at_ms)
 
     async def _maybe_handoff_detached_outcome(
         self,

@@ -215,6 +215,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             stream_chunk_callback=self._emit_stream_chunk,
             background_dispatcher=background_dispatcher,
             background_launch_service=background_launch_service,
+            persist_turn_supersessions=self._persist_turn_supersessions_from_handler,
         )
         self._handler_registry = ExecutionHandlerRegistry()
         common_handler_deps = build_common_handler_dependencies(handler_deps)
@@ -249,6 +250,22 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         via :meth:`ChatPostProcessService.deliver_background_task_completion`.
         """
         return self._postprocess_service
+
+    async def _persist_turn_supersessions_from_handler(
+        self,
+        superseded_turns: list[Any],
+        updated_at_ms: int,
+    ) -> None:
+        """Bridge STEER supersessions from handler -> post-process service.
+
+        Exposed as a callable on :class:`ChatHandlerDependencies` so the
+        function-calling handler can emit STEER supersession bookkeeping
+        whenever it drains persisted STEER pending turns into the inbox.
+        """
+        await self._postprocess_service.persist_turn_supersessions(
+            superseded_turns=superseded_turns,
+            updated_at_ms=updated_at_ms,
+        )
 
     async def _emit_stream_chunk(
         self,
