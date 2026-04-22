@@ -40,6 +40,7 @@ from typing import Any
 from dependency_injector import providers
 
 from ..agent.control.common import InteractionBroker
+from ..agent.control.common.events import publish_control_event
 from ..agent.control.permission.brokered_prompter import (
     BrokeredPermissionPrompter,
     PendingPermissionRegistry,
@@ -124,10 +125,21 @@ class ControlPlaneModule(LifecycleModule):
         broker = InteractionBroker()
         session_store = ControlSessionStore()
         pending_permissions = PendingPermissionRegistry()
+
+        async def _publish_permission_event(
+            channel: str, payload: dict
+        ) -> None:
+            await publish_control_event(
+                channel,
+                payload,
+                session_id=payload.get("session_id"),
+                user_id=payload.get("user_id"),
+            )
+
         prompter = BrokeredPermissionPrompter(
             broker=broker,
             registry=pending_permissions,
-            notify_callback=None,  # Transport-layer event hook is optional.
+            notify_callback=_publish_permission_event,
         )
         gateway = PermissionGateway(
             classifier=RiskClassifier(),

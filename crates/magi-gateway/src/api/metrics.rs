@@ -83,6 +83,45 @@ fn empty_summary(days: i64) -> Value {
     })
 }
 
+const PROVIDER_BREAKDOWN_QUERY: &str = "SELECT provider, \
+    COUNT(*) AS calls, \
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls, \
+    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls, \
+    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, \
+    COALESCE(SUM(completion_tokens), 0) AS completion_tokens, \
+    COALESCE(SUM(total_tokens), 0) AS total_tokens, \
+    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
+    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
+    COALESCE(SUM(cost_usd), 0) AS cost_usd \
+ FROM llm_usage WHERE created_at >= ?1 \
+ GROUP BY provider ORDER BY total_tokens DESC, calls DESC";
+
+const MODEL_BREAKDOWN_QUERY: &str = "SELECT provider, model, \
+    COUNT(*) AS calls, \
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls, \
+    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls, \
+    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, \
+    COALESCE(SUM(completion_tokens), 0) AS completion_tokens, \
+    COALESCE(SUM(total_tokens), 0) AS total_tokens, \
+    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
+    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
+    COALESCE(SUM(cost_usd), 0) AS cost_usd \
+ FROM llm_usage WHERE created_at >= ?1 \
+ GROUP BY provider, model ORDER BY total_tokens DESC, calls DESC LIMIT ?2";
+
+const REQUEST_KIND_BREAKDOWN_QUERY: &str = "SELECT request_kind, \
+    COUNT(*) AS calls, \
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls, \
+    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls, \
+    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, \
+    COALESCE(SUM(completion_tokens), 0) AS completion_tokens, \
+    COALESCE(SUM(total_tokens), 0) AS total_tokens, \
+    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, \
+    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms, \
+    COALESCE(SUM(cost_usd), 0) AS cost_usd \
+ FROM llm_usage WHERE created_at >= ?1 \
+ GROUP BY request_kind ORDER BY total_tokens DESC, calls DESC";
+
 fn query_summary(days: i64, model_limit: i64) -> Value {
     let conn = match open_llm_usage_db() {
         Some(c) => c,
@@ -128,18 +167,7 @@ fn query_summary(days: i64, model_limit: i64) -> Value {
     // Provider breakdown
     let providers = query_grouped_usage(
         &conn,
-        "SELECT provider, \
-            COUNT(*), \
-            SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), \
-            SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), \
-            COALESCE(SUM(prompt_tokens), 0), \
-            COALESCE(SUM(completion_tokens), 0), \
-            COALESCE(SUM(total_tokens), 0), \
-            COALESCE(AVG(latency_ms), 0), \
-            COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0), \
-            COALESCE(SUM(cost_usd), 0) \
-         FROM llm_usage WHERE created_at >= ?1 \
-         GROUP BY provider ORDER BY total_tokens DESC, calls DESC",
+        PROVIDER_BREAKDOWN_QUERY,
         rusqlite::params![cutoff],
         &["provider"],
     );
@@ -147,18 +175,7 @@ fn query_summary(days: i64, model_limit: i64) -> Value {
     // Model breakdown
     let models = query_grouped_usage(
         &conn,
-        "SELECT provider, model, \
-            COUNT(*), \
-            SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), \
-            SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), \
-            COALESCE(SUM(prompt_tokens), 0), \
-            COALESCE(SUM(completion_tokens), 0), \
-            COALESCE(SUM(total_tokens), 0), \
-            COALESCE(AVG(latency_ms), 0), \
-            COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0), \
-            COALESCE(SUM(cost_usd), 0) \
-         FROM llm_usage WHERE created_at >= ?1 \
-         GROUP BY provider, model ORDER BY total_tokens DESC, calls DESC LIMIT ?2",
+        MODEL_BREAKDOWN_QUERY,
         rusqlite::params![cutoff, model_limit],
         &["provider", "model"],
     );
@@ -166,18 +183,7 @@ fn query_summary(days: i64, model_limit: i64) -> Value {
     // Request kind breakdown
     let request_kinds = query_grouped_usage(
         &conn,
-        "SELECT request_kind, \
-            COUNT(*), \
-            SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), \
-            SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), \
-            COALESCE(SUM(prompt_tokens), 0), \
-            COALESCE(SUM(completion_tokens), 0), \
-            COALESCE(SUM(total_tokens), 0), \
-            COALESCE(AVG(latency_ms), 0), \
-            COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0), \
-            COALESCE(SUM(cost_usd), 0) \
-         FROM llm_usage WHERE created_at >= ?1 \
-         GROUP BY request_kind ORDER BY total_tokens DESC, calls DESC",
+        REQUEST_KIND_BREAKDOWN_QUERY,
         rusqlite::params![cutoff],
         &["request_kind"],
     );
@@ -206,10 +212,7 @@ fn query_grouped_usage(
     stmt.query_map(params, |row| {
         let mut obj = serde_json::Map::new();
         for (i, col) in label_cols.iter().enumerate() {
-            obj.insert(
-                col.to_string(),
-                json!(row.get::<_, String>(i)?),
-            );
+            obj.insert(col.to_string(), json!(row.get::<_, String>(i)?));
         }
         let avg_ttft: f64 = row.get(n + 7)?;
         obj.insert("calls".into(), json!(row.get::<_, i64>(n)?));
@@ -363,6 +366,91 @@ pub fn warm_sysinfo_cache() {
     });
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{
+        query_grouped_usage, MODEL_BREAKDOWN_QUERY, PROVIDER_BREAKDOWN_QUERY,
+        REQUEST_KIND_BREAKDOWN_QUERY,
+    };
+    use rusqlite::Connection;
+
+    fn setup_llm_usage_table(conn: &Connection) {
+        conn.execute_batch(
+            "
+            CREATE TABLE llm_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                request_kind TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                usage_available INTEGER NOT NULL DEFAULT 0,
+                latency_ms INTEGER NOT NULL DEFAULT 0,
+                ttft_ms INTEGER NOT NULL DEFAULT 0,
+                cost_usd REAL NOT NULL DEFAULT 0,
+                success INTEGER NOT NULL DEFAULT 1,
+                error TEXT,
+                correlation_id TEXT,
+                session_id TEXT,
+                turn_id TEXT,
+                agent_id TEXT,
+                created_at REAL NOT NULL
+            );
+
+            INSERT INTO llm_usage (
+                request_id, provider, model, request_kind, prompt_tokens, completion_tokens,
+                total_tokens, usage_available, latency_ms, ttft_ms, cost_usd, success, created_at
+            ) VALUES
+                ('req-1', 'openai', 'gpt-4.1', 'chat', 100, 40, 140, 1, 1200, 300, 0.12, 1, 1000),
+                ('req-2', 'openai', 'gpt-4.1', 'chat', 50, 10, 60, 1, 900, 250, 0.04, 1, 1001),
+                ('req-3', 'anthropic', 'claude-3-7-sonnet', 'function_calling:tools', 80, 20, 100, 1, 1500, 0, 0.08, 1, 1002);
+            ",
+        )
+        .expect("create llm_usage test table");
+    }
+
+    #[test]
+    fn grouped_usage_breakdowns_return_rows() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        setup_llm_usage_table(&conn);
+
+        let providers = query_grouped_usage(
+            &conn,
+            PROVIDER_BREAKDOWN_QUERY,
+            rusqlite::params![0.0],
+            &["provider"],
+        );
+        let models = query_grouped_usage(
+            &conn,
+            MODEL_BREAKDOWN_QUERY,
+            rusqlite::params![0.0, 8],
+            &["provider", "model"],
+        );
+        let request_kinds = query_grouped_usage(
+            &conn,
+            REQUEST_KIND_BREAKDOWN_QUERY,
+            rusqlite::params![0.0],
+            &["request_kind"],
+        );
+
+        assert_eq!(providers.len(), 2);
+        assert_eq!(providers[0]["provider"], "openai");
+        assert_eq!(providers[0]["calls"], 2);
+        assert_eq!(providers[0]["total_tokens"], 200);
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0]["provider"], "openai");
+        assert_eq!(models[0]["model"], "gpt-4.1");
+        assert_eq!(models[0]["total_tokens"], 200);
+
+        assert_eq!(request_kinds.len(), 2);
+        assert_eq!(request_kinds[0]["request_kind"], "chat");
+        assert_eq!(request_kinds[0]["calls"], 2);
+    }
+}
+
 struct SysMetricsCache {
     sys: System,
     snapshot: Value,
@@ -461,8 +549,7 @@ fn build_runtime_status() -> Value {
         )
         .ok();
 
-    let queue_backlog_healthy = queue_backlog
-        .map(|b| b <= PENDING_COMMAND_WARNING_THRESHOLD);
+    let queue_backlog_healthy = queue_backlog.map(|b| b <= PENDING_COMMAND_WARNING_THRESHOLD);
 
     let status = if runtime_ready && queue_backlog_healthy.unwrap_or(true) {
         "ready"
@@ -641,9 +728,17 @@ fn build_scheduler_section() -> Value {
         None => return empty_scheduler_section(),
     };
 
-    let enabled_count = db::count_rows(&conn, "SELECT COUNT(*) FROM schedules WHERE enabled = 1", &[]);
+    let enabled_count = db::count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM schedules WHERE enabled = 1",
+        &[],
+    );
 
-    let running_count = db::count_rows(&conn, "SELECT COUNT(*) FROM target_state WHERE running = 1", &[]);
+    let running_count = db::count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM target_state WHERE running = 1",
+        &[],
+    );
 
     let errored_count = db::count_rows(
         &conn,

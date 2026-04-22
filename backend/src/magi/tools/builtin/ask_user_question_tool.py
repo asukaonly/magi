@@ -151,6 +151,23 @@ class AskUserQuestionTool(Tool):
             session_id=sid,
             request_id=ask.request_id,
         )
+        try:
+            from ...agent.control.common.events import publish_control_event
+
+            await publish_control_event(
+                "control.ask.requested",
+                {
+                    "request_id": ask.request_id,
+                    "session_id": sid,
+                    "question": question,
+                    "options": list(options or []),
+                    "allow_free_text": allow_free_text,
+                    "timeout_seconds": timeout_seconds,
+                },
+                session_id=sid,
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("ask_user_question.event_failed", exc_info=True)
 
         try:
             answer = await broker.wait(

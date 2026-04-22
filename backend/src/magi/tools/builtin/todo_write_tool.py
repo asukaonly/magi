@@ -107,6 +107,19 @@ class TodoWriteTool(Tool):
             count=len(todos),
             in_progress=sum(1 for t in todos if t.status.value == "in_progress"),
         )
+        try:
+            from ...agent.control.common.events import publish_control_event
+
+            await publish_control_event(
+                "control.todo.updated",
+                {
+                    "session_id": sid,
+                    "items": [t.to_dict() for t in todos],
+                },
+                session_id=sid,
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("todo_write.event_failed", exc_info=True)
         return ToolResult(
             success=True,
             data={"items": [t.to_dict() for t in todos]},

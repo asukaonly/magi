@@ -68,6 +68,7 @@ class EnterPlanModeTool(Tool):
             return ToolResult(success=False, error=str(exc))
         state = await store.enter_plan_mode(sid)
         logger.info("plan_mode.entered", session_id=sid)
+        await _emit_plan_event(sid, state.to_dict())
         return ToolResult(success=True, data=state.to_dict())
 
 
@@ -119,7 +120,21 @@ class ExitPlanModeTool(Tool):
             return ToolResult(success=False, error=str(exc))
         state = await store.exit_plan_mode(sid, plan_text=plan_text)
         logger.info("plan_mode.exited", session_id=sid, plan_length=len(plan_text))
+        await _emit_plan_event(sid, state.to_dict())
         return ToolResult(success=True, data=state.to_dict())
+
+
+async def _emit_plan_event(session_id: str, state: Dict[str, Any]) -> None:
+    try:
+        from ...agent.control.common.events import publish_control_event
+
+        await publish_control_event(
+            "control.plan.updated",
+            {"session_id": session_id, "plan": state},
+            session_id=session_id,
+        )
+    except Exception:  # pragma: no cover - defensive
+        logger.debug("plan_mode.event_failed", exc_info=True)
 
 
 __all__ = ["EnterPlanModeTool", "ExitPlanModeTool"]
