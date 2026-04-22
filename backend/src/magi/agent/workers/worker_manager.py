@@ -713,7 +713,16 @@ class WorkerAgentManager(Tool):
                 return
 
             run_state.status = "failed"
-            run_state.error = run_state.error or outcome.failure_reason or "Worker execution failed"
+            # Prefer the raw provider/exception text surfaced by the
+            # function-calling orchestrator so the worker-attempt span
+            # shows the real LLM error (e.g. ``EXECUTION_ERROR: Error
+            # code: 400 - ...``) instead of only the classified bucket.
+            run_state.error = (
+                run_state.error
+                or getattr(outcome, "error_text", None)
+                or outcome.failure_reason
+                or "Worker execution failed"
+            )
             await self._emit_worker_failed_trace(run_state)
             await self._publish_worker_fact(
                 run_state=run_state,

@@ -51,6 +51,25 @@ llm_logger = get_llm_logger('function_calling')
 THINKING_LLM_TIMEOUT_SECONDS = 180.0
 
 
+# Map ``ParameterType`` enum values onto valid JSON-Schema types. OpenAI
+# and GLM-compatible function-calling endpoints both validate tool
+# ``parameters`` against the JSON Schema draft, which only recognises
+# ``string / number / integer / boolean / object / array / null``.
+# ``ParameterType.FLOAT = "float"`` and ``ParameterType.FILE = "file"``
+# are internal shorthands; emitting them raw produces provider errors
+# such as GLM's ``400 / code 1210 "API 调用参数有误"``.
+_JSON_SCHEMA_TYPE_ALIASES: Dict[str, str] = {
+    "float": "number",
+    "file": "string",
+}
+
+
+def _to_json_schema_type(raw: Any) -> str:
+    """Return a JSON-Schema-valid type string for a tool parameter type."""
+    text = str(raw or "string").strip().lower() or "string"
+    return _JSON_SCHEMA_TYPE_ALIASES.get(text, text)
+
+
 @dataclass
 class ToolMessageBlock:
     """One protocol-complete assistant tool-call block plus its tool messages."""
@@ -96,6 +115,12 @@ class ExecutionOutcome:
     status: str
     content: str
     failure_reason: Optional[str] = None
+    # Raw provider/exception text preserved for observability. Carries
+    # the same payload written to the iteration trace span on failure
+    # (e.g. ``"EXECUTION_ERROR: Error code: 400 - {...}"``), so upstream
+    # consumers like the worker manager can expose it in the UI rather
+    # than only the classified ``failure_reason`` bucket.
+    error_text: Optional[str] = None
     tool_failures: List[Dict[str, Any]] = field(default_factory=list)
     iterations: int = 0
     snapshot: Optional["OrchestratorSnapshot"] = None
@@ -531,18 +556,20 @@ class FunctionCallingOrchestrator:
                 execution_agent_id=execution_agent_id,
             )
         except Exception as exc:
+            error_text = self._format_exception_trace_text(exc)
             await self._complete_iteration_trace(
                 turn_id=turn_id,
                 iteration=state.iteration,
                 execution_agent_id=execution_agent_id,
                 started_at_ms=None,
                 status="failed",
-                error_text=self._format_exception_trace_text(exc),
+                error_text=error_text,
             )
             return ExecutionOutcome(
                 status="failed",
                 content="",
                 failure_reason=self._classify_exception_failure(exc),
+                error_text=error_text,
                 tool_failures=list(state.tool_failures),
                 iterations=state.iteration,
             )
@@ -615,18 +642,20 @@ class FunctionCallingOrchestrator:
                     execution_agent_id=execution_agent_id,
                 )
             except Exception as exc:
+                error_text = self._format_exception_trace_text(exc)
                 await self._complete_iteration_trace(
                     turn_id=turn_id,
                     iteration=state.iteration,
                     execution_agent_id=execution_agent_id,
                     started_at_ms=None,
                     status="failed",
-                    error_text=self._format_exception_trace_text(exc),
+                    error_text=error_text,
                 )
                 return ExecutionOutcome(
                     status="failed",
                     content="",
                     failure_reason=self._classify_exception_failure(exc),
+                    error_text=error_text,
                     tool_failures=list(state.tool_failures),
                     iterations=state.iteration,
                 )
@@ -665,6 +694,7 @@ class FunctionCallingOrchestrator:
                     status="failed",
                     content="",
                     failure_reason=self._classify_exception_failure(exc),
+                    error_text=self._format_exception_trace_text(exc),
                     tool_failures=list(state.tool_failures),
                     iterations=state.iteration,
                 )
@@ -1038,10 +1068,10 @@ class FunctionCallingOrchestrator:
                 if not param_name:
                     continue
 
-                prop_def = {"type": param.get("type", "string")}
+                prop_def = {"type": _to_json_schema_type(param.get("type", "string"))}
                 if param.get("type") == "array":
                     prop_def["items"] = {
-                        "type": param.get("array_item_type", "string"),
+                        "type": _to_json_schema_type(param.get("array_item_type", "string")),
                     }
                 if param.get("description"):
                     prop_def["description"] = param["description"]
