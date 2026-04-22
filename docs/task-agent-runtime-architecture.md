@@ -561,11 +561,14 @@ non-terminal status (alongside ``pending`` / ``running`` /
 Cancellation from the suspended state goes through the existing
 ``cancel`` path and reaches ``cancelling`` / ``cancelled``.
 
-Known gap: ``ask_user_question`` inside a background task does not yet
-call these transitions automatically. The hook point requires plumbing
-the owning ``bg_task_id`` into ``ToolExecutionContext.env_vars`` when
-``BackgroundTaskManager`` invokes a ``run_fn`` so the tool can resolve
-its owning task. This is tracked in ``docs/backlog.md``.
+The ``ask_user_question`` tool resolves the owning background task id
+by parsing ``ToolExecutionContext.agent_id`` (set to
+``f"background:{task_id}"`` by ``build_background_run_fn``). When the
+call arrives from a background run with ``allow_ask_in_background``
+enabled, the tool calls ``suspend_waiting_user`` before awaiting the
+answer broker and ``resume_from_wait`` once the answer or timeout
+resolves, so the durable status of the task reflects the real wait
+state.
 
 ## Typed Execution Framework
 
