@@ -10,6 +10,7 @@ Handles tool execution using LLM's native function calling capability:
 import inspect
 import json
 import logging
+import asyncio
 import getpass
 import os
 import re
@@ -128,6 +129,11 @@ class FunctionCallingOrchestrator:
     MAX_ITERATIONS = 30  # Maximum tool calls in a single loop
     _RAW_TOOL_HISTORY_LIMIT = 4
     _FAILED_ITERATION_REPLAN_LIMIT = 2
+    # In-loop 429 backoff. The orchestrator-level retry in
+    # ``task_orchestrator.LLM_RATE_LIMIT_*`` is still the last line of
+    # defence for worker runs, but retrying *inside* the step loop avoids
+    # throwing away tool results accumulated mid-run.
+    _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
     _NON_REPLAN_ERROR_CODES = {
         "ACCESS_DENIED",
         "AUTH_REQUIRED",
@@ -1100,45 +1106,51 @@ class FunctionCallingOrchestrator:
         try:
             streamed = False
             if stream_chunk_callback is not None:
-                stream_result: ToolStreamResult = await self.provider_bridge.chat_with_tools_stream(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    tools=tools,
-                    max_tokens=DEFAULT_MAX_TOKENS,
-                    temperature=0.7,
-                    thinking_depth=thinking_depth,
-                    timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
-                    event_context={
-                        "request_id": request_id,
-                        "request_kind": "function_calling:tools",
-                        "session_id": session_id,
-                        "turn_id": turn_id,
-                        "agent_id": execution_agent_id,
-                        "correlation_id": turn_id,
-                        "intent": intent,
-                    },
-                    chunk_callback=stream_chunk_callback,
+                stream_result: ToolStreamResult = await self._invoke_with_rate_limit_backoff(
+                    lambda: self.provider_bridge.chat_with_tools_stream(
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        tools=tools,
+                        max_tokens=DEFAULT_MAX_TOKENS,
+                        temperature=0.7,
+                        thinking_depth=thinking_depth,
+                        timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
+                        event_context={
+                            "request_id": request_id,
+                            "request_kind": "function_calling:tools",
+                            "session_id": session_id,
+                            "turn_id": turn_id,
+                            "agent_id": execution_agent_id,
+                            "correlation_id": turn_id,
+                            "intent": intent,
+                        },
+                        chunk_callback=stream_chunk_callback,
+                    ),
+                    label="chat_with_tools_stream",
                 )
                 provider_response = stream_result.provider_response
                 streamed = not stream_result.has_tool_calls and stream_result.text_chunks_emitted > 0
             else:
-                provider_response = await self.provider_bridge.chat_with_tools(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    tools=tools,
-                    max_tokens=DEFAULT_MAX_TOKENS,
-                    temperature=0.7,
-                    thinking_depth=thinking_depth,
-                    timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
-                    event_context={
-                        "request_id": request_id,
-                        "request_kind": "function_calling:tools",
-                        "session_id": session_id,
-                        "turn_id": turn_id,
-                        "agent_id": execution_agent_id,
-                        "correlation_id": turn_id,
-                        "intent": intent,
-                    },
+                provider_response = await self._invoke_with_rate_limit_backoff(
+                    lambda: self.provider_bridge.chat_with_tools(
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        tools=tools,
+                        max_tokens=DEFAULT_MAX_TOKENS,
+                        temperature=0.7,
+                        thinking_depth=thinking_depth,
+                        timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
+                        event_context={
+                            "request_id": request_id,
+                            "request_kind": "function_calling:tools",
+                            "session_id": session_id,
+                            "turn_id": turn_id,
+                            "agent_id": execution_agent_id,
+                            "correlation_id": turn_id,
+                            "intent": intent,
+                        },
+                    ),
+                    label="chat_with_tools",
                 )
 
             duration_ms = int((time.time() - start_time) * 1000)
@@ -1240,23 +1252,26 @@ class FunctionCallingOrchestrator:
                 streamed = True
                 provider_response = None
             else:
-                provider_response = await self.provider_bridge.chat_response(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    max_tokens=DEFAULT_MAX_TOKENS,
-                    temperature=0.7,
-                    thinking_depth=thinking_depth,
-                    json_mode=json_mode,
-                    timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
-                    event_context={
-                        "request_id": request_id,
-                        "request_kind": "function_calling:final_response",
-                        "session_id": session_id,
-                        "turn_id": turn_id,
-                        "agent_id": execution_agent_id,
-                        "correlation_id": turn_id,
-                        "intent": intent,
-                    },
+                provider_response = await self._invoke_with_rate_limit_backoff(
+                    lambda: self.provider_bridge.chat_response(
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        max_tokens=DEFAULT_MAX_TOKENS,
+                        temperature=0.7,
+                        thinking_depth=thinking_depth,
+                        json_mode=json_mode,
+                        timeout_seconds=self._resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth),
+                        event_context={
+                            "request_id": request_id,
+                            "request_kind": "function_calling:final_response",
+                            "session_id": session_id,
+                            "turn_id": turn_id,
+                            "agent_id": execution_agent_id,
+                            "correlation_id": turn_id,
+                            "intent": intent,
+                        },
+                    ),
+                    label="chat_response",
                 )
                 content = provider_response.content
 
@@ -1923,6 +1938,75 @@ class FunctionCallingOrchestrator:
         if "timeout" in message:
             return "WORKER_TIMEOUT"
         return "EXECUTION_ERROR"
+
+    @classmethod
+    def _is_rate_limit_exception(cls, exc: Exception) -> bool:
+        """Shared detector for upstream 429 / rate-limit errors.
+
+        Matches the textual signatures used by openai, anthropic and GLM
+        (including the Chinese "速率限制" string some providers return).
+        """
+        status_code = getattr(exc, "status_code", None)
+        if status_code == 429:
+            return True
+        response = getattr(exc, "response", None)
+        if getattr(response, "status_code", None) == 429:
+            return True
+        message = str(exc)
+        lowered = message.lower()
+        return (
+            "429" in message
+            or "rate limit" in lowered
+            or "ratelimit" in lowered
+            or "rate_limit" in lowered
+            or "速率限制" in message
+        )
+
+    async def _invoke_with_rate_limit_backoff(
+        self,
+        factory: Callable[[], Awaitable[Any]],
+        *,
+        label: str,
+    ) -> Any:
+        """Run ``factory()`` with exponential backoff on rate-limit errors.
+
+        The foreground function-calling loop previously bubbled every
+        429 straight up to the task orchestrator, which re-launches the
+        whole worker from scratch — throwing away any tool results
+        already collected in the current step. Retrying in-place for a
+        few short sleeps keeps mid-run progress intact and is cheap
+        compared to a full worker relaunch.
+
+        Non-rate-limit errors are re-raised immediately so the existing
+        failure classification / replan logic still applies.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(len(self._RATE_LIMIT_BACKOFF_SECONDS) + 1):
+            try:
+                return await factory()
+            except Exception as exc:  # noqa: BLE001 - transparent rethrow below
+                if not self._is_rate_limit_exception(exc):
+                    raise
+                last_exc = exc
+                if attempt >= len(self._RATE_LIMIT_BACKOFF_SECONDS):
+                    logger.error(
+                        "[FunctionCalling] %s rate-limited after %d retries, giving up",
+                        label,
+                        attempt,
+                    )
+                    raise
+                delay = self._RATE_LIMIT_BACKOFF_SECONDS[attempt]
+                logger.warning(
+                    "[FunctionCalling] %s rate-limited; backing off %.1fs (attempt %d/%d)",
+                    label,
+                    delay,
+                    attempt + 1,
+                    len(self._RATE_LIMIT_BACKOFF_SECONDS),
+                )
+                await asyncio.sleep(delay)
+        # Unreachable - the loop either returns or raises above.
+        assert last_exc is not None
+        raise last_exc
 
     def _classify_final_failure(
         self,
