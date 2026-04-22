@@ -349,7 +349,7 @@ class FunctionCallingOrchestrator:
                     iterations=state.iteration,
                 )
             if steer_inbox is not None:
-                await self._apply_steer_messages(state, steer_inbox)
+                await self.apply_steer_messages(state, steer_inbox)
             if detach_signal is not None and detach_signal.is_requested():
                 return self._build_detached_outcome(state, detach_signal)
             step_outcome = await self.step_executor.execute_step(
@@ -421,13 +421,15 @@ class FunctionCallingOrchestrator:
         if result.compacted:
             state.messages[:] = result.messages
 
-    async def _apply_steer_messages(
+    async def apply_steer_messages(
         self,
         state: FunctionCallingStepState,
         steer_inbox: SteerInbox,
     ) -> None:
         """Drain ``steer_inbox`` and append each message to ``state.messages``.
 
+        Public entry point used by the orchestrator's own tool loop and by
+        chat execution handlers that drive the step executor directly.
         Each drained :class:`SteerMessage` becomes a single ``user`` message
         appended verbatim. Ordering matches the producer's push order.
         Empty-content messages are skipped to avoid polluting the history.

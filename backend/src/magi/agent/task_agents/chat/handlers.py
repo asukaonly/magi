@@ -656,36 +656,22 @@ class FunctionCallingHandler(BaseExecutionHandler):
     async def _build_steer_inbox(
         self, request: FunctionCallingRequest
     ) -> SteerInbox | None:
-        """Return a :class:`SteerInbox` seeded with any persisted STEER turns.
+        """Return an empty :class:`SteerInbox` for this turn, or ``None``.
 
         Without a :class:`SessionRunCoordinator` there is no persistent
         queue to drain, so returning ``None`` keeps the orchestrator's
-        steer path a no-op. When a coordinator is wired we drain any
-        STEER pending turns that were queued while this turn was offline
-        (e.g. the backend restarted mid-run) and push them into the inbox
-        so the first iteration picks them up alongside any newly arriving
-        turns.
+        steer path a no-op. When a coordinator is wired we return a
+        fresh empty inbox — any persisted STEER pending turns (including
+        ones that survived a backend restart) are drained into it at the
+        top of the first checkpoint iteration by
+        :meth:`_drain_pending_steer_turns`, which also emits supersession
+        bookkeeping. Draining here would bypass that bookkeeping.
         """
         coordinator = self._deps.session_run_coordinator
         session_id = str(getattr(request.context, "session_id", "") or "").strip()
         if coordinator is None or not session_id:
             return None
-        inbox = SteerInbox()
-        active_run = coordinator.get_active_run(session_id)
-        if active_run is None:
-            return inbox
-        drained = coordinator.consume_steer_turns(
-            session_id, revision=active_run.revision
-        )
-        for pending_turn in drained:
-            await inbox.push(
-                SteerMessage(
-                    content=pending_turn.content,
-                    reason="steer",
-                    metadata={"turn_id": pending_turn.turn_id},
-                )
-            )
-        return inbox
+        return SteerInbox()
 
     async def _drain_pending_steer_turns(
         self,
@@ -709,7 +695,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         if coordinator is None or steer_inbox is None or not session_id:
             return
         apply_steer = getattr(
-            self._deps.function_calling_orchestrator, "_apply_steer_messages", None
+            self._deps.function_calling_orchestrator, "apply_steer_messages", None
         )
         if apply_steer is None:
             return

@@ -126,6 +126,84 @@ async def test_l0_checkpoint_restores_execution_lane(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_l0_checkpoint_preserves_pending_turn_disposition(tmp_path):
+    """AUGMENT / DEFER / STEER dispositions must survive a SQL round-trip.
+
+    Regression: before the ``disposition`` column was added to
+    ``l0_execution_pending_turns`` the save path silently dropped the
+    field and the restore path reconstructed every turn as
+    ``augment``, which would have broken the STEER handler drain path
+    across a backend restart.
+    """
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    checkpoint_path = tmp_path / "l0_pending_turn_disposition.db"
+    store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        checkpoint_interval_seconds=1,
+        session_timeout_seconds=3600,
+        restore_on_restart=True,
+    )
+    await store.initialize()
+    await store.start_session(
+        session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1"
+    )
+    await store.upsert_execution_run(
+        session_id="session-1",
+        run_id="run-1",
+        root_turn_id="turn-1",
+        root_user_message="Investigate the login issue.",
+        revision=0,
+        status="running",
+        response_anchor_turn_id="turn-1",
+    )
+    await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-1",
+        turn_id="turn-augment",
+        content="Instead of login, inspect signup.",
+        revision=0,
+        disposition="augment",
+    )
+    await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-1",
+        turn_id="turn-steer",
+        content="Also, use the staging endpoint.",
+        revision=0,
+        disposition="steer",
+    )
+    await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-1",
+        turn_id="turn-defer",
+        content="顺便帮我看看 github 的仓库吧。",
+        revision=0,
+        disposition="defer",
+    )
+    await store.checkpoint_session("session-1")
+
+    restored = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        checkpoint_interval_seconds=1,
+        session_timeout_seconds=3600,
+        restore_on_restart=True,
+    )
+    await restored.initialize()
+    execution_state = await restored.get_execution_state("session-1")
+
+    dispositions_by_turn = {
+        entry["turn_id"]: entry["disposition"]
+        for entry in execution_state["pending_turns"]
+    }
+    assert dispositions_by_turn == {
+        "turn-augment": "augment",
+        "turn-steer": "steer",
+        "turn-defer": "defer",
+    }
+
+
+@pytest.mark.asyncio
 async def test_l0_workbench_excludes_execution_lane_state(tmp_path):
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
