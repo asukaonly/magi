@@ -20,6 +20,9 @@ class BackgroundTaskStatus(str, Enum):
 
     * ``pending`` → ``running`` (slot acquired) | ``cancelled``
     * ``running`` → ``cancelling`` | ``succeeded`` | ``failed``
+      | ``suspended_waiting_user``
+    * ``suspended_waiting_user`` → ``running`` (user answered the prompt)
+      | ``cancelling``
     * ``cancelling`` → ``cancelled``
     * ``failed`` / ``cancelled`` → ``pending`` on retry (new ``attempt_index``)
 
@@ -32,6 +35,7 @@ class BackgroundTaskStatus(str, Enum):
     CANCELLED = "cancelled"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    SUSPENDED_WAITING_USER = "suspended_waiting_user"
 
     @classmethod
     def terminal(cls) -> frozenset["BackgroundTaskStatus"]:

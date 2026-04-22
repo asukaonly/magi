@@ -134,6 +134,7 @@ class ControlPlaneModule(LifecycleModule):
                 payload,
                 session_id=payload.get("session_id"),
                 user_id=payload.get("user_id"),
+                turn_id=payload.get("turn_id") or payload.get("task_id"),
             )
 
         prompter = BrokeredPermissionPrompter(

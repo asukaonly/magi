@@ -101,6 +101,7 @@ class AskUserQuestionTool(Tool):
             )
 
         intent = str(context.env_vars.get("intent") or "").strip()
+        turn_id = str(context.env_vars.get("turn_id") or "").strip() or None
         # Background and scheduled tasks don't have a human waiting on
         # the UI; refuse unless the call site opts in via a feature
         # flag (``allow_ask_in_background``).
@@ -168,6 +169,7 @@ class AskUserQuestionTool(Tool):
                     "background": is_background,
                 },
                 session_id=sid,
+                turn_id=turn_id,
             )
             if is_background:
                 await publish_control_event(
@@ -179,6 +181,7 @@ class AskUserQuestionTool(Tool):
                         "timeout_seconds": timeout_seconds,
                     },
                     session_id=sid,
+                    turn_id=turn_id,
                 )
         except Exception:  # pragma: no cover - defensive
             logger.debug("ask_user_question.event_failed", exc_info=True)
@@ -215,6 +218,7 @@ class AskUserQuestionTool(Tool):
                         "request_id": ask.request_id,
                     },
                     session_id=sid,
+                    turn_id=turn_id,
                 )
             except Exception:  # pragma: no cover - defensive
                 logger.debug(

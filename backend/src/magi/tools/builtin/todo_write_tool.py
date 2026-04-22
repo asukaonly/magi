@@ -74,6 +74,8 @@ class TodoWriteTool(Tool):
                 success=False,
                 error="todo_write requires an active session",
             )
+        raw_turn = context.env_vars.get("turn_id")
+        turn_id = str(raw_turn or "").strip() or None
         raw_items = parameters.get("items")
         if not isinstance(raw_items, list):
             return ToolResult(
@@ -117,6 +119,7 @@ class TodoWriteTool(Tool):
                     "items": [t.to_dict() for t in todos],
                 },
                 session_id=sid,
+                turn_id=turn_id,
             )
         except Exception:  # pragma: no cover - defensive
             logger.debug("todo_write.event_failed", exc_info=True)
