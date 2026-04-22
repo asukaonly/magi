@@ -1,0 +1,164 @@
+"""Tests for :class:`BrokeredPermissionPrompter` and :class:`PendingPermissionRegistry`."""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from magi.agent.control.common.interaction_broker import (
+    InteractionBroker,
+    InteractionTimeoutError,
+)
+from magi.agent.control.permission.brokered_prompter import (
+    BrokeredPermissionPrompter,
+    PendingPermissionRegistry,
+)
+from magi.agent.control.permission.contracts import (
+    PermissionRequest,
+    PermissionScope,
+    RiskLevel,
+    ToolOrigin,
+)
+from magi.agent.control.permission.gateway import UserPromptResponse
+
+
+def _request(request_id: str = "req-1", session_id: str | None = "sid-1") -> PermissionRequest:
+    return PermissionRequest(
+        request_id=request_id,
+        tool_name="bash",
+        arguments={"command": "rm file"},
+        risk_level=RiskLevel.HIGH,
+        origin=ToolOrigin.CHAT,
+        agent_id="chat",
+        session_id=session_id,
+        task_id=None,
+        workspace=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_registry_round_trip() -> None:
+    registry = PendingPermissionRegistry()
+    req = _request("req-a", session_id="s1")
+    await registry.add(req)
+    assert registry.snapshot(session_id="s1") == [req]
+    assert registry.snapshot(session_id="other") == []
+    assert registry.snapshot(session_id="*") == [req]
+    assert registry.get("req-a") is req
+    assert await registry.remove("req-a") is req
+    assert registry.snapshot(session_id="*") == []
+    assert await registry.remove("req-a") is None
+
+
+@pytest.mark.asyncio
+async def test_prompter_records_then_resolves_via_broker() -> None:
+    broker = InteractionBroker()
+    registry = PendingPermissionRegistry()
+    prompter = BrokeredPermissionPrompter(broker=broker, registry=registry)
+    req = _request("req-b", session_id="s1")
+
+    async def resolver() -> None:
+        # Wait until the registry sees it, then respond.
+        for _ in range(50):
+            if registry.get("req-b") is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert registry.get("req-b") is req
+        await broker.resolve(
+            interaction_id="req-b",
+            kind="permission",
+            response={
+                "outcome": "allowed",
+                "scope": PermissionScope.SESSION.value,
+                "pattern": "rm *",
+                "reason": "user approved",
+            },
+        )
+
+    asyncio.create_task(resolver())
+    response = await prompter(req, timeout_seconds=2.0)
+
+    assert isinstance(response, UserPromptResponse)
+    assert response.allow is True
+    assert response.scope is PermissionScope.SESSION
+    assert response.matcher == {"pattern": "rm *"}
+    assert response.note == "user approved"
+    # Registry cleared after resolution.
+    assert registry.get("req-b") is None
+
+
+@pytest.mark.asyncio
+async def test_prompter_timeout_clears_registry() -> None:
+    broker = InteractionBroker()
+    registry = PendingPermissionRegistry()
+    prompter = BrokeredPermissionPrompter(broker=broker, registry=registry)
+    req = _request("req-c")
+
+    with pytest.raises(InteractionTimeoutError):
+        await prompter(req, timeout_seconds=0.05)
+
+    assert registry.get("req-c") is None
+
+
+@pytest.mark.asyncio
+async def test_prompter_deny_defaults_scope() -> None:
+    broker = InteractionBroker()
+    registry = PendingPermissionRegistry()
+    prompter = BrokeredPermissionPrompter(broker=broker, registry=registry)
+    req = _request("req-d")
+
+    async def resolver() -> None:
+        for _ in range(50):
+            if registry.get("req-d") is not None:
+                break
+            await asyncio.sleep(0.01)
+        await broker.resolve(
+            interaction_id="req-d",
+            kind="permission",
+            response={"outcome": "denied"},
+        )
+
+    asyncio.create_task(resolver())
+    response = await prompter(req, timeout_seconds=2.0)
+    assert response.allow is False
+    assert response.scope is PermissionScope.ONE_SHOT
+    assert response.matcher is None
+    assert response.note is None
+
+
+@pytest.mark.asyncio
+async def test_prompter_invokes_notify_callback() -> None:
+    broker = InteractionBroker()
+    registry = PendingPermissionRegistry()
+    seen: list[tuple[str, dict]] = []
+
+    async def notify(event: str, payload: dict) -> None:
+        seen.append((event, payload))
+
+    prompter = BrokeredPermissionPrompter(
+        broker=broker,
+        registry=registry,
+        notify_callback=notify,
+    )
+    req = _request("req-e")
+
+    async def resolver() -> None:
+        for _ in range(50):
+            if registry.get("req-e") is not None:
+                break
+            await asyncio.sleep(0.01)
+        await broker.resolve(
+            interaction_id="req-e",
+            kind="permission",
+            response={"outcome": "allowed"},
+        )
+
+    asyncio.create_task(resolver())
+    await prompter(req, timeout_seconds=2.0)
+
+    assert len(seen) == 1
+    event, payload = seen[0]
+    assert event == "control.permission.requested"
+    assert payload["request_id"] == "req-e"
+    assert payload["tool_name"] == "bash"

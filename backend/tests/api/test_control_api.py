@@ -250,3 +250,79 @@ async def test_session_plan_and_todos_and_ask(wiring):
     ask = client.get("/api/control/sessions/sid-2/ask").json()
     assert ask["ask"]["question"] == "Proceed?"
     assert ask["ask"]["options"] == ["yes", "no"]
+
+
+@pytest.mark.asyncio
+async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
+    from magi.agent.control.permission.brokered_prompter import (
+        PendingPermissionRegistry,
+    )
+    from magi.agent.control.permission.contracts import (
+        PermissionRequest,
+        RiskLevel,
+        ToolOrigin,
+    )
+
+    registry = PendingPermissionRegistry()
+    monkeypatch.setattr(
+        control_module,
+        "require_pending_permission_registry",
+        lambda: registry,
+    )
+
+    req_a = PermissionRequest(
+        request_id="req-a",
+        tool_name="bash",
+        arguments={"command": "rm file"},
+        risk_level=RiskLevel.HIGH,
+        origin=ToolOrigin.CHAT,
+        agent_id="chat",
+        session_id="sid-A",
+        task_id=None,
+        workspace=None,
+    )
+    req_b = PermissionRequest(
+        request_id="req-b",
+        tool_name="bash",
+        arguments={"command": "ls"},
+        risk_level=RiskLevel.MEDIUM,
+        origin=ToolOrigin.CHAT,
+        agent_id="chat",
+        session_id="sid-B",
+        task_id=None,
+        workspace=None,
+    )
+    await registry.add(req_a)
+    await registry.add(req_b)
+
+    app = FastAPI()
+    app.include_router(control_router, prefix="/api/control")
+    client = TestClient(app)
+
+    resp = client.get("/api/control/sessions/sid-A/permissions")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [item["request_id"] for item in body["items"]] == ["req-a"]
+
+    empty = client.get("/api/control/sessions/sid-C/permissions").json()
+    assert empty["items"] == []
+
+
+def test_get_pending_permissions_without_registry_returns_empty(
+    wiring, monkeypatch
+):
+    def _raise():
+        raise RuntimeError("no registry")
+
+    monkeypatch.setattr(
+        control_module,
+        "require_pending_permission_registry",
+        _raise,
+    )
+
+    app = FastAPI()
+    app.include_router(control_router, prefix="/api/control")
+    client = TestClient(app)
+    resp = client.get("/api/control/sessions/sid-x/permissions")
+    assert resp.status_code == 200
+    assert resp.json() == {"items": []}

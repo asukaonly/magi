@@ -21,12 +21,15 @@ Wiring order:
    router, ask_user tool, FunctionCallingOrchestrator — resolves the
    same instances.
 
-The prompter is deliberately left ``None`` at this stage; the IPC
-prompter that bridges ``broker.wait`` ↔ ``/api/control/permission/
-{request_id}/respond`` is wired by the transport layer once the
-event bus is live. While no prompter is set, the gateway's
-fail-closed path guarantees that any call needing a prompt denies
-with ``source='no_prompter'`` so no dangerous tool runs by accident.
+The prompter installed here is a
+:class:`BrokeredPermissionPrompter` that records every pending
+prompt in the :class:`PendingPermissionRegistry` (so the frontend
+can poll ``GET /api/control/sessions/{sid}/permissions``) and then
+awaits ``broker.wait(kind='permission')`` until
+``POST /api/control/permission/{request_id}/respond`` resolves it.
+A transport-layer event hook (``notify_callback``) is intentionally
+left unset — polling-plus-broker already closes the loop end-to-end
+and IPC event emission can be layered on later.
 """
 
 from __future__ import annotations
@@ -37,6 +40,10 @@ from typing import Any
 from dependency_injector import providers
 
 from ..agent.control.common import InteractionBroker
+from ..agent.control.permission.brokered_prompter import (
+    BrokeredPermissionPrompter,
+    PendingPermissionRegistry,
+)
 from ..agent.control.permission.classifier import RiskClassifier
 from ..agent.control.permission.gateway import PermissionGateway
 from ..agent.control.permission.rules import PermissionRuleStore
@@ -66,6 +73,7 @@ class ControlPlaneWiring:
         "broker",
         "session_store",
         "gateway",
+        "pending_permissions",
     )
 
     def __init__(
@@ -76,12 +84,14 @@ class ControlPlaneWiring:
         broker: InteractionBroker,
         session_store: ControlSessionStore,
         gateway: PermissionGateway,
+        pending_permissions: PendingPermissionRegistry,
     ) -> None:
         self.settings_manager = settings_manager
         self.rule_store = rule_store
         self.broker = broker
         self.session_store = session_store
         self.gateway = gateway
+        self.pending_permissions = pending_permissions
 
 
 class ControlPlaneModule(LifecycleModule):
@@ -113,13 +123,19 @@ class ControlPlaneModule(LifecycleModule):
         settings_manager = ControlSettingsManager(ControlSettings())
         broker = InteractionBroker()
         session_store = ControlSessionStore()
+        pending_permissions = PendingPermissionRegistry()
+        prompter = BrokeredPermissionPrompter(
+            broker=broker,
+            registry=pending_permissions,
+            notify_callback=None,  # Transport-layer event hook is optional.
+        )
         gateway = PermissionGateway(
             classifier=RiskClassifier(),
             rules=rule_store,
             broker=broker,
             settings_provider=settings_manager.settings_provider,
             session_override_provider=settings_manager.session_override_provider,
-            prompter=None,  # Bridged in by the transport layer later.
+            prompter=prompter,
             plan_mode_guard=session_store.plan_allows,
         )
 
@@ -129,6 +145,9 @@ class ControlPlaneModule(LifecycleModule):
         container.control_interaction_broker.override(providers.Object(broker))
         container.permission_rule_store.override(providers.Object(rule_store))
         container.permission_gateway.override(providers.Object(gateway))
+        container.pending_permission_registry.override(
+            providers.Object(pending_permissions)
+        )
 
         self._wiring = ControlPlaneWiring(
             settings_manager=settings_manager,
@@ -136,6 +155,7 @@ class ControlPlaneModule(LifecycleModule):
             broker=broker,
             session_store=session_store,
             gateway=gateway,
+            pending_permissions=pending_permissions,
         )
         logger.info(
             "control_plane.initialized",
@@ -150,6 +170,7 @@ class ControlPlaneModule(LifecycleModule):
         container.control_interaction_broker.reset_override()
         container.permission_rule_store.reset_override()
         container.permission_gateway.reset_override()
+        container.pending_permission_registry.reset_override()
 
         if self._wiring is not None:
             try:

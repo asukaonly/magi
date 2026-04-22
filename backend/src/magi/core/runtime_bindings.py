@@ -134,3 +134,8 @@ def require_permission_rule_store():
 def require_control_interaction_broker():
     """Return the active control-plane interaction broker binding."""
     return _require_binding("control_interaction_broker")
+
+
+def require_pending_permission_registry():
+    """Return the active pending-permission registry binding."""
+    return _require_binding("pending_permission_registry")

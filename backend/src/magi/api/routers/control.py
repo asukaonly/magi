@@ -24,6 +24,7 @@ Endpoints:
 * ``GET    /sessions/{sid}/plan``         — plan-mode state
 * ``GET    /sessions/{sid}/todos``        — todo list snapshot
 * ``GET    /sessions/{sid}/ask``          — current ask state (if any)
+* ``GET    /sessions/{sid}/permissions``  — pending permission prompts
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from ...core.runtime_bindings import (
     require_control_interaction_broker,
     require_control_session_store,
     require_control_settings_manager,
+    require_pending_permission_registry,
     require_permission_rule_store,
 )
 
@@ -301,6 +303,25 @@ async def get_todos(session_id: str) -> dict[str, Any]:
 async def get_ask_state(session_id: str) -> dict[str, Any]:
     ask = _session_store().ask_state(session_id)
     return {"ask": ask.to_dict() if ask is not None else None}
+
+
+@control_router.get("/sessions/{session_id}/permissions")
+async def get_pending_permissions(session_id: str) -> dict[str, Any]:
+    """List permission prompts currently waiting on this session.
+
+    The registry is populated by :class:`BrokeredPermissionPrompter`
+    whenever the gateway opens a prompt, and cleared when the prompt
+    is resolved or times out. Frontends poll this endpoint (or listen
+    for future ``control.permission.requested`` events) to discover
+    the request-id they need to answer via
+    ``POST /api/control/permission/{request_id}/respond``.
+    """
+    try:
+        registry = require_pending_permission_registry()
+    except RuntimeError:
+        return {"items": []}
+    items = [req.to_dict() for req in registry.snapshot(session_id=session_id)]
+    return {"items": items}
 
 
 __all__ = ["control_router"]

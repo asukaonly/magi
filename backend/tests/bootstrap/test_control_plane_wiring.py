@@ -22,6 +22,7 @@ from magi.core.runtime_bindings import (
     require_control_interaction_broker,
     require_control_session_store,
     require_control_settings_manager,
+    require_pending_permission_registry,
     require_permission_gateway,
     require_permission_rule_store,
 )
@@ -55,6 +56,11 @@ async def test_control_plane_module_wires_all_singletons(tmp_path: Path) -> None
         assert require_control_interaction_broker() is wiring.broker
         assert require_permission_rule_store() is wiring.rule_store
         assert require_permission_gateway() is wiring.gateway
+        assert require_pending_permission_registry() is wiring.pending_permissions
+
+        # The gateway now has a prompter attached: brokered prompter
+        # that records to the shared pending-permissions registry.
+        assert wiring.gateway._prompter is not None  # type: ignore[attr-defined]
 
         # Plan-mode guard is wired: the gateway refuses write tools
         # once the session's plan mode is active.
