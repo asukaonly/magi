@@ -193,3 +193,108 @@ async def test_ask_user_question_refuses_background_by_default() -> None:
         result = await tool.execute({"question": "Proceed?"}, ctx)
         assert not result.success
         assert "background" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_ask_user_question_suspends_and_resumes_background_task() -> None:
+    """When invoked from a background run with the opt-in flag set,
+    the tool must call the BackgroundTaskManager suspend/resume
+    transitions around the broker wait, using the bg_task_id parsed
+    from ``ToolExecutionContext.agent_id``.
+    """
+    store = ControlSessionStore()
+    broker = InteractionBroker()
+
+    class _RecordingManager:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def suspend_waiting_user(
+            self, task_id: str, *, reason: str = "awaiting_user_answer"
+        ) -> bool:
+            self.calls.append(("suspend", task_id))
+            return True
+
+        async def resume_from_wait(self, task_id: str) -> bool:
+            self.calls.append(("resume", task_id))
+            return True
+
+    manager = _RecordingManager()
+
+    with _override(
+        control_session_store=store,
+        control_interaction_broker=broker,
+        background_task_manager=manager,
+    ):
+        tool = AskUserQuestionTool()
+        ctx = ToolExecutionContext(
+            agent_id="background:bg_42",
+            env_vars={"session_id": "sid-F", "intent": "background"},
+            permissions=[],
+            enabled_features=["allow_ask_in_background"],
+        )
+
+        async def answer_later() -> None:
+            for _ in range(50):
+                ask = store.ask_state("sid-F")
+                if ask is not None:
+                    await broker.resolve(
+                        interaction_id=ask.request_id,
+                        kind="ask",
+                        response="ok",
+                    )
+                    return
+                await asyncio.sleep(0.01)
+
+        answerer = asyncio.create_task(answer_later())
+        result = await tool.execute(
+            {"question": "Continue?", "timeout_seconds": 5}, ctx
+        )
+        await answerer
+        assert result.success
+        assert manager.calls == [
+            ("suspend", "bg_42"),
+            ("resume", "bg_42"),
+        ]
+
+
+@pytest.mark.asyncio
+async def test_ask_user_question_resumes_background_on_timeout() -> None:
+    store = ControlSessionStore()
+    broker = InteractionBroker()
+
+    class _RecordingManager:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def suspend_waiting_user(
+            self, task_id: str, *, reason: str = "awaiting_user_answer"
+        ) -> bool:
+            self.calls.append(("suspend", task_id))
+            return True
+
+        async def resume_from_wait(self, task_id: str) -> bool:
+            self.calls.append(("resume", task_id))
+            return True
+
+    manager = _RecordingManager()
+    with _override(
+        control_session_store=store,
+        control_interaction_broker=broker,
+        background_task_manager=manager,
+    ):
+        tool = AskUserQuestionTool()
+        ctx = ToolExecutionContext(
+            agent_id="background:bg_77",
+            env_vars={"session_id": "sid-G", "intent": "background"},
+            permissions=[],
+            enabled_features=["allow_ask_in_background"],
+        )
+        result = await tool.execute(
+            {"question": "Continue?", "timeout_seconds": 1}, ctx
+        )
+        assert not result.success
+        assert manager.calls == [
+            ("suspend", "bg_77"),
+            ("resume", "bg_77"),
+        ]

@@ -18,6 +18,8 @@ from ...core.runtime_bindings import (
     require_control_session_store,
 )
 from ...agent.control.common import InteractionTimeoutError
+
+_BACKGROUND_AGENT_PREFIX = "background:"
 from ..schema import (
     ParameterType,
     Tool,
@@ -148,12 +150,39 @@ class AskUserQuestionTool(Tool):
             allow_free_text=allow_free_text,
         )
         is_background = intent.startswith("background")
+        # Resolve the owning background task id from the execution
+        # agent id when this call originates from BackgroundTaskManager
+        # (``execute_with_tools`` sets ``execution_agent_id =
+        # f"background:{task_id}"``). Falls back to ``None`` on any
+        # shape mismatch so the tool still works outside a background
+        # context.
+        bg_task_id: str | None = None
+        agent_id = str(getattr(context, "agent_id", "") or "")
+        if is_background and agent_id.startswith(_BACKGROUND_AGENT_PREFIX):
+            candidate = agent_id[len(_BACKGROUND_AGENT_PREFIX):].strip()
+            bg_task_id = candidate or None
         logger.info(
             "ask_user_question.opened",
             session_id=sid,
             request_id=ask.request_id,
             background=is_background,
+            bg_task_id=bg_task_id,
         )
+        if bg_task_id is not None:
+            try:
+                from ...core.runtime_bindings import (
+                    require_background_task_manager,
+                )
+
+                manager = require_background_task_manager()
+                await manager.suspend_waiting_user(
+                    bg_task_id, reason="awaiting_user_answer"
+                )
+            except Exception:  # pragma: no cover - defensive
+                logger.debug(
+                    "ask_user_question.manager_suspend_failed",
+                    exc_info=True,
+                )
         try:
             from ...agent.control.common.events import publish_control_event
 
@@ -194,6 +223,19 @@ class AskUserQuestionTool(Tool):
             )
         except InteractionTimeoutError:
             await store.close_ask(sid, answer=None, resolution="timeout")
+            if bg_task_id is not None:
+                try:
+                    from ...core.runtime_bindings import (
+                        require_background_task_manager,
+                    )
+
+                    manager = require_background_task_manager()
+                    await manager.resume_from_wait(bg_task_id)
+                except Exception:  # pragma: no cover - defensive
+                    logger.debug(
+                        "ask_user_question.manager_resume_failed",
+                        exc_info=True,
+                    )
             return ToolResult(
                 success=False,
                 error=f"no answer within {timeout_seconds:.0f}s",
@@ -201,6 +243,19 @@ class AskUserQuestionTool(Tool):
 
         answer_text = str(answer) if answer is not None else ""
         await store.close_ask(sid, answer=answer_text, resolution="user")
+        if bg_task_id is not None:
+            try:
+                from ...core.runtime_bindings import (
+                    require_background_task_manager,
+                )
+
+                manager = require_background_task_manager()
+                await manager.resume_from_wait(bg_task_id)
+            except Exception:  # pragma: no cover - defensive
+                logger.debug(
+                    "ask_user_question.manager_resume_failed",
+                    exc_info=True,
+                )
         logger.info(
             "ask_user_question.answered",
             session_id=sid,
