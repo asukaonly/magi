@@ -18,6 +18,7 @@ from .plugins import plugins_router
 from .local_embedding import local_embedding_router
 from .local_reranker import local_reranker_router
 from .background_tasks import background_tasks_router
+from .control import control_router
 
 __all__ = [
     "tools_router",
@@ -35,4 +36,5 @@ __all__ = [
     "local_embedding_router",
     "local_reranker_router",
     "background_tasks_router",
+    "control_router",
 ]

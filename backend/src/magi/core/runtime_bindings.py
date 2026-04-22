@@ -116,6 +116,11 @@ def require_control_session_store():
     return _require_binding("control_session_store")
 
 
+def require_control_settings_manager():
+    """Return the active control-plane settings manager binding."""
+    return _require_binding("control_settings_manager")
+
+
 def require_permission_gateway():
     """Return the active permission gateway binding."""
     return _require_binding("permission_gateway")

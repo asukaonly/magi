@@ -1,0 +1,306 @@
+"""Agent control-plane REST endpoints.
+
+Mounted under ``/api/control`` via :func:`register_api_routes`. All
+endpoints operate on process-wide singletons resolved through the DI
+container:
+
+* ``ControlSettingsManager`` — global settings + session overrides
+* ``PermissionRuleStore``    — permission rules (session + persistent)
+* ``InteractionBroker``      — async gate that permission / ask tools
+  suspend on
+* ``ControlSessionStore``    — plan-mode + todo + ask state per session
+
+Endpoints:
+
+* ``GET    /settings``                    — current global settings
+* ``PUT    /settings``                    — update global settings
+* ``GET    /sessions/{sid}/settings``     — effective settings for session
+* ``PUT    /sessions/{sid}/settings``     — set / clear session override
+* ``GET    /rules``                       — list permission rules
+* ``DELETE /rules/{rule_id}``             — delete one rule
+* ``DELETE /rules``                       — clear all rules in a scope
+* ``POST   /permission/{request_id}/respond`` — resolve a pending prompt
+* ``POST   /ask/{request_id}/respond``    — answer an ``ask_user_question``
+* ``GET    /sessions/{sid}/plan``         — plan-mode state
+* ``GET    /sessions/{sid}/todos``        — todo list snapshot
+* ``GET    /sessions/{sid}/ask``          — current ask state (if any)
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal, Optional
+
+from fastapi import APIRouter, HTTPException, Path, status
+from pydantic import BaseModel, Field
+
+from ...agent.control.permission.contracts import (
+    PermissionOutcome,
+    PermissionScope,
+)
+from ...agent.control.settings import (
+    PermissionMode,
+    SessionControlOverride,
+    resolve_effective_settings,
+)
+from ...core.runtime_bindings import (
+    require_control_interaction_broker,
+    require_control_session_store,
+    require_control_settings_manager,
+    require_permission_rule_store,
+)
+
+control_router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# DI helpers
+# ---------------------------------------------------------------------------
+
+
+def _settings_manager():
+    try:
+        return require_control_settings_manager()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Control settings manager unavailable",
+        ) from exc
+
+
+def _rule_store():
+    try:
+        return require_permission_rule_store()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Permission rule store unavailable",
+        ) from exc
+
+
+def _broker():
+    try:
+        return require_control_interaction_broker()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Interaction broker unavailable",
+        ) from exc
+
+
+def _session_store():
+    try:
+        return require_control_session_store()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Control session store unavailable",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+
+class _SettingsUpdate(BaseModel):
+    permission_mode: Optional[PermissionMode] = None
+    plan_approval_required: Optional[bool] = None
+
+
+@control_router.get("/settings")
+async def get_settings() -> dict[str, Any]:
+    return _settings_manager().get().to_dict()
+
+
+@control_router.put("/settings")
+async def put_settings(payload: _SettingsUpdate) -> dict[str, Any]:
+    manager = _settings_manager()
+    new = manager.update(
+        permission_mode=payload.permission_mode,
+        plan_approval_required=payload.plan_approval_required,
+    )
+    return new.to_dict()
+
+
+class _SessionSettingsUpdate(BaseModel):
+    permission_mode: Optional[PermissionMode] = None
+    plan_approval_required: Optional[bool] = None
+    clear: bool = False
+
+
+@control_router.get("/sessions/{session_id}/settings")
+async def get_session_settings(session_id: str) -> dict[str, Any]:
+    manager = _settings_manager()
+    base = manager.get()
+    override = manager.get_session_override(session_id)
+    effective = resolve_effective_settings(base=base, override=override)
+    return {
+        "base": base.to_dict(),
+        "override": override.to_dict() if override else None,
+        "effective": effective.to_dict(),
+    }
+
+
+@control_router.put("/sessions/{session_id}/settings")
+async def put_session_settings(
+    session_id: str, payload: _SessionSettingsUpdate
+) -> dict[str, Any]:
+    manager = _settings_manager()
+    if payload.clear:
+        manager.set_session_override(session_id, None)
+    else:
+        override = SessionControlOverride(
+            permission_mode=payload.permission_mode,
+            plan_approval_required=payload.plan_approval_required,
+        )
+        manager.set_session_override(session_id, override)
+    base = manager.get()
+    active = manager.get_session_override(session_id)
+    effective = resolve_effective_settings(base=base, override=active)
+    return {
+        "base": base.to_dict(),
+        "override": active.to_dict() if active else None,
+        "effective": effective.to_dict(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Permission rules
+# ---------------------------------------------------------------------------
+
+
+@control_router.get("/rules")
+async def list_rules(
+    session_id: Optional[str] = None,
+    include_persistent: bool = True,
+) -> dict[str, Any]:
+    store = _rule_store()
+    rules = store.list_rules(
+        session_id=session_id, include_persistent=include_persistent
+    )
+    return {"rules": [r.to_dict() for r in rules]}
+
+
+@control_router.delete("/rules/{rule_id}")
+async def delete_rule(
+    rule_id: str = Path(...),
+    session_id: Optional[str] = None,
+) -> dict[str, Any]:
+    store = _rule_store()
+    removed = await store.remove(rule_id, session_id=session_id)
+    if not removed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Rule {rule_id!r} not found",
+        )
+    return {"deleted": rule_id}
+
+
+@control_router.delete("/rules")
+async def clear_session_rules(session_id: Optional[str] = None) -> dict[str, Any]:
+    """Drop every session-scoped rule for ``session_id``.
+
+    Persistent rules require an explicit per-rule delete to avoid
+    accidental bulk loss.
+    """
+    store = _rule_store()
+    await store.clear_session(session_id)
+    return {"cleared": True, "session_id": session_id}
+
+
+# ---------------------------------------------------------------------------
+# Interactive prompts (permission + ask)
+# ---------------------------------------------------------------------------
+
+
+class _PermissionRespondRequest(BaseModel):
+    outcome: Literal["allow", "deny"] = Field(
+        ..., description="User decision for the pending prompt"
+    )
+    scope: Literal["one_shot", "session", "persistent_exact", "persistent_pattern"] = (
+        "one_shot"
+    )
+    pattern: Optional[str] = None
+    reason: Optional[str] = None
+
+
+@control_router.post("/permission/{request_id}/respond")
+async def respond_permission(
+    request_id: str, payload: _PermissionRespondRequest
+) -> dict[str, Any]:
+    broker = _broker()
+    try:
+        scope = PermissionScope(payload.scope)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid scope: {payload.scope}",
+        ) from exc
+    response = {
+        "outcome": (
+            PermissionOutcome.ALLOWED.value
+            if payload.outcome == "allow"
+            else PermissionOutcome.DENIED.value
+        ),
+        "scope": scope.value,
+        "pattern": payload.pattern,
+        "reason": payload.reason,
+    }
+    resolved = await broker.resolve(
+        interaction_id=request_id,
+        kind="permission",
+        response=response,
+    )
+    if not resolved:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permission request {request_id!r} is not pending",
+        )
+    return {"resolved": True, "request_id": request_id}
+
+
+class _AskRespondRequest(BaseModel):
+    answer: str = Field(..., description="User's reply to the ask_user_question tool")
+
+
+@control_router.post("/ask/{request_id}/respond")
+async def respond_ask(
+    request_id: str, payload: _AskRespondRequest
+) -> dict[str, Any]:
+    broker = _broker()
+    resolved = await broker.resolve(
+        interaction_id=request_id,
+        kind="ask",
+        response=payload.answer,
+    )
+    if not resolved:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Ask request {request_id!r} is not pending",
+        )
+    return {"resolved": True, "request_id": request_id}
+
+
+# ---------------------------------------------------------------------------
+# Session snapshots (plan / todos / ask)
+# ---------------------------------------------------------------------------
+
+
+@control_router.get("/sessions/{session_id}/plan")
+async def get_plan_state(session_id: str) -> dict[str, Any]:
+    return _session_store().plan_state(session_id).to_dict()
+
+
+@control_router.get("/sessions/{session_id}/todos")
+async def get_todos(session_id: str) -> dict[str, Any]:
+    todos = _session_store().list_todos(session_id)
+    return {"items": [t.to_dict() for t in todos]}
+
+
+@control_router.get("/sessions/{session_id}/ask")
+async def get_ask_state(session_id: str) -> dict[str, Any]:
+    ask = _session_store().ask_state(session_id)
+    return {"ask": ask.to_dict() if ask is not None else None}
+
+
+__all__ = ["control_router"]

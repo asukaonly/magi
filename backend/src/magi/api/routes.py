@@ -138,6 +138,17 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{task_id}/retry": {"POST"},
         "/{task_id}/dismiss": {"POST"},
     },
+    "control": {
+        "/settings": {"GET", "PUT"},
+        "/sessions/{session_id}/settings": {"GET", "PUT"},
+        "/rules": {"GET", "DELETE"},
+        "/rules/{rule_id}": {"DELETE"},
+        "/permission/{request_id}/respond": {"POST"},
+        "/ask/{request_id}/respond": {"POST"},
+        "/sessions/{session_id}/plan": {"GET"},
+        "/sessions/{session_id}/todos": {"GET"},
+        "/sessions/{session_id}/ask": {"GET"},
+    },
 
 }
 
@@ -175,6 +186,7 @@ def register_api_routes(app: FastAPI) -> None:
         local_embedding_router,
         local_reranker_router,
         background_tasks_router,
+        control_router,
     )
 
     app.include_router(
@@ -250,4 +262,9 @@ def register_api_routes(app: FastAPI) -> None:
         _build_public_router(background_tasks_router, _PUBLIC_ROUTE_METHODS["background_tasks"]),
         prefix="/api/background-tasks",
         tags=["Background Tasks"],
+    )
+    app.include_router(
+        _build_public_router(control_router, _PUBLIC_ROUTE_METHODS["control"]),
+        prefix="/api/control",
+        tags=["Control"],
     )
