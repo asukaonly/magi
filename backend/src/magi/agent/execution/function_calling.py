@@ -1431,11 +1431,23 @@ class FunctionCallingOrchestrator:
                     orchestration_strategy=orchestration_strategy,
                 )
 
-            # Permission gateway — opt-in via the orchestrator ctor. When
-            # wired, it intercepts between the LLM decision and the tool
-            # registry. A denied/kill-listed/timed-out decision short-
-            # circuits into a tool-error so the LLM sees the reason.
-            if self.permission_gateway is not None:
+            # Permission gateway — resolved in priority order:
+            #   1. instance-level (explicit ctor kwarg; used by tests
+            #      and bespoke wirings),
+            #   2. the DI container binding set up by the control-plane
+            #      bootstrap module in production.
+            # When neither is available the call stays ungated, which
+            # is the exact zero-behavior-change path the rest of the
+            # codebase assumes.
+            gateway = self.permission_gateway
+            if gateway is None:
+                try:
+                    from ...core.runtime_bindings import require_permission_gateway
+
+                    gateway = require_permission_gateway()
+                except Exception:
+                    gateway = None
+            if gateway is not None:
                 denied_result = await self._gate_tool_call(
                     tool_call=tool_call,
                     tool_name=tool_name,
@@ -1446,6 +1458,7 @@ class FunctionCallingOrchestrator:
                     workspace=context.workspace,
                     intent=intent,
                     start_time=start_time,
+                    gateway=gateway,
                 )
                 if denied_result is not None:
                     return denied_result
@@ -1490,6 +1503,7 @@ class FunctionCallingOrchestrator:
         workspace: Optional[str],
         intent: str,
         start_time: float,
+        gateway: Any = None,
     ) -> Optional[ToolCallResult]:
         """Run the permission gateway; return a failure result if blocked.
 
@@ -1515,7 +1529,8 @@ class FunctionCallingOrchestrator:
         )
 
         try:
-            decision = await self.permission_gateway.gate(
+            gate = gateway if gateway is not None else self.permission_gateway
+            decision = await gate.gate(
                 tool_name=tool_name,
                 arguments=arguments,
                 agent_id=agent_id,

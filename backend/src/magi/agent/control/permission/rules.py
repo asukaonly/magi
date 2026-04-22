@@ -206,7 +206,7 @@ class PermissionRuleStore:
         if not self._db_path:
             return
         loaded: dict[str, PermissionRule] = {}
-        async with sqlite_connection_async(self._db_path, profile="hot_read") as db:
+        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT rule_id, tool_name, scope, matcher_json, allow, note, created_at "

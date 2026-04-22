@@ -8,6 +8,7 @@ from functools import lru_cache
 
 from .context import RuntimeBootstrapContext
 from .exports import RuntimeExportsModule
+from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule
 
@@ -142,6 +143,7 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
     """Build exports, schedule registration, and remaining maintenance modules."""
     return [
         RuntimeExportsModule(context),
+        ControlPlaneModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
         L3SummaryScheduleRegistrationModule(context),
         L3DigestScheduleRegistrationModule(context),

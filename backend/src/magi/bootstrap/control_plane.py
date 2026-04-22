@@ -1,0 +1,159 @@
+"""Bootstrap composition for the agent control plane.
+
+Owns the lifetime of the process-wide control-plane singletons:
+
+* :class:`~magi.agent.control.session_store.ControlSessionStore`
+* :class:`~magi.agent.control.settings_manager.ControlSettingsManager`
+* :class:`~magi.agent.control.common.InteractionBroker`
+* :class:`~magi.agent.control.permission.rules.PermissionRuleStore`
+* :class:`~magi.agent.control.permission.gateway.PermissionGateway`
+
+Wiring order:
+
+1. Build rule store (sqlite-backed when a runtime path is available,
+   in-memory otherwise for tests).
+2. Build settings manager seeded from defaults (L0 preference
+   persistence is orthogonal and loads later).
+3. Build broker + session store (pure in-memory).
+4. Wire the gateway, pointing its ``plan_mode_guard`` at the session
+   store's ``plan_allows`` method.
+5. Override the DI container providers so every consumer — API
+   router, ask_user tool, FunctionCallingOrchestrator — resolves the
+   same instances.
+
+The prompter is deliberately left ``None`` at this stage; the IPC
+prompter that bridges ``broker.wait`` ↔ ``/api/control/permission/
+{request_id}/respond`` is wired by the transport layer once the
+event bus is live. While no prompter is set, the gateway's
+fail-closed path guarantees that any call needing a prompt denies
+with ``source='no_prompter'`` so no dangerous tool runs by accident.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from dependency_injector import providers
+
+from ..agent.control.common import InteractionBroker
+from ..agent.control.permission.classifier import RiskClassifier
+from ..agent.control.permission.gateway import PermissionGateway
+from ..agent.control.permission.rules import PermissionRuleStore
+from ..agent.control.session_store import ControlSessionStore
+from ..agent.control.settings import ControlSettings
+from ..agent.control.settings_manager import ControlSettingsManager
+from ..core.container import get_container
+from ..core.logger import get_logger
+from .context import RuntimeBootstrapContext
+from .lifecycle import LifecycleModule
+
+logger = get_logger(__name__)
+
+
+__all__ = [
+    "ControlPlaneModule",
+    "ControlPlaneWiring",
+]
+
+
+class ControlPlaneWiring:
+    """Bundle of singletons built by :class:`ControlPlaneModule`."""
+
+    __slots__ = (
+        "settings_manager",
+        "rule_store",
+        "broker",
+        "session_store",
+        "gateway",
+    )
+
+    def __init__(
+        self,
+        *,
+        settings_manager: ControlSettingsManager,
+        rule_store: PermissionRuleStore,
+        broker: InteractionBroker,
+        session_store: ControlSessionStore,
+        gateway: PermissionGateway,
+    ) -> None:
+        self.settings_manager = settings_manager
+        self.rule_store = rule_store
+        self.broker = broker
+        self.session_store = session_store
+        self.gateway = gateway
+
+
+class ControlPlaneModule(LifecycleModule):
+    """Lifecycle module that owns the control-plane singletons."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_control_plane",
+            dependencies=(),
+        )
+        self._context = context
+        self._wiring: ControlPlaneWiring | None = None
+
+    @property
+    def wiring(self) -> ControlPlaneWiring | None:
+        return self._wiring
+
+    async def init(self) -> None:
+        runtime_paths = self._context.core.runtime_paths
+        db_path: str | None = None
+        if runtime_paths is not None:
+            base = Path(runtime_paths.base) / "runtime"
+            base.mkdir(parents=True, exist_ok=True)
+            db_path = str(base / "permission_rules.db")
+
+        rule_store = PermissionRuleStore(db_path=db_path)
+        await rule_store.initialize()
+
+        settings_manager = ControlSettingsManager(ControlSettings())
+        broker = InteractionBroker()
+        session_store = ControlSessionStore()
+        gateway = PermissionGateway(
+            classifier=RiskClassifier(),
+            rules=rule_store,
+            broker=broker,
+            settings_provider=settings_manager.settings_provider,
+            session_override_provider=settings_manager.session_override_provider,
+            prompter=None,  # Bridged in by the transport layer later.
+            plan_mode_guard=session_store.plan_allows,
+        )
+
+        container = get_container()
+        container.control_session_store.override(providers.Object(session_store))
+        container.control_settings_manager.override(providers.Object(settings_manager))
+        container.control_interaction_broker.override(providers.Object(broker))
+        container.permission_rule_store.override(providers.Object(rule_store))
+        container.permission_gateway.override(providers.Object(gateway))
+
+        self._wiring = ControlPlaneWiring(
+            settings_manager=settings_manager,
+            rule_store=rule_store,
+            broker=broker,
+            session_store=session_store,
+            gateway=gateway,
+        )
+        logger.info(
+            "control_plane.initialized",
+            permission_rules_db=db_path,
+            initial_permission_mode=settings_manager.get().permission_mode.value,
+        )
+
+    async def shutdown(self) -> None:
+        container = get_container()
+        container.control_session_store.reset_override()
+        container.control_settings_manager.reset_override()
+        container.control_interaction_broker.reset_override()
+        container.permission_rule_store.reset_override()
+        container.permission_gateway.reset_override()
+
+        if self._wiring is not None:
+            try:
+                await self._wiring.broker.close(reason="shutdown")
+            except Exception as exc:  # pragma: no cover — defensive
+                logger.warning("control_plane.broker_close_failed", error=str(exc))
+        self._wiring = None
