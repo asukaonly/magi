@@ -161,6 +161,47 @@ class PermissionGateway:
         tool_is_dangerous: bool = False,
     ) -> PermissionDecision:
         """Evaluate a single tool invocation."""
+        started = time.time()
+        decision = await self._gate_impl(
+            tool_name=tool_name,
+            arguments=arguments,
+            agent_id=agent_id,
+            origin=origin,
+            session_id=session_id,
+            task_id=task_id,
+            workspace=workspace,
+            tool_is_dangerous=tool_is_dangerous,
+        )
+        logger.info(
+            "permission.decision",
+            tool=tool_name,
+            agent_id=agent_id,
+            origin=origin.value,
+            session_id=session_id,
+            task_id=task_id,
+            outcome=decision.outcome.value,
+            source=decision.source,
+            reason=decision.reason,
+            request_id=decision.request_id,
+            rule_recorded=(
+                decision.recorded_rule.rule_id if decision.recorded_rule else None
+            ),
+            elapsed_ms=int((time.time() - started) * 1000),
+        )
+        return decision
+
+    async def _gate_impl(
+        self,
+        *,
+        tool_name: str,
+        arguments: dict[str, Any],
+        agent_id: str,
+        origin: ToolOrigin,
+        session_id: str | None,
+        task_id: str | None,
+        workspace: str | None,
+        tool_is_dangerous: bool,
+    ) -> PermissionDecision:
 
         # 1) Kill-list — hard refusal regardless of mode or rules.
         kill_match = check_kill_list(tool_name=tool_name, arguments=arguments)

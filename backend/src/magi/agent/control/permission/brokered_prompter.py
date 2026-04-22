@@ -159,6 +159,11 @@ def _coerce_response(raw: Any) -> UserPromptResponse:
     try:
         scope = PermissionScope(scope_raw)
     except ValueError:
+        logger.warning(
+            "permission_prompter.invalid_scope",
+            scope=scope_raw,
+            fallback=PermissionScope.ONE_SHOT.value,
+        )
         scope = PermissionScope.ONE_SHOT
     matcher = raw.get("matcher")
     pattern = raw.get("pattern")
