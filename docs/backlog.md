@@ -58,6 +58,30 @@ Open items:
 - keep routers and websocket handlers transport-thin as new product behavior is added
 - avoid reintroducing direct runtime-domain lookups in transport code
 
+### 5. Wire ask_user_question into background SUSPENDED_WAITING_USER
+
+Status: active
+
+Why it is still open:
+
+- `BackgroundTaskManager` already exposes `suspend_waiting_user` and
+  `resume_from_wait` transitions, but the `ask_user_question` tool
+  cannot call them because the owning `bg_task_id` is not plumbed into
+  `ToolExecutionContext.env_vars` when the manager invokes a `run_fn`.
+- Without that plumbing the durable status of a background task stays
+  at `running` while the tool is actually blocked on a user answer,
+  which is misleading in the Tasks UI and in restart recovery.
+
+Remaining work:
+
+- Inject `bg_task_id` into the tool execution context at the
+  `build_background_run_fn` boundary.
+- Have `ask_user_question` call `suspend_waiting_user` on open and
+  `resume_from_wait` on answer (or on cancel / timeout).
+- Add integration coverage that a background ask round-trip emits the
+  two new `control.background_task_*` events and ends in `running`
+  before its next iteration.
+
 ## Maintenance Fixes
 
 ### 1. Remove current backend warning debt

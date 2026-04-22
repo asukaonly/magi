@@ -502,6 +502,71 @@ Flow inside a chat turn
    ``"Failed to move this task to the background."`` so the user never
    silently loses the turn.
 
+## Control Plane
+
+The control plane is the cross-cutting surface that lets the user see
+and influence a running turn without editing config. It covers
+permission prompts, ask-user questions, plan mode, and todo updates,
+and it ships as five runtime notification channels plus a set of UI
+hosts that subscribe to them.
+
+Event channels (all published via
+[``publish_control_event``](/Users/asuka/code/magi/backend/src/magi/bootstrap/control_plane.py)):
+
+- ``control.permission_requested`` / ``control.permission_resolved`` —
+  emitted around the permission prompter when a gated tool call waits
+  for a user decision. Payload carries ``turn_id`` (canonical) plus a
+  legacy ``task_id`` alias during the migration window.
+- ``control.ask_opened`` / ``control.ask_answered`` — emitted by the
+  ``ask_user_question`` tool when it opens a dialog and when the answer
+  arrives.
+- ``control.background_task_waiting`` / ``control.background_task_resumed``
+  — emitted when a background task transitions in and out of
+  ``SUSPENDED_WAITING_USER`` (see below).
+- ``control.plan_mode_entered`` / ``control.plan_mode_exited`` — emitted
+  when the plan-mode tool toggles. Carries ``session_id`` plus optional
+  plan text.
+- ``control.todos_updated`` — emitted whenever the todo list is
+  rewritten by the write-todos tool.
+
+All payloads include ``session_id`` and, where a tool context is
+available, ``turn_id`` derived from ``ToolExecutionContext.env_vars``.
+
+Frontend composition:
+
+- ``PermissionModalHost`` and ``AskDialog`` are mounted once at the
+  ``MainLayout`` root so prompts stay visible while the user navigates
+  between Chat, Tasks, and Settings. They are keyed by the currently
+  selected session from ``useConversationStore``.
+- ``SessionControlRail`` is mounted inside the chat page and hosts
+  ``PlanCard`` + ``TodoPanel``. The rail self-hides when there is no
+  active plan and no todos so the chat surface stays clean.
+- ``ControlSettingsPanel`` lives under the settings Control Plane tab
+  and surfaces permission rules plus background-task controls.
+
+### SUSPENDED_WAITING_USER
+
+``BackgroundTaskStatus.SUSPENDED_WAITING_USER`` is the fourth
+non-terminal status (alongside ``pending`` / ``running`` /
+``cancelling``). The manager exposes two transitions:
+
+- ``suspend_waiting_user(task_id, *, reason)`` — only fires on a
+  ``running`` task. Writes the durable state change and an event-log
+  entry; callers must still await their own broker signal (e.g. the
+  answer future inside ``ask_user_question``) before resuming real
+  work.
+- ``resume_from_wait(task_id)`` — inverse transition, only fires on a
+  ``suspended_waiting_user`` task.
+
+Cancellation from the suspended state goes through the existing
+``cancel`` path and reaches ``cancelling`` / ``cancelled``.
+
+Known gap: ``ask_user_question`` inside a background task does not yet
+call these transitions automatically. The hook point requires plumbing
+the owning ``bg_task_id`` into ``ToolExecutionContext.env_vars`` when
+``BackgroundTaskManager`` invokes a ``run_fn`` so the tool can resolve
+its owning task. This is tracked in ``docs/backlog.md``.
+
 ## Typed Execution Framework
 
 The shared execution framework lives under `agent/task_agents/common/`.
