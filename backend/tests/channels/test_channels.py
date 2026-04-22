@@ -21,7 +21,6 @@ from magi.channels.contracts import (
 from magi.channels.registry import ChannelRegistry
 from magi.channels.session_mapper import ChannelSessionMapper
 from magi.channels.notification_relay import NotificationRelay
-from magi.channels.telegram.formatter import telegram_format
 
 
 # ---------------------------------------------------------------------------
@@ -214,36 +213,6 @@ class TestChannelSessionMapper:
         await mapper.update_notification_cursor("telegram", "12345", 42)
         cursor = await mapper.get_notification_cursor("telegram", "12345")
         assert cursor == 42
-
-
-# ---------------------------------------------------------------------------
-# TelegramFormat
-# ---------------------------------------------------------------------------
-
-class TestTelegramFormat:
-    def test_escapes_special_chars(self) -> None:
-        result = telegram_format("Hello _world_ and (test)")
-        assert r"\_world\_" in result
-        assert r"\(test\)" in result
-
-    def test_preserves_code_blocks(self) -> None:
-        text = "Some text\n```python\ndef foo():\n    pass\n```\nMore text"
-        result = telegram_format(text)
-        # Code block should be untouched
-        assert "```python\ndef foo():\n    pass\n```" in result
-
-    def test_preserves_inline_code(self) -> None:
-        result = telegram_format("Use `foo_bar` here")
-        assert "`foo_bar`" in result
-
-    def test_truncation(self) -> None:
-        long_text = "a" * 5000
-        result = telegram_format(long_text, max_length=100)
-        assert len(result) <= 100
-        assert result.endswith("...")
-
-    def test_empty_string(self) -> None:
-        assert telegram_format("") == ""
 
 
 # ---------------------------------------------------------------------------

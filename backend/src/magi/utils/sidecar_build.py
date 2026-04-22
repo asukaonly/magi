@@ -39,8 +39,6 @@ COLLECT_BINARY_PACKAGES = (
 # are installed in the build environment.  PyInstaller cannot discover them
 # because they are behind ``try: import … except ImportError`` guards.
 OPTIONAL_HIDDEN_IMPORTS = (
-    # channels extra
-    "telegram",
     # Windows media control (Windows only)
     "winrt.windows.media.control",
 )
