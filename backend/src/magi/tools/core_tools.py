@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .builtin.agent_tool import AgentTool
+from .builtin.ask_user_question_tool import AskUserQuestionTool
 from .builtin.bash_tool import BashTool
 from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.detach_to_background_tool import DetachToBackgroundTool
@@ -11,7 +12,9 @@ from .builtin.file_write_tool import FileWriteTool
 from .builtin.glob_tool import GlobTool
 from .builtin.grep_tool import GrepTool
 from .builtin.image_generation_tool import ImageGenerationTool
+from .builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
 from .builtin.system_settings_tool import SystemSettingsTool
+from .builtin.todo_write_tool import TodoWriteTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.web_search_tool import WebSearchTool
@@ -33,5 +36,9 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     MemoryQueryTool,
     ImageGenerationTool,
     DetachToBackgroundTool,
+    EnterPlanModeTool,
+    ExitPlanModeTool,
+    TodoWriteTool,
+    AskUserQuestionTool,
 )
 

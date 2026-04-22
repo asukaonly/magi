@@ -133,6 +133,7 @@ class PermissionGateway:
         | None = None,
         prompter: PermissionPrompter | None = None,
         prompt_timeout_seconds: float = 120.0,
+        plan_mode_guard: Callable[[str | None, str], bool] | None = None,
     ) -> None:
         self._classifier = classifier
         self._rules = rules
@@ -141,6 +142,7 @@ class PermissionGateway:
         self._session_override_provider = session_override_provider
         self._prompter = prompter
         self._prompt_timeout_seconds = float(prompt_timeout_seconds)
+        self._plan_mode_guard = plan_mode_guard
 
     # ------------------------------------------------------------------
     # Public API
@@ -175,6 +177,25 @@ class PermissionGateway:
                 outcome=PermissionOutcome.KILL_LISTED,
                 source=f"kill_list:{kill_match.entry.key}",
                 reason=kill_match.reason,
+            )
+
+        # 1b) Plan-mode guard — while plan mode is active only read-only
+        # tools are allowed. This is structural (cannot be rule-overridden)
+        # and lives alongside the kill-list conceptually: a refusal here
+        # is surfaced as ``DENIED`` with ``source=plan_mode`` so the LLM
+        # sees a distinct reason.
+        if self._plan_mode_guard is not None and not self._plan_mode_guard(
+            session_id, tool_name
+        ):
+            return PermissionDecision(
+                request_id=PermissionRequest.new_id(),
+                outcome=PermissionOutcome.DENIED,
+                source="plan_mode",
+                reason=(
+                    "plan mode is active: only read-only tools and the "
+                    "plan-mode tools themselves may run. Call "
+                    "exit_plan_mode once the plan is ready."
+                ),
             )
 
         # Classify up front — signals are surfaced to the user prompt

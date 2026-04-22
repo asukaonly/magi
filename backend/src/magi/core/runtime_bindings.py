@@ -109,3 +109,23 @@ def require_runtime_trace_store():
 def require_background_task_manager():
     """Return the active background-task manager binding."""
     return _require_binding("background_task_manager")
+
+
+def require_control_session_store():
+    """Return the active control-plane session store binding."""
+    return _require_binding("control_session_store")
+
+
+def require_permission_gateway():
+    """Return the active permission gateway binding."""
+    return _require_binding("permission_gateway")
+
+
+def require_permission_rule_store():
+    """Return the active permission rule store binding."""
+    return _require_binding("permission_rule_store")
+
+
+def require_control_interaction_broker():
+    """Return the active control-plane interaction broker binding."""
+    return _require_binding("control_interaction_broker")

@@ -1552,11 +1552,17 @@ class FunctionCallingOrchestrator:
                 "the call was not executed. Ask the user how they want to proceed."
             )
         elif decision.outcome is PermissionOutcome.DENIED:
-            message = (
-                f"The user denied this tool invocation"
-                + (f": {decision.reason}" if decision.reason else "")
-                + ". Respect the decision and choose a different approach."
-            )
+            if decision.source == "plan_mode":
+                message = (
+                    decision.reason
+                    or "plan mode is active: only read-only tools are allowed"
+                )
+            else:
+                message = (
+                    f"The user denied this tool invocation"
+                    + (f": {decision.reason}" if decision.reason else "")
+                    + ". Respect the decision and choose a different approach."
+                )
         else:
             message = f"permission gateway blocked the call ({decision.outcome.value})"
 

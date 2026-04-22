@@ -1,0 +1,116 @@
+"""``todo_write`` — manage the session todo list."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any, Dict
+
+from ...core.logger import get_logger
+from ...core.runtime_bindings import require_control_session_store
+from ...agent.control.session_store import TodoListError
+from ..schema import (
+    ParameterType,
+    Tool,
+    ToolExecutionContext,
+    ToolParameter,
+    ToolResult,
+    ToolSchema,
+)
+
+logger = get_logger(__name__)
+
+
+class TodoWriteTool(Tool):
+    """Replace the session todo list.
+
+    The full list is replaced in one call — ``items`` is the complete
+    desired state. Each item has ``title`` (required) and ``status``
+    (``not_started`` / ``in_progress`` / ``completed``; defaults to
+    ``not_started``). ``id`` is optional and auto-generated if absent.
+
+    Server-side invariant: at most one item may be ``in_progress``
+    at any time. Violations return an error without mutating state.
+    """
+
+    def _init_schema(self) -> None:
+        self.schema = ToolSchema(
+            name="todo_write",
+            description=(
+                "Replace the session's todo list. Call this to track "
+                "progress through multi-step work: add new items, mark "
+                "the current one as in_progress, and mark completed ones "
+                "as completed. Always send the full list — it replaces "
+                "the previous one. At most one item may be in_progress "
+                "at a time."
+            ),
+            category="control",
+            parameters=[
+                ToolParameter(
+                    name="items",
+                    type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.OBJECT,
+                    description=(
+                        "The complete todo list. Each item has: title "
+                        "(string, required), status (one of: not_started, "
+                        "in_progress, completed; optional, defaults to "
+                        "not_started), id (string, optional)."
+                    ),
+                    required=True,
+                ),
+            ],
+            tags=["control", "todo"],
+            timeout=5,
+        )
+
+    async def execute(
+        self,
+        parameters: Dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> ToolResult:
+        raw_sid = context.env_vars.get("session_id")
+        sid = str(raw_sid or "").strip()
+        if not sid:
+            return ToolResult(
+                success=False,
+                error="todo_write requires an active session",
+            )
+        raw_items = parameters.get("items")
+        if not isinstance(raw_items, list):
+            return ToolResult(
+                success=False,
+                error="todo_write requires 'items' to be a list",
+            )
+        # Inject ids for items that omit them.
+        normalised: list[dict[str, Any]] = []
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                return ToolResult(
+                    success=False,
+                    error="each todo item must be an object",
+                )
+            item = dict(raw)
+            if not item.get("id"):
+                item["id"] = uuid.uuid4().hex
+            normalised.append(item)
+
+        try:
+            store = require_control_session_store()
+        except RuntimeError as exc:
+            return ToolResult(success=False, error=str(exc))
+        try:
+            todos = await store.replace_todos(sid, normalised)
+        except TodoListError as exc:
+            return ToolResult(success=False, error=str(exc))
+        logger.info(
+            "todo_write.replaced",
+            session_id=sid,
+            count=len(todos),
+            in_progress=sum(1 for t in todos if t.status.value == "in_progress"),
+        )
+        return ToolResult(
+            success=True,
+            data={"items": [t.to_dict() for t in todos]},
+        )
+
+
+__all__ = ["TodoWriteTool"]
