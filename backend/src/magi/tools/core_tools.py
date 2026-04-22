@@ -4,6 +4,7 @@ from __future__ import annotations
 from .builtin.agent_tool import AgentTool
 from .builtin.bash_tool import BashTool
 from .builtin.capabilities_tool import CapabilitiesTool
+from .builtin.detach_to_background_tool import DetachToBackgroundTool
 from .builtin.file_edit_tool import FileEditTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
@@ -31,5 +32,6 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     AgentTool,
     MemoryQueryTool,
     ImageGenerationTool,
+    DetachToBackgroundTool,
 )
 

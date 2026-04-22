@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -60,6 +61,8 @@ __all__ = [
     "SteerInbox",
     "SteerMessage",
     "SteerReason",
+    "current_detach_signal",
+    "bind_detach_signal",
 ]
 
 
@@ -190,3 +193,53 @@ class OrchestratorSnapshot:
             reason=str(data.get("reason") or "detached"),
             note=str(data.get("note") or ""),
         )
+
+
+# ---------------------------------------------------------------------
+# ContextVar bridge for builtin tools
+# ---------------------------------------------------------------------
+#
+# Tools do not receive the orchestrator's DetachSignal as a direct
+# parameter (ToolExecutionContext is product-agnostic and must not
+# leak orchestration internals). Instead the orchestrator binds the
+# active signal into this ContextVar for the duration of
+# ``execute_with_tools``; the ``detach_to_background`` builtin tool
+# reads it to flag a detach request. Tools running outside an
+# orchestrator loop see ``None`` and can report "not supported here".
+
+_current_detach_signal: ContextVar[DetachSignal | None] = ContextVar(
+    "magi_current_detach_signal", default=None
+)
+
+
+def current_detach_signal() -> DetachSignal | None:
+    """Return the :class:`DetachSignal` active on this coroutine, or
+    ``None`` if none is bound. Safe to call from any code path."""
+    return _current_detach_signal.get()
+
+
+class bind_detach_signal:
+    """Context manager that binds ``signal`` as the active detach
+    signal for the duration of a ``with`` block.
+
+    Use as ``with bind_detach_signal(signal): ...``. The ContextVar is
+    restored on exit, whether the block raised or returned normally.
+    Passing ``None`` is a no-op context manager (preserving any outer
+    binding).
+    """
+
+    __slots__ = ("_signal", "_token")
+
+    def __init__(self, signal: DetachSignal | None) -> None:
+        self._signal = signal
+        self._token: Any = None
+
+    def __enter__(self) -> DetachSignal | None:
+        if self._signal is not None:
+            self._token = _current_detach_signal.set(self._signal)
+        return self._signal
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if self._token is not None:
+            _current_detach_signal.reset(self._token)
+            self._token = None

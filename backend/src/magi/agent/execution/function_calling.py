@@ -24,7 +24,13 @@ from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
 from ..cancel import CancelToken, null_cancel_token
 from ..message_utils import append_latest_user_message
-from ..run_control import DetachSignal, OrchestratorSnapshot, SteerInbox, SteerMessage
+from ..run_control import (
+    DetachSignal,
+    OrchestratorSnapshot,
+    SteerInbox,
+    SteerMessage,
+    bind_detach_signal,
+)
 from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
 from .context_compactor import ContextCompactor
 from .function_calling_postprocessor import FunctionCallingPostprocessor
@@ -270,6 +276,62 @@ class FunctionCallingOrchestrator:
         Returns:
             Structured execution outcome
         """
+        with bind_detach_signal(detach_signal):
+            return await self._execute_with_tools_impl(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                selected_tools=selected_tools,
+                user_id=user_id,
+                session_id=session_id,
+                session_run_id=session_run_id,
+                session_run_revision=session_run_revision,
+                turn_id=turn_id,
+                intent=intent,
+                execution_agent_id=execution_agent_id,
+                execution_workspace=execution_workspace,
+                orchestration_strategy=orchestration_strategy,
+                llm_timeout_seconds=llm_timeout_seconds,
+                conversation_history=conversation_history,
+                max_iterations=max_iterations,
+                thinking_depth=thinking_depth,
+                disable_thinking=disable_thinking,
+                final_response_json_mode=final_response_json_mode,
+                stream_chunk_callback=stream_chunk_callback,
+                cancel_token=cancel_token,
+                steer_inbox=steer_inbox,
+                detach_signal=detach_signal,
+            )
+
+    async def _execute_with_tools_impl(
+        self,
+        *,
+        user_message: str,
+        system_prompt: str,
+        selected_tools: list[str],
+        user_id: str,
+        session_id: Optional[str],
+        session_run_id: Optional[str],
+        session_run_revision: int,
+        turn_id: Optional[str],
+        intent: Optional[str],
+        execution_agent_id: Optional[str],
+        execution_workspace: Optional[str],
+        orchestration_strategy: Optional[str],
+        llm_timeout_seconds: Optional[float],
+        conversation_history: Optional[List[Dict[str, Any]]],
+        max_iterations: int,
+        thinking_depth: Optional[ThinkingDepth],
+        disable_thinking: bool,
+        final_response_json_mode: bool,
+        stream_chunk_callback: Callable[[str], Awaitable[None]] | None,
+        cancel_token: CancelToken | None,
+        steer_inbox: SteerInbox | None,
+        detach_signal: DetachSignal | None,
+    ) -> ExecutionOutcome:
+        """Body of :meth:`execute_with_tools`. Runs inside the
+        :func:`bind_detach_signal` context so tools executed during this
+        run can observe the active :class:`DetachSignal` via
+        :func:`current_detach_signal`."""
         token = cancel_token if cancel_token is not None else null_cancel_token()
         state = self.build_step_state(
             user_message=user_message,
