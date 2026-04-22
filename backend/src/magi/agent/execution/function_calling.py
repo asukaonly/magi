@@ -20,7 +20,7 @@ from typing import Awaitable, Callable, Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge, ToolStreamResult, _coerce_thinking_depth
-from ...llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stream_sink
+from ...llm.streaming_events import get_stream_sink
 from ...chat.workspace import get_default_chat_workspace_path
 from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
@@ -374,10 +374,10 @@ class FunctionCallingOrchestrator:
                 llm_timeout_seconds=llm_timeout_seconds,
             )
             if step_outcome.status == "continue":
-                # Flush any intermediate streamed text so the UI can close
-                # the current bubble before tool execution continues.
-                if get_stream_sink() is not None:
-                    await emit_stream_event(LLMStreamEvent(kind="text_flush"))
+                # No text_flush between steps: subsequent text_delta events
+                # must keep appending into the same streaming bubble. A flush
+                # would mark the bubble finalised and the next delta would
+                # create a second bubble within the same turn.
                 # --- context compaction check after each tool-use round ---
                 await self._try_compact(state, system_prompt)
                 continue

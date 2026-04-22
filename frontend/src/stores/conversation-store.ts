@@ -456,9 +456,27 @@ export const useConversationStore = create<ConversationState>((set) => ({
       return state;
     }
     const previousMessages = state.messagesBySession[sessionId] || [];
-    const existingIndex = previousMessages.findIndex(
+    // Prefer an active streaming bubble for this turn. Fall back to the most
+    // recent assistant placeholder for the same turn that has not yet been
+    // replaced by a persisted message (no messageId) — this keeps multi-step
+    // turns rendered as a single bubble even if a stray text_flush arrived
+    // between LLM calls.
+    let existingIndex = previousMessages.findIndex(
       (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
     );
+    if (existingIndex < 0) {
+      for (let i = previousMessages.length - 1; i >= 0; i -= 1) {
+        const candidate = previousMessages[i];
+        if (
+          candidate.role === 'assistant'
+          && candidate.turnId === turnId
+          && !candidate.messageId
+        ) {
+          existingIndex = i;
+          break;
+        }
+      }
+    }
     if (existingIndex >= 0) {
       const existing = previousMessages[existingIndex];
       const nextMessages = [...previousMessages];
@@ -522,9 +540,22 @@ export const useConversationStore = create<ConversationState>((set) => ({
       return state;
     }
     const previousMessages = state.messagesBySession[sessionId] || [];
-    const existingIndex = previousMessages.findIndex(
+    let existingIndex = previousMessages.findIndex(
       (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
     );
+    if (existingIndex < 0) {
+      for (let i = previousMessages.length - 1; i >= 0; i -= 1) {
+        const candidate = previousMessages[i];
+        if (
+          candidate.role === 'assistant'
+          && candidate.turnId === turnId
+          && !candidate.messageId
+        ) {
+          existingIndex = i;
+          break;
+        }
+      }
+    }
     let messages = previousMessages;
     let targetIndex = existingIndex;
     if (existingIndex < 0) {
