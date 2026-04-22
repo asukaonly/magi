@@ -146,10 +146,12 @@ class AskUserQuestionTool(Tool):
             options=options,
             allow_free_text=allow_free_text,
         )
+        is_background = intent.startswith("background")
         logger.info(
             "ask_user_question.opened",
             session_id=sid,
             request_id=ask.request_id,
+            background=is_background,
         )
         try:
             from ...agent.control.common.events import publish_control_event
@@ -163,9 +165,21 @@ class AskUserQuestionTool(Tool):
                     "options": list(options or []),
                     "allow_free_text": allow_free_text,
                     "timeout_seconds": timeout_seconds,
+                    "background": is_background,
                 },
                 session_id=sid,
             )
+            if is_background:
+                await publish_control_event(
+                    "control.background.suspended",
+                    {
+                        "session_id": sid,
+                        "request_id": ask.request_id,
+                        "reason": "awaiting_user_answer",
+                        "timeout_seconds": timeout_seconds,
+                    },
+                    session_id=sid,
+                )
         except Exception:  # pragma: no cover - defensive
             logger.debug("ask_user_question.event_failed", exc_info=True)
 
@@ -190,6 +204,22 @@ class AskUserQuestionTool(Tool):
             request_id=ask.request_id,
             length=len(answer_text),
         )
+        if is_background:
+            try:
+                from ...agent.control.common.events import publish_control_event
+
+                await publish_control_event(
+                    "control.background.resumed",
+                    {
+                        "session_id": sid,
+                        "request_id": ask.request_id,
+                    },
+                    session_id=sid,
+                )
+            except Exception:  # pragma: no cover - defensive
+                logger.debug(
+                    "ask_user_question.resume_event_failed", exc_info=True
+                )
         return ToolResult(success=True, data={"answer": answer_text})
 
 
