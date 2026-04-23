@@ -50,7 +50,7 @@ Magi is a desktop-only application:
 - Desktop mode
   Tauri shell plus React WebView plus Rust Axum gateway plus Python sidecar (IPC worker)
 
-The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over a Unix Domain Socket IPC channel to the Python sidecar. The Python process runs no HTTP server — FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
+The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, chat attachment content reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over a Unix Domain Socket IPC channel to the Python sidecar. The Python process runs no HTTP server — FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
 ## Backend Shape
 
@@ -138,7 +138,7 @@ Execution observability is now a separate concern from durable memory:
   Runtime command-queue persistence only
 
 - `~/.magi/data/chat/chat.db`
-  Chat-domain source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
+  Chat-domain source of truth for `chat_sessions`, `chat_turns`, `chat_messages`, and indexed `chat_attachments`
 
 - `~/.magi/data/resources/chat/`
   Managed local chat attachments and derived artifacts grouped by type, session, and turn

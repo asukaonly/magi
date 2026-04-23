@@ -9,6 +9,7 @@ import uuid
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
+from ..utils.runtime import get_runtime_paths
 from .contracts import ChatMessageLabel, ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
 
 
@@ -97,6 +98,25 @@ class ChatStore:
                     ON chat_messages(session_id, created_at_ms ASC, sequence_no ASC);
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_turn_sequence
                     ON chat_messages(turn_id, sequence_no ASC);
+
+                CREATE TABLE IF NOT EXISTS chat_attachments (
+                    attachment_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT,
+                    message_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    original_name TEXT NOT NULL DEFAULT '',
+                    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    storage_rel_path TEXT NOT NULL,
+                    sha256 TEXT,
+                    created_at_ms INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_chat_attachments_session_created
+                    ON chat_attachments(session_id, created_at_ms ASC);
+                CREATE INDEX IF NOT EXISTS idx_chat_attachments_message_id
+                    ON chat_attachments(message_id);
                 """
             )
             await self._ensure_chat_session_columns(db)
@@ -304,6 +324,11 @@ class ChatStore:
                     self._serialize_message_label(message.label),
                 ),
             )
+            await self._replace_message_attachments(
+                db,
+                message=message,
+                attachment_payloads=attachment_payloads,
+            )
             await db.commit()
         return message
 
@@ -311,7 +336,10 @@ class ChatStore:
     def _build_user_message_payload_json(attachment_payloads: list[dict[str, object]] | None) -> str:
         if not attachment_payloads:
             return "{}"
-        return json.dumps({"attachments": list(attachment_payloads)}, ensure_ascii=False)
+        return json.dumps(
+            {"attachments": ChatStore._public_attachment_payloads(attachment_payloads)},
+            ensure_ascii=False,
+        )
 
     async def upsert_turn(self, record: ChatTurnRecord) -> None:
         """Insert or update one chat turn row."""
@@ -384,7 +412,12 @@ class ChatStore:
             )
             await db.commit()
 
-    async def append_message(self, record: ChatMessageRecord) -> None:
+    async def append_message(
+        self,
+        record: ChatMessageRecord,
+        *,
+        attachment_payloads: list[dict[str, object]] | None = None,
+    ) -> None:
         """Insert or replace one transcript message row."""
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
@@ -427,6 +460,15 @@ class ChatStore:
                     record.replaced_by_message_id,
                     record.reply_to_message_id,
                     self._serialize_message_label(record.label),
+                ),
+            )
+            await self._replace_message_attachments(
+                db,
+                message=record,
+                attachment_payloads=(
+                    attachment_payloads
+                    if attachment_payloads is not None
+                    else self._extract_attachment_payloads(record.payload_json)
                 ),
             )
             await db.commit()
@@ -634,6 +676,117 @@ class ChatStore:
             await db.execute("ALTER TABLE chat_messages ADD COLUMN reply_to_message_id TEXT")
         if "label_json" not in column_names:
             await db.execute("ALTER TABLE chat_messages ADD COLUMN label_json TEXT")
+
+    @staticmethod
+    def _extract_attachment_payloads(raw_payload_json: str | None) -> list[dict[str, object]]:
+        if not raw_payload_json:
+            return []
+        try:
+            payload = json.loads(raw_payload_json)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        attachments = payload.get("attachments") if isinstance(payload, dict) else None
+        if not isinstance(attachments, list):
+            return []
+        return [dict(item) for item in attachments if isinstance(item, dict)]
+
+    @staticmethod
+    def _public_attachment_payloads(
+        attachment_payloads: list[dict[str, object]] | None,
+    ) -> list[dict[str, object]]:
+        if not attachment_payloads:
+            return []
+        allowed_keys = {
+            "attachment_id",
+            "kind",
+            "original_name",
+            "mime_type",
+            "size_bytes",
+            "parse_status",
+            "derived_text_excerpt",
+            "character_count",
+            "truncated",
+            "encoding",
+            "page_count",
+            "parse_error",
+        }
+        public_payloads: list[dict[str, object]] = []
+        for item in attachment_payloads:
+            if not isinstance(item, dict):
+                continue
+            public_payload = {
+                key: value
+                for key, value in item.items()
+                if key in allowed_keys and value is not None
+            }
+            if public_payload:
+                public_payloads.append(public_payload)
+        return public_payloads
+
+    async def _replace_message_attachments(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        message: ChatMessageRecord,
+        attachment_payloads: list[dict[str, object]] | None,
+    ) -> None:
+        await db.execute(
+            "DELETE FROM chat_attachments WHERE message_id = ?",
+            (message.message_id,),
+        )
+        for attachment in attachment_payloads or []:
+            attachment_id = str(attachment.get("attachment_id") or "").strip()
+            storage_path = str(attachment.get("storage_path") or "").strip()
+            if not attachment_id or not storage_path:
+                continue
+            storage_rel_path = self._storage_rel_path(storage_path)
+            if not storage_rel_path:
+                continue
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO chat_attachments (
+                    attachment_id,
+                    session_id,
+                    turn_id,
+                    message_id,
+                    user_id,
+                    kind,
+                    original_name,
+                    mime_type,
+                    size_bytes,
+                    storage_rel_path,
+                    sha256,
+                    created_at_ms
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    attachment_id,
+                    message.session_id,
+                    message.turn_id,
+                    message.message_id,
+                    message.user_id,
+                    str(attachment.get("kind") or "file").strip() or "file",
+                    str(attachment.get("original_name") or "").strip(),
+                    str(attachment.get("mime_type") or "application/octet-stream").strip() or "application/octet-stream",
+                    int(attachment.get("size_bytes") or 0),
+                    storage_rel_path,
+                    str(attachment.get("sha256") or "").strip() or None,
+                    message.created_at_ms,
+                ),
+            )
+
+    @staticmethod
+    def _storage_rel_path(storage_path: str) -> str | None:
+        candidate = Path(str(storage_path or "").strip())
+        if not str(candidate).strip():
+            return None
+        try:
+            base_dir = get_runtime_paths().base_dir.resolve()
+            relative = candidate.resolve().relative_to(base_dir)
+        except Exception:
+            return None
+        return relative.as_posix()
 
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""

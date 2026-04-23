@@ -10,7 +10,7 @@ import tempfile
 
 import pytest
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from magi.ipc.handlers import ApiForwardHandler
 
@@ -35,6 +35,10 @@ def sample_app() -> FastAPI:
     @app.delete("/api/items/{item_id}")
     async def delete_item(item_id: str):
         return {"deleted": item_id}
+
+    @app.get("/api/file")
+    async def file_content():
+        return Response(content=b"\x89PNG\r\n", media_type="image/png")
 
     return app
 
@@ -97,3 +101,14 @@ class TestApiForwardHandler:
     async def test_missing_params(self, forward_handler: ApiForwardHandler) -> None:
         result = await forward_handler.handle(None)
         assert result["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_binary_response_is_base64_encoded(self, forward_handler: ApiForwardHandler) -> None:
+        result = await forward_handler.handle({
+            "method": "GET",
+            "path": "/api/file",
+        })
+        assert result["status"] == 200
+        assert result["headers"]["content-type"].startswith("image/png")
+        assert result["body_encoding"] == "base64"
+        assert result["body_base64"] == "iVBORw0K"

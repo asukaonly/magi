@@ -6,6 +6,8 @@ import base64
 from pathlib import Path
 from typing import Any
 
+from ..chat import get_chat_read_service
+
 
 def append_latest_user_message(
     history: list[dict[str, Any]] | None,
@@ -13,11 +15,18 @@ def append_latest_user_message(
     *,
     history_limit: int,
     attachments: list[dict[str, Any]] | None = None,
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return recent history with the current user message appended once."""
     messages = list((history or [])[-history_limit:])
     normalized_latest = str(latest_user_message or "").strip()
-    latest_content = _build_latest_user_message_content(normalized_latest, attachments or [])
+    latest_content = _build_latest_user_message_content(
+        normalized_latest,
+        attachments or [],
+        user_id=user_id,
+        session_id=session_id,
+    )
     if latest_content is None:
         return messages
     # Remove all trailing user messages that match the current message to
@@ -80,6 +89,9 @@ def _is_matching_user_message(message: dict[str, Any] | None, latest_user_messag
 def _build_latest_user_message_content(
     latest_user_message: str,
     attachments: list[dict[str, Any]],
+    *,
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> str | list[dict[str, str]] | None:
     blocks: list[dict[str, str]] = []
     if latest_user_message:
@@ -91,6 +103,12 @@ def _build_latest_user_message_content(
         if str(attachment.get("kind") or "").strip() != "image":
             continue
         storage_path = str(attachment.get("storage_path") or "").strip()
+        if not storage_path and user_id and session_id:
+            attachment_id = str(attachment.get("attachment_id") or "").strip()
+            if attachment_id:
+                resolved = get_chat_read_service().get_attachment_payload(user_id, session_id, attachment_id)
+                if isinstance(resolved, dict):
+                    storage_path = str(resolved.get("storage_path") or "").strip()
         if not storage_path:
             continue
         path = Path(storage_path)

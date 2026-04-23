@@ -168,7 +168,7 @@ class ChatOutcomeWriter:
             replaced_by_message_id=None,
             reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
-        await self._chat_store.append_message(final_message)
+        await self._chat_store.append_message(final_message, attachment_payloads=attachments)
         await self._chat_store.bump_history_version(existing_turn.session_id)
         if interim_message is not None:
             await self._chat_store.mark_message_replaced(
@@ -184,7 +184,7 @@ class ChatOutcomeWriter:
         payload = dict(message_payload or {})
         payload.pop("attachments", None)
         if attachments:
-            payload["attachments"] = list(attachments)
+            payload["attachments"] = ChatStore._public_attachment_payloads(list(attachments))
         if not payload:
             return "{}"
         return json.dumps(payload, ensure_ascii=False)

@@ -43,6 +43,10 @@ pub fn build_router(state: ApiState) -> Router {
             axum::routing::get(messages::message_history),
         )
         .route(
+            "/api/messages/session/{session_id}/attachments/{attachment_id}/content",
+            axum::routing::get(messages::attachment_content),
+        )
+        .route(
             "/api/messages/session/new",
             axum::routing::post(messages::create_session),
         )
