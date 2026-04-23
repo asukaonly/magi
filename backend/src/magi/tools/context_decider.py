@@ -215,6 +215,12 @@ JSON: {"intent": "chat", "tools": ["memory_query"], "thinking_depth": "none", "r
 User: "按之前那套流程修一下这个 bug"
 JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "thinking_depth": "medium", "reasoning": "This is a workflow reuse request, not an explicit historical recall request.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
+User: "2022年9月我在哪里拍了照片"
+JSON: {"intent": "chat", "tools": ["memory_query", "photo_library_find_candidate_photos"], "thinking_depth": "low", "reasoning": "This asks for historical photo recall. Use memory_query for the factual answer and the photo-library search tool when the user wants concrete photo candidates.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
+User: "把刚才那些照片发出来"
+JSON: {"intent": "chat", "tools": ["photo_library_resolve_photo_refs", "prepare_chat_attachments"], "thinking_depth": "low", "reasoning": "The user wants to send previously identified photo candidates, so resolve the stored photo refs to file paths first and then prepare chat attachments.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
 Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If not matching skill exists, use basic tools."""
 
     def __init__(

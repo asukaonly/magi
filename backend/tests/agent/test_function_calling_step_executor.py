@@ -216,6 +216,154 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
 
 
 @pytest.mark.asyncio
+async def test_step_executor_collects_chat_attachments_from_tool_results(monkeypatch) -> None:
+    orchestrator = _build_orchestrator()
+    step_state = orchestrator.build_step_state(
+        user_message="Send the selected photos.",
+        system_prompt="system prompt",
+        selected_tools=["prepare_chat_attachments"],
+        conversation_history=[],
+    )
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {
+            "assistant_message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_attach",
+                        "type": "function",
+                        "function": {"name": "prepare_chat_attachments", "arguments": "{}"},
+                    }
+                ],
+            },
+            "tool_calls": [ToolCall(id="call_attach", name="prepare_chat_attachments", arguments={})],
+            "llm_trace": {"model": "fake-model"},
+        }
+
+    async def _fake_execute_tool_call(**kwargs):  # type: ignore[no-untyped-def]
+        tool_call = kwargs["tool_call"]
+        return ToolCallResult(
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            success=True,
+            data={
+                "chat_attachments": [
+                    {"attachment_id": "att-1", "kind": "image", "original_name": "one.jpg"}
+                ]
+            },
+            execution_time=0.01,
+        )
+
+    async def _noop_async(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return None
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
+    monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
+    monkeypatch.setattr(orchestrator, "_start_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_complete_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_loop_event", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_tool_result", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_llm_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_tool_trace", _noop_async)
+
+    outcome = await orchestrator.step_executor.execute_step(
+        state=step_state,
+        user_message="Send the selected photos.",
+        user_id="u-chat",
+        session_id="s-chat",
+        turn_id="turn-attach",
+        intent="chat",
+        execution_agent_id="chat:s-chat",
+        orchestration_strategy=None,
+    )
+
+    assert outcome.status == "continue"
+    assert step_state.chat_attachments == [
+        {"attachment_id": "att-1", "kind": "image", "original_name": "one.jpg"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_step_executor_collects_assistant_message_payload_from_tool_results(monkeypatch) -> None:
+    orchestrator = _build_orchestrator()
+    step_state = orchestrator.build_step_state(
+        user_message="Send the selected photos.",
+        system_prompt="system prompt",
+        selected_tools=["memory_query"],
+        conversation_history=[],
+    )
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {
+            "assistant_message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_payload",
+                        "type": "function",
+                        "function": {"name": "memory_query", "arguments": "{}"},
+                    }
+                ],
+            },
+            "tool_calls": [ToolCall(id="call_payload", name="memory_query", arguments={})],
+            "llm_trace": {"model": "fake-model"},
+        }
+
+    async def _fake_execute_tool_call(**kwargs):  # type: ignore[no-untyped-def]
+        tool_call = kwargs["tool_call"]
+        return ToolCallResult(
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            success=True,
+            data={
+                "assistant_payload": {
+                    "candidate_photo_refs": [
+                        {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+                    ]
+                }
+            },
+            execution_time=0.01,
+        )
+
+    async def _noop_async(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return None
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
+    monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
+    monkeypatch.setattr(orchestrator, "_start_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_complete_iteration_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_loop_event", _noop_async)
+    monkeypatch.setattr(orchestrator, "_emit_tool_result", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_llm_trace", _noop_async)
+    monkeypatch.setattr(orchestrator, "_persist_tool_trace", _noop_async)
+
+    outcome = await orchestrator.step_executor.execute_step(
+        state=step_state,
+        user_message="Send the selected photos.",
+        user_id="u-chat",
+        session_id="s-chat",
+        turn_id="turn-payload",
+        intent="chat",
+        execution_agent_id="chat:s-chat",
+        orchestration_strategy=None,
+    )
+
+    assert outcome.status == "continue"
+    assert step_state.message_payload == {
+        "candidate_photo_refs": [
+            {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+        ]
+    }
+
+
+@pytest.mark.asyncio
 async def test_step_executor_returns_control_after_one_step_until_called_again(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(

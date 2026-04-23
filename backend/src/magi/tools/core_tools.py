@@ -13,6 +13,7 @@ from .builtin.glob_tool import GlobTool
 from .builtin.grep_tool import GrepTool
 from .builtin.image_generation_tool import ImageGenerationTool
 from .builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
+from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.todo_write_tool import TodoWriteTool
 from .builtin.weather_tool import WeatherTool
@@ -34,6 +35,7 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     SystemSettingsTool,
     AgentTool,
     MemoryQueryTool,
+    PrepareChatAttachmentsTool,
     ImageGenerationTool,
     DetachToBackgroundTool,
     EnterPlanModeTool,

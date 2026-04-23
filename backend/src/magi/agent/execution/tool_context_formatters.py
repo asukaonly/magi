@@ -32,6 +32,7 @@ class ToolContextFormatterRegistry:
         registry.register("file_read", lambda data: compact_file_read_tool_data(data, max_text_chars=max_text_chars))
         registry.register("agent", lambda data: compact_agent_tool_data(data, max_items=max_items))
         registry.register("memory_query", memory_formatter)
+        registry.register("prepare_chat_attachments", compact_prepare_chat_attachments_tool_data)
         return registry
 
 
@@ -169,4 +170,22 @@ def compact_agent_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str
         "error": data.get("error"),
         "failure_reason": data.get("failure_reason"),
         "needs_await": data.get("status") == "running",
+    }
+
+
+def compact_prepare_chat_attachments_tool_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    attachments = data.get("chat_attachments") if isinstance(data.get("chat_attachments"), list) else []
+    return {
+        "prepared_count": len(attachments),
+        "attachments": [
+            {
+                "attachment_id": item.get("attachment_id"),
+                "kind": item.get("kind"),
+                "original_name": item.get("original_name"),
+                "size_bytes": item.get("size_bytes"),
+            }
+            for item in attachments
+            if isinstance(item, dict)
+        ],
+        "summary": data.get("summary"),
     }

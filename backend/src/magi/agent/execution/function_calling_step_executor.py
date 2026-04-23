@@ -17,6 +17,8 @@ class FunctionCallingStepState:
     tools: list[dict[str, Any]]
     iteration: int = 0
     tool_failures: list[dict[str, Any]] = field(default_factory=list)
+    chat_attachments: list[dict[str, Any]] = field(default_factory=list)
+    message_payload: dict[str, Any] = field(default_factory=dict)
     consecutive_failed_tool_iterations: int = 0
     all_tools_failed: bool = False
 
@@ -207,6 +209,13 @@ class FunctionCallingStepExecutor:
                         ),
                     },
                 )
+            state.chat_attachments.extend(
+                self._driver._extract_chat_attachments_from_tool_results(tool_results)
+            )
+            state.message_payload = self._driver._merge_assistant_message_payload(
+                state.message_payload,
+                self._driver._extract_assistant_message_payload_from_tool_results(tool_results),
+            )
 
             if all(not result.success for result in tool_results):
                 state.consecutive_failed_tool_iterations += 1

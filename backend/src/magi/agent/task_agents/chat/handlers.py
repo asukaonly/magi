@@ -80,6 +80,24 @@ def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
     )
 
 
+def _build_photo_tool_guidance_block(selected_tools: list[str]) -> str:
+    tool_names = set(selected_tools)
+    if not {
+        "photo_library_find_candidate_photos",
+        "photo_library_resolve_photo_refs",
+        "prepare_chat_attachments",
+    }.intersection(tool_names):
+        return ""
+    lines = [
+        "# Photo Workflow Guidance",
+        "For photo recall, first use `photo_library_find_candidate_photos` to return compact `candidate_photo_refs`.",
+        "When the user wants specific photos sent in chat, call `photo_library_resolve_photo_refs` with the chosen `photo_ref_id` values before calling `prepare_chat_attachments`.",
+        "Do not pass raw local file paths to the user. Use `prepare_chat_attachments` to import resolved `file_paths` into managed chat attachments.",
+        "Prefer calendar-style filters like `year`, `month`, `day`, or `date` for month/day requests, and use time bounds only when you already have precise timestamps.",
+    ]
+    return "\n".join(lines)
+
+
 def _serialize_ux_plan(intent: object) -> dict | None:
     plan = getattr(intent, "ux_plan", None)
     if plan is None:
@@ -252,6 +270,9 @@ class FunctionCallingHandler(BaseExecutionHandler):
             memory_guidance_block = _build_memory_query_guidance_block(request.intent.routing_memory_hint)
             if memory_guidance_block:
                 prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{memory_guidance_block}"
+        photo_guidance_block = _build_photo_tool_guidance_block(selected_tools)
+        if photo_guidance_block:
+            prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{photo_guidance_block}"
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,
@@ -367,6 +388,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
         fc_result = FunctionCallingExecutionResult(
             mode=request.mode,
             response_text=execution_outcome.content,
+            attachments=list(getattr(execution_outcome, "attachments", []) or []),
+            message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
             root_user_message=request.context.latest_user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=turn_id,
@@ -407,11 +430,15 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     return FunctionCallingExecutionResult(
                         mode=request.mode,
                         response_text="",
+                        attachments=list(getattr(step_state, "chat_attachments", []) or []),
+                        message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
                         root_user_message=current_user_message,
                         execution_outcome={
                             "status": "cancelled",
                             "content": "",
                             "failure_reason": None,
+                            "attachments": list(getattr(step_state, "chat_attachments", []) or []),
+                            "message_payload": dict(getattr(step_state, "message_payload", {}) or {}),
                             "tool_failures": list(getattr(step_state, "tool_failures", [])),
                             "iterations": step_state.iteration,
                         },
@@ -468,6 +495,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
                     return FunctionCallingExecutionResult(
                         mode=request.mode,
                         response_text=step_outcome.content,
+                        attachments=list(getattr(step_state, "chat_attachments", []) or []),
+                        message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
                         root_user_message=current_user_message,
                         execution_outcome=execution_outcome,
                         turn_id=current_turn_id,
@@ -548,6 +577,8 @@ class FunctionCallingHandler(BaseExecutionHandler):
         return FunctionCallingExecutionResult(
             mode=request.mode,
             response_text=execution_outcome.content,
+            attachments=list(getattr(execution_outcome, "attachments", []) or []),
+            message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
             root_user_message=current_user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=current_turn_id,
@@ -582,11 +613,15 @@ class FunctionCallingHandler(BaseExecutionHandler):
         return FunctionCallingExecutionResult(
             mode=request.mode,
             response_text="",
+            attachments=list(getattr(step_state, "chat_attachments", []) or []),
+            message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
             root_user_message=current_user_message,
             execution_outcome={
                 "status": "detached",
                 "content": "",
                 "failure_reason": None,
+                "attachments": list(getattr(step_state, "chat_attachments", []) or []),
+                "message_payload": dict(getattr(step_state, "message_payload", {}) or {}),
                 "tool_failures": list(getattr(step_state, "tool_failures", [])),
                 "iterations": step_state.iteration,
                 "snapshot": snapshot.to_dict(),

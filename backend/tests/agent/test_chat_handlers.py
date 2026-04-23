@@ -315,6 +315,64 @@ async def test_function_calling_handler_passes_turn_workspace_into_context_servi
 
 
 @pytest.mark.asyncio
+async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_tools_selected() -> None:
+    context_service = _FakeContextService()
+    handler = FunctionCallingHandler(
+        SimpleNamespace(
+            context_service=context_service,
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="把刚才那些照片发出来",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="把刚才那些照片发出来",
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.FUNCTION_CALLING,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                reasoning="tool use",
+                orchestration_plan=OrchestrationPlan(),
+                memory_route="none",
+                routing_memory_hint=None,
+            ),
+            tool_selection=ToolSelection(
+                tools=["photo_library_resolve_photo_refs", "prepare_chat_attachments"],
+                reasoning="send previous photo candidates",
+            ),
+        )
+    )
+
+    assert "# Photo Workflow Guidance" in request.system_prompt
+    assert "photo_library_resolve_photo_refs" in request.system_prompt
+    assert "prepare_chat_attachments" in request.system_prompt
+
+
+@pytest.mark.asyncio
 async def test_direct_llm_handler_builds_multimodal_message_for_image_attachments(tmp_path: Path) -> None:
     image_path = tmp_path / "diagram.png"
     image_path.write_bytes(b"fake-image-bytes")

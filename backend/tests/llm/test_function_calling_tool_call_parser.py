@@ -618,6 +618,51 @@ def test_postprocessor_uses_registered_tool_context_formatter() -> None:
     assert payload["data"] == {"custom": 42}
 
 
+def test_build_tool_message_payload_sanitizes_assistant_payload_and_chat_attachments() -> None:
+    postprocessor = FunctionCallingPostprocessor()
+
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="photo_tool",
+        result=ToolCallResult(
+            tool_call_id="photo-1",
+            tool_name="photo_tool",
+            success=True,
+            data={
+                "assistant_payload": {
+                    "candidate_photo_refs": [
+                        {
+                            "photo_ref_id": "photo-1",
+                            "event_id": "evt-1",
+                            "original_name": "hangzhou.jpg",
+                            "storage_path": "secret",
+                        }
+                    ]
+                },
+                "chat_attachments": [
+                    {
+                        "attachment_id": "att-1",
+                        "kind": "image",
+                        "original_name": "hangzhou.jpg",
+                        "storage_path": "secret",
+                    }
+                ],
+            },
+            error=None,
+        ),
+    )
+
+    assert payload["data"] == {
+        "assistant_payload": {
+            "candidate_photo_refs": [
+                {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+            ]
+        },
+        "chat_attachments": [
+            {"attachment_id": "att-1", "kind": "image", "original_name": "hangzhou.jpg"}
+        ],
+    }
+
+
 @pytest.mark.asyncio
 async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
     registry = _RecordingToolRegistry()

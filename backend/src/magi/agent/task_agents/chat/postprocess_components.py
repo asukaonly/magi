@@ -93,6 +93,8 @@ class ChatOutcomeWriter:
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         response_text: str,
+        attachments: list[dict[str, Any]] | None = None,
+        message_payload: dict[str, Any] | None = None,
         started_at_ms: int,
         completed_at_ms: int,
         run_id: str | None = None,
@@ -157,7 +159,7 @@ class ChatOutcomeWriter:
             role="assistant",
             message_kind="assistant_final",
             content_text=response_text,
-            payload_json="{}",
+            payload_json=self._build_message_payload_json(attachments, message_payload),
             is_final=True,
             is_visible=True,
             created_at_ms=completed_at_ms,
@@ -173,6 +175,19 @@ class ChatOutcomeWriter:
                 message_id=interim_message.message_id,
                 replaced_by_message_id=final_message.message_id,
             )
+
+    @staticmethod
+    def _build_message_payload_json(
+        attachments: list[dict[str, Any]] | None,
+        message_payload: dict[str, Any] | None,
+    ) -> str:
+        payload = dict(message_payload or {})
+        payload.pop("attachments", None)
+        if attachments:
+            payload["attachments"] = list(attachments)
+        if not payload:
+            return "{}"
+        return json.dumps(payload, ensure_ascii=False)
 
     async def persist_turn_supersession(
         self,
@@ -357,6 +372,7 @@ class ChatRuntimeNotifier:
         session_id: str,
         turn_id: str | None,
         response_text: str,
+        attachments: list[dict[str, Any]] | None,
         orchestration_id: str | None,
         trace_summary: dict[str, Any] | None,
         trace_available: bool,
@@ -370,6 +386,7 @@ class ChatRuntimeNotifier:
             "message_id": message_id,
             "message_kind": message_kind,
             "content": response_text,
+            "attachments": list(attachments or []),
             "author_type": "assistant",
             "content_type": "text",
             "timestamp": time.time(),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -183,7 +184,25 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
         role="assistant",
         message_kind="assistant_final",
         content_text="Run the desktop dev script from the repo root.",
-        payload_json="{}",
+        payload_json=json.dumps(
+            {
+                "attachments": [
+                    {
+                        "attachment_id": "att-root-1",
+                        "kind": "image",
+                        "original_name": "desktop-dev.png",
+                    }
+                ],
+                "candidate_photo_refs": [
+                    {
+                        "photo_ref_id": "photo-root-1",
+                        "event_id": "evt-photo-root-1",
+                        "original_name": "desktop-dev.png",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
         is_final=True,
         is_visible=True,
         created_at_ms=150,
@@ -234,6 +253,22 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
     assert context.reply_context.role == "assistant"
     assert context.reply_context.content_excerpt == "Run the desktop dev script from the repo root."
     assert context.reply_context.references_prior_turn is True
+    assert context.reply_context.structured_payload == {
+        "attachments": [
+            {
+                "attachment_id": "att-root-1",
+                "kind": "image",
+                "original_name": "desktop-dev.png",
+            }
+        ],
+        "candidate_photo_refs": [
+            {
+                "photo_ref_id": "photo-root-1",
+                "event_id": "evt-photo-root-1",
+                "original_name": "desktop-dev.png",
+            }
+        ],
+    }
 
     request = await agent._handler_registry.get(ExecutionMode.DIRECT_LLM).build_request(
         ExecutionRequest(
@@ -252,6 +287,8 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
     assert "Current message is replying to:" in request.system_prompt
     assert "- speaker: assistant" in request.system_prompt
     assert 'Run the desktop dev script from the repo root.' in request.system_prompt
+    assert '"attachment_id": "att-root-1"' in request.system_prompt
+    assert '"photo_ref_id": "photo-root-1"' in request.system_prompt
     assert request.messages[-1] == {"role": "user", "content": "What if I only want the backend?"}
     assert original_user_message.reply_to_message_id is None
 

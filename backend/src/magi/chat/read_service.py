@@ -999,6 +999,7 @@ class ChatReadService:
                 role=role,
                 kind="assistant",
                 content=content,
+                attachments=list(attachments),
                 timestamp=int(row["created_at_ms"] or 0),
                 message_id=str(row["message_id"]),
                 message_kind=message_kind,

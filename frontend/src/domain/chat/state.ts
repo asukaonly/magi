@@ -513,6 +513,7 @@ export const applyAgentResponse = (
   messages: ChatTimelineMessage[],
   payload: {
     content: string;
+    attachments?: ChatAttachment[];
     timestamp?: number;
     messageId?: string;
     messageKind?: string | null;
@@ -555,6 +556,7 @@ export const applyAgentResponse = (
     role: 'assistant',
     kind: 'assistant',
     content: payload.content,
+    attachments: Array.isArray(payload.attachments) && payload.attachments.length > 0 ? payload.attachments : undefined,
     timestamp,
     messageId: payload.messageId,
     messageKind: payload.messageKind || 'assistant_final',

@@ -266,6 +266,83 @@ async def test_outcome_writer_bumps_history_version_for_assistant_final(chat_sto
 
 
 @pytest.mark.asyncio
+async def test_outcome_writer_persists_assistant_attachments(chat_store: ChatStore) -> None:
+    writer = ChatOutcomeWriter(
+        chat_store=chat_store,
+        chat_projector=None,
+        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-attachments",
+        message_text="show me photos",
+        created_at_ms=1710000000000,
+    )
+
+    await writer.persist_final_chat_outcome(
+        turn_id="turn-attachments",
+        orchestration_id=None,
+        execution_mode="function_calling",
+        ux_plan={"assistant_surface_mode": "final_only"},
+        response_text="Here are the photos.",
+        attachments=[{"attachment_id": "att-1", "kind": "image", "original_name": "photo.jpg"}],
+        started_at_ms=1710000000000,
+        completed_at_ms=1710000000200,
+    )
+
+    messages = await chat_store.list_messages(session_id="session-1")
+    payload = json.loads(messages[-1].payload_json)
+
+    assert messages[-1].message_kind == "assistant_final"
+    assert payload["attachments"] == [
+        {"attachment_id": "att-1", "kind": "image", "original_name": "photo.jpg"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_outcome_writer_persists_assistant_message_payload(chat_store: ChatStore) -> None:
+    writer = ChatOutcomeWriter(
+        chat_store=chat_store,
+        chat_projector=None,
+        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-photo-refs",
+        message_text="show me the candidate photos",
+        created_at_ms=1710000000000,
+    )
+
+    await writer.persist_final_chat_outcome(
+        turn_id="turn-photo-refs",
+        orchestration_id=None,
+        execution_mode="function_calling",
+        ux_plan={"assistant_surface_mode": "final_only"},
+        response_text="Here are the candidate photos.",
+        attachments=[{"attachment_id": "att-1", "kind": "image", "original_name": "photo.jpg"}],
+        message_payload={
+            "candidate_photo_refs": [
+                {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+            ]
+        },
+        started_at_ms=1710000000000,
+        completed_at_ms=1710000000200,
+    )
+
+    messages = await chat_store.list_messages(session_id="session-1")
+    payload = json.loads(messages[-1].payload_json)
+
+    assert payload["attachments"] == [
+        {"attachment_id": "att-1", "kind": "image", "original_name": "photo.jpg"}
+    ]
+    assert payload["candidate_photo_refs"] == [
+        {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_handle_worker_result_persists_reply_anchor_to_original_message(
     chat_store: ChatStore,
 ) -> None:

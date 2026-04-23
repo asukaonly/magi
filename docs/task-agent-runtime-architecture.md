@@ -187,6 +187,10 @@ flowchart TD
     C --> A["User-Facing Response"]
 ```
 
+  Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
+  When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
+  Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with reusable candidate refs such as `candidate_photo_refs` or `photo_refs`, which later reply turns may see through reply context.
+
 ## Runtime And Persistence Boundaries
 
 The current dual-process topology is intentionally split by responsibility:
@@ -202,6 +206,9 @@ Persistence is separated the same way:
 - `chat.db`
   Source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
   Current path: `~/.magi/data/chat/chat.db`
+
+  Assistant chat messages may persist managed attachment payloads in `chat_messages.payload_json`.
+  Local source plugins should not bypass this boundary by exposing raw local file paths directly to the frontend.
 
 - `runtime_trace.db`
   Execution observability only, including spans, tool calls, turn summaries, intent records, live notifications, and append-only plugin ingress events emitted by the desktop shell or other local producers

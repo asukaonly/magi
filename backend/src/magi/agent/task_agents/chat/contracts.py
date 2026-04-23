@@ -89,6 +89,7 @@ class ChatReplyContext:
     role: str
     content_excerpt: str
     references_prior_turn: bool
+    structured_payload: dict[str, Any] | None = None
 
 
 @dataclass(slots=True, kw_only=True)

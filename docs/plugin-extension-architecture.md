@@ -147,6 +147,28 @@ The plugin runtime only changes how they are discovered and registered.
 
 Built-in tools now come from the official `core-tools` plugin instead of import-time hardcoded registration.
 
+#### Local File Reply Boundary
+
+When a plugin wants the assistant to send back local files such as photos, keep the ownership split explicit:
+
+- source plugins own domain resolution and selection
+- the host runtime owns chat attachment import, persistence, and display
+
+Current intended flow:
+
+1. a source plugin resolves memory or sensor metadata into stable local file paths or source-owned asset refs
+2. the host-owned `prepare_chat_attachments` tool imports those files into managed chat attachment storage for the active turn
+3. the assistant response persists `attachments` payloads and the frontend renders them like other chat history attachments
+
+For follow-up turns, tool results may also return an `assistant_payload` object. The host runtime persists that object into the assistant message payload after sanitization. Current supported reusable keys are:
+
+- `candidate_photo_refs`
+- `photo_refs`
+
+These references are intended for reply-turn reuse, not direct frontend file access. Source plugins may include candidate identifiers, event ids, source item ids, capture timestamps, and original names, but the host runtime should strip raw local file paths before reinjecting the payload into LLM context or reply-context summaries.
+
+This boundary keeps source-specific metadata layouts out of the chat domain and avoids treating raw local file paths as the long-lived chat protocol surface.
+
 ### Sensor Registry
 
 Sensors are registered into `SensorRegistry` with:

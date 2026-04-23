@@ -1,6 +1,7 @@
 """Runtime task agent for chat facts."""
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -573,7 +574,65 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
                 and reply_target.turn_id
                 and str(reply_target.turn_id).strip() != current_turn_id
             ),
+            structured_payload=ChatTaskAgent._summarize_reply_payload(reply_target.payload_json),
         )
+
+    @staticmethod
+    def _summarize_reply_payload(raw_payload_json: str | None) -> dict[str, Any] | None:
+        if not raw_payload_json:
+            return None
+        try:
+            payload = json.loads(raw_payload_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        summary: dict[str, Any] = {}
+        attachments = payload.get("attachments")
+        if isinstance(attachments, list):
+            compact_attachments: list[dict[str, Any]] = []
+            for item in attachments[:6]:
+                if not isinstance(item, dict):
+                    continue
+                compact_item: dict[str, Any] = {}
+                for key in ("attachment_id", "kind", "original_name", "mime_type", "size_bytes"):
+                    value = item.get(key)
+                    if value is not None:
+                        compact_item[key] = value
+                if compact_item:
+                    compact_attachments.append(compact_item)
+            if compact_attachments:
+                summary["attachments"] = compact_attachments
+
+        for key in ("photo_refs", "candidate_photo_refs"):
+            items = payload.get(key)
+            if not isinstance(items, list):
+                continue
+            compact_refs: list[dict[str, Any]] = []
+            for item in items[:6]:
+                if not isinstance(item, dict):
+                    continue
+                compact_item: dict[str, Any] = {}
+                for field_name in (
+                    "photo_ref_id",
+                    "attachment_id",
+                    "event_id",
+                    "source_item_id",
+                    "original_name",
+                    "capture_time",
+                    "captured_at",
+                    "kind",
+                ):
+                    value = item.get(field_name)
+                    if value is not None:
+                        compact_item[field_name] = value
+                if compact_item:
+                    compact_refs.append(compact_item)
+            if compact_refs:
+                summary[key] = compact_refs
+
+        return summary or None
 
     async def request_session_cancel(
         self,

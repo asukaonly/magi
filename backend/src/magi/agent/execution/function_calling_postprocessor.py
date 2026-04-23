@@ -59,9 +59,63 @@ class FunctionCallingPostprocessor:
 
         compactor = self._formatter_registry.get(tool_name)
         if compactor is not None:
-            return compactor(data)
+            return self._sanitize_structured_tool_data(compactor(data))
 
-        return data
+        return self._sanitize_structured_tool_data(data)
+
+    def _sanitize_structured_tool_data(self, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        sanitized = dict(data)
+        for key in ("attachments", "chat_attachments"):
+            value = sanitized.get(key)
+            if isinstance(value, list):
+                sanitized[key] = [
+                    self._sanitize_attachment_item(item)
+                    for item in value
+                    if isinstance(item, dict)
+                ]
+
+        for key in ("candidate_photo_refs", "photo_refs"):
+            value = sanitized.get(key)
+            if isinstance(value, list):
+                sanitized[key] = [
+                    self._sanitize_photo_ref_item(item)
+                    for item in value
+                    if isinstance(item, dict)
+                ]
+
+        assistant_payload = sanitized.get("assistant_payload")
+        if isinstance(assistant_payload, dict):
+            sanitized["assistant_payload"] = self._sanitize_structured_tool_data(assistant_payload)
+        return sanitized
+
+    @staticmethod
+    def _sanitize_attachment_item(item: Dict[str, Any]) -> Dict[str, Any]:
+        allowed_keys = ("attachment_id", "kind", "original_name", "mime_type", "size_bytes")
+        return {
+            key: item[key]
+            for key in allowed_keys
+            if key in item and item[key] is not None
+        }
+
+    @staticmethod
+    def _sanitize_photo_ref_item(item: Dict[str, Any]) -> Dict[str, Any]:
+        allowed_keys = (
+            "photo_ref_id",
+            "attachment_id",
+            "event_id",
+            "source_item_id",
+            "original_name",
+            "capture_time",
+            "captured_at",
+            "kind",
+        )
+        return {
+            key: item[key]
+            for key in allowed_keys
+            if key in item and item[key] is not None
+        }
 
     def _compact_memory_query_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         return compact_memory_tool_data(

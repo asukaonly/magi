@@ -95,6 +95,8 @@ class ExecutionOutcome:
     content: str
     failure_reason: Optional[str] = None
     tool_failures: List[Dict[str, Any]] = field(default_factory=list)
+    attachments: List[Dict[str, Any]] = field(default_factory=list)
+    message_payload: Dict[str, Any] = field(default_factory=dict)
     iterations: int = 0
     snapshot: Optional["OrchestratorSnapshot"] = None
 
@@ -112,6 +114,8 @@ class ExecutionOutcome:
             "content": self.content,
             "failure_reason": self.failure_reason,
             "tool_failures": list(self.tool_failures),
+            "attachments": list(self.attachments),
+            "message_payload": dict(self.message_payload),
             "iterations": self.iterations,
             "snapshot": self.snapshot.to_dict() if self.snapshot is not None else None,
         }
@@ -1915,6 +1919,64 @@ class FunctionCallingOrchestrator:
             if all_names - failed_names:
                 return True
         return False
+
+    def _extract_chat_attachments_from_tool_results(
+        self,
+        tool_results: List[ToolCallResult],
+    ) -> List[Dict[str, Any]]:
+        attachments: List[Dict[str, Any]] = []
+        for result in tool_results:
+            if not result.success or not isinstance(result.data, dict):
+                continue
+            tool_attachments = result.data.get("chat_attachments")
+            if not isinstance(tool_attachments, list):
+                continue
+            for item in tool_attachments:
+                if isinstance(item, dict):
+                    attachments.append(dict(item))
+        return attachments
+
+    def _extract_assistant_message_payload_from_tool_results(
+        self,
+        tool_results: List[ToolCallResult],
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        for result in tool_results:
+            if not result.success or not isinstance(result.data, dict):
+                continue
+            direct_payload: Dict[str, Any] = {}
+            for key in ("candidate_photo_refs", "photo_refs"):
+                value = result.data.get(key)
+                if isinstance(value, list):
+                    direct_payload[key] = [dict(item) for item in value if isinstance(item, dict)]
+            payload = self._merge_assistant_message_payload(payload, direct_payload)
+
+            nested_payload = result.data.get("assistant_payload")
+            if isinstance(nested_payload, dict):
+                payload = self._merge_assistant_message_payload(payload, nested_payload)
+        return payload
+
+    def _merge_assistant_message_payload(
+        self,
+        base_payload: Dict[str, Any] | None,
+        incoming_payload: Dict[str, Any] | None,
+    ) -> Dict[str, Any]:
+        merged: Dict[str, Any] = dict(base_payload or {})
+        if not incoming_payload:
+            return merged
+        for key, value in incoming_payload.items():
+            if key == "attachments":
+                continue
+            if isinstance(value, list):
+                normalized_items = [dict(item) if isinstance(item, dict) else item for item in value]
+                existing = merged.get(key)
+                if isinstance(existing, list):
+                    merged[key] = [*existing, *normalized_items]
+                else:
+                    merged[key] = normalized_items
+                continue
+            merged[key] = value
+        return merged
 
     def _classify_exception_failure(self, exc: Exception) -> str:
         message = str(exc).lower()

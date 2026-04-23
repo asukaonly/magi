@@ -206,6 +206,25 @@ class ChatPromptService:
             f"- speaker: {reply_context.role}",
             f'- message: "{reply_context.content_excerpt}"',
         ]
+        if reply_context.structured_payload:
+            lines.extend(
+                [
+                    "- reusable reply data:",
+                    json.dumps(reply_context.structured_payload, ensure_ascii=False),
+                ]
+            )
+            if reply_context.structured_payload.get("candidate_photo_refs"):
+                lines.extend(
+                    [
+                        "- photo workflow note: if the user wants those photos sent in chat, first call `photo_library_resolve_photo_refs` with the stored `photo_ref_id` values, then call `prepare_chat_attachments` with the resolved `file_paths`.",
+                    ]
+                )
+            elif reply_context.structured_payload.get("photo_refs"):
+                lines.extend(
+                    [
+                        "- photo workflow note: if the user wants those resolved photos sent in chat, call `prepare_chat_attachments` with the matching `file_paths` returned by `photo_library_resolve_photo_refs`.",
+                    ]
+                )
         if reply_context.references_prior_turn:
             lines.append("- note: this reply points to an earlier turn, so keep that thread continuity explicit.")
         return "\n".join(lines)

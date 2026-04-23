@@ -15,6 +15,7 @@ import {
 type AgentResponsePayload = {
   sessionId: string;
   content: string;
+  attachments?: ChatAttachment[];
   timestamp: number;
   messageId?: string;
   messageKind?: string | null;
