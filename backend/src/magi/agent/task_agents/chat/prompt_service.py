@@ -192,17 +192,57 @@ class ChatPromptService:
         *,
         system_prompt: str,
         reply_context: ChatReplyContext | None,
+        recent_tool_state: list[dict[str, Any]] | None = None,
     ) -> str:
+        tool_state_block = self.build_recent_tool_state_block(recent_tool_state)
+        if tool_state_block:
+            system_prompt = f"{system_prompt}\n\n{tool_state_block}"
         reply_block = self.build_reply_context_block(reply_context)
         if not reply_block:
             return system_prompt
         return f"{system_prompt}\n\n{reply_block}"
 
+    def build_recent_tool_state_block(self, recent_tool_state: list[dict[str, Any]] | None) -> str:
+        items = recent_tool_state if isinstance(recent_tool_state, list) else []
+        lines: list[str] = []
+        for item in items[:4]:
+            if not isinstance(item, dict):
+                continue
+            tool_name = str(item.get("tool_name") or "unknown")
+            status = str(item.get("status") or "unknown")
+            line = f"- {tool_name}: {status}"
+            execution_time_ms = item.get("execution_time_ms")
+            if execution_time_ms not in (None, ""):
+                line += f" | duration_ms={execution_time_ms}"
+            outcome = str(item.get("outcome") or "").strip()
+            if outcome:
+                line += f" | outcome={outcome}"
+            handles = item.get("handles")
+            if isinstance(handles, list) and handles:
+                line += f" | handles={', '.join(str(handle) for handle in handles[:4])}"
+            error_code = str(item.get("error_code") or "").strip()
+            if error_code:
+                line += f" | error_code={error_code}"
+            lines.append(line)
+        if not lines:
+            return ""
+        return "\n".join(
+            [
+                "# Recent Tool State",
+                "Use this block only as lightweight continuity from recent tool activity. If the user asks for exact parameters, durations, or full outputs, call `trace_query` instead of guessing.",
+                *lines,
+            ]
+        )
+
     def build_reply_context_block(self, reply_context: ChatReplyContext | None) -> str:
         if reply_context is None:
             return ""
         lines = [
-            "Current message is replying to:",
+            (
+                "Current message is replying to:"
+                if reply_context.is_explicit_reply
+                else "Most recent assistant turn includes reusable context:"
+            ),
             f"- speaker: {reply_context.role}",
             f'- message: "{reply_context.content_excerpt}"',
         ]

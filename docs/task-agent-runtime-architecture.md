@@ -190,6 +190,8 @@ flowchart TD
   Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
   When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
   Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with reusable candidate refs such as `candidate_photo_refs` or `photo_refs`, which later reply turns may see through reply context.
+  Beyond explicit reply targets, chat prompt assembly may inject a compact `Recent Tool State` block derived from the last few tool interactions in the same session. This block is intentionally lossy: tool name, coarse success/failure state, short outcome summary, limited reusable handles, and coarse duration only.
+  Important rule: `Recent Tool State` is continuity guidance for the chat LLM, not the canonical execution audit trail. Exact parameters, full outputs, and detailed timing remain in `runtime_trace.db` and should be queried through trace read APIs or the builtin `trace_query` tool.
 
 ## Runtime And Persistence Boundaries
 
@@ -213,6 +215,8 @@ Persistence is separated the same way:
 - `runtime_trace.db`
   Execution observability only, including spans, tool calls, turn summaries, intent records, live notifications, and append-only plugin ingress events emitted by the desktop shell or other local producers
   Current path: `~/.magi/runtime/runtime_trace.db`
+
+  Chat prompt assembly may derive compact recent-tool summaries from recent tool interaction records, but those summaries are explicitly lossy and must not replace `runtime_trace.db` as the source of truth for execution details.
 
 - `memory/l1_events.db`
   Canonical memory projection only; it stores `user_text` and `assistant_final` as lossy memory facts, but it is no longer the chat transcript source of truth
@@ -305,7 +309,7 @@ Prompt assembly ownership lives in `backend/src/magi/context/`.
 The current split is:
 
 - `ChatTaskAgent.build_context`
-  Builds typed runtime context such as fact classification, explicit session identity, conversation history, tool errors, active orchestrations, and routing environment facts like OS, current datetime, timezone, workspace path, and home directory
+  Builds typed runtime context such as fact classification, explicit session identity, conversation history, recent tool errors, recent lightweight tool state, active orchestrations, and routing environment facts like OS, current datetime, timezone, workspace path, and home directory
 
 - `ContextAssemblyService`
   Owns prompt-context policy, implicit retrieval query selection, prompt module assembly, and final system prompt rendering
@@ -331,6 +335,7 @@ Explicit historical recall is handled separately from implicit prompt injection:
 - the main LLM may still discover additional memory needs later during function calling and issue a refined tool call; the routing hint is advisory, not the final execution payload
 - once `memory_query` has returned, its answer-facing `historical_recall` payload is marked as the source of truth for historical recall in the current turn, and final-response prompt rules explicitly forbid replacing missing recall results with implicit memory or guesses
 - raw retrieval traces remain in the debug/trace path and are not reinjected into the main LLM tool-message context
+- cross-turn tool continuity uses only a compact chat-specific summary block; old raw tool transcripts, full arguments, and full results are not replayed into the general chat prompt
 
 ### `ExploreTaskAgent`
 
@@ -728,11 +733,13 @@ The current runtime trace path is:
 2. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, and intent-resolution records
 3. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
 4. the Rust gateway and IPC-dispatched message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
+5. the builtin `trace_query` tool reads those persisted summaries and tool-call details when the user asks which tool ran, which parameters were used, how long it took, or why it failed
 
 Two rules matter here:
 
 - runtime trace data is execution observability, not durable memory
 - `L1` stores recall-worthy facts, while `runtime_trace.db` stores execution structure and metrics
+- cross-turn chat continuity should prefer compact recent-tool state over replaying old raw tool transcripts; exact execution inspection should prefer `trace_query`
 
 ## Timeline Pull-Sync Flow
 

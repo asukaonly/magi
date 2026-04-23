@@ -102,6 +102,8 @@ Holds:
 
 Read here when you need execution replay, debugging, traces, or raw plugin ingress events.
 
+Important rule: runtime observations can feed lightweight prompt-time continuity summaries, but those summaries are lossy and session-scoped. They do not promote execution telemetry into durable memory and do not replace trace inspection tools.
+
 ### Persistent Memory
 
 - `~/.magi/data/memory/l1_events.db`
@@ -194,6 +196,13 @@ Counter-examples:
 - Complete chat transcript truth
 - Heartbeat noise
 - Step-by-step execution traces
+- Exact tool arguments, latencies, and raw tool outputs from a specific turn
+
+Prompt continuity note:
+
+- The chat runtime may carry a compact `Recent Tool State` summary across nearby turns so the LLM can reuse recent tool outcomes or handles without replaying full tool transcripts.
+- This summary is not itself an `L1` fact, `L2` cognition artifact, or durable memory record.
+- If the user asks for exact execution details, the system should read `runtime_trace.db` through trace read APIs or the builtin `trace_query` tool instead of searching memory layers.
 
 ### L2 — Structured Cognition
 

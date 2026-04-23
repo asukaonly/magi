@@ -16,6 +16,7 @@ from .builtin.plan_mode_tool import EnterPlanModeTool, ExitPlanModeTool
 from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.todo_write_tool import TodoWriteTool
+from .builtin.trace_query_tool import TraceQueryTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.web_search_tool import WebSearchTool
@@ -35,6 +36,7 @@ CORE_TOOL_CLASSES: tuple[type, ...] = (
     SystemSettingsTool,
     AgentTool,
     MemoryQueryTool,
+    TraceQueryTool,
     PrepareChatAttachmentsTool,
     ImageGenerationTool,
     DetachToBackgroundTool,

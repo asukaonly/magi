@@ -221,6 +221,9 @@ JSON: {"intent": "chat", "tools": ["memory_query", "photo_library_find_candidate
 User: "把刚才那些照片发出来"
 JSON: {"intent": "chat", "tools": ["photo_library_resolve_photo_refs", "prepare_chat_attachments"], "thinking_depth": "low", "reasoning": "The user wants to send previously identified photo candidates, so resolve the stored photo refs to file paths first and then prepare chat attachments.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
+User: "刚刚你调了什么工具，参数和耗时是多少"
+JSON: {"intent": "chat", "tools": ["trace_query"], "thinking_depth": "low", "reasoning": "The user is asking for exact recent execution details, so query the persisted execution trace instead of relying on conversational memory.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
+
 Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If not matching skill exists, use basic tools."""
 
     def __init__(
@@ -483,6 +486,26 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     if next_action:
                         line += f" | next_action={next_action}"
                     prompt += f"{line}\n"
+            recent_tool_state = context.recent_tool_state
+            if isinstance(recent_tool_state, list) and recent_tool_state:
+                prompt += "\n## Recent Tool State\n\n"
+                prompt += "Use this as lightweight continuity from recent tool activity. If exact parameters, durations, or detailed outputs are needed, prefer `trace_query`.\n"
+                for item in recent_tool_state[:4]:
+                    if not isinstance(item, dict):
+                        continue
+                    tool_name = str(item.get("tool_name", "unknown"))
+                    status = str(item.get("status", "unknown"))
+                    line = f"- {tool_name}: {status}"
+                    execution_time_ms = item.get("execution_time_ms")
+                    if execution_time_ms not in (None, ""):
+                        line += f" | duration_ms={execution_time_ms}"
+                    outcome = str(item.get("outcome") or "").strip()
+                    if outcome:
+                        line += f" | outcome={outcome}"
+                    handles = item.get("handles")
+                    if isinstance(handles, list) and handles:
+                        line += f" | handles={', '.join(str(h) for h in handles[:4])}"
+                    prompt += f"{line}\n"
         else:
             prompt += "- No environment info\n"
 
@@ -672,6 +695,31 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                         reasoning=f"Retry request detected, reusing last failed tool: {last_tool}",
                         orchestration_strategy=self._default_orchestration_strategy(),
                     )
+
+        trace_keywords = [
+            "参数",
+            "耗时",
+            "tool",
+            "工具",
+            "调用",
+            "trace",
+            "duration",
+            "latency",
+            "为什么失败",
+            "failed",
+            "error code",
+        ]
+        if "trace_query" in available_tools and any(kw in user_lower for kw in trace_keywords):
+            recent_tool_state = context.get("recent_tool_state") if context else None
+            if isinstance(recent_tool_state, list) and recent_tool_state:
+                logger.info("[ContextDecider] Trace detail fallback matched recent tool state")
+                return ContextDecision(
+                    intent="chat",
+                    tools=["trace_query"],
+                    deep_thinking=False,
+                    reasoning="The user is asking for concrete recent tool execution details, so query the persisted trace.",
+                    orchestration_strategy=self._default_orchestration_strategy(),
+                )
 
         # Complex planning/exploration: prefer worker agent tool.
         complex_keywords = [

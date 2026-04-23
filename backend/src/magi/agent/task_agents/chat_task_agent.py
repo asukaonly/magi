@@ -441,6 +441,9 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         recent_tool_errors = self._history_service.get_recent_tool_errors(
             self._history_service.history_key(classified.user_id, session_id)
         )
+        recent_tool_state = self._history_service.get_recent_tool_state(
+            self._history_service.history_key(classified.user_id, session_id)
+        )
         active_orchestrations = await self._orchestration_store.list_orchestrations(
             user_id=classified.user_id,
             session_id=session_id,
@@ -462,6 +465,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             conversation_history=history,
             active_orchestrations=[item.to_dict() for item in active_orchestrations],
             recent_tool_errors=recent_tool_errors,
+            recent_tool_state=recent_tool_state,
             latest_user_message=run_decision.planner_user_message,
             incoming_fact_kind=run_decision.planner_fact_kind,
             latest_payload=run_decision.latest_payload,
@@ -537,23 +541,38 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
     async def _resolve_reply_context(self, latest_payload: object) -> ChatReplyContext | None:
         if self._chat_store is None:
             return None
+        session_id = str(getattr(latest_payload, "session_id", "") or "").strip()
         current_turn_id = str(getattr(latest_payload, "turn_id", "") or "").strip()
         reply_to_message_id = str(getattr(latest_payload, "reply_to_message_id", "") or "").strip()
+        current_user_message = None
         if current_turn_id:
             current_user_message = await self._chat_store.get_latest_message_for_turn(
                 current_turn_id,
                 message_kind="user_text",
             )
             if current_user_message is not None:
+                session_id = str(current_user_message.session_id or session_id or "").strip()
                 reply_to_message_id = str(current_user_message.reply_to_message_id or reply_to_message_id or "").strip()
-        if not reply_to_message_id:
-            return None
-        reply_target = await self._chat_store.get_message(reply_to_message_id)
+        reply_target = None
+        is_explicit_reply = False
+        if reply_to_message_id:
+            reply_target = await self._chat_store.get_message(reply_to_message_id)
+            is_explicit_reply = reply_target is not None
+        if reply_target is None and session_id:
+            fallback_target = await self._chat_store.get_latest_message_for_session(
+                session_id,
+                role="assistant",
+                message_kind="assistant_final",
+                exclude_turn_id=current_turn_id or None,
+            )
+            if self._has_reusable_recent_reply_payload(fallback_target):
+                reply_target = fallback_target
         if reply_target is None:
             return None
         return self._build_reply_context(
             current_turn_id=current_turn_id,
             reply_target=reply_target,
+            is_explicit_reply=is_explicit_reply,
         )
 
     @staticmethod
@@ -561,6 +580,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         *,
         current_turn_id: str,
         reply_target: ChatMessageRecord,
+        is_explicit_reply: bool,
     ) -> ChatReplyContext:
         content_excerpt = str(reply_target.content_text or "").strip()
         if len(content_excerpt) > 280:
@@ -569,6 +589,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             message_id=reply_target.message_id,
             role=reply_target.role,
             content_excerpt=content_excerpt,
+            is_explicit_reply=is_explicit_reply,
             references_prior_turn=bool(
                 current_turn_id
                 and reply_target.turn_id
@@ -576,6 +597,15 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             ),
             structured_payload=ChatTaskAgent._summarize_reply_payload(reply_target.payload_json),
         )
+
+    @staticmethod
+    def _has_reusable_recent_reply_payload(reply_target: ChatMessageRecord | None) -> bool:
+        if reply_target is None:
+            return False
+        summary = ChatTaskAgent._summarize_reply_payload(reply_target.payload_json)
+        if not isinstance(summary, dict):
+            return False
+        return bool(summary.get("candidate_photo_refs") or summary.get("photo_refs"))
 
     @staticmethod
     def _summarize_reply_payload(raw_payload_json: str | None) -> dict[str, Any] | None:

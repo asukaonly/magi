@@ -69,6 +69,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     conversation_history: list[dict[str, Any]]
     active_orchestrations: list[dict[str, Any]]
     recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
+    recent_tool_state: list[dict[str, Any]] = field(default_factory=list)
     active_run: ActiveRun | None = None
     session_run_id: str | None = None
     session_run_revision: int = 0
@@ -88,6 +89,7 @@ class ChatReplyContext:
     message_id: str
     role: str
     content_excerpt: str
+    is_explicit_reply: bool
     references_prior_turn: bool
     structured_payload: dict[str, Any] | None = None
 

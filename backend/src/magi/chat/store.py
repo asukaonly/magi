@@ -472,6 +472,40 @@ class ChatStore:
             return None
         return self._row_to_message(row)
 
+    async def get_latest_message_for_session(
+        self,
+        session_id: str,
+        *,
+        role: str | None = None,
+        message_kind: str | None = None,
+        exclude_turn_id: str | None = None,
+    ) -> ChatMessageRecord | None:
+        """Return the latest transcript message for one session."""
+        sql = """
+            SELECT message_id, session_id, turn_id, user_id, role, message_kind,
+                   content_text, payload_json, is_final, is_visible, created_at_ms,
+                   sequence_no, replaces_message_id, replaced_by_message_id, reply_to_message_id,
+                   label_json
+            FROM chat_messages
+            WHERE session_id = ?
+              AND is_visible = 1
+        """
+        params: list[object] = [session_id]
+        if role:
+            sql += " AND role = ?"
+            params.append(role)
+        if message_kind:
+            sql += " AND message_kind = ?"
+            params.append(message_kind)
+        if exclude_turn_id:
+            sql += " AND (turn_id IS NULL OR turn_id != ?)"
+            params.append(exclude_turn_id)
+        sql += " ORDER BY created_at_ms DESC, sequence_no DESC LIMIT 1"
+        row = await self._fetchone(sql, tuple(params))
+        if row is None:
+            return None
+        return self._row_to_message(row)
+
     async def next_sequence_no(self, *, session_id: str) -> int:
         """Return the next display sequence number for one session."""
         row = await self._fetchone(

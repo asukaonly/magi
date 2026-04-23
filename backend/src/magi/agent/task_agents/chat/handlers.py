@@ -178,6 +178,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
                 system_prompt=prompt_package.system_prompt,
                 reply_context=getattr(request.context, "reply_context", None),
+                recent_tool_state=getattr(request.context, "recent_tool_state", None),
             ),
             messages=append_latest_user_message(
                 request.context.history,
@@ -282,6 +283,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
                 system_prompt=prompt_package.system_prompt,
                 reply_context=getattr(request.context, "reply_context", None),
+                recent_tool_state=getattr(request.context, "recent_tool_state", None),
             ),
             selected_tools=selected_tools,
             thinking_depth=request.intent.thinking_depth,
