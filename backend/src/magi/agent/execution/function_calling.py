@@ -184,6 +184,8 @@ class FunctionCallingOrchestrator:
         "uv.lock",
         "bun.lockb",
     ]
+    _FILE_SCAN_TOOLS = {"glob", "grep"}
+    _SLOW_SCAN_WARNING_SECONDS = 5.0
 
     def __init__(
         self,
@@ -597,6 +599,7 @@ class FunctionCallingOrchestrator:
                     execution_agent_id=execution_agent_id,
                     execution_workspace=execution_workspace,
                     orchestration_strategy=orchestration_strategy,
+                    user_message=None,
                 )
                 if not result.success:
                     state.tool_failures.append(
@@ -1049,7 +1052,7 @@ class FunctionCallingOrchestrator:
                 "type": "function",
                 "function": {
                     "name": tool_name,
-                    "description": tool_info.get("description", ""),
+                    "description": self._build_tool_description(tool_info),
                     "parameters": {
                         "type": "object",
                         "properties": {},
@@ -1089,6 +1092,65 @@ class FunctionCallingOrchestrator:
             tools.append(tool_def)
 
         return tools
+
+    @staticmethod
+    def _build_tool_description(tool_info: Dict[str, Any]) -> str:
+        description = str(tool_info.get("description", "") or "").strip()
+        metadata = tool_info.get("metadata") if isinstance(tool_info.get("metadata"), dict) else {}
+        tool_name = str(tool_info.get("name") or "").strip()
+        if not metadata:
+            if tool_name in {"glob", "grep"} and description:
+                return (
+                    f"{description}\n\nTool guidance: Keep scans inside the active workspace by default. "
+                    "If the target may be elsewhere but no explicit path was provided, ask the user for a path or use web-search before scanning outside the workspace."
+                )
+            return description
+
+        guidance_parts: list[str] = []
+        tool_hint = str(metadata.get("tool_hint") or "").strip()
+        if tool_hint:
+            guidance_parts.append(tool_hint)
+        task_intents = [str(item).strip() for item in metadata.get("task_intents", []) if str(item).strip()]
+        if task_intents:
+            guidance_parts.append(f"Best for tasks: {', '.join(task_intents)}.")
+        domains = [str(item).strip() for item in metadata.get("domains", []) if str(item).strip()]
+        if domains:
+            guidance_parts.append(f"Domain: {', '.join(domains)}.")
+        operations = [str(item).strip() for item in metadata.get("operations", []) if str(item).strip()]
+        if operations:
+            guidance_parts.append(f"Typical operations: {', '.join(operations)}.")
+        query_shapes = [str(item).strip() for item in metadata.get("query_shapes", []) if str(item).strip()]
+        if query_shapes:
+            guidance_parts.append(f"Query shape: {', '.join(query_shapes)}.")
+        followed_by = [str(item).strip() for item in metadata.get("followed_by", []) if str(item).strip()]
+        if followed_by:
+            guidance_parts.append(f"Usually followed by: {', '.join(followed_by)}.")
+        avoid_task_intents = [str(item).strip() for item in metadata.get("avoid_task_intents", []) if str(item).strip()]
+        if avoid_task_intents:
+            guidance_parts.append(f"Avoid for task types: {', '.join(avoid_task_intents)}.")
+        if metadata.get("requires_known_target"):
+            guidance_parts.append("Best when the target is already known.")
+        if metadata.get("blocks_on_user"):
+            guidance_parts.append("Blocks on user input.")
+        if tool_name in {"glob", "grep"}:
+            guidance_parts.append(
+                "Keep scans inside the active workspace by default. If the target may be elsewhere but no explicit path was provided, ask the user for a path or use web-search before scanning outside the workspace."
+            )
+        elif tool_name == "web-search":
+            guidance_parts.append(
+                "Prefer this before external local discovery when the target may be outside the current workspace and the user did not provide a path."
+            )
+        elif tool_name == "ask_user_question":
+            guidance_parts.append(
+                "Use this when the target location is ambiguous and leaving the current workspace would otherwise require guessing."
+            )
+
+        if not guidance_parts:
+            return description
+        guidance = " ".join(guidance_parts)
+        if description:
+            return f"{description}\n\nTool guidance: {guidance}"
+        return f"Tool guidance: {guidance}"
 
     async def _call_llm_with_tools(
         self,
@@ -1407,6 +1469,7 @@ class FunctionCallingOrchestrator:
         orchestration_strategy: Optional[Dict[str, Any]],
         session_run_id: str | None = None,
         session_run_revision: int = 0,
+        user_message: str | None = None,
     ) -> ToolCallResult:
         """
         Execute a single tool call
@@ -1423,6 +1486,7 @@ class FunctionCallingOrchestrator:
 
         tool_name = tool_call.name
         arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
+        workspace_root = self._resolve_execution_workspace(execution_workspace)
 
         try:
             from ...tools.schema import ToolExecutionContext, ToolErrorCode
@@ -1443,14 +1507,27 @@ class FunctionCallingOrchestrator:
                 tool_name=tool_name,
                 arguments=arguments,
                 execution_workspace=execution_workspace,
+                user_message=user_message,
             )
             if guardrail_error:
+                guardrail_error_code = self._classify_guardrail_error_code(
+                    tool_name=tool_name,
+                    error_text=guardrail_error,
+                )
+                logger.warning(
+                    "[FunctionCalling] Blocked by guardrail: %s | intent=%s | workspace=%s | args=%s | reason=%s",
+                    tool_name,
+                    intent,
+                    workspace_root,
+                    arguments,
+                    guardrail_error,
+                )
                 return ToolCallResult(
                     tool_call_id=tool_call.id,
                     tool_name=tool_name,
                     success=False,
                     error=guardrail_error,
-                    error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+                    error_code=guardrail_error_code,
                     execution_time=time.time() - start_time,
                 )
 
@@ -1463,7 +1540,7 @@ class FunctionCallingOrchestrator:
 
             context = ToolExecutionContext(
                 agent_id=execution_agent_id,
-                workspace=self._resolve_execution_workspace(execution_workspace),
+                workspace=workspace_root,
                 env_vars={
                     "user_id": user_id,
                     "session_id": session_id or "",
@@ -1515,12 +1592,34 @@ class FunctionCallingOrchestrator:
                 if denied_result is not None:
                     return denied_result
 
-            logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
+            if tool_name in self._FILE_SCAN_TOOLS:
+                logger.info(
+                    "[FunctionCalling] Executing scan tool: %s | workspace=%s | path=%s | args=%s",
+                    tool_name,
+                    workspace_root,
+                    self._resolve_scan_root_path(arguments.get("path"), execution_workspace),
+                    arguments,
+                )
+            else:
+                logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
             result = await self.tool_registry.execute(tool_name, arguments, context)
+            execution_time = time.time() - start_time
             if not result.success:
                 logger.warning(
                     f"[FunctionCalling] Tool failed: {tool_name} | "
                     f"error={result.error} | code={result.error_code}"
+                )
+            if (
+                tool_name in self._FILE_SCAN_TOOLS
+                and execution_time >= self._SLOW_SCAN_WARNING_SECONDS
+            ):
+                logger.warning(
+                    "[FunctionCalling] Slow scan tool: %s | workspace=%s | path=%s | elapsed_ms=%.1f | args=%s",
+                    tool_name,
+                    workspace_root,
+                    self._resolve_scan_root_path(arguments.get("path"), execution_workspace),
+                    execution_time * 1000,
+                    arguments,
                 )
 
             return ToolCallResult(
@@ -1530,7 +1629,7 @@ class FunctionCallingOrchestrator:
                 data=result.data,
                 error=result.error,
                 error_code=getattr(result, "error_code", None),
-                execution_time=time.time() - start_time,
+                execution_time=execution_time,
             )
 
         except Exception as e:
@@ -1654,13 +1753,32 @@ class FunctionCallingOrchestrator:
         tool_name: str,
         arguments: Dict[str, Any],
         execution_workspace: Optional[str] = None,
+        user_message: str | None = None,
     ) -> tuple[Dict[str, Any], Optional[str]]:
         """Apply strict guardrails for bounded scan-oriented workers."""
+        safe_args = dict(arguments)
+        if tool_name in self._FILE_SCAN_TOOLS:
+            workspace_root = self._resolve_execution_workspace(execution_workspace)
+            scan_root = self._resolve_scan_root_path(safe_args.get("path"), execution_workspace)
+            if (
+                intent not in {"worker_explore", "worker_plan"}
+                and not self._path_within_root(scan_root, workspace_root)
+                and not self._user_explicitly_targets_scan_path(
+                    user_message=user_message,
+                    path_value=safe_args.get("path"),
+                    execution_workspace=execution_workspace,
+                )
+            ):
+                return {}, (
+                    "File scan guardrail: glob and grep must stay within the active workspace. "
+                    f"Requested path resolves to {scan_root} while workspace is {workspace_root}. "
+                    "Ask the user for an explicit path or use web-search first if the target may live outside the workspace."
+                )
+
         if intent not in {"worker_explore", "worker_plan"}:
-            return dict(arguments), None
+            return safe_args, None
 
         scan_label = "Explore" if intent == "worker_explore" else "Plan"
-        safe_args = dict(arguments)
         if tool_name == "glob":
             pattern = str(safe_args.get("pattern", "")).strip()
             if not pattern:
@@ -1708,12 +1826,69 @@ class FunctionCallingOrchestrator:
             return True
 
         workspace_root = self._resolve_execution_workspace(execution_workspace)
-        candidate_path = os.path.realpath(os.path.expandvars(os.path.expanduser(raw_path)))
+        candidate_path = self._resolve_scan_root_path(raw_path, execution_workspace)
         return candidate_path == workspace_root
+
+    def _resolve_scan_root_path(self, path_value: Any, execution_workspace: Optional[str]) -> str:
+        """Resolve the effective root path for glob/grep style scans."""
+        workspace_root = self._resolve_execution_workspace(execution_workspace)
+        raw_path = "." if path_value is None else str(path_value).strip()
+        if raw_path in {"", ".", "./"}:
+            return workspace_root
+
+        expanded = os.path.expandvars(os.path.expanduser(raw_path))
+        if os.path.isabs(expanded):
+            return os.path.realpath(expanded)
+        return os.path.realpath(os.path.join(workspace_root, expanded))
+
+    @staticmethod
+    def _path_within_root(candidate_path: str, root_path: str) -> bool:
+        """Return True when ``candidate_path`` is equal to or nested under ``root_path``."""
+        try:
+            return os.path.commonpath([candidate_path, root_path]) == root_path
+        except ValueError:
+            return False
+
+    def _user_explicitly_targets_scan_path(
+        self,
+        *,
+        user_message: str | None,
+        path_value: Any,
+        execution_workspace: Optional[str],
+    ) -> bool:
+        """Return True when the user explicitly named the requested scan path.
+
+        This keeps the default workspace fence in place while still allowing
+        explicit cross-workspace requests like "inspect ~/Downloads/foo".
+        """
+        normalized_message = str(user_message or "").strip()
+        raw_path = str(path_value or "").strip()
+        if not normalized_message or raw_path in {"", ".", "./"}:
+            return False
+
+        candidates = {
+            raw_path,
+            raw_path.rstrip("/"),
+            os.path.expandvars(os.path.expanduser(raw_path)),
+            os.path.expandvars(os.path.expanduser(raw_path)).rstrip("/"),
+            self._resolve_scan_root_path(raw_path, execution_workspace),
+            self._resolve_scan_root_path(raw_path, execution_workspace).rstrip("/"),
+        }
+        return any(candidate and candidate in normalized_message for candidate in candidates)
 
     def _resolve_execution_workspace(self, execution_workspace: Optional[str]) -> str:
         raw_workspace = str(execution_workspace or "").strip() or get_default_chat_workspace_path()
         return os.path.realpath(os.path.expandvars(os.path.expanduser(raw_workspace)))
+
+    @staticmethod
+    def _classify_guardrail_error_code(*, tool_name: str, error_text: str) -> str:
+        if tool_name in {"glob", "grep"} and str(error_text or "").startswith("File scan guardrail:"):
+            from ...tools.schema import ToolErrorCode
+
+            return ToolErrorCode.AMBIGUOUS_SCOPE.value
+        from ...tools.schema import ToolErrorCode
+
+        return ToolErrorCode.INVALID_PARAMETERS.value
 
     def _bounded_max_results(self, value: Any, cap: int) -> int:
         """Parse max_results and keep it within [1, cap]."""
@@ -1878,6 +2053,7 @@ class FunctionCallingOrchestrator:
             "- When a tool fails, inspect the tool error before deciding the next step.\n"
             "- Do not repeat the same tool call with the same arguments after a failure.\n"
             "- If a call fails because parameters or path selection are wrong, choose a narrower or corrected tool strategy.\n"
+            "- If a file scan is blocked because it would leave the workspace and the user did not provide an explicit path, do not broaden the local scan; ask the user for a path or use web-search first.\n"
             "- If grep is blocked or too broad, switch to scoped glob plus file_read before trying again.\n"
             "- Prefer an alternative tool or narrower scope over repeating the failed call unchanged."
         )
@@ -2067,6 +2243,8 @@ class FunctionCallingOrchestrator:
         tool_failures: List[Dict[str, Any]],
         all_tools_failed: bool,
     ) -> str:
+        if tool_failures and all(item.get("error_code") == "AMBIGUOUS_SCOPE" for item in tool_failures):
+            return "AMBIGUOUS_SCOPE"
         if tool_failures and all(item.get("error_code") == "INVALID_PARAMETERS" for item in tool_failures):
             return "INVALID_TOOL_CALL"
         if all_tools_failed and tool_failures:

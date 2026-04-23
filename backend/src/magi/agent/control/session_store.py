@@ -45,11 +45,23 @@ class TodoStatus(str, Enum):
 @dataclass(slots=True)
 class TodoItem:
     id: str
-    title: str
+    content: str
     status: TodoStatus = TodoStatus.NOT_STARTED
+    created_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
+    updated_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
+
+    @property
+    def title(self) -> str:
+        return self.content
 
     def to_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "title": self.title, "status": self.status.value}
+        return {
+            "id": self.id,
+            "content": self.content,
+            "status": self.status.value,
+            "created_at_ms": self.created_at_ms,
+            "updated_at_ms": self.updated_at_ms,
+        }
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "TodoItem":
@@ -59,10 +71,33 @@ class TodoItem:
         except ValueError:
             status = TodoStatus.NOT_STARTED
         item_id = payload.get("id") or uuid.uuid4().hex
-        title = str(payload.get("title") or "").strip()
-        if not title:
-            raise TodoListError("each todo item requires a non-empty title")
-        return cls(id=str(item_id), title=title, status=status)
+        content = str(payload.get("content") or payload.get("title") or "").strip()
+        if not content:
+            raise TodoListError("each todo item requires non-empty content")
+        created_at_ms = _coerce_timestamp_ms(payload.get("created_at_ms"))
+        updated_at_ms = _coerce_timestamp_ms(payload.get("updated_at_ms"))
+        if created_at_ms is None:
+            created_at_ms = int(time.time() * 1000)
+        if updated_at_ms is None:
+            updated_at_ms = created_at_ms
+        if updated_at_ms < created_at_ms:
+            updated_at_ms = created_at_ms
+        return cls(
+            id=str(item_id),
+            content=content,
+            status=status,
+            created_at_ms=created_at_ms,
+            updated_at_ms=updated_at_ms,
+        )
+
+
+def _coerce_timestamp_ms(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class TodoListError(ValueError):

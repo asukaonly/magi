@@ -181,14 +181,35 @@ async def _heartbeat_loop(
     started_at_ms: int,
     interval_seconds: float = DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_SECONDS,
 ) -> None:
+    previous_tick_started: float | None = None
     while not stop_event.is_set():
+        tick_started = time.monotonic()
+        if previous_tick_started is not None:
+            tick_delay = tick_started - previous_tick_started
+            if tick_delay > max(interval_seconds * 2, 5.0):
+                logger.warning(
+                    "Runtime heartbeat loop delayed",
+                    instance_id=instance_id,
+                    interval_ms=round(interval_seconds * 1000, 1),
+                    delay_ms=round(tick_delay * 1000, 1),
+                )
+        previous_tick_started = tick_started
         snapshot = get_runtime_startup_snapshot()
+        publish_started = time.monotonic()
         await _publish_runtime_heartbeat(
             instance_id=instance_id,
             started_at_ms=started_at_ms,
             status=snapshot.startup_state,
             last_error=snapshot.reason or snapshot.detail,
         )
+        publish_elapsed = time.monotonic() - publish_started
+        if publish_elapsed > max(interval_seconds * 2, 5.0):
+            logger.warning(
+                "Runtime heartbeat publish slow",
+                instance_id=instance_id,
+                elapsed_ms=round(publish_elapsed * 1000, 1),
+                status=snapshot.startup_state,
+            )
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
         except asyncio.TimeoutError:

@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ...agent.control.chat_state_persister import persist_plan_state_message
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_control_session_store
+from ...runtime_defaults import DEFAULT_USER_ID
 from ..schema import (
     ParameterType,
     Tool,
@@ -37,6 +39,12 @@ def _turn_id(context: ToolExecutionContext) -> str | None:
         return None
     value = str(raw).strip()
     return value or None
+
+
+def _user_id(context: ToolExecutionContext) -> str:
+    raw = context.env_vars.get("user_id")
+    value = str(raw or "").strip()
+    return value or DEFAULT_USER_ID
 
 
 class EnterPlanModeTool(Tool):
@@ -76,6 +84,12 @@ class EnterPlanModeTool(Tool):
             return ToolResult(success=False, error=str(exc))
         state = await store.enter_plan_mode(sid)
         logger.info("plan_mode.entered", session_id=sid)
+        await persist_plan_state_message(
+            session_id=sid,
+            user_id=_user_id(context),
+            turn_id=_turn_id(context),
+            state=state.to_dict(),
+        )
         await _emit_plan_event(sid, state.to_dict(), turn_id=_turn_id(context))
         return ToolResult(success=True, data=state.to_dict())
 
@@ -128,6 +142,12 @@ class ExitPlanModeTool(Tool):
             return ToolResult(success=False, error=str(exc))
         state = await store.exit_plan_mode(sid, plan_text=plan_text)
         logger.info("plan_mode.exited", session_id=sid, plan_length=len(plan_text))
+        await persist_plan_state_message(
+            session_id=sid,
+            user_id=_user_id(context),
+            turn_id=_turn_id(context),
+            state=state.to_dict(),
+        )
         await _emit_plan_event(sid, state.to_dict(), turn_id=_turn_id(context))
         return ToolResult(success=True, data=state.to_dict())
 

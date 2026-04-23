@@ -264,11 +264,6 @@
     "failed": "Failed",
     "you": "You",
     "system": "System",
-    "thinking": {
-      "label": "Thinking",
-      "expand": "Show thinking",
-      "collapse": "Hide thinking"
-    },
     "connectingHint": "Connecting to server...",
     "inputPlaceholder": "Type your message... (Enter to send, Shift+Enter for new line)",
     "send": "Send",
@@ -341,12 +336,16 @@
       "view": "View Call Trace",
       "cancelRun": "Cancel Run",
       "cancelFailed": "Failed to cancel run",
+      "detachRun": "Move to Background",
+      "detachFailed": "Failed to move run to background",
       "loadFailed": "Failed to load call trace",
       "loading": "Loading call trace...",
       "empty": "No call trace details yet",
       "execution": {
         "runningTitle": "Running",
         "runningBody": "Magi is working through the current plan and will stream the final answer here.",
+        "detachingTitle": "Moving to background",
+        "detachingBody": "This run will continue in the background and report back when it finishes.",
         "cancellingTitle": "Cancelling run",
         "cancellingBody": "Stopping the remaining plan steps. Completed work stays visible in the trace.",
         "cancelledTitle": "Run cancelled",
@@ -408,12 +407,12 @@
       "kindParallelGroup": "Parallel group",
       "kindWorker": "Worker",
       "kindTool": "Tool call",
-      "kindIteration": "Iteration",
+      "kindIteration": "Orchestration round",
       "kindIntent": "Intent resolution",
       "kindLlm": "LLM call",
       "kindResponse": "Response emission",
-      "kindDispatch": "Worker dispatch",
-      "kindAttempt": "Retry attempt",
+      "kindDispatch": "Subtask launch",
+      "kindAttempt": "Execution attempt",
       "kindStep": "Step",
       "node": {
         "callTrace": "Call trace",
@@ -455,7 +454,12 @@
       "intentLabel": "Intent",
       "executionMode": "Execution Mode",
       "routeReason": "Routing Reason",
-      "selectedTools": "Selected Tools"
+      "taskIntent": "Task Intent",
+      "taskDomain": "Task Domain",
+      "taskOperation": "Task Operation",
+      "routerTools": "Router Tool Order",
+      "selectedTools": "Final Tool Order",
+      "recommendedTools": "Recommended Tool Ranking"
     },
     "worker": {
       "started": "Worker {{workerId}} started ({{subagentType}}): {{description}}",
@@ -497,6 +501,8 @@
       "statisticsLlm": "LLM Statistics",
       "statisticsRuntime": "System Runtime",
       "personality": "Personality",
+      "personalitySelection": "Personality Selection",
+      "personalitySettings": "Personality Settings",
       "memory": "Memory",
       "memoryGeneral": "General Memory",
       "memoryWorkbench": "Workbench Memory",
@@ -523,6 +529,10 @@
     "startMinimizedLabel": "Start minimized to tray",
     "proxyOff": "Direct (proxy off)",
     "defaultChatWorkspaceDesc": "Set the default working directory mounted into new desktop chat sessions. You can still override it inside an individual conversation.",
+    "control": {
+      "title": "Safety and execution",
+      "description": "Set the default approval mode and whether execution waits for plan approval."
+    },
     "defaultChatWorkspacePlaceholder": "No default directory selected",
     "defaultChatWorkspacePickFailed": "Failed to choose a default chat directory: {{message}}",
     "streamingChatLabel": "Streaming output",
@@ -540,6 +550,8 @@
     "statisticsRuntimeDesc": "Inspect system resources, TTFT, success rates, queues, and scheduler activity.",
     "usageDesc": "Inspect LLM call volume, prompt/completion tokens, and usage trends",
     "personalityDesc": "Manage AI personality configuration",
+    "personalitySelectionDesc": "Choose the active persona and edit persona-specific content settings.",
+    "personalitySettingsDesc": "Control global runtime capabilities such as persona state memory, state transitions, and deep persona behavior.",
     "memoryDesc": "Control the L0-L4 memory lifecycle, replay posture, and extraction pipelines.",
     "timelineDesc": "Configure timeline ingestion defaults and tune each source independently",
     "extensionsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
@@ -571,6 +583,17 @@
       "magiUserId": "Magi User ID",
       "maxMessageLength": "Max Message Length",
       "moreComingSoon": "Discord, WeChat, and more channels coming soon…"
+    },
+    "personalitySettings": {
+      "runtimeTitle": "Persona Runtime Features",
+      "runtimeDesc": "These switches control whether a light persona analysis runs after each turn and whether its results feed state transitions and deeper persona behavior.",
+      "requestNotice": "When enabled, Magi runs one extra lightweight analysis after each conversation turn to detect persona state changes, relationship progress, and deeper persona behavior. This adds a small amount of extra request usage.",
+      "stateMemoryLabel": "Persona State Memory",
+      "stateMemoryDesc": "Tracks interaction outcomes, relationship changes, and the current runtime persona state. Turning this off also disables state transitions and deep persona behavior.",
+      "stateTransitionLabel": "Persona State Transition",
+      "stateTransitionDesc": "Requires persona state memory. When enabled, Magi can trigger temporary persona state shifts based on conversation analysis.",
+      "deepPersonaLabel": "Deep Persona",
+      "deepPersonaDesc": "Requires persona state memory. When enabled, Magi can unlock deeper persona behavior using relationship depth and key milestones."
     },
     "systemDesc": "Advanced system configuration parameters",
     "updates": {
@@ -1624,8 +1647,7 @@
           "general": "General"
         }
       }
-    },
-    "saving": "Saving..."
+    }
   },
   "memory": {
     "title": "Memory Viewer",
@@ -2050,6 +2072,9 @@
       "description": "Description",
       "avatar": "Avatar",
       "occupation": "Occupation",
+      "innerNarrative": "Inner Narrative",
+      "languageFingerprint": "Language Fingerprint",
+      "attentionBias": "Attention Bias",
       "coreBackground": "Core Background",
       "communicationTone": "Communication Tone",
       "confidenceLevel": "Confidence Level",

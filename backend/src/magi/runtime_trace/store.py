@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import fields
 from pathlib import Path
+import sqlite3
 import time
-from typing import Any, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
 import aiosqlite
 
+from ..core.logger import get_logger
 from ..core.sqlite import sqlite_connection_async
 from .contracts import (
     PluginIngressEventRecord,
@@ -22,6 +25,17 @@ from .contracts import (
 )
 
 T = TypeVar("T")
+
+logger = get_logger(__name__)
+
+_SQLITE_LOCK_RETRY_DELAYS_SECONDS: tuple[float, ...] = (0.05, 0.1, 0.2)
+
+
+def _is_retryable_sqlite_lock(exc: Exception) -> bool:
+    if not isinstance(exc, (sqlite3.OperationalError, aiosqlite.OperationalError)):
+        return False
+    error_text = str(exc).lower()
+    return "database is locked" in error_text or "database table is locked" in error_text
 
 
 class RuntimeTraceStore:
@@ -522,31 +536,67 @@ class RuntimeTraceStore:
             record.success = bool(record.success)
         return record
 
+    async def _execute_hot_write(
+        self,
+        *,
+        operation: str,
+        write: Callable[[aiosqlite.Connection], Awaitable[T]],
+    ) -> T:
+        total_attempts = len(_SQLITE_LOCK_RETRY_DELAYS_SECONDS) + 1
+        for attempt_index in range(total_attempts):
+            try:
+                async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+                    result = await write(db)
+                    await db.commit()
+                    return result
+            except Exception as exc:
+                if not _is_retryable_sqlite_lock(exc) or attempt_index >= len(_SQLITE_LOCK_RETRY_DELAYS_SECONDS):
+                    raise
+                delay_seconds = _SQLITE_LOCK_RETRY_DELAYS_SECONDS[attempt_index]
+                logger.warning(
+                    "runtime_trace.hot_write_retry",
+                    operation=operation,
+                    attempt=attempt_index + 1,
+                    max_attempts=total_attempts,
+                    delay_ms=int(delay_seconds * 1000),
+                    error=str(exc),
+                )
+                await asyncio.sleep(delay_seconds)
+        raise RuntimeError(f"unreachable hot-write retry path for {operation}")
+
     async def append_notification(self, record: RuntimeNotificationRecord) -> int:
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            cursor = await db.execute(
-                """
-                INSERT INTO runtime_notifications (
-                    channel,
-                    user_id,
-                    session_id,
-                    turn_id,
-                    payload_json,
-                    created_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.channel,
-                    record.user_id,
-                    record.session_id,
-                    record.turn_id,
-                    record.payload_json,
-                    record.created_at_ms or self._now_ms(),
-                ),
-            )
-            await db.commit()
-            return int(cursor.lastrowid)
+        return await self._execute_hot_write(
+            operation="append_notification",
+            write=lambda db: self._insert_notification(db, record),
+        )
+
+    async def _insert_notification(
+        self,
+        db: aiosqlite.Connection,
+        record: RuntimeNotificationRecord,
+    ) -> int:
+        cursor = await db.execute(
+            """
+            INSERT INTO runtime_notifications (
+                channel,
+                user_id,
+                session_id,
+                turn_id,
+                payload_json,
+                created_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.channel,
+                record.user_id,
+                record.session_id,
+                record.turn_id,
+                record.payload_json,
+                record.created_at_ms or self._now_ms(),
+            ),
+        )
+        return int(cursor.lastrowid)
 
     async def list_notifications(self, *, after_id: int, limit: int = 50) -> list[RuntimeNotificationRecord]:
         await self.initialize()
@@ -588,46 +638,54 @@ class RuntimeTraceStore:
 
     async def upsert_runtime_heartbeat(self, record: RuntimeHeartbeatRecord) -> None:
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await db.execute(
-                """
-                INSERT INTO runtime_heartbeats (
-                    role,
-                    instance_id,
-                    pid,
-                    started_at_ms,
-                    last_seen_at_ms,
-                    status,
-                    queue_backlog,
-                    active_turns,
-                    active_workers,
-                    last_error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(role) DO UPDATE SET
-                    instance_id = excluded.instance_id,
-                    pid = excluded.pid,
-                    started_at_ms = excluded.started_at_ms,
-                    last_seen_at_ms = excluded.last_seen_at_ms,
-                    status = excluded.status,
-                    queue_backlog = excluded.queue_backlog,
-                    active_turns = excluded.active_turns,
-                    active_workers = excluded.active_workers,
-                    last_error = excluded.last_error
-                """,
-                (
-                    record.role,
-                    record.instance_id,
-                    int(record.pid),
-                    int(record.started_at_ms),
-                    int(record.last_seen_at_ms or self._now_ms()),
-                    record.status,
-                    int(record.queue_backlog),
-                    int(record.active_turns),
-                    int(record.active_workers),
-                    record.last_error,
-                ),
-            )
-            await db.commit()
+        await self._execute_hot_write(
+            operation="upsert_runtime_heartbeat",
+            write=lambda db: self._write_runtime_heartbeat(db, record),
+        )
+
+    async def _write_runtime_heartbeat(
+        self,
+        db: aiosqlite.Connection,
+        record: RuntimeHeartbeatRecord,
+    ) -> None:
+        await db.execute(
+            """
+            INSERT INTO runtime_heartbeats (
+                role,
+                instance_id,
+                pid,
+                started_at_ms,
+                last_seen_at_ms,
+                status,
+                queue_backlog,
+                active_turns,
+                active_workers,
+                last_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(role) DO UPDATE SET
+                instance_id = excluded.instance_id,
+                pid = excluded.pid,
+                started_at_ms = excluded.started_at_ms,
+                last_seen_at_ms = excluded.last_seen_at_ms,
+                status = excluded.status,
+                queue_backlog = excluded.queue_backlog,
+                active_turns = excluded.active_turns,
+                active_workers = excluded.active_workers,
+                last_error = excluded.last_error
+            """,
+            (
+                record.role,
+                record.instance_id,
+                int(record.pid),
+                int(record.started_at_ms),
+                int(record.last_seen_at_ms or self._now_ms()),
+                record.status,
+                int(record.queue_backlog),
+                int(record.active_turns),
+                int(record.active_workers),
+                record.last_error,
+            ),
+        )
 
     async def get_runtime_heartbeat(self, *, role: str) -> RuntimeHeartbeatRecord | None:
         await self.initialize()
@@ -752,9 +810,10 @@ class RuntimeTraceStore:
             await db.commit()
 
     async def _upsert_detail(self, sql: str, params: tuple[Any, ...]) -> None:
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await db.execute(sql, params)
-            await db.commit()
+        await self._execute_hot_write(
+            operation="upsert_detail",
+            write=lambda db: db.execute(sql, params),
+        )
 
     async def _fetchone(self, sql: str, params: tuple[Any, ...]) -> aiosqlite.Row | None:
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:

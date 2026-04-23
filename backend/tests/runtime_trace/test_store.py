@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,6 +25,45 @@ def _read_journal_mode(db_path: Path) -> str:
         return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
     finally:
         conn.close()
+
+
+def _patch_one_locked_hot_write(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    target_sql: str,
+) -> dict[str, Any]:
+    from magi.runtime_trace import store as store_module
+
+    original_sqlite_connection_async = store_module.sqlite_connection_async
+    state: dict[str, Any] = {
+        "failures": 0,
+        "sleep_delays": [],
+    }
+
+    class _FailOnceConnection:
+        def __init__(self, inner: Any) -> None:
+            self._inner = inner
+
+        async def execute(self, sql: str, parameters: Any = ()) -> Any:
+            if target_sql in sql and state["failures"] == 0:
+                state["failures"] += 1
+                raise sqlite3.OperationalError("database is locked")
+            return await self._inner.execute(sql, parameters)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._inner, name)
+
+    @asynccontextmanager
+    async def _flaky_connection(*args: Any, **kwargs: Any):
+        async with original_sqlite_connection_async(*args, **kwargs) as db:
+            yield _FailOnceConnection(db)
+
+    async def _fake_sleep(delay: float) -> None:
+        state["sleep_delays"].append(delay)
+
+    monkeypatch.setattr(store_module, "sqlite_connection_async", _flaky_connection)
+    monkeypatch.setattr(store_module.asyncio, "sleep", _fake_sleep)
+    return state
 
 
 def test_runtime_paths_exposes_runtime_trace_db_path(tmp_path: Path) -> None:
@@ -83,6 +124,44 @@ async def test_runtime_trace_store_persists_notifications(tmp_path: Path) -> Non
 
         latest_id = await store.get_latest_notification_id()
         assert latest_id == notification_id
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_store_retries_transient_locked_notification_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
+    from magi.runtime_trace import store as store_module
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+    await store.initialize()
+    retry_state = _patch_one_locked_hot_write(
+        monkeypatch,
+        target_sql="INSERT INTO runtime_notifications",
+    )
+
+    try:
+        notification_id = await store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="trace_update",
+                user_id="user-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                payload_json='{"headline":"retry"}',
+                created_at_ms=456,
+            )
+        )
+
+        notifications = await store.list_notifications(after_id=0)
+        assert notification_id > 0
+        assert [item.channel for item in notifications] == ["trace_update"]
+        assert retry_state["failures"] == 1
+        assert retry_state["sleep_delays"] == [store_module._SQLITE_LOCK_RETRY_DELAYS_SECONDS[0]]
     finally:
         await store.shutdown()
 
@@ -152,6 +231,89 @@ async def test_runtime_trace_store_persists_runtime_heartbeat(tmp_path: Path) ->
         assert heartbeat.instance_id == "worker-1"
         assert heartbeat.status == "ready"
         assert heartbeat.queue_backlog == 3
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_store_retries_transient_locked_heartbeat_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.runtime_trace import RuntimeHeartbeatRecord, RuntimeTraceStore
+    from magi.runtime_trace import store as store_module
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+    await store.initialize()
+    retry_state = _patch_one_locked_hot_write(
+        monkeypatch,
+        target_sql="INSERT INTO runtime_heartbeats",
+    )
+
+    try:
+        await store.upsert_runtime_heartbeat(
+            RuntimeHeartbeatRecord(
+                role="runtime_worker",
+                instance_id="worker-1",
+                pid=1234,
+                started_at_ms=100,
+                last_seen_at_ms=200,
+                status="ready",
+                queue_backlog=2,
+                active_turns=1,
+                active_workers=1,
+            )
+        )
+
+        heartbeat = await store.get_runtime_heartbeat(role="runtime_worker")
+        assert heartbeat is not None
+        assert heartbeat.instance_id == "worker-1"
+        assert retry_state["failures"] == 1
+        assert retry_state["sleep_delays"] == [store_module._SQLITE_LOCK_RETRY_DELAYS_SECONDS[0]]
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_store_retries_transient_locked_tool_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.runtime_trace import RuntimeTraceStore, TraceToolRecord
+    from magi.runtime_trace import store as store_module
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+    await store.initialize()
+    retry_state = _patch_one_locked_hot_write(
+        monkeypatch,
+        target_sql="INSERT INTO trace_tools",
+    )
+
+    try:
+        await store.upsert_tool_call(
+            TraceToolRecord(
+                span_id="span-tool-1",
+                trace_id="trace-1",
+                turn_id="turn-1",
+                tool_name="glob",
+                tool_call_id="call-1",
+                arguments_json='{"path":"."}',
+                success=True,
+                execution_time_ms=12,
+                error_code=None,
+                error_message=None,
+                result_preview="ok",
+                result_json='{"success":true}',
+            )
+        )
+
+        record = await store.get_tool_call("span-tool-1")
+        assert record is not None
+        assert record.tool_name == "glob"
+        assert retry_state["failures"] == 1
+        assert retry_state["sleep_delays"] == [store_module._SQLITE_LOCK_RETRY_DELAYS_SECONDS[0]]
     finally:
         await store.shutdown()
 

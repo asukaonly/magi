@@ -105,6 +105,16 @@ class GrepTool(Tool):
             retry_on_failure=False,
             dangerous=False,
             tags=["file", "search", "regex", "grep"],
+            metadata={
+                "task_intents": ["explore_codebase", "trace_implementation", "verify_source_claim"],
+                "domains": ["codebase"],
+                "operations": ["narrow", "verify"],
+                "query_shapes": ["symbol_or_literal", "regex"],
+                "followed_by": ["file_read"],
+                "avoid_task_intents": ["research_external", "clarify_requirement", "recall_context"],
+                "cost": "cheap",
+                "tool_hint": "Use after narrowing scope to find symbols, strings, routes, flags, or config keys before confirming them in file_read.",
+            },
         )
 
     async def execute(

@@ -400,7 +400,7 @@ const RuntimeStatisticsSectionInner: FC = () => {
               />
             </div>
 
-            <section className="space-y-3 border-t border-[hsl(var(--settings-subnav-border)/0.42)] pt-4">
+            <section className="space-y-3 border-t border-[hsl(var(--settings-subnav-border)/0.42)]">
               <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
                 {t('settings.statistics.runtime.sections.recentTasksTitle')}
               </div>
@@ -471,7 +471,7 @@ const AnalysisSection = ({
   title: string;
   items: Array<{ label: string; value: string; meta?: string }>;
 }) => (
-  <section className="space-y-3 border-t border-[hsl(var(--settings-subnav-border)/0.42)] pt-4">
+  <section className="space-y-3 border-t border-[hsl(var(--settings-subnav-border)/0.42)]">
     <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{title}</div>
     <div className="space-y-3">
       {items.map((item) => (

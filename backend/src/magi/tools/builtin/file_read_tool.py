@@ -67,6 +67,17 @@ class FileReadTool(Tool):
             retry_on_failure=False,
             dangerous=False,
             tags=["file", "read", "io"],
+            metadata={
+                "task_intents": ["trace_implementation", "verify_source_claim", "inspect_config"],
+                "domains": ["codebase", "config"],
+                "operations": ["verify", "inspect"],
+                "query_shapes": ["exact_path", "focused_slice"],
+                "followed_by": [],
+                "avoid_task_intents": ["research_external", "clarify_requirement", "recall_context"],
+                "requires_known_target": True,
+                "cost": "medium",
+                "tool_hint": "Use after glob or grep has narrowed the target; best for confirming the controlling code path or verifying a concrete claim from source.",
+            },
         )
 
     async def execute(

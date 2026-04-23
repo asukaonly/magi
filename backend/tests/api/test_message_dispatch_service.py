@@ -85,6 +85,18 @@ class _FakeChatProjector:
         self.user_messages.append(dict(kwargs))
 
 
+class _FakeChatReadService:
+    def __init__(self, workspace_path: str | None) -> None:
+        self.workspace_path = workspace_path
+
+    async def aget_session_summary(self, user_id: str, session_id: str):  # type: ignore[no-untyped-def]
+        return type(
+            "_Summary",
+            (),
+            {"workspace_path": self.workspace_path, "user_id": user_id, "session_id": session_id},
+        )()
+
+
 @pytest.mark.asyncio
 async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
     monkeypatch: pytest.MonkeyPatch,
@@ -204,6 +216,33 @@ async def test_dispatch_user_message_carries_attachments_and_workspace_path_into
     assert outcome.success is True
     command = queue.commands[0]
     assert command.attachments == [{"kind": "image", "attachment_id": "att-1"}]
+    assert command.workspace_path == "/Users/asuka/code/magi"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_falls_back_to_session_workspace_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(
+        service,
+        "get_chat_read_service",
+        lambda: _FakeChatReadService("/Users/asuka/code/magi"),
+    )
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="hello",
+        session_id="session-for-u1",
+        workspace_path=None,
+    )
+
+    assert outcome.success is True
+    command = queue.commands[0]
     assert command.workspace_path == "/Users/asuka/code/magi"
 
 

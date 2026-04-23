@@ -72,6 +72,16 @@ class MemoryQueryTool(Tool):
             ],
             tags=["memory", "search", "history"],
             timeout=30,
+            metadata={
+                "task_intents": ["recall_context"],
+                "domains": ["memory"],
+                "operations": ["recall", "verify"],
+                "query_shapes": ["prior_session", "user_preference", "historical_fact"],
+                "followed_by": [],
+                "avoid_task_intents": ["explore_codebase", "research_external"],
+                "cost": "medium",
+                "tool_hint": "Use for prior conversations, preferences, historical actions, or learned procedures; prefer repo files for current code behavior.",
+            },
         )
         self._service: Optional[Any] = None
 

@@ -13,6 +13,9 @@ from ....core.logger import get_logger
 from ....personality.current_state import get_current_personality_config
 from ....tools.context_decider import ContextDecider
 from ....tools.context_decider_context import ContextDeciderContext
+from ....tools.recommender import ToolRecommender
+from ....tools.schema import ToolExecutionContext
+from ....tools.tool_hint_resolver import ToolHintResolver
 from ..common import (
     ExecutionMode,
     ExecutionRequest,
@@ -40,6 +43,7 @@ _FALLBACK_TOOLS = ["web-search"]
 
 IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
 ToolAdvisoryProvider = Callable[[str | None], Awaitable[List[Dict[str, Any]]]]
+ToolSelectionTraceCallback = Callable[[ChatRuntimeContext, IntentDecision, ToolSelection], Awaitable[None] | None]
 
 
 class ChatExecutionCoordinator:
@@ -65,12 +69,25 @@ class ChatExecutionCoordinator:
         handler_registry: ExecutionHandlerRegistry,
         intent_trace_callback: IntentTraceCallback | None = None,
         tool_advisory_provider: ToolAdvisoryProvider | None = None,
+        tool_selection_trace_callback: ToolSelectionTraceCallback | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
         self._handler_registry = handler_registry
         self._intent_trace_callback = intent_trace_callback
         self._tool_advisory_provider = tool_advisory_provider
+        self._tool_selection_trace_callback = tool_selection_trace_callback
+        tool_registry = getattr(context_decider, "tool_registry", None)
+        self._tool_hint_resolver = (
+            ToolHintResolver(tool_registry)
+            if tool_registry is not None and callable(getattr(tool_registry, "get_tool", None))
+            else None
+        )
+        self._tool_recommender = (
+            ToolRecommender(tool_registry)
+            if tool_registry is not None and callable(getattr(tool_registry, "get_tool", None))
+            else None
+        )
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
         planner_fact_kind = (
@@ -191,6 +208,11 @@ class ChatExecutionCoordinator:
             orchestration_plan=orchestration_plan,
             memory_route=str(getattr(decision, "memory_route", "none") or "none"),
             routing_memory_hint=getattr(decision, "routing_memory_hint", None),
+            task_hint=self._resolve_runtime_task_hint(
+                user_message=context.latest_user_message,
+                selected_tools=selected_tools,
+                execution_mode=execution_mode,
+            ),
         )
         if self._intent_trace_callback is not None:
             callback_result = self._intent_trace_callback(context, intent_decision)
@@ -199,15 +221,29 @@ class ChatExecutionCoordinator:
         return intent_decision
 
     async def match_tools(self, context: ChatRuntimeContext, intent: IntentDecision) -> ToolSelection:
-        _ = context
         if intent.execution_mode in {
             ExecutionMode.ORCHESTRATION_LAUNCH,
             ExecutionMode.ORCHESTRATION_UPDATE,
             ExecutionMode.FACT_ONLY,
             ExecutionMode.EXPLORE_TASK_RENDER,
         }:
-            return ToolSelection(tools=[], reasoning=intent.reasoning)
-        return ToolSelection(tools=list(intent.tools), reasoning=intent.reasoning)
+            return ToolSelection(tools=[], reasoning=intent.reasoning, task_hint=dict(intent.task_hint or {}))
+
+        recommendations = self._recommend_runtime_tools(context=context, intent=intent)
+        recommended_names = [str(item.get("tool") or "").strip() for item in recommendations if str(item.get("tool") or "").strip()]
+        ordered_tools = recommended_names + [tool for tool in intent.tools if tool not in recommended_names]
+        tool_selection = ToolSelection(
+            tools=ordered_tools,
+            reasoning=intent.reasoning,
+            task_hint=dict(intent.task_hint or {}),
+            recommended_tools=recommendations,
+        )
+        intent.recommended_tools = list(recommendations)
+        if self._tool_selection_trace_callback is not None:
+            callback_result = self._tool_selection_trace_callback(context, intent, tool_selection)
+            if inspect.isawaitable(callback_result):
+                await callback_result
+        return tool_selection
 
     async def assemble_request(
         self,
@@ -258,6 +294,49 @@ class ChatExecutionCoordinator:
                 ]
             )
         return plan
+
+    def _resolve_runtime_task_hint(
+        self,
+        *,
+        user_message: str,
+        selected_tools: list[str],
+        execution_mode: ExecutionMode,
+    ) -> dict[str, Any]:
+        if self._tool_hint_resolver is None or not selected_tools:
+            return {}
+        request_profile = "research" if any(tool in {"web-search", "web-fetch"} for tool in selected_tools) else None
+        scope_hints: list[str] = []
+        if any(marker in user_message for marker in ["~/", "/", "\\", "src/", "backend/", "frontend/", "docs/"]):
+            scope_hints.append("The request references an explicit path or subdirectory.")
+        if execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH:
+            scope_hints.append("The request will be decomposed into orchestration work.")
+        return self._tool_hint_resolver.resolve(
+            user_message=user_message,
+            available_tools=list(selected_tools),
+            request_profile=request_profile,
+            scope_hints=scope_hints,
+        )
+
+    def _recommend_runtime_tools(self, *, context: ChatRuntimeContext, intent: IntentDecision) -> list[dict[str, Any]]:
+        if self._tool_recommender is None or not intent.tools:
+            return []
+        try:
+            execution_context = ToolExecutionContext(
+                agent_id=context.agent_id,
+                workspace=str(getattr(context.latest_payload, "workspace_path", "") or "."),
+                permissions=["authenticated", "dangerous_tools"],
+                env_vars={"session_id": context.session_id, "user_id": context.user_id},
+            )
+            return self._tool_recommender.recommend_tools(
+                intent=context.latest_user_message,
+                context=execution_context,
+                top_k=len(intent.tools),
+                task_hint=intent.task_hint,
+                candidate_tools=list(intent.tools),
+            )
+        except Exception as exc:
+            logger.debug("Runtime tool recommendation failed, falling back to router order: %s", exc)
+            return []
 
     def _build_turn_ux_plan(
         self,

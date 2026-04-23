@@ -56,6 +56,45 @@ const SNAPSHOT: NormalizedExecutionTraceSnapshot = {
     metadata: {},
     children: [
       {
+        id: 'intent-1',
+        kind: 'intent',
+        label: 'Intent resolution',
+        status: 'completed',
+        startedAt: 1710000001000,
+        endedAt: 1710000002000,
+        resultPreview: 'trace_implementation',
+        error: null,
+        metadata: {
+          intent_label: 'code_execution',
+          execution_mode: 'function_calling',
+          route_reason: 'Need to inspect code and reorder tools for efficient discovery.',
+          task_hint: {
+            task_intent: 'trace_implementation',
+            domain: 'codebase',
+            operation: 'discover',
+          },
+          router_tools: ['file_read', 'grep', 'glob'],
+          selected_tools: ['glob', 'grep', 'file_read'],
+          recommended_tools: [
+            {
+              tool: 'glob',
+              priority: 1,
+              reason: 'Use first to locate candidate files or folders from path or module clues.',
+              domains: ['codebase'],
+              operations: ['discover'],
+            },
+            {
+              tool: 'grep',
+              priority: 2,
+              reason: 'Use after narrowing scope to find symbols and strings before confirming them.',
+              domains: ['codebase'],
+              operations: ['narrow'],
+            },
+          ],
+        },
+        children: [],
+      },
+      {
         id: 'tool-weather',
         kind: 'tool',
         label: 'weather',
@@ -94,7 +133,7 @@ describe('toolchain drawer', () => {
       />
     );
 
-    expect(await screen.findAllByText('weather')).toHaveLength(3);
+    expect(await screen.findAllByText('weather')).toHaveLength(1);
 
     const dialog = screen.getByRole('dialog');
     expect(dialog.className).toContain('flex');
@@ -118,5 +157,28 @@ describe('toolchain drawer', () => {
     expect(screen.getByText('turn-0')).toBeInTheDocument();
     expect(screen.queryByText('Execution Timeline')).not.toBeInTheDocument();
     expect(screen.queryByText('1 steps')).not.toBeInTheDocument();
+  });
+
+  it('renders structured task intent and tool ranking details for intent nodes', async () => {
+    render(
+      <ToolchainDrawer
+        open
+        onOpenChange={() => {}}
+        loading={false}
+        snapshot={SNAPSHOT}
+        title="工具链"
+        subtitle="查看本轮回答的执行顺序、并行分支和步骤结果。"
+      />
+    );
+
+    expect(await screen.findByText('chat.trace.taskIntent')).toBeInTheDocument();
+    expect(screen.getAllByText('trace_implementation').length).toBeGreaterThan(0);
+    expect(screen.getByText('chat.trace.routerTools')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.selectedTools')).toBeInTheDocument();
+    expect(screen.getByText('chat.trace.recommendedTools')).toBeInTheDocument();
+    expect(screen.getAllByText('codebase').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('discover').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('glob').length).toBeGreaterThan(0);
+    expect(screen.getByText('Use first to locate candidate files or folders from path or module clues.')).toBeInTheDocument();
   });
 });

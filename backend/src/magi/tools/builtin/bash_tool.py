@@ -60,6 +60,16 @@ class BashTool(Tool):
             retry_on_failure=False,
             dangerous=True,  # Executing commands is a dangerous operation
             tags=["system", "shell", "command"],
+            metadata={
+                "task_intents": ["debug_runtime", "inspect_runtime_state"],
+                "domains": ["runtime", "system"],
+                "operations": ["probe", "inspect"],
+                "query_shapes": ["shell_command", "one_off_check"],
+                "followed_by": ["file_read", "file_edit"],
+                "avoid_task_intents": ["research_external", "clarify_requirement", "recall_context"],
+                "cost": "medium",
+                "tool_hint": "Use for narrow executable checks, environment inspection, or reproducing a suspected behavior once the target is already known.",
+            },
         )
 
     async def execute(

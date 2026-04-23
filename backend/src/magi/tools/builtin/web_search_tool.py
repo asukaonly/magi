@@ -94,6 +94,16 @@ class WebSearchTool(MultiProviderTool):
             max_retries=2,
             dangerous=False,
             tags=["web", "search", "information"],
+            metadata={
+                "task_intents": ["research_external"],
+                "domains": ["web"],
+                "operations": ["discover"],
+                "query_shapes": ["topic_query", "time_bounded_query"],
+                "followed_by": ["web-fetch"],
+                "avoid_task_intents": ["verify_source_claim", "apply_change", "clarify_requirement"],
+                "cost": "cheap",
+                "tool_hint": "Use first for broad web discovery and source collection; follow with web-fetch only when article details or verification are needed.",
+            },
         )
 
     def _register_providers(self) -> None:

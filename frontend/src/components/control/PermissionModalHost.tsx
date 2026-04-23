@@ -5,8 +5,11 @@
  * surface so any pending prompt automatically surfaces.
  */
 import { useEffect, useState } from 'react';
+import { useConversationStore } from '@/stores';
 import { PermissionModal } from './PermissionModal';
 import { usePendingPermissions } from './usePendingPermissions';
+
+const OPEN_PERMISSION_REQUEST_EVENT = 'magi-open-permission-request';
 
 export interface PermissionModalHostProps {
   sessionId: string | null | undefined;
@@ -17,6 +20,8 @@ export function PermissionModalHost({
   sessionId,
   intervalMs = 1500,
 }: PermissionModalHostProps) {
+  const upsertMessage = useConversationStore((state) => state.upsertMessage);
+  const removeMessage = useConversationStore((state) => state.removeMessage);
   const { items, refresh } = usePendingPermissions({
     sessionId,
     intervalMs,
@@ -27,6 +32,69 @@ export function PermissionModalHost({
   useEffect(() => {
     setDismissed(new Set());
   }, [sessionId]);
+
+  useEffect(() => {
+    const handleOpenRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ requestId?: string }>).detail;
+      const requestId = String(detail?.requestId || '').trim();
+      if (!requestId) {
+        setDismissed(new Set());
+        return;
+      }
+      setDismissed((prev) => {
+        const next = new Set(prev);
+        next.delete(requestId);
+        return next;
+      });
+    };
+
+    window.addEventListener(OPEN_PERMISSION_REQUEST_EVENT, handleOpenRequest as EventListener);
+    return () => {
+      window.removeEventListener(OPEN_PERMISSION_REQUEST_EVENT, handleOpenRequest as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+    const state = useConversationStore.getState();
+    if (!state.sessionsById[sessionId]) {
+      return;
+    }
+
+    const currentMessages = state.messagesBySession[sessionId] || [];
+    const activeMessageIds = new Set(items.map((item) => `permission:${item.request_id}`));
+    currentMessages
+      .filter((message) => message.messageKind === 'permission_request')
+      .forEach((message) => {
+        const messageId = String(message.messageId || '').trim();
+        if (messageId && !activeMessageIds.has(messageId)) {
+          removeMessage(sessionId, messageId);
+        }
+      });
+
+    items.forEach((item) => {
+      const turnId = String(item.turn_id || item.task_id || '').trim() || undefined;
+      upsertMessage(sessionId, {
+        id: `permission:${item.request_id}`,
+        messageId: `permission:${item.request_id}`,
+        role: 'assistant',
+        kind: 'status',
+        messageKind: 'permission_request',
+        content: item.tool,
+        timestamp: Number(item.created_at_ms || Date.now()),
+        turnId,
+        payload: {
+          permission_request_id: item.request_id,
+          tool: item.tool,
+          risk_level: item.risk_level,
+          origin: item.origin,
+          tool_args: item.tool_args,
+        },
+      });
+    });
+  }, [items, removeMessage, sessionId, upsertMessage]);
 
   const active =
     items.find((req) => !dismissed.has(req.request_id)) ?? null;

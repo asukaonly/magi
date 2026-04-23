@@ -106,6 +106,17 @@ export interface CancelRunData {
   cancelled_orchestration_ids?: string[];
 }
 
+export interface DetachRunData {
+  user_id: string;
+  session_id: string;
+  run_id?: string;
+  revision?: number;
+  status?: string;
+  detach_reason?: string | null;
+  detach_requested_by?: string | null;
+  detach_anchor_turn_id?: string | null;
+}
+
 export interface ExecutionPlanStepSummary {
   subtask_id?: string | null;
   label: string;
@@ -248,6 +259,27 @@ export const messagesApi = {
       {
         user_id: userId,
         reason: options.reason || 'user_cancel',
+        turn_id: options.turnId || null,
+        requested_by: options.requestedBy || 'user',
+      }
+    );
+    return response;
+  },
+
+  detachRun: async (
+    userId: string = DEFAULT_USER_ID,
+    sessionId: string,
+    options: {
+      reason?: string;
+      turnId?: string;
+      requestedBy?: string;
+    } = {},
+  ): Promise<{ success: boolean; message: string; data?: DetachRunData }> => {
+    const response = await api.post<DetachRunData>(
+      `/messages/session/${encodeURIComponent(sessionId)}/detach-run`,
+      {
+        user_id: userId,
+        reason: options.reason || 'user_detach',
         turn_id: options.turnId || null,
         requested_by: options.requestedBy || 'user',
       }

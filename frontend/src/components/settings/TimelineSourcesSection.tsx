@@ -127,9 +127,8 @@ const SectionBlock: React.FC<{
   title?: string;
   description?: string;
   children: React.ReactNode;
-  disableTopPadding?: boolean;
-}> = ({ title, description, children, disableTopPadding = false }) => (
-  <section className={cn('space-y-4', !disableTopPadding && 'pt-4')}>
+}> = ({ title, description, children }) => (
+  <section className="space-y-4">
     {title || description ? (
       <div className="space-y-1">
         {title ? <h3 className="text-sm font-semibold text-foreground">{title}</h3> : null}
@@ -454,7 +453,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         {selectedSource.last_error ? <div className="text-sm text-destructive">{selectedSource.last_error}</div> : null}
       </header>
 
-      <SectionBlock title={t('settings.timeline.workspace.sourceStatusTitle')} disableTopPadding>
+      <SectionBlock title={t('settings.timeline.workspace.sourceStatusTitle')}>
         <div className="grid gap-5 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2 xl:grid-cols-4">
           <StatusMetric
             label={t('settings.timeline.fields.status')}

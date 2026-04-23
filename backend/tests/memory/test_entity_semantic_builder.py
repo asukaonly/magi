@@ -304,6 +304,36 @@ class TestEntityScopedSemanticBuilder:
         assert count >= 1
 
     @pytest.mark.asyncio
+    async def test_memory_settings_object_disables_edges_without_root_config_wrapper(self):
+        """The builder should accept a direct memory settings object from lifecycle wiring."""
+        memory_cfg = MagicMock()
+        memory_cfg.entity_semantic_edges.enabled = False
+        memory_cfg.entity_semantic_edges.similarity_threshold = 0.75
+        memory_cfg.entity_semantic_edges.max_sibling_events = 20
+        memory_cfg.entity_semantic_edges.max_edges_per_event = 10
+
+        l1 = _mock_l1_store(
+            entity_events={"person:alice": ["evt1", "evt2"]},
+            event_vectors={
+                "evt1": [1.0, 1.0],
+                "evt2": [1.0, 1.0],
+            },
+        )
+        l2 = _mock_l2_store()
+        builder = EntityScopedSemanticBuilder(
+            l1_store=l1,
+            l2_store=l2,
+            config_getter=lambda: memory_cfg,
+        )
+
+        count = await builder.build_edges_for_event(
+            "evt1", ["person:alice"], observed_at=1000.0,
+        )
+
+        assert count == 0
+        l2.upsert_knowledge_edge.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_no_embedding_returns_zero(self):
         """When the new event has no embedding, skip gracefully."""
         l1 = _mock_l1_store(

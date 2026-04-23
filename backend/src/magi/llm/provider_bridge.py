@@ -26,6 +26,133 @@ from ..config.llm_registry import (
 )
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from ..config.models import ThinkingDepth
+from ..core.logger import get_logger
+
+
+logger = get_logger(__name__)
+
+
+_SENSITIVE_LOG_FIELD_PATTERNS = (
+    "api_key",
+    "apikey",
+    "secret",
+    "password",
+    "token",
+    "credential",
+    "private",
+    "authorization",
+)
+
+
+def _is_sensitive_log_field(field_name: str) -> bool:
+    field_lower = field_name.lower()
+    return any(pattern in field_lower for pattern in _SENSITIVE_LOG_FIELD_PATTERNS)
+
+
+def _sanitize_log_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_sanitize_log_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: ("***MASKED***" if _is_sensitive_log_field(str(key)) else _sanitize_log_value(item))
+            for key, item in value.items()
+        }
+    if hasattr(value, "model_dump"):
+        return _sanitize_log_value(value.model_dump())
+    if hasattr(value, "__dict__"):
+        return _sanitize_log_value(vars(value))
+    return str(value)
+
+
+def _is_provider_test_event(event_context: Optional[Dict[str, Any]]) -> bool:
+    return (event_context or {}).get("surface") == "config_provider_test"
+
+
+def _build_provider_test_log_context(
+    llm_adapter: LLMAdapter,
+    event_context: Optional[Dict[str, Any]],
+    **extra: Any,
+) -> Dict[str, Any]:
+    context: Dict[str, Any] = {
+        "provider_name": str(getattr(llm_adapter, "provider_name", "unknown")),
+        "model": str(getattr(llm_adapter, "model_name", "unknown")),
+        "base_url": getattr(llm_adapter, "base_url", None),
+    }
+    if event_context:
+        context["event_context"] = _sanitize_log_value(event_context)
+    for key, value in extra.items():
+        context[key] = _sanitize_log_value(value)
+    return context
+
+
+def _extract_provider_error_details(exc: Exception) -> Dict[str, Any]:
+    details: Dict[str, Any] = {
+        "error_type": exc.__class__.__name__,
+        "error": str(exc),
+    }
+    for attr_name in ("status_code", "request_id", "body", "code", "param", "type"):
+        attr_value = getattr(exc, attr_name, None)
+        if attr_value is not None:
+            details[attr_name] = _sanitize_log_value(attr_value)
+    response = getattr(exc, "response", None)
+    if response is not None:
+        headers = getattr(response, "headers", None)
+        if headers is not None:
+            details["response_headers"] = _sanitize_log_value(dict(headers))
+    request = getattr(exc, "request", None)
+    if request is not None:
+        details["request_method"] = getattr(request, "method", None)
+        details["request_url"] = str(getattr(request, "url", "")) or None
+    return details
+
+
+def _truncate_provider_response(provider_response: "ProviderResponse") -> Dict[str, Any]:
+    return {
+        "content": provider_response.content[:200],
+        "tool_calls": [
+            {
+                "id": tool_call.id,
+                "name": tool_call.name,
+                "arguments": _sanitize_log_value(tool_call.arguments),
+            }
+            for tool_call in provider_response.tool_calls
+        ],
+        "assistant_message": _sanitize_log_value(provider_response.assistant_message),
+        "metadata": _sanitize_log_value(provider_response.metadata),
+        "usage": _sanitize_log_value(provider_response.usage),
+    }
+
+
+def _truncate_log_value(value: Any, *, max_string_length: int = 500, max_items: int = 20) -> Any:
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, str):
+        return value[:max_string_length]
+    if isinstance(value, list):
+        return [_truncate_log_value(item, max_string_length=max_string_length, max_items=max_items) for item in value[:max_items]]
+    if isinstance(value, dict):
+        truncated: Dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= max_items:
+                truncated["__truncated_items__"] = len(value) - max_items
+                break
+            truncated[str(key)] = _truncate_log_value(item, max_string_length=max_string_length, max_items=max_items)
+        return truncated
+    if hasattr(value, "model_dump"):
+        try:
+            return _truncate_log_value(value.model_dump(), max_string_length=max_string_length, max_items=max_items)
+        except Exception:
+            return repr(value)[:max_string_length]
+    return repr(value)[:max_string_length]
+
+
+def _summarize_raw_provider_response(response: Any) -> Dict[str, Any]:
+    return {
+        "response_type": type(response).__name__,
+        "raw_response": _truncate_log_value(_sanitize_log_value(response)),
+    }
 
 
 def _coerce_thinking_depth(
@@ -338,6 +465,7 @@ class LLMProviderBridge:
                     thinking_depth=depth,
                     json_mode=json_mode,
                     timeout_seconds=timeout_seconds,
+                    event_context=event_context,
                 ),
             )
 
@@ -658,6 +786,7 @@ class LLMProviderBridge:
         thinking_depth: ThinkingDepth,
         json_mode: bool,
         timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]],
     ) -> ProviderResponse:
         if self.is_anthropic():
             api_messages = self._convert_messages_to_anthropic(messages)
@@ -671,10 +800,45 @@ class LLMProviderBridge:
             if timeout_seconds is not None:
                 anthropic_kwargs["timeout"] = timeout_seconds
             anthropic_kwargs = self._apply_provider_options(anthropic_kwargs, thinking_depth)
-            response = await self.llm._client.messages.create(**anthropic_kwargs)
+            if _is_provider_test_event(event_context):
+                logger.info(
+                    "llm_provider_test_request",
+                    **_build_provider_test_log_context(
+                        self.llm,
+                        event_context,
+                        request_type="anthropic_messages",
+                        request=anthropic_kwargs,
+                    ),
+                )
+            try:
+                response = await self.llm._client.messages.create(**anthropic_kwargs)
+            except Exception as exc:
+                if _is_provider_test_event(event_context):
+                    logger.error(
+                        "llm_provider_test_provider_error",
+                        **_build_provider_test_log_context(
+                            self.llm,
+                            event_context,
+                            request_type="anthropic_messages",
+                            request=anthropic_kwargs,
+                            provider_error=_extract_provider_error_details(exc),
+                        ),
+                    )
+                raise
             if hasattr(response, "content"):
-                return self._parse_anthropic_response(response)
-            return self._build_content_response("")
+                parsed_response = self._parse_anthropic_response(response)
+            else:
+                parsed_response = self._build_content_response("")
+            if _is_provider_test_event(event_context):
+                logger.info(
+                    "llm_provider_test_response",
+                    **_build_provider_test_log_context(
+                        self.llm,
+                        event_context,
+                        response=_truncate_provider_response(parsed_response),
+                    ),
+                )
+            return parsed_response
 
         full_messages = [{"role": "system", "content": system_prompt}] + self._convert_messages_to_openai(messages)
         chat_kwargs: Dict[str, Any] = {
@@ -690,11 +854,110 @@ class LLMProviderBridge:
 
         if getattr(self.llm, "_client", None) is not None:
             chat_kwargs["model"] = self.llm.model_name
-            response = await self.llm._client.chat.completions.create(**chat_kwargs)
-            return self._parse_openai_response(response)
+            if _is_provider_test_event(event_context):
+                logger.info(
+                    "llm_provider_test_request",
+                    **_build_provider_test_log_context(
+                        self.llm,
+                        event_context,
+                        request_type="openai_chat_completions",
+                        request=chat_kwargs,
+                    ),
+                )
+            try:
+                response = await self.llm._client.chat.completions.create(**chat_kwargs)
+            except Exception as exc:
+                if _is_provider_test_event(event_context):
+                    logger.error(
+                        "llm_provider_test_provider_error",
+                        **_build_provider_test_log_context(
+                            self.llm,
+                            event_context,
+                            request_type="openai_chat_completions",
+                            request=chat_kwargs,
+                            provider_error=_extract_provider_error_details(exc),
+                        ),
+                    )
+                raise
+            raw_response_summary = _summarize_raw_provider_response(response)
+            if _is_provider_test_event(event_context):
+                logger.info(
+                    "llm_provider_test_raw_response",
+                    **_build_provider_test_log_context(
+                        self.llm,
+                        event_context,
+                        request_type="openai_chat_completions",
+                        **raw_response_summary,
+                    ),
+                )
+            try:
+                parsed_response = self._parse_openai_response(response)
+            except Exception as exc:
+                if _is_provider_test_event(event_context):
+                    logger.error(
+                        "llm_provider_test_parse_error",
+                        **_build_provider_test_log_context(
+                            self.llm,
+                            event_context,
+                            request_type="openai_chat_completions",
+                            request=chat_kwargs,
+                            parse_error={
+                                "error_type": exc.__class__.__name__,
+                                "error": str(exc),
+                            },
+                            **raw_response_summary,
+                        ),
+                    )
+                raise ValueError(
+                    f"Provider returned a non-OpenAI chat response payload (type={type(response).__name__})"
+                ) from exc
+            if _is_provider_test_event(event_context):
+                logger.info(
+                    "llm_provider_test_response",
+                    **_build_provider_test_log_context(
+                        self.llm,
+                        event_context,
+                        response=_truncate_provider_response(parsed_response),
+                    ),
+                )
+            return parsed_response
 
-        content = await self.llm.chat(**chat_kwargs)
-        return self._build_content_response(content)
+        if _is_provider_test_event(event_context):
+            logger.info(
+                "llm_provider_test_request",
+                **_build_provider_test_log_context(
+                    self.llm,
+                    event_context,
+                    request_type="adapter_chat",
+                    request=chat_kwargs,
+                ),
+            )
+        try:
+            content = await self.llm.chat(**chat_kwargs)
+        except Exception as exc:
+            if _is_provider_test_event(event_context):
+                logger.error(
+                    "llm_provider_test_provider_error",
+                    **_build_provider_test_log_context(
+                        self.llm,
+                        event_context,
+                        request_type="adapter_chat",
+                        request=chat_kwargs,
+                        provider_error=_extract_provider_error_details(exc),
+                    ),
+                )
+            raise
+        provider_response = self._build_content_response(content)
+        if _is_provider_test_event(event_context):
+            logger.info(
+                "llm_provider_test_response",
+                **_build_provider_test_log_context(
+                    self.llm,
+                    event_context,
+                    response=_truncate_provider_response(provider_response),
+                ),
+            )
+        return provider_response
 
     async def _chat_with_tools_impl(
         self,

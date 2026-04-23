@@ -80,6 +80,35 @@ def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
     )
 
 
+def _build_scope_guidance_block(task_hint: dict | None) -> str:
+    if not isinstance(task_hint, dict) or not task_hint:
+        return ""
+
+    target_locality = str(task_hint.get("target_locality") or "").strip()
+    preferred_resolution_order = str(task_hint.get("preferred_resolution_order") or "").strip()
+    requires_clarification = bool(task_hint.get("requires_clarification"))
+    if not any([target_locality, preferred_resolution_order, requires_clarification]):
+        return ""
+
+    lines = [
+        "# Scope Guidance",
+        "Treat the current workspace as the default search boundary unless the user explicitly names another path.",
+    ]
+    if target_locality:
+        lines.append(f"Target locality: {target_locality}")
+    if preferred_resolution_order:
+        lines.append(f"Preferred resolution order: {preferred_resolution_order}")
+    if requires_clarification:
+        lines.append(
+            "If leaving the workspace would be required and the target location is still ambiguous, ask the user for a path or use web-search before any external local scan."
+        )
+    elif target_locality == "web":
+        lines.append(
+            "Prefer web-search or web-fetch over local repo discovery unless the user explicitly points to a local path."
+        )
+    return "\n".join(lines)
+
+
 def _serialize_ux_plan(intent: object) -> dict | None:
     plan = getattr(intent, "ux_plan", None)
     if plan is None:
@@ -227,11 +256,17 @@ class FunctionCallingHandler(BaseExecutionHandler):
             workspace_path=_resolve_turn_workspace_path(request.context),
         )
         selected_tools = list(request.tool_selection.tools)
+        system_prompt = prompt_package.system_prompt
         if request.intent.memory_route == "explicit_query" and "memory_query" in selected_tools:
             selected_tools = ["memory_query"] + [tool for tool in selected_tools if tool != "memory_query"]
             memory_guidance_block = _build_memory_query_guidance_block(request.intent.routing_memory_hint)
             if memory_guidance_block:
-                prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{memory_guidance_block}"
+                system_prompt = f"{system_prompt}\n\n{memory_guidance_block}"
+        scope_guidance_block = _build_scope_guidance_block(
+            getattr(request.tool_selection, "task_hint", None) or getattr(request.intent, "task_hint", None)
+        )
+        if scope_guidance_block:
+            system_prompt = f"{system_prompt}\n\n{scope_guidance_block}"
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,
@@ -239,7 +274,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             tool_selection=request.tool_selection,
             prompt_context=prompt_package.prompt_context,
             system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
-                system_prompt=prompt_package.system_prompt,
+                system_prompt=system_prompt,
                 reply_context=getattr(request.context, "reply_context", None),
             ),
             selected_tools=selected_tools,
@@ -253,67 +288,70 @@ class FunctionCallingHandler(BaseExecutionHandler):
         execution_workspace = _resolve_execution_workspace(request)
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
-        detach_signal = self._build_detach_signal()
+        session_id = str(getattr(request.context, "session_id", "") or "").strip()
+        detach_signal = self._build_detach_signal(session_id=session_id)
         steer_inbox = await self._build_steer_inbox(request)
+        try:
+            if (
+                self._deps.session_run_coordinator is not None
+                and request.context.session_run_id
+                and hasattr(self._deps.function_calling_orchestrator, "step_executor")
+                and hasattr(self._deps.function_calling_orchestrator, "build_step_state")
+            ):
+                result = await self._execute_with_session_checkpoints(
+                    request,
+                    execution_workspace=execution_workspace,
+                    detach_signal=detach_signal,
+                    steer_inbox=steer_inbox,
+                )
+                result.streamed = streaming_enabled
+                handoff = await self._maybe_handoff_detached_outcome(request, result)
+                if handoff is not None:
+                    return handoff
+                return result
 
-        if (
-            self._deps.session_run_coordinator is not None
-            and request.context.session_run_id
-            and hasattr(self._deps.function_calling_orchestrator, "step_executor")
-            and hasattr(self._deps.function_calling_orchestrator, "build_step_state")
-        ):
-            result = await self._execute_with_session_checkpoints(
-                request,
+            cancel_token = self._build_cancel_token(request)
+            execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
+                user_message=request.context.latest_user_message,
+                system_prompt=request.system_prompt,
+                selected_tools=request.selected_tools,
+                user_id=request.context.user_id,
+                session_id=request.context.session_id,
+                session_run_id=request.context.session_run_id,
+                session_run_revision=request.context.session_run_revision,
+                turn_id=turn_id,
+                conversation_history=request.context.history,
+                thinking_depth=request.thinking_depth,
+                intent=request.intent.intent,
+                execution_agent_id=request.context.runtime_key,
                 execution_workspace=execution_workspace,
+                orchestration_strategy=(
+                    request.intent.orchestration_plan.to_strategy_dict()
+                    if request.intent.orchestration_plan is not None
+                    else None
+                ),
+                cancel_token=cancel_token,
                 detach_signal=detach_signal,
                 steer_inbox=steer_inbox,
             )
-            result.streamed = streaming_enabled
-            handoff = await self._maybe_handoff_detached_outcome(request, result)
+
+            streamed = streaming_enabled and execution_outcome.status == "completed"
+
+            fc_result = FunctionCallingExecutionResult(
+                mode=request.mode,
+                response_text=execution_outcome.content,
+                root_user_message=request.context.latest_user_message,
+                execution_outcome=execution_outcome.to_dict(),
+                turn_id=turn_id,
+                ux_plan=_serialize_ux_plan(request.intent),
+                streamed=streamed,
+            )
+            handoff = await self._maybe_handoff_detached_outcome(request, fc_result)
             if handoff is not None:
                 return handoff
-            return result
-
-        cancel_token = self._build_cancel_token(request)
-        execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
-            user_message=request.context.latest_user_message,
-            system_prompt=request.system_prompt,
-            selected_tools=request.selected_tools,
-            user_id=request.context.user_id,
-            session_id=request.context.session_id,
-            session_run_id=request.context.session_run_id,
-            session_run_revision=request.context.session_run_revision,
-            turn_id=turn_id,
-            conversation_history=request.context.history,
-            thinking_depth=request.thinking_depth,
-            intent=request.intent.intent,
-            execution_agent_id=request.context.runtime_key,
-            execution_workspace=execution_workspace,
-            orchestration_strategy=(
-                request.intent.orchestration_plan.to_strategy_dict()
-                if request.intent.orchestration_plan is not None
-                else None
-            ),
-            cancel_token=cancel_token,
-            detach_signal=detach_signal,
-            steer_inbox=steer_inbox,
-        )
-
-        streamed = streaming_enabled and execution_outcome.status == "completed"
-
-        fc_result = FunctionCallingExecutionResult(
-            mode=request.mode,
-            response_text=execution_outcome.content,
-            root_user_message=request.context.latest_user_message,
-            execution_outcome=execution_outcome.to_dict(),
-            turn_id=turn_id,
-            ux_plan=_serialize_ux_plan(request.intent),
-            streamed=streamed,
-        )
-        handoff = await self._maybe_handoff_detached_outcome(request, fc_result)
-        if handoff is not None:
-            return handoff
-        return fc_result
+            return fc_result
+        finally:
+            self._release_detach_signal(session_id=session_id, detach_signal=detach_signal)
 
     async def _execute_with_session_checkpoints(
         self,
@@ -567,7 +605,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             )
             return None
 
-    def _build_detach_signal(self) -> DetachSignal | None:
+    def _build_detach_signal(self, *, session_id: str) -> DetachSignal | None:
         """Return a fresh :class:`DetachSignal` for this turn, or ``None``.
 
         The signal is only useful when a :class:`BackgroundLaunchService`
@@ -578,7 +616,24 @@ class FunctionCallingHandler(BaseExecutionHandler):
         """
         if self._deps.background_launch_service is None:
             return None
-        return DetachSignal()
+        signal = DetachSignal()
+        coordinator = self._deps.session_run_coordinator
+        bind_signal = getattr(coordinator, "bind_detach_signal", None)
+        if coordinator is not None and callable(bind_signal) and session_id:
+            bind_signal(session_id, signal)
+        return signal
+
+    def _release_detach_signal(
+        self,
+        *,
+        session_id: str,
+        detach_signal: DetachSignal | None,
+    ) -> None:
+        coordinator = self._deps.session_run_coordinator
+        release_signal = getattr(coordinator, "release_detach_signal", None)
+        if coordinator is None or not callable(release_signal) or not session_id:
+            return
+        release_signal(session_id, detach_signal)
 
     async def _build_steer_inbox(
         self, request: FunctionCallingRequest

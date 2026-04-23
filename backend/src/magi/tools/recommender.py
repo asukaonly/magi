@@ -1,14 +1,13 @@
-"""
-Tool recommendation engine.
-
-Recommends appropriate tools based on scenario and intent.
-"""
+"""Tool recommendation engine."""
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 import re
 
 from .schema import Tool, ToolSchema, ToolParameter
+
+if TYPE_CHECKING:
+    from .schema import ToolExecutionContext
 
 
 logger = logging.getLogger(__name__)
@@ -132,7 +131,9 @@ class ToolRecommender:
     def match_capabilities(
         self,
         intent: str,
-        scenario: ScenarioType
+        scenario: ScenarioType,
+        task_hint: Optional[Dict[str, Any]] = None,
+        candidate_tools: Optional[List[str]] = None,
     ) -> List[Tuple[str, float]]:
         """
         Match tools by capability.
@@ -145,9 +146,12 @@ class ToolRecommender:
             [(tool_name, score), ...] sorted by score.
         """
         intent_lower = intent.lower()
+        task_intent = str((task_hint or {}).get("task_intent", "") or "").strip()
+        domain = str((task_hint or {}).get("domain", "") or "").strip()
+        operation = str((task_hint or {}).get("operation", "") or "").strip()
         scores = []
 
-        tools = self.registry.list_tools()
+        tools = list(candidate_tools) if candidate_tools is not None else self.registry.list_tools()
 
         for tool_name in tools:
             tool = self.registry.get_tool(tool_name)
@@ -156,6 +160,7 @@ class ToolRecommender:
 
             schema = tool.get_schema()
             score = 0.0
+            metadata = schema.metadata or {}
 
             # 1. Check if tool category matches scenario
             category_match = 0
@@ -178,6 +183,31 @@ class ToolRecommender:
             for keyword in keywords:
                 if keyword.lower() in description:
                     score += 0.1
+
+            task_intents = [str(item).strip() for item in metadata.get("task_intents", []) if str(item).strip()]
+            domains = [str(item).strip() for item in metadata.get("domains", []) if str(item).strip()]
+            operations = [str(item).strip() for item in metadata.get("operations", []) if str(item).strip()]
+            avoid_task_intents = [str(item).strip() for item in metadata.get("avoid_task_intents", []) if str(item).strip()]
+            requires_known_target = bool(metadata.get("requires_known_target", False))
+            blocks_on_user = bool(metadata.get("blocks_on_user", False))
+            cost = str(metadata.get("cost", "") or "").strip().lower()
+            if task_intent:
+                if task_intent in task_intents:
+                    score += 0.6
+                if task_intent in avoid_task_intents:
+                    score -= 0.4
+            if domain and domain in domains:
+                score += 0.25
+            if operation and operation in operations:
+                score += 0.2
+            if requires_known_target and operation in {"discover", "narrow", "probe"}:
+                score -= 0.15
+            if blocks_on_user and task_intent != "clarify_requirement":
+                score -= 0.7
+            if cost == "cheap":
+                score += 0.05
+            elif cost == "high":
+                score -= 0.05
 
             # 4. Check tool capability mapping
             if tool_name in self.tool_capabilities:
@@ -244,7 +274,9 @@ class ToolRecommender:
         self,
         intent: str,
         context: "ToolExecutionContext",
-        top_k: int = 5
+        top_k: int = 5,
+        task_hint: Optional[Dict[str, Any]] = None,
+        candidate_tools: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Recommend tools for user intent.
@@ -275,7 +307,12 @@ class ToolRecommender:
         logger.info(f"Extracted keywords: {keywords}")
 
         # 3. Capability matching
-        matched_tools = self.match_capabilities(intent, scenario)
+        matched_tools = self.match_capabilities(
+            intent,
+            scenario,
+            task_hint=task_hint,
+            candidate_tools=candidate_tools,
+        )
         logger.info(f"Matched tools: {matched_tools}")
 
         # 4. Evaluate and filter tools
@@ -290,9 +327,10 @@ class ToolRecommender:
                 recommendations.append({
                     "tool": tool_name,
                     "score": score,
-                    "reason": schema.description,
+                    "reason": str((schema.metadata or {}).get("tool_hint") or schema.description),
                     "category": schema.category,
-                    "parameters": [p.dict() for p in schema.parameters],
+                    "metadata": dict(schema.metadata or {}),
+                    "parameters": [p.model_dump(mode="json") for p in schema.parameters],
                 })
             else:
                 logger.debug(f"Tool {tool_name} not suitable: {reason}")

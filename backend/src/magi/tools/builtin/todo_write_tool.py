@@ -5,8 +5,10 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict
 
+from ...agent.control.chat_state_persister import persist_todo_state_message
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_control_session_store
+from ...runtime_defaults import DEFAULT_USER_ID
 from ...agent.control.session_store import TodoListError
 from ..schema import (
     ParameterType,
@@ -76,6 +78,7 @@ class TodoWriteTool(Tool):
             )
         raw_turn = context.env_vars.get("turn_id")
         turn_id = str(raw_turn or "").strip() or None
+        user_id = str(context.env_vars.get("user_id") or "").strip() or DEFAULT_USER_ID
         raw_items = parameters.get("items")
         if not isinstance(raw_items, list):
             return ToolResult(
@@ -108,6 +111,12 @@ class TodoWriteTool(Tool):
             session_id=sid,
             count=len(todos),
             in_progress=sum(1 for t in todos if t.status.value == "in_progress"),
+        )
+        await persist_todo_state_message(
+            session_id=sid,
+            user_id=user_id,
+            turn_id=turn_id,
+            items=[t.to_dict() for t in todos],
         )
         try:
             from ...agent.control.common.events import publish_control_event

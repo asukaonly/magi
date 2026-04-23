@@ -522,7 +522,69 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(monkeypatch: pyt
     assert response["success"] is True
     assert response["data"]["run_id"] == "run-1"
     assert response["data"]["cancelled_orchestration_ids"] == ["orch-1"]
+
+
+@pytest.mark.asyncio
+async def test_detach_session_run_route_delegates_to_chat_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeChatAgent:
+        async def request_session_detach(
+            self,
+            *,
+            session_id: str,
+            requested_by: str,
+            reason: str,
+            anchor_turn_id: str | None = None,
+        ) -> dict[str, object] | None:
+            captured.update(
+                {
+                    "session_id": session_id,
+                    "requested_by": requested_by,
+                    "reason": reason,
+                    "anchor_turn_id": anchor_turn_id,
+                }
+            )
+            return {
+                "run_id": "run-1",
+                "revision": 0,
+                "status": "detaching",
+            }
+
+    class _FakeTaskAgentManager:
+        async def ensure_agent(self, agent_type, agent_id):  # type: ignore[no-untyped-def]
+            captured["agent_type"] = agent_type
+            captured["agent_id"] = agent_id
+            return _FakeChatAgent()
+
+    class _FakeRuntime:
+        def get_task_agent_manager(self) -> _FakeTaskAgentManager:
+            return _FakeTaskAgentManager()
+
+    monkeypatch.setattr(messages_router, "require_agent_runtime", lambda: _FakeRuntime())
+
+    response = await messages_router.detach_session_run(
+        session_id="session-1",
+        request=messages_router.DetachSessionRunRequest(
+            user_id="u1",
+            reason="user_detach",
+            turn_id="turn-detach",
+            requested_by="user",
+        ),
+    )
+
+    assert captured == {
+        "agent_type": messages_router.TaskAgentType.CHAT,
+        "agent_id": "session-1",
+        "session_id": "session-1",
+        "requested_by": "user",
+        "reason": "user_detach",
+        "anchor_turn_id": "turn-detach",
+    }
+    assert response["success"] is True
+    assert response["message"] == "Run detach requested"
+    assert response["data"]["status"] == "detaching"
     assert captured["session_id"] == "session-1"
     assert captured["requested_by"] == "user"
-    assert captured["reason"] == "explicit_cancel"
-    assert captured["anchor_turn_id"] == "turn-cancel"
+    assert captured["reason"] == "user_detach"
+    assert captured["anchor_turn_id"] == "turn-detach"

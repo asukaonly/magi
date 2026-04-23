@@ -79,6 +79,17 @@ class FileWriteTool(Tool):
             retry_on_failure=False,
             dangerous=True,  # Writing files is a dangerous operation
             tags=["file", "write", "io"],
+            metadata={
+                "task_intents": ["apply_change", "create_artifact"],
+                "domains": ["codebase", "docs"],
+                "operations": ["edit", "create"],
+                "query_shapes": ["new_file", "full_rewrite"],
+                "followed_by": [],
+                "avoid_task_intents": ["explore_codebase", "trace_implementation", "research_external", "clarify_requirement", "recall_context"],
+                "requires_known_target": True,
+                "cost": "medium",
+                "tool_hint": "Use to create a new file or rewrite full contents once the destination path and content are already settled; prefer file_edit for precise edits.",
+            },
         )
 
     async def execute(

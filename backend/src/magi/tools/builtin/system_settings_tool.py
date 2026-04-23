@@ -151,6 +151,16 @@ class SystemSettingsTool(Tool):
             retry_on_failure=False,
             dangerous=False,
             tags=["system", "config", "settings"],
+            metadata={
+                "task_intents": ["inspect_config", "apply_change", "inspect_runtime_state"],
+                "domains": ["config", "runtime"],
+                "operations": ["inspect", "edit"],
+                "query_shapes": ["config_path", "setting_value"],
+                "followed_by": [],
+                "avoid_task_intents": ["explore_codebase", "research_external", "clarify_requirement"],
+                "cost": "cheap",
+                "tool_hint": "Use to inspect or update Magi runtime and tool configuration; prefer source files when the question is about code behavior rather than live config.",
+            },
         )
 
     async def execute(

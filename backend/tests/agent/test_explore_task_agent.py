@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -95,15 +96,21 @@ async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() ->
     )
 
     descriptions = [item.description for item in plan.subtasks]
+    planning_payload = json.loads(str(captured["messages"][0]["content"]))
     assert descriptions == [
         "Map agent scope",
         "Trace task orchestration flow",
         "Summarize orchestration risks",
     ]
+    assert planning_payload["task_hints"]["task_intent"] == "trace_implementation"
+    assert planning_payload["task_hints"]["domain"] == "codebase"
+    assert planning_payload["task_hints"]["operation"] == "discover"
+    assert planning_payload["task_hints"]["tool_hints"][0]["tool"] in {"glob", "grep"}
     assert captured["json_mode"] is True
     assert captured["timeout_seconds"] == 180.0
     assert all(item.subagent_type == "Explore" for item in plan.subtasks)
     assert all("Parent user request:" in item.prompt for item in plan.subtasks)
+    assert all("# Tool Guidance" in item.prompt for item in plan.subtasks)
 
 
 @pytest.mark.asyncio
@@ -130,6 +137,22 @@ async def test_explore_planning_service_uses_scope_fallback_for_backend_request(
         "Trace backend execution flow",
         "Summarize backend gaps",
     ]
+
+
+def test_explore_planning_service_generic_leaf_prompt_emphasizes_anchor_and_validation() -> None:
+    from magi.agent.task_agents.explore.planning_service import ExplorePlanningService
+
+    service = ExplorePlanningService(prompt_service=None)
+    subtasks = service.generic_fallback_subtasks("分析检索链路")
+
+    assert [item.description for item in subtasks] == [
+        "Locate the primary anchor",
+        "Trace the owning implementation path",
+        "Validate gaps and edge cases",
+    ]
+    assert "Start from the most concrete anchor available" in subtasks[0].prompt
+    assert "verify it exists in the current code before relying on it" in subtasks[0].prompt
+    assert "Prefer focused glob/grep/read steps over broad repository scans" in subtasks[0].prompt
 
 
 def test_explore_planning_service_treats_docs_path_as_scoped_request() -> None:

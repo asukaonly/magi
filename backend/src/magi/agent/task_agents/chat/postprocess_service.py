@@ -15,6 +15,7 @@ from ....agent.trace import (
 )
 from ....chat import ChatMessageRecord, ChatProjector, ChatStore
 from ....events.events import EventTypes
+from ....personality.feature_flags import get_personality_feature_flags
 from ....personality.interaction_analyzer import analyze_interaction, DEFAULT_ANALYSIS
 from ....memory.l3.models import TaskOutcomePacket
 from ....runtime_trace import (
@@ -569,7 +570,12 @@ class ChatPostProcessService:
                 intent=str(getattr(decision, "intent", "") or ""),
                 execution_mode=self._normalize_mode(getattr(decision, "execution_mode", None)),
                 route_reason=str(getattr(decision, "reasoning", "") or "") or None,
-                selected_tools_json=json.dumps(list(getattr(decision, "tools", []) or [])),
+                selected_tools_json=self._serialize_selected_tools_payload(
+                    router_tools=list(getattr(decision, "tools", []) or []),
+                    selected_tools=list(getattr(decision, "tools", []) or []),
+                    task_hint=getattr(decision, "task_hint", None),
+                    recommended_tools=list(getattr(decision, "recommended_tools", []) or []),
+                ),
                 selected_worker_type=(
                     str(getattr(getattr(decision, "orchestration_plan", None), "default_leaf_type", "") or "")
                     or None
@@ -617,6 +623,36 @@ class ChatPostProcessService:
             message_id=turn_ux_message.message_id if turn_ux_message is not None else None,
             message_kind=turn_ux_message.message_kind if turn_ux_message is not None else None,
             timestamp_ms=turn_ux_message.created_at_ms if turn_ux_message is not None else None,
+        )
+
+    async def record_tool_selection(self, context: ChatRuntimeContext, decision: Any, tool_selection: Any) -> None:
+        latest_fact = context.latest_fact
+        if self._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
+            return
+        turn_id = self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
+        if not turn_id:
+            return
+        span_id = self._build_span_id(turn_id, "intent_resolution")
+        trace_id = self._build_trace_id(turn_id)
+        await self._runtime_trace_store.upsert_intent_resolution(
+            TraceIntentResolutionRecord(
+                span_id=span_id,
+                trace_id=trace_id,
+                turn_id=turn_id,
+                intent=str(getattr(decision, "intent", "") or ""),
+                execution_mode=self._normalize_mode(getattr(decision, "execution_mode", None)),
+                route_reason=str(getattr(decision, "reasoning", "") or "") or None,
+                selected_tools_json=self._serialize_selected_tools_payload(
+                    router_tools=list(getattr(decision, "tools", []) or []),
+                    selected_tools=list(getattr(tool_selection, "tools", []) or []),
+                    task_hint=getattr(tool_selection, "task_hint", None) or getattr(decision, "task_hint", None),
+                    recommended_tools=list(getattr(tool_selection, "recommended_tools", []) or []),
+                ),
+                selected_worker_type=(
+                    str(getattr(getattr(decision, "orchestration_plan", None), "default_leaf_type", "") or "")
+                    or None
+                ),
+            )
         )
 
     async def _record_task_reflection(
@@ -903,20 +939,36 @@ class ChatPostProcessService:
     async def _record_memory_updates(
         self, *, user_id: str, user_message: str, response_text: str = "",
     ) -> bool:
+        features = get_personality_feature_flags()
+        if not (
+            features.state_memory_enabled
+            or features.state_transition_enabled
+            or features.deep_persona_enabled
+        ):
+            return False
+
         # Collect STP rules so the analyzer can detect behavioral triggers.
         stp_rules: list[dict[str, str]] | None = None
         milestone_conditions: dict[str, str] | None = None
         if self._memory is not None:
             try:
                 config = await self._memory.get_core_personality()
-                if hasattr(config, "state_transition_protocol") and config.state_transition_protocol:
+                if (
+                    features.state_transition_enabled
+                    and hasattr(config, "state_transition_protocol")
+                    and config.state_transition_protocol
+                ):
                     stp_rules = []
                     for item in config.state_transition_protocol:
                         tt = getattr(item, "trigger_type", "")
                         cond = getattr(item, "trigger_condition", "")
                         if tt and cond:
                             stp_rules.append({"trigger_type": tt, "trigger_condition": cond})
-                if hasattr(config, "milestone_conditions") and config.milestone_conditions:
+                if (
+                    features.deep_persona_enabled
+                    and hasattr(config, "milestone_conditions")
+                    and config.milestone_conditions
+                ):
                     milestone_conditions = config.milestone_conditions
             except Exception:
                 pass
@@ -1070,6 +1122,24 @@ class ChatPostProcessService:
     @staticmethod
     def _resolve_reaction_text(ux_plan: dict[str, Any] | None) -> str:
         return ChatOutcomeWriter.resolve_reaction_text(ux_plan)
+
+    @staticmethod
+    def _serialize_selected_tools_payload(
+        *,
+        router_tools: list[str],
+        selected_tools: list[str],
+        task_hint: Any,
+        recommended_tools: list[dict[str, Any]],
+    ) -> str:
+        return json.dumps(
+            {
+                "router_tools": list(router_tools or []),
+                "selected_tools": list(selected_tools or []),
+                "task_hint": dict(task_hint or {}),
+                "recommended_tools": list(recommended_tools or []),
+            },
+            ensure_ascii=False,
+        )
 
     async def _project_final_chat_message(
         self,

@@ -9,10 +9,11 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 import pytest
 
-from magi.agent.execution.function_calling import FunctionCallingOrchestrator
+from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall
 from magi.config.models import LLMScenario
 from magi.llm.base import LLMAdapter
 from magi.skills.schema import SkillResult
+from magi.tools.schema import ToolResult
 
 
 class _DummyLLMAdapter(LLMAdapter):
@@ -74,6 +75,12 @@ class _DummyToolRegistry:
     def is_skill(self, name: str) -> bool:
         _ = name
         return False
+
+    def get_tool_info(self, _name: str) -> dict[str, Any]:
+        return {"dangerous": False}
+
+    async def execute(self, tool_name: str, arguments: dict[str, Any], _context) -> ToolResult:
+        return ToolResult(success=True, data={"tool_name": tool_name, "arguments": arguments})
 
 
 class _RecordingLLMPool:
@@ -241,6 +248,115 @@ def test_workspace_root_path_uses_managed_workspace_when_missing(
 
     assert executor._is_workspace_root_path(str(managed_workspace), None) is True
     assert executor._is_workspace_root_path(str(fallback_cwd), None) is False
+
+
+def test_chat_guardrail_blocks_scan_outside_active_workspace(tmp_path) -> None:
+    executor = _executor()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    guarded_args, error = executor._apply_worker_explore_guardrails(
+        intent="chat",
+        tool_name="glob",
+        arguments={"pattern": "**/*.py", "path": str(outside)},
+        execution_workspace=str(workspace),
+    )
+
+    assert guarded_args == {}
+    assert error == (
+        "File scan guardrail: glob and grep must stay within the active workspace. "
+        f"Requested path resolves to {outside.resolve()} while workspace is {workspace.resolve()}. "
+        "Ask the user for an explicit path or use web-search first if the target may live outside the workspace."
+    )
+
+
+def test_chat_guardrail_allows_scan_within_active_workspace(tmp_path) -> None:
+    executor = _executor()
+    workspace = tmp_path / "workspace"
+    nested = workspace / "backend"
+    nested.mkdir(parents=True)
+
+    guarded_args, error = executor._apply_worker_explore_guardrails(
+        intent="chat",
+        tool_name="grep",
+        arguments={"pattern": "todo", "path": str(nested), "glob": "*.py"},
+        execution_workspace=str(workspace),
+    )
+
+    assert error is None
+    assert guarded_args == {
+        "pattern": "todo",
+        "path": str(nested),
+        "glob": "*.py",
+    }
+
+
+def test_chat_guardrail_allows_explicit_user_targeted_path(tmp_path) -> None:
+    executor = _executor()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    guarded_args, error = executor._apply_worker_explore_guardrails(
+        intent="chat",
+        tool_name="glob",
+        arguments={"pattern": "**/*.json", "path": str(outside)},
+        execution_workspace=str(workspace),
+        user_message=f"去 {outside} 下面查一下 json 文件",
+    )
+
+    assert error is None
+    assert guarded_args == {"pattern": "**/*.json", "path": str(outside)}
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_allows_explicit_user_targeted_external_scan(tmp_path) -> None:
+    executor = _executor()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    result = await executor._execute_tool_call(
+        tool_call=ToolCall(id="call-1", name="glob", arguments={"pattern": "**/*.json", "path": str(outside)}),
+        user_message=f"请去 {outside} 看看里面有哪些 json",
+        user_id="u",
+        session_id="s",
+        turn_id="t",
+        intent="chat",
+        execution_agent_id="a",
+        execution_workspace=str(workspace),
+        orchestration_strategy=None,
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_marks_ambiguous_scope_for_workspace_escape(tmp_path) -> None:
+    executor = _executor()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    result = await executor._execute_tool_call(
+        tool_call=ToolCall(id="call-1", name="glob", arguments={"pattern": "**/*.json", "path": str(outside)}),
+        user_message="帮我看看 AnotherProject 是怎么做的",
+        user_id="u",
+        session_id="s",
+        turn_id="t",
+        intent="chat",
+        execution_agent_id="a",
+        execution_workspace=str(workspace),
+        orchestration_strategy=None,
+    )
+
+    assert result.success is False
+    assert result.error_code == "AMBIGUOUS_SCOPE"
 
 
 @pytest.mark.asyncio

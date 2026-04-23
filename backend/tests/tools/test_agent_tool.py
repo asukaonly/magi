@@ -454,6 +454,46 @@ def test_agent_tool_prompt_includes_execution_environment():
     assert "Do not invent alternative Linux-style or macOS-style home paths" in prompt
 
 
+def test_agent_tool_general_prompt_matches_validator_schema():
+    tool = AgentTool()
+    prompt = tool._build_worker_system_prompt(
+        worker_id="worker_test",
+        subagent_type=tool.TYPE_GENERAL,
+        description="Compare memory systems",
+        selected_tools=["file_read", "grep"],
+    )
+
+    assert '"findings":[{"title":"string","detail":"string","path":"string","why_it_matters":"string"}]' in prompt
+    assert '"evidence":[{"path":"string","detail":"string"}]' in prompt
+
+
+def test_agent_tool_explore_prompt_requires_anchor_and_claim_validation():
+    tool = AgentTool()
+    prompt = tool._build_worker_system_prompt(
+        worker_id="worker_explore",
+        subagent_type=tool.TYPE_EXPLORE,
+        description="Analyze backend orchestration flow",
+        selected_tools=["glob", "grep", "file_read"],
+    )
+
+    assert "Identify the most concrete likely anchor first" in prompt
+    assert "If you mention a file, symbol, route, flag, or config key in findings" in prompt
+
+
+def test_agent_tool_plan_prompt_requires_anchor_first_decomposition():
+    tool = AgentTool()
+    prompt = tool._build_worker_system_prompt(
+        worker_id="worker_plan",
+        subagent_type=tool.TYPE_PLAN,
+        description="Plan bounded subtasks for backend tracing",
+        selected_tools=["glob", "grep", "file_read"],
+    )
+
+    assert "Start from the most concrete anchor or owning code path you can identify" in prompt
+    assert "Avoid generic subtasks like gathering context or summarizing risks" in prompt
+    assert "If you name a file, symbol, route, flag, or config key in findings or evidence" in prompt
+
+
 def test_agent_tool_prompt_defaults_to_managed_workspace_when_missing(
     monkeypatch,
     tmp_path: Path,

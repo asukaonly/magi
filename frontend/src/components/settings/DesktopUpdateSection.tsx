@@ -156,7 +156,7 @@ export function DesktopUpdateSection() {
   };
 
   return (
-    <section className="space-y-4 pt-4">
+    <section className="space-y-4">
       <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">
         {t('settings.updates.title')}
       </h3>

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, it, vi } from 'vitest';
 
 import { TasksPage } from '@/pages/Tasks';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
@@ -54,6 +54,7 @@ const makeTask = (overrides: Partial<BackgroundTaskDTO> = {}): BackgroundTaskDTO
     selected_tools: [],
     workspace_path: null,
     trigger_source: 'rule',
+    priority: 0,
     max_iterations: 10,
     timeout_seconds: null,
   },
@@ -76,7 +77,7 @@ describe('TasksPage', () => {
       tasksById: {},
       orderedIds: [],
       activeCount: 0,
-      lastRefreshedAt: null,
+      lastRefreshedAt: 0,
     });
   });
 

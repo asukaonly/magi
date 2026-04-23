@@ -74,6 +74,15 @@ class CancelSessionRunRequest(BaseModel):
     turn_id: Optional[str] = Field(default=None, description="Optional turn id that triggered cancellation")
 
 
+class DetachSessionRunRequest(BaseModel):
+    """Explicit detach request for the active session run."""
+
+    user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
+    requested_by: str = Field(default="user", description="Detach initiator")
+    reason: str = Field(default="user_detach", description="Detach reason")
+    turn_id: Optional[str] = Field(default=None, description="Optional turn id that triggered detaching")
+
+
 class MessageLabelRequest(BaseModel):
     """Single-label mutation payload for one chat message."""
 
@@ -476,6 +485,46 @@ async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
     return {
         "success": True,
         "message": "Run cancellation requested",
+        "data": {
+            "user_id": request.user_id,
+            "session_id": session_id,
+            **dict(outcome),
+        },
+    }
+
+
+@user_messages_router.post("/session/{session_id}/detach-run", response_model=Dict[str, Any])
+async def detach_session_run(session_id: str, request: DetachSessionRunRequest):
+    """Explicitly request that the active run detach into a background task."""
+    try:
+        runtime = require_agent_runtime()
+        manager = runtime.get_task_agent_manager()
+        agent = await manager.ensure_agent(TaskAgentType.CHAT, session_id)
+        detach_handler = getattr(agent, "request_session_detach", None)
+        if detach_handler is None:
+            raise RuntimeError("Chat task agent does not support explicit session detaching.")
+        outcome = await detach_handler(
+            session_id=session_id,
+            requested_by=request.requested_by,
+            reason=request.reason,
+            anchor_turn_id=request.turn_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    if outcome is None:
+        return {
+            "success": False,
+            "message": "No active run to detach",
+            "data": {
+                "user_id": request.user_id,
+                "session_id": session_id,
+            },
+        }
+
+    return {
+        "success": True,
+        "message": "Run detach requested",
         "data": {
             "user_id": request.user_id,
             "session_id": session_id,

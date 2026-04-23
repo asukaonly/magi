@@ -7,6 +7,7 @@ from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier
 from magi.agent.task_agents.chat.interruption_classifier import InterruptionDisposition
 from magi.agent.task_agents.chat.postprocess_service import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from magi.agent.task_agents.chat.session_run_coordinator import SessionRunCoordinator
+from magi.agent.run_control import DetachSignal
 from magi.agent.task_agents.common import IncomingFactKind
 from magi.events.events import EventTypes
 
@@ -291,6 +292,38 @@ def test_request_cancel_marks_active_run_cancelling_and_complete_run_marks_cance
     assert completed is True
     assert refreshed is not None
     assert refreshed.status == "cancelled"
+
+
+def test_request_detach_flags_the_bound_signal_for_an_active_run() -> None:
+    classifier = ChatFactClassifier()
+    coordinator = SessionRunCoordinator()
+    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
+    routed = coordinator.route(
+        classifier.classify(
+            agent_id="u-chat",
+            latest_fact=first_fact,
+            batch_facts=[first_fact],
+        )
+    )
+    assert routed.active_run is not None
+
+    signal = DetachSignal()
+    coordinator.bind_detach_signal("s-chat", signal)
+
+    detached_run = coordinator.request_detach(
+        session_id="s-chat",
+        requested_by="user",
+        reason="user_detach",
+        note="continue in background",
+    )
+
+    assert detached_run is not None
+    assert detached_run.status == "running"
+    assert signal.is_requested() is True
+    assert signal.payload is not None
+    assert signal.payload.requested_by == "user"
+    assert signal.payload.reason == "user_detach"
+    assert signal.payload.note == "continue in background"
 
 
 @pytest.mark.asyncio

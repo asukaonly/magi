@@ -89,6 +89,17 @@ class AskUserQuestionTool(Tool):
             ],
             tags=["control", "ask"],
             timeout=600,
+            metadata={
+                "task_intents": ["clarify_requirement"],
+                "domains": ["user"],
+                "operations": ["clarify"],
+                "query_shapes": ["blocking_decision", "missing_preference"],
+                "followed_by": [],
+                "avoid_task_intents": ["explore_codebase", "trace_implementation", "verify_source_claim", "research_external", "debug_runtime", "apply_change", "recall_context"],
+                "blocks_on_user": True,
+                "cost": "high",
+                "tool_hint": "Use only when a missing user decision blocks safe progress or would likely cause rework.",
+            },
         )
 
     async def execute(

@@ -1005,7 +1005,14 @@ class ChatReadService:
                 turn_id=str(row["turn_id"] or "").strip() or None,
                 label=ChatReadService._parse_label_payload(row["label_json"]).to_dict() if ChatReadService._parse_label_payload(row["label_json"]) else None,
             )
-        if message_kind in {"status_note", "system_notice"}:
+        if message_kind in {
+            "status_note",
+            "system_notice",
+            "plan_state",
+            "todo_state",
+            "permission_request",
+            "ask_request",
+        }:
             return ChatDisplayMessage(
                 role=role,
                 kind="status",
@@ -1014,6 +1021,7 @@ class ChatReadService:
                 message_id=str(row["message_id"]),
                 message_kind=message_kind,
                 turn_id=str(row["turn_id"] or "").strip() or None,
+                payload=dict(payload) if isinstance(payload, dict) else None,
                 label=ChatReadService._parse_label_payload(row["label_json"]).to_dict() if ChatReadService._parse_label_payload(row["label_json"]) else None,
             )
         if message_kind == "background_task_completion":

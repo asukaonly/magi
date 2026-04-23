@@ -6,6 +6,7 @@ import aiosqlite
 import pytest
 
 from magi.memory.embedding.embedding_service import EmbeddingResult
+from magi.memory.embedding import sqlite_vec_index as sqlite_vec_index_module
 from magi.memory.embedding.sqlite_vec_index import SqliteVecIndex
 
 
@@ -128,6 +129,15 @@ async def test_upsert_recreates_missing_registry_table_when_index_state_is_stale
         assert [row[0] for row in rows] == ["evt-1"]
     finally:
         await idx.close()
+
+
+def test_deserialize_float32_blob_falls_back_when_package_helper_is_missing(monkeypatch: pytest.MonkeyPatch):
+    raw = sqlite_vec_index_module.sqlite_vec.serialize_float32([1.0, 2.5, -3.0])
+    monkeypatch.delattr(sqlite_vec_index_module.sqlite_vec, "deserialize_float32", raising=False)
+
+    decoded = sqlite_vec_index_module._deserialize_float32_blob(raw)
+
+    assert decoded == pytest.approx([1.0, 2.5, -3.0])
 
 
 @pytest.mark.asyncio

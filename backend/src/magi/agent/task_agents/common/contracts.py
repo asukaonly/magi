@@ -56,6 +56,8 @@ class ToolSelection:
 
     tools: list[str] = field(default_factory=list)
     reasoning: str = ""
+    task_hint: dict[str, Any] = field(default_factory=dict)
+    recommended_tools: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

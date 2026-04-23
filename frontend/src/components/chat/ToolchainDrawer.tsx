@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, Clock3, Hammer, Hourglass, Loader2, MessageSquare } from 'lucide-react';
+import { Brain, Clock3, Hammer, Hourglass, Loader2, MessageSquare, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Sheet,
@@ -29,6 +29,37 @@ const formatDuration = (seconds: number): string => {
 
 const asRecord = (value: unknown): Record<string, unknown> => (
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+);
+
+const asArray = (value: unknown): unknown[] => (
+  Array.isArray(value) ? value : []
+);
+
+const asStringArray = (value: unknown): string[] => (
+  asArray(value)
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+);
+
+type RecommendedToolItem = {
+  tool: string;
+  reason: string;
+  priority: number | null;
+  domains: string[];
+  operations: string[];
+};
+
+const asRecommendedTools = (value: unknown): RecommendedToolItem[] => (
+  asArray(value)
+    .map((item) => asRecord(item))
+    .map((item) => ({
+      tool: String(item.tool || '').trim(),
+      reason: String(item.reason || '').trim(),
+      priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : null,
+      domains: asStringArray(item.domains),
+      operations: asStringArray(item.operations),
+    }))
+    .filter((item) => item.tool)
 );
 
 const formatMilliseconds = (value: unknown): string => {
@@ -94,6 +125,30 @@ const DetailBlock = ({ label, value }: { label: string; value: string }) => (
     <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</div>
     <div className="mt-2 text-sm font-medium text-foreground">{value}</div>
   </div>
+);
+
+const TokenPill = ({ children }: { children: React.ReactNode }) => (
+  <span className="inline-flex items-center rounded-full border border-border/60 bg-background/85 px-2.5 py-1 text-xs font-medium text-foreground shadow-sm">
+    {children}
+  </span>
+);
+
+const TokenListSection = ({
+  icon,
+  label,
+  items,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  items: string[];
+}) => (
+  <ContentSection icon={icon} label={label}>
+    <div className="flex flex-wrap gap-2">
+      {items.map((item) => (
+        <TokenPill key={item}>{item}</TokenPill>
+      ))}
+    </div>
+  </ContentSection>
 );
 
 const ContentSection = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
@@ -170,6 +225,22 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
         }).filter(([, value]) => value !== undefined && value !== null && value !== '')
       );
     },
+    [selectedMetadata],
+  );
+  const selectedTaskHint = React.useMemo(
+    () => asRecord(selectedMetadata.task_hint),
+    [selectedMetadata],
+  );
+  const selectedTools = React.useMemo(
+    () => asStringArray(selectedMetadata.selected_tools),
+    [selectedMetadata],
+  );
+  const routerTools = React.useMemo(
+    () => asStringArray(selectedMetadata.router_tools),
+    [selectedMetadata],
+  );
+  const recommendedTools = React.useMemo(
+    () => asRecommendedTools(selectedMetadata.recommended_tools),
     [selectedMetadata],
   );
 
@@ -376,10 +447,17 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                       {/* -- Intent-specific detail -- */}
                       {(selectedNode.kind === 'intent' || selectedNode.kind === 'intent_resolution') && (
                         <>
-                          <div className="grid gap-3 md:grid-cols-2">
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                             {!!selectedMetadata.intent_label && <DetailBlock label={t('chat.trace.intentLabel')} value={String(selectedMetadata.intent_label)} />}
                             {!!selectedMetadata.execution_mode && <DetailBlock label={t('chat.trace.executionMode')} value={String(selectedMetadata.execution_mode)} />}
+                            {!!selectedTaskHint.task_intent && <DetailBlock label={t('chat.trace.taskIntent')} value={String(selectedTaskHint.task_intent)} />}
+                            {!!selectedTaskHint.operation && <DetailBlock label={t('chat.trace.taskOperation')} value={String(selectedTaskHint.operation)} />}
                           </div>
+                          {!!selectedTaskHint.domain && (
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                              <DetailBlock label={t('chat.trace.taskDomain')} value={String(selectedTaskHint.domain)} />
+                            </div>
+                          )}
                           {(Number(selectedMetrics.input_tokens) > 0 || Number(selectedMetrics.output_tokens) > 0) && (
                             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                               <DetailBlock label={t('chat.trace.model')} value={String(selectedMetrics.model || selectedMetadata.model || '--')} />
@@ -393,9 +471,49 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                               <PreBlock>{String(selectedMetadata.route_reason)}</PreBlock>
                             </ContentSection>
                           )}
-                          {selectedMetadata.selected_tools && (
-                            <ContentSection label={t('chat.trace.selectedTools')}>
-                              <PreBlock>{stringifyStructuredValue(selectedMetadata.selected_tools)}</PreBlock>
+                          {!!routerTools.length && (
+                            <TokenListSection
+                              icon={<Search className="h-3.5 w-3.5" />}
+                              label={t('chat.trace.routerTools')}
+                              items={routerTools}
+                            />
+                          )}
+                          {!!selectedTools.length && (
+                            <TokenListSection
+                              icon={<Hammer className="h-3.5 w-3.5" />}
+                              label={t('chat.trace.selectedTools')}
+                              items={selectedTools}
+                            />
+                          )}
+                          {!!recommendedTools.length && (
+                            <ContentSection icon={<Brain className="h-3.5 w-3.5" />} label={t('chat.trace.recommendedTools')}>
+                              <div className="space-y-3">
+                                {recommendedTools.map((item) => {
+                                  const chips = [...item.domains, ...item.operations];
+                                  return (
+                                    <div key={`${item.priority ?? 'x'}:${item.tool}`} className="rounded-2xl border border-border/60 bg-background/85 px-4 py-3 shadow-sm">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <div className="text-sm font-semibold text-foreground">{item.tool}</div>
+                                        {item.priority !== null && (
+                                          <span className="rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                            #{item.priority}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {item.reason && (
+                                        <div className="mt-2 text-sm leading-6 text-foreground/85">{item.reason}</div>
+                                      )}
+                                      {!!chips.length && (
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                          {chips.map((chip) => (
+                                            <TokenPill key={`${item.tool}:${chip}`}>{chip}</TokenPill>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </ContentSection>
                           )}
                         </>

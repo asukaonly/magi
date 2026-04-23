@@ -113,6 +113,17 @@ class FileEditTool(Tool):
             retry_on_failure=False,
             dangerous=True,  # Editing files is a dangerous operation
             tags=["file", "edit", "io"],
+            metadata={
+                "task_intents": ["apply_change"],
+                "domains": ["codebase", "config"],
+                "operations": ["edit"],
+                "query_shapes": ["targeted_patch", "exact_replacement"],
+                "followed_by": ["file_read"],
+                "avoid_task_intents": ["explore_codebase", "research_external", "clarify_requirement", "recall_context"],
+                "requires_known_target": True,
+                "cost": "medium",
+                "tool_hint": "Use after reading the target slice and confirming the exact replacement; best for surgical in-place edits.",
+            },
         )
 
     async def execute(

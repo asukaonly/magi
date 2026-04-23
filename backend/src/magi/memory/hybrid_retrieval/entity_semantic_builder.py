@@ -64,8 +64,10 @@ class EntityScopedSemanticBuilder:
         if self._config_getter is not None:
             try:
                 cfg = self._config_getter()
-                es = getattr(getattr(cfg, "agent", None), "memory", None)
-                es = getattr(es, "entity_semantic_edges", None)
+                memory_cfg = getattr(getattr(cfg, "agent", None), "memory", None)
+                if memory_cfg is None and hasattr(cfg, "entity_semantic_edges"):
+                    memory_cfg = cfg
+                es = getattr(memory_cfg, "entity_semantic_edges", None)
                 if es is not None:
                     return (
                         bool(getattr(es, "enabled", False)),

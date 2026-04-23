@@ -83,7 +83,9 @@ async def test_todo_replace_happy_path() -> None:
     assert all(t.id for t in todos)
 
     listed = store.list_todos("s1")
-    assert [t.title for t in listed] == ["read spec", "write tests", "ship"]
+    assert [t.content for t in listed] == ["read spec", "write tests", "ship"]
+    assert all(t.created_at_ms > 0 for t in listed)
+    assert all(t.updated_at_ms >= t.created_at_ms for t in listed)
 
 
 @pytest.mark.asyncio
@@ -129,8 +131,29 @@ async def test_todo_full_replace_semantics() -> None:
         "s1",
         [{"title": "new1"}, {"title": "new2"}],
     )
-    titles = [t.title for t in store.list_todos("s1")]
-    assert titles == ["new1", "new2"]
+    contents = [t.content for t in store.list_todos("s1")]
+    assert contents == ["new1", "new2"]
+
+
+@pytest.mark.asyncio
+async def test_todo_accepts_content_payloads() -> None:
+    store = ControlSessionStore()
+    todos = await store.replace_todos(
+        "s1",
+        [
+            {
+                "id": "todo-1",
+                "content": "inspect logs",
+                "status": "in_progress",
+                "created_at_ms": 10,
+                "updated_at_ms": 25,
+            }
+        ],
+    )
+
+    assert [t.content for t in todos] == ["inspect logs"]
+    assert todos[0].created_at_ms == 10
+    assert todos[0].updated_at_ms == 25
 
 
 @pytest.mark.asyncio

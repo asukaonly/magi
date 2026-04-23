@@ -5,6 +5,18 @@ import { api } from '../client';
 import type { PersonalityConfig } from './personas';
 import { DEFAULT_PERSONALITY_CONFIG } from './personas';
 
+export interface PersonalitySettingsConfig {
+  state_memory_enabled: boolean;
+  state_transition_enabled: boolean;
+  deep_persona_enabled: boolean;
+}
+
+export const DEFAULT_PERSONALITY_SETTINGS_CONFIG: PersonalitySettingsConfig = {
+  state_memory_enabled: true,
+  state_transition_enabled: true,
+  deep_persona_enabled: true,
+};
+
 export type UserMode = 'quick' | 'expert' | null;
 export type LanguageCode = 'zh' | 'en';
 export type LLMProvider =
@@ -400,6 +412,7 @@ export interface SystemConfig {
   preferences: UserPreferences;
   network: NetworkProxyConfig;
   personality: PersonalityConfig;
+  personalitySettings: PersonalitySettingsConfig;
   tools: ToolsConfig;
   timeline: TimelineConfig;
 }
@@ -573,6 +586,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     port: 7890,
   },
   personality: DEFAULT_PERSONALITY_CONFIG,
+  personalitySettings: DEFAULT_PERSONALITY_SETTINGS_CONFIG,
   tools: {
     builtIn: {
       weather: { enabled: true, provider: 'qweather' },

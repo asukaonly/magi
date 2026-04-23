@@ -107,6 +107,16 @@ class GlobTool(Tool):
             retry_on_failure=False,
             dangerous=False,
             tags=["file", "find", "pattern", "glob"],
+            metadata={
+                "task_intents": ["explore_codebase", "trace_implementation"],
+                "domains": ["codebase"],
+                "operations": ["discover"],
+                "query_shapes": ["path_or_module", "glob_pattern"],
+                "followed_by": ["grep", "file_read"],
+                "avoid_task_intents": ["research_external", "clarify_requirement", "recall_context"],
+                "cost": "cheap",
+                "tool_hint": "Use first to locate candidate files or folders from path or module clues before narrowing with grep or file_read.",
+            },
         )
 
     async def execute(

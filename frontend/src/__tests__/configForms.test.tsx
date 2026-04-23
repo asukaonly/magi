@@ -614,6 +614,23 @@ describe('config forms', () => {
         },
         provider_options: {},
       },
+      embedding: {
+        provider_id: 'openai',
+        model: 'text-embedding-3-large',
+        capability_override_enabled: false,
+        capabilities: {
+          vision: false,
+          image_output: false,
+          tool_calling: false,
+          reasoning: false,
+          embedding: true,
+        },
+        limits: {
+          context_window: 8192,
+          max_output_tokens: 0,
+        },
+        provider_options: {},
+      },
     },
     model_runtime_overrides: {},
   };
@@ -1508,6 +1525,8 @@ describe('config forms', () => {
     await user.clear(await screen.findByLabelText('llm.fields.apiKey'));
     await user.type(screen.getByLabelText('llm.fields.apiKey'), 'sk-draft-openai');
     await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
+    const testMenu = await screen.findByTestId('llm-provider-test-model-menu');
+    await user.click((within(testMenu).getByText('GPT-5.2') as HTMLElement).closest('button') as HTMLButtonElement);
 
     await waitFor(() => {
       expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith({
@@ -1522,6 +1541,29 @@ describe('config forms', () => {
     });
 
     expect(screen.getByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
+  });
+
+  it('lets users choose which chat model to test', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'llm.actions.testConnection' }));
+    const testMenu = await screen.findByTestId('llm-provider-test-model-menu');
+    await user.click((within(testMenu).getByText('GPT-4.1 Mini') as HTMLElement).closest('button') as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider_id: 'openai',
+          model: 'gpt-4.1-mini',
+        })
+      );
+    });
   });
 
   it('lets users reveal and hide provider api keys locally', async () => {
@@ -1554,13 +1596,18 @@ describe('config forms', () => {
         ...llmValue.selections,
         context_decider: {
           ...llmValue.selections.context_decider,
-          provider_id: 'glm',
-          model: 'glm-5',
+          provider_id: 'openai',
+          model: 'gpt-5.2',
         },
         core: {
           ...llmValue.selections.core,
+          provider_id: 'openai',
+          model: 'gpt-5.2',
+        },
+        embedding: {
+          ...llmValue.selections.embedding,
           provider_id: 'glm',
-          model: 'glm-5',
+          model: 'embedding-3',
         },
       },
       providers: {
@@ -1581,6 +1628,9 @@ describe('config forms', () => {
     const providerList = await screen.findByTestId('llm-provider-list-pane');
     await user.click((within(providerList).getByText('Z.ai') as HTMLElement).closest('button') as HTMLButtonElement);
     await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
+    const testMenu = await screen.findByTestId('llm-provider-test-model-menu');
+    expect(within(testMenu).queryByText('Embedding-3')).not.toBeInTheDocument();
+    await user.click((within(testMenu).getByText('GLM-5') as HTMLElement).closest('button') as HTMLButtonElement);
 
     await waitFor(() => {
       expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith({

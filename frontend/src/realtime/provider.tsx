@@ -88,27 +88,20 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
         const payload = message.data as Record<string, unknown>;
         const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
         const turnId = String(payload.turn_id || '').trim();
-        const event = (payload.event ?? null) as Record<string, unknown> | null;
-        if (sessionId && turnId && event && typeof event === 'object') {
-          const kind = String(event.kind || '');
-          if (kind === 'text_delta') {
-            const textDelta = String(event.text ?? '');
-            if (textDelta) {
-              conversationStore.appendStreamTextDelta({ sessionId, turnId, textDelta });
-            }
-          } else if (kind === 'text_flush') {
-            conversationStore.appendStreamTextFlush({ sessionId, turnId });
-          } else if (kind === 'reasoning_delta') {
-            const textDelta = String(event.text ?? '');
-            if (textDelta) {
-              conversationStore.appendStreamReasoningDelta({
-                sessionId,
-                turnId,
-                source: String(event.source || 'chat'),
-                stepLabel: event.step_label != null ? String(event.step_label) : null,
-                textDelta,
-              });
-            }
+        if (sessionId && turnId) {
+          const contentDelta = String(payload.content_delta || '');
+          if (contentDelta) {
+            conversationStore.appendStreamTextDelta({
+              sessionId,
+              turnId,
+              textDelta: contentDelta,
+            });
+          }
+          if (Boolean(payload.is_final)) {
+            conversationStore.appendStreamTextFlush({
+              sessionId,
+              turnId,
+            });
           }
         }
         return;

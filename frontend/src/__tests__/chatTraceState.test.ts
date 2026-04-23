@@ -144,6 +144,43 @@ describe('chat trace state helpers', () => {
     expect(shouldShowTraceEntry(prominentMessage)).toBe(true);
   });
 
+  it('keeps trace entry helper enabled for collapsible direct replies', () => {
+    const directReply = applyAgentResponse(
+      applyTurnUxPlan(
+        createPendingTurn('你好', 'turn-direct', 1000, 'Thinking'),
+        'turn-direct',
+        {
+          assistantSurfaceMode: 'final_only',
+          traceDisplayMode: 'collapsible',
+        }
+      ),
+      {
+        content: '你好，我在。',
+        timestamp: 2000,
+        turnId: 'turn-direct',
+        uxPlan: {
+          assistantSurfaceMode: 'final_only',
+          traceDisplayMode: 'collapsible',
+        },
+        traceSummary: normalizeTraceSummary({
+          turn_id: 'turn-direct',
+          mode: 'direct_llm',
+          status: 'completed',
+          headline: '直答已完成',
+          active_steps: 0,
+          completed_steps: 1,
+          failed_steps: 0,
+          duration_seconds: 0.8,
+          trace_available: true,
+        }),
+        traceAvailable: true,
+      }
+    ).find((message) => message.kind === 'assistant')!;
+
+    expect(directReply.traceDisplayMode).toBe('collapsible');
+    expect(shouldShowTraceEntry(directReply)).toBe(true);
+  });
+
   it('preserves trace continuation metadata when normalizing a snapshot', () => {
     const snapshot = normalizeTraceSnapshot({
       turn_id: 'turn-2',
@@ -475,6 +512,31 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it('preserves persisted collapsible trace preferences for direct replies', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-direct',
+        message_kind: 'assistant_final',
+        role: 'assistant',
+        content: '你好，我在。',
+        timestamp: 1000,
+        turn_id: 'turn_direct_trace',
+        kind: 'assistant',
+        trace_available: true,
+        trace_display_mode: 'collapsible',
+        allow_trace_collapse: false,
+      },
+    ]);
+
+    expect(normalized[0]).toMatchObject({
+      id: 'msg-direct',
+      messageId: 'msg-direct',
+      traceDisplayMode: 'collapsible',
+      allowTraceCollapse: false,
+      traceAvailable: true,
+    });
+  });
+
   it('normalizes persisted message labels from history rows', () => {
     const normalized = normalizeHistoryMessages([
       {
@@ -504,7 +566,7 @@ describe('chat trace state helpers', () => {
     });
   });
 
-  it('flattens the planning node out of the trace tree for drawer display', () => {
+  it('preserves the planning node in the trace tree for drawer display', () => {
     const root = flattenPlanningNodeForDisplay({
       id: 'turn_1:root',
       kind: 'root',
@@ -545,7 +607,84 @@ describe('chat trace state helpers', () => {
     });
 
     expect(root.children).toHaveLength(1);
-    expect(root.children[0].kind).toBe('worker');
-    expect(root.children[0].label).toBe('scan backend');
+    expect(root.children[0].kind).toBe('planning');
+    expect(root.children[0].label).toBe('任务编排');
+  });
+
+  it('synthesizes a planning node from raw dispatch rows when the backend snapshot is still unshaped', () => {
+    const root = flattenPlanningNodeForDisplay({
+      id: 'turn_2:root',
+      kind: 'root',
+      label: 'Tool chain',
+      status: 'completed',
+      startedAt: 10,
+      endedAt: 20,
+      resultPreview: '',
+      error: null,
+      metadata: {},
+      children: [
+        {
+          id: 'turn_2:intent',
+          kind: 'intent',
+          label: 'Intent resolution',
+          status: 'completed',
+          startedAt: 10,
+          endedAt: 11,
+          resultPreview: '',
+          error: null,
+          metadata: {},
+          children: [],
+        },
+        {
+          id: 'turn_2:dispatch:1',
+          kind: 'dispatch',
+          label: 'Worker dispatch',
+          status: 'completed',
+          startedAt: 11,
+          endedAt: 11,
+          resultPreview: 'Compare Magi and Hindsight memory systems',
+          error: null,
+          metadata: {},
+          children: [],
+        },
+        {
+          id: 'turn_2:iteration:1',
+          kind: 'iteration',
+          label: 'Round 1',
+          status: 'completed',
+          startedAt: 12,
+          endedAt: 19,
+          resultPreview: '',
+          error: null,
+          metadata: { iteration: 1 },
+          children: [],
+        },
+        {
+          id: 'turn_2:response',
+          kind: 'response',
+          label: 'Response emission',
+          status: 'completed',
+          startedAt: 19,
+          endedAt: 20,
+          resultPreview: 'Final answer ready',
+          error: null,
+          metadata: {},
+          children: [],
+        },
+      ],
+    });
+
+    expect(root.children).toHaveLength(3);
+    expect(root.children.map((child) => child.kind)).toEqual(['intent', 'planning', 'response']);
+    expect(root.children[1]).toMatchObject({
+      kind: 'planning',
+      label: 'Task orchestration',
+      metadata: { synthetic: true, hidden_iteration_count: 1 },
+    });
+    expect(root.children[1].children[0]).toMatchObject({
+      kind: 'dispatch',
+      label: 'Compare Magi and Hindsight memory systems',
+      resultPreview: '',
+    });
   });
 });

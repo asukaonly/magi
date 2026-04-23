@@ -198,6 +198,22 @@ class NetworkProxyConfigModel(BaseModel):
     port: int = Field(default=7890, ge=1, le=65535)
 
 
+class PersonalitySettingsModel(BaseModel):
+    state_memory_enabled: bool = Field(default=True)
+    state_transition_enabled: bool = Field(default=True)
+    deep_persona_enabled: bool = Field(default=True)
+
+    def normalized(self) -> "PersonalitySettingsModel":
+        """Apply dependency rules so child features never outlive state memory."""
+        if not self.state_memory_enabled:
+            return PersonalitySettingsModel(
+                state_memory_enabled=False,
+                state_transition_enabled=False,
+                deep_persona_enabled=False,
+            )
+        return self
+
+
 # Import full PersonalityConfigModel from personality config module
 from .personality_config import PersonalityConfigModel as FullPersonalityConfigModel
 
@@ -272,6 +288,7 @@ class SystemConfigModel(BaseModel):
     preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
     network: NetworkProxyConfigModel = Field(default_factory=NetworkProxyConfigModel)
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
+    personalitySettings: PersonalitySettingsModel = Field(default_factory=PersonalitySettingsModel)
     tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
     timeline: TimelineConfigModel = Field(default_factory=TimelineConfigModel)
 
@@ -546,6 +563,11 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
         preferences=UserPreferencesModel(**preferences_data),
         network=NetworkProxyConfigModel(**network_data),
         personality=_load_full_personality(),
+        personalitySettings=PersonalitySettingsModel(
+            state_memory_enabled=bool(getattr(runtime_config.agent.personality, "enable_state_memory", True)),
+            state_transition_enabled=bool(getattr(runtime_config.agent.personality, "enable_state_transition", True)),
+            deep_persona_enabled=bool(getattr(runtime_config.agent.personality, "enable_deep_persona", True)),
+        ).normalized(),
         tools=_build_tools(raw, runtime_config),
         timeline=TimelineConfigModel(
             **(raw.get("timeline", {}) if isinstance(raw.get("timeline"), dict) else {})
@@ -699,6 +721,7 @@ def _prune_sparse_value(value: Any) -> Any:
 
 def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     _apply_llm_registry_defaults(config, _load_llm_provider_registry())
+    personality_settings = config.personalitySettings.normalized()
 
     for selection_id, selection in config.llm.selections.items():
         if not str(selection.provider_id or "").strip():
@@ -770,7 +793,10 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "network": config.network.model_dump(),
         "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",
         "agent.personality.path": "~/.magi/personalities",
-        "agent.personality.enable_evolution": True,
+        "agent.personality.enable_evolution": personality_settings.state_memory_enabled,
+        "agent.personality.enable_state_memory": personality_settings.state_memory_enabled,
+        "agent.personality.enable_state_transition": personality_settings.state_transition_enabled,
+        "agent.personality.enable_deep_persona": personality_settings.deep_persona_enabled,
         "timeline": _prune_sparse_value(config.timeline.model_dump(exclude_none=True)),
         "tools.builtIn": _prune_sparse_value(config.tools.builtIn.model_dump(exclude_none=True)),
         "tools.skills": config.tools.skills,

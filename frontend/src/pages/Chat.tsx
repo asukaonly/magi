@@ -24,8 +24,7 @@ import { useRealtime } from '@/realtime/provider';
 import { useChatTraceStore, useConversationStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { ContextUsageRing } from '@/components/chat/ContextUsageRing';
-import { ThinkingPanel } from '@/components/chat/ThinkingPanel';
-import { SessionControlRail } from '@/components/control';
+import { SessionSafetyControl } from '@/components/control';
 import { useContextUsageStore } from '@/stores/context-usage';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
@@ -133,6 +132,8 @@ const LABEL_POPOVER_WIDTH = 336;
 const LABEL_POPOVER_HEIGHT = 272;
 const BOOTSTRAP_PENDING_TURN_ID = 'bootstrap-init-pending';
 const BOOTSTRAP_PENDING_MESSAGE_ID = 'bootstrap-init-pending';
+const OPEN_PERMISSION_REQUEST_EVENT = 'magi-open-permission-request';
+const OPEN_ASK_REQUEST_EVENT = 'magi-open-ask-request';
 
 type MessageContextMenuState = {
   message: ChatTimelineMessage;
@@ -219,28 +220,56 @@ interface DraftAttachmentResolution {
 }
 
 const assistantMarkdownComponents: Components = {
-  h1: ({ children }) => <h1 className="mb-3 mt-1 text-lg font-semibold leading-snug text-foreground">{children}</h1>,
-  h2: ({ children }) => <h2 className="mb-3 mt-5 text-base font-semibold leading-snug text-foreground first:mt-0">{children}</h2>,
-  h3: ({ children }) => <h3 className="mb-2 mt-4 text-sm font-semibold leading-snug text-foreground">{children}</h3>,
-  p: ({ children }) => <p className="mb-3 whitespace-pre-wrap text-sm leading-7 text-foreground last:mb-0">{children}</p>,
-  ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 text-sm leading-7 text-foreground">{children}</ul>,
-  ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm leading-7 text-foreground">{children}</ol>,
-  li: ({ children }) => <li className="pl-1 marker:text-muted-foreground">{children}</li>,
+  h1: ({ children }) => (
+    <h1 className="mb-4 mt-1 border-b border-border/60 pb-2 text-xl font-semibold tracking-[-0.03em] text-foreground">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mb-3 mt-6 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground first:mt-0">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold leading-snug text-foreground">{children}</h3>,
+  p: ({ children }) => <p className="mb-4 whitespace-pre-wrap text-sm leading-7 text-foreground last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="mb-4 list-disc space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-4 list-decimal space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ol>,
+  li: ({ children }) => <li className="pl-1">{children}</li>,
   blockquote: ({ children }) => (
-    <blockquote className="mb-3 border-l-2 border-border/80 pl-3 text-sm italic leading-7 text-muted-foreground">
+    <blockquote className="mb-4 rounded-r-2xl border-l-4 border-primary/35 bg-primary/5 px-4 py-3 text-sm leading-7 text-foreground/85 shadow-sm">
       {children}
     </blockquote>
   ),
-  code: ({ children }) => (
-    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
-  ),
+  code: ({ className, children }) => {
+    const content = String(children ?? '').replace(/\n$/, '');
+    const isBlockCode = Boolean(className) || content.includes('\n');
+    if (isBlockCode) {
+      return <code className="font-mono text-[13px] leading-7 text-inherit">{children}</code>;
+    }
+    return (
+      <code className="rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 font-mono text-[0.84em] text-foreground shadow-sm">
+        {children}
+      </code>
+    );
+  },
   pre: ({ children }) => (
-    <pre className="mb-3 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-3 text-xs leading-6 text-foreground">
+    <pre className="mb-4 overflow-x-auto rounded-2xl border border-foreground/10 bg-foreground px-4 py-4 text-[13px] leading-7 text-background shadow-sm">
       {children}
     </pre>
   ),
+  table: ({ children }) => (
+    <div className="mb-4 overflow-x-auto rounded-2xl border border-border/60 bg-background/80 shadow-sm">
+      <table className="min-w-full border-collapse text-sm leading-6 text-foreground">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-muted/60 text-left text-xs uppercase tracking-[0.16em] text-muted-foreground">{children}</thead>,
+  tbody: ({ children }) => <tbody className="divide-y divide-border/50">{children}</tbody>,
+  tr: ({ children }) => <tr className="align-top">{children}</tr>,
+  th: ({ children }) => <th className="px-3 py-2 font-semibold">{children}</th>,
+  td: ({ children }) => <td className="px-3 py-2.5 text-sm text-foreground/90">{children}</td>,
+  hr: () => <hr className="my-5 border-border/60" />,
   a: ({ href, children }) => (
-    <a href={href} className="text-primary underline decoration-primary/50 underline-offset-2" target="_blank" rel="noreferrer">
+    <a href={href} className="font-medium text-primary underline decoration-primary/45 underline-offset-4 transition-colors hover:text-primary/80" target="_blank" rel="noreferrer">
       {children}
     </a>
   ),
@@ -436,6 +465,7 @@ export const ChatPage: React.FC = () => {
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
   const [cancellingTurnIds, setCancellingTurnIds] = useState<string[]>([]);
+  const [detachingTurnIds, setDetachingTurnIds] = useState<string[]>([]);
   const [executionControlByTurnId, setExecutionControlByTurnId] = useState<Record<string, TurnExecutionControlState>>({});
   const [composerReplyTarget, setComposerReplyTarget] = useState<ChatTimelineReplyPreview | null>(null);
   const [labelPopoverState, setLabelPopoverState] = useState<LabelPopoverState | null>(null);
@@ -537,6 +567,7 @@ export const ChatPage: React.FC = () => {
 
   useEffect(() => {
     setCancellingTurnIds([]);
+    setDetachingTurnIds([]);
     setExecutionControlByTurnId({});
   }, [currentSessionId]);
 
@@ -972,8 +1003,14 @@ export const ChatPage: React.FC = () => {
         return;
       }
 
+      if (state === 'detaching') {
+        setDetachingTurnIds((current) => (current.includes(turnId) ? current : [...current, turnId]));
+        return;
+      }
+
       if (['cancelled', 'completed', 'failed', 'interrupted', 'merged'].includes(state)) {
         setCancellingTurnIds((current) => current.filter((item) => item !== turnId));
+        setDetachingTurnIds((current) => current.filter((item) => item !== turnId));
         setTurnActive(false);
         setPendingResponseTurnId(null);
       }
@@ -1043,7 +1080,6 @@ export const ChatPage: React.FC = () => {
 
   useEffect(() => {
     if (!currentSessionId) return;
-    if (lastHistoryRequestRef.current === currentSessionId) return;
     void requestHistory(currentSessionId);
     void loadPersonality();
   }, [currentSessionId, requestHistory, loadPersonality]);
@@ -1281,6 +1317,23 @@ export const ChatPage: React.FC = () => {
     }
   }, [cancellingTurnIds, currentSessionId, t]);
 
+  const requestRunDetach = useCallback(async (turnId: string) => {
+    const normalizedTurnId = String(turnId || '').trim();
+    if (!currentSessionId || !normalizedTurnId) return;
+    if (detachingTurnIds.includes(normalizedTurnId)) return;
+    setDetachingTurnIds((current) => [...current, normalizedTurnId]);
+    try {
+      await messagesApi.detachRun(USER_ID, currentSessionId, {
+        reason: 'user_detach',
+        turnId: normalizedTurnId,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error(t('chat.trace.detachFailed'));
+      setDetachingTurnIds((current) => current.filter((item) => item !== normalizedTurnId));
+    }
+  }, [currentSessionId, detachingTurnIds, t]);
+
   const renderTraceEntry = (message: ChatTimelineMessage) => {
     const turnId = message.turnId;
     const traceSummary = turnId ? summaries[turnId] : undefined;
@@ -1378,20 +1431,257 @@ export const ChatPage: React.FC = () => {
     );
   };
 
+  const renderPermissionRequestCard = (message: ChatTimelineMessage) => {
+    const payload = (message.payload || {}) as Record<string, unknown>;
+    const requestId = String(payload.permission_request_id || '').trim();
+    const tool = String(payload.tool || message.content || '').trim();
+    const riskLevel = String(payload.risk_level || '').trim().toLowerCase();
+    const origin = String(payload.origin || '').trim();
+    const argsPreview = (() => {
+      try {
+        return JSON.stringify(payload.tool_args || {}, null, 2);
+      } catch {
+        return String(payload.tool_args || '');
+      }
+    })();
+    const riskToneClass = (() => {
+      switch (riskLevel) {
+        case 'high':
+        case 'destructive':
+        case 'critical':
+          return 'border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300';
+        case 'medium':
+          return 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+        default:
+          return 'border-border/60 bg-muted/40 text-muted-foreground';
+      }
+    })();
+
+    return (
+      <motion.div
+        key={message.id}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+        className="mb-5 flex justify-center"
+      >
+        <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t('control:permission.title')}
+            </span>
+            <span className={`ml-auto inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${riskToneClass}`}>
+              {t(`control:permission.risk_${riskLevel}`, { defaultValue: riskLevel || 'pending' })}
+            </span>
+          </div>
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-foreground">{tool}</div>
+            <p className="m-0 text-sm text-muted-foreground">
+              {t('control:permission.card.waiting')}
+            </p>
+          </div>
+          {origin ? (
+            <div className="text-xs text-muted-foreground">
+              {t('control:permission.origin')}: {origin}
+            </div>
+          ) : null}
+          {argsPreview ? (
+            <pre className="max-h-40 overflow-auto rounded-lg bg-muted/55 p-2 text-xs text-muted-foreground">
+              {argsPreview}
+            </pre>
+          ) : null}
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent(OPEN_PERMISSION_REQUEST_EVENT, {
+                  detail: { requestId },
+                }));
+              }}
+            >
+              {t('control:permission.card.review')}
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderAskRequestCard = (message: ChatTimelineMessage) => {
+    const payload = (message.payload || {}) as Record<string, unknown>;
+    const question = String(payload.question || message.content || '').trim();
+    const options = Array.isArray(payload.options)
+      ? payload.options.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+    const allowFreeText = Boolean(payload.allow_free_text);
+    const isBackground = Boolean(payload.background);
+
+    return (
+      <motion.div
+        key={message.id}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+        className="mb-5 flex justify-center"
+      >
+        <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t('control:ask.title')}
+            </span>
+            {isBackground ? (
+              <span className="ml-auto inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {t('control:ask.background_badge')}
+              </span>
+            ) : null}
+          </div>
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-foreground">{question}</div>
+            <p className="m-0 text-sm text-muted-foreground">
+              {t('control:ask.card.waiting')}
+            </p>
+          </div>
+          {options.length ? (
+            <div className="flex flex-wrap gap-2">
+              {options.map((option) => (
+                <span
+                  key={option}
+                  className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground"
+                >
+                  {option}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>
+              {allowFreeText ? t('control:ask.card.free_text') : t('control:ask.free_text_disabled')}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                window.dispatchEvent(new Event(OPEN_ASK_REQUEST_EVENT));
+              }}
+            >
+              {t('control:ask.card.answer')}
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderPlanStateCard = (message: ChatTimelineMessage) => {
+    const payload = (message.payload || {}) as Record<string, unknown>;
+    const active = Boolean(payload.active);
+    const planText = String(payload.plan_text || message.content || '').trim();
+
+    return (
+      <motion.div
+        key={message.id}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+        className="mb-5 flex justify-center"
+      >
+        <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {active ? t('control:plan.badge_active') : t('control:plan.badge_inactive')}
+            </span>
+            <span className="ml-auto inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {active ? t('control:plan.entered') : t('control:plan.exited')}
+            </span>
+          </div>
+          {planText ? (
+            <pre className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{planText}</pre>
+          ) : (
+            <p className="m-0 text-sm text-muted-foreground">{t('control:plan.empty')}</p>
+          )}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderTodoStateCard = (message: ChatTimelineMessage) => {
+    const payload = (message.payload || {}) as Record<string, unknown>;
+    const items = Array.isArray(payload.items)
+      ? payload.items.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+      : [];
+
+    return (
+      <motion.div
+        key={message.id}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+        className="mb-5 flex justify-center"
+      >
+        <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('control:todo.title')}
+          </div>
+          {items.length ? (
+            <ul className="space-y-2">
+              {items.map((item) => {
+                const id = String(item.id || item.content || Math.random());
+                const content = String(item.content || '').trim();
+                const status = String(item.status || 'not_started').trim() as 'not_started' | 'in_progress' | 'completed';
+                const glyph = status === 'completed' ? '●' : status === 'in_progress' ? '◐' : '○';
+                return (
+                  <li key={id} className={`flex items-start gap-2 text-sm ${status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                    <span className="shrink-0 font-mono">{glyph}</span>
+                    <span className="flex-1">{content}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{t(`control:todo.status.${status}`)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="m-0 text-sm text-muted-foreground">{t('control:todo.empty')}</p>
+          )}
+        </div>
+      </motion.div>
+    );
+  };
+
   const renderStatusCard = (message: ChatTimelineMessage) => {
     if (message.messageKind === 'background_task_completion') {
       return renderBackgroundCompletionCard(message);
+    }
+    if (message.messageKind === 'plan_state') {
+      return renderPlanStateCard(message);
+    }
+    if (message.messageKind === 'todo_state') {
+      return renderTodoStateCard(message);
+    }
+    if (message.messageKind === 'ask_request') {
+      return renderAskRequestCard(message);
+    }
+    if (message.messageKind === 'permission_request') {
+      return renderPermissionRequestCard(message);
     }
     const turnId = String(message.turnId || '').trim();
     const isBootstrapInitPending = turnId === BOOTSTRAP_PENDING_TURN_ID;
     const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
     const traceStatus = String(message.traceSummary?.status || '').trim() || 'running';
-    const executionState = executionControl?.state || traceStatus;
+    const executionState = executionControl?.state
+      || (turnId && detachingTurnIds.includes(turnId) ? 'detaching' : traceStatus);
     const isCancelling = executionState === 'cancelling' || (turnId ? cancellingTurnIds.includes(turnId) : false);
+    const isDetaching = executionState === 'detaching' || (turnId ? detachingTurnIds.includes(turnId) : false);
     const showCancelButton = Boolean(turnId) && (executionState === 'running' || executionState === 'cancelling');
+    const showDetachButton = Boolean(turnId) && executionState === 'running';
     const planSummary = message.traceSummary?.planSummary;
     const defaultExecutionTitleKey = (() => {
       switch (executionState) {
+        case 'detaching':
+          return 'chat.trace.execution.detachingTitle';
         case 'cancelling':
           return 'chat.trace.execution.cancellingTitle';
         case 'cancelled':
@@ -1406,6 +1696,8 @@ export const ChatPage: React.FC = () => {
     })();
     const subtitleKey = (() => {
       switch (executionState) {
+        case 'detaching':
+          return 'chat.trace.execution.detachingBody';
         case 'cancelling':
           return 'chat.trace.execution.cancellingBody';
         case 'cancelled':
@@ -1423,7 +1715,7 @@ export const ChatPage: React.FC = () => {
       || t(defaultExecutionTitleKey);
     const indicator = executionState === 'cancelled'
       ? <X className="h-4 w-4 text-muted-foreground" />
-      : <Loader2 className={`h-4 w-4 text-primary ${executionState === 'running' || executionState === 'cancelling' ? 'animate-spin' : ''}`} />;
+      : <Loader2 className={`h-4 w-4 text-primary ${executionState === 'running' || executionState === 'cancelling' || executionState === 'detaching' ? 'animate-spin' : ''}`} />;
     const runningStepIndex = planSummary?.steps.findIndex((step) => normalizeStepStatus(step.status) === 'running') ?? -1;
     const resolvedRunningStep = runningStepIndex >= 0 ? runningStepIndex + 1 : 0;
     const planStageSummary = planSummary
@@ -1602,6 +1894,22 @@ export const ChatPage: React.FC = () => {
                   className="h-7 rounded-full px-2.5 text-[11px]"
                 >
                   {t('chat.trace.cancelRun')}
+                </Button>
+              )}
+              {showDetachButton && turnId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={isDetaching}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void requestRunDetach(turnId);
+                  }}
+                  className="h-7 rounded-full px-2.5 text-[11px]"
+                >
+                  {t('chat.trace.detachRun')}
                 </Button>
               )}
             </div>
@@ -1846,7 +2154,6 @@ export const ChatPage: React.FC = () => {
       transition={{ duration: 0.15 }}
       className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
     >
-      <SessionControlRail sessionId={currentSessionId} />
       {currentSessionId && (
         <div className="mb-2 shrink-0 px-2 py-1">
           <div className="flex flex-col gap-2 text-sm text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
@@ -1993,7 +2300,6 @@ export const ChatPage: React.FC = () => {
                     {renderMessageAttachments(msg.attachments, msg.role)}
                     {msg.role === 'assistant' ? (
                       <div className="max-w-none text-current">
-                        <ThinkingPanel reasoning={msg.reasoning} streaming={msg.streaming} />
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                           {msg.content}
                         </ReactMarkdown>
@@ -2026,7 +2332,7 @@ export const ChatPage: React.FC = () => {
       <div className="mt-2 shrink-0">
         <div
           ref={composerRef}
-          className="overflow-hidden rounded-2xl border border-border/45 bg-background shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
+          className="rounded-2xl border border-border/45 bg-background shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
         >
           {composerReplyTarget && (
             <div
@@ -2149,6 +2455,9 @@ export const ChatPage: React.FC = () => {
                   </button>
                 </div>
               )}
+              </div>
+              <div className="relative">
+                <SessionSafetyControl sessionId={currentSessionId} />
               </div>
               <ContextUsageRing sessionId={currentSessionId} />
             </div>

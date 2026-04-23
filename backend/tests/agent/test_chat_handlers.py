@@ -315,6 +315,65 @@ async def test_function_calling_handler_passes_turn_workspace_into_context_servi
 
 
 @pytest.mark.asyncio
+async def test_function_calling_handler_appends_scope_guidance_from_task_hint() -> None:
+    context_service = _FakeContextService()
+    handler = FunctionCallingHandler(
+        SimpleNamespace(
+            context_service=context_service,
+            prompt_service=_FakePromptService(),
+        )
+    )
+    context = ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="详细对比下 Magi 和 AnotherProject 的记忆实现",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="详细对比下 Magi 和 AnotherProject 的记忆实现",
+            turn_id="turn-1",
+        ),
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.FUNCTION_CALLING,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                reasoning="tool use",
+                orchestration_plan=OrchestrationPlan(),
+                memory_route="none",
+                routing_memory_hint=None,
+                task_hint={
+                    "target_locality": "ambiguous_external_reference",
+                    "preferred_resolution_order": "ask_or_web_before_external_scan",
+                    "requires_clarification": True,
+                },
+            ),
+            tool_selection=ToolSelection(tools=["web-search", "file_read"], reasoning="compare", task_hint={}),
+        )
+    )
+
+    assert "# Scope Guidance" in request.system_prompt
+    assert "ask the user for a path or use web-search before any external local scan" in request.system_prompt
+
+
+@pytest.mark.asyncio
 async def test_direct_llm_handler_builds_multimodal_message_for_image_attachments(tmp_path: Path) -> None:
     image_path = tmp_path / "diagram.png"
     image_path.write_bytes(b"fake-image-bytes")

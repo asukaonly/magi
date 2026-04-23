@@ -5,6 +5,8 @@ import json
 from typing import Any, Optional
 
 from ....core.logger import get_logger
+from ....tools.registry import tool_registry
+from ....tools.tool_hint_resolver import ToolHintResolver
 from ...orchestration import PlannedSubtask, SubtaskPlan
 from ..common import OrchestrationPlan
 from .prompt_service import ExplorePromptService
@@ -17,8 +19,11 @@ STRUCTURED_PLANNING_TIMEOUT_SECONDS = 180.0
 class ExplorePlanningService:
     """Owns LLM-first and fallback Explore subtask generation."""
 
-    def __init__(self, *, prompt_service: ExplorePromptService) -> None:
+    _EXPLORE_TOOL_HINT_CANDIDATES = ["glob", "grep", "file_read"]
+
+    def __init__(self, *, prompt_service: ExplorePromptService, tool_hint_resolver: ToolHintResolver | None = None) -> None:
         self._prompt_service = prompt_service
+        self._tool_hint_resolver = tool_hint_resolver or ToolHintResolver(tool_registry)
 
     async def generate_subtask_plan(
         self,
@@ -67,18 +72,23 @@ class ExplorePlanningService:
             if isinstance(item, dict) and str(item.get("content", "")).strip()
         ]
         seed_subtasks = self.seed_subtasks_for_request(user_message)
+        task_hint = self._resolve_task_hint(user_message)
         planning_prompt = {
             "user_request": user_message,
             "recent_history": recent_history,
             "allow_parallel": orchestration_plan.allow_parallel,
             "scope_hints": self.describe_request_scope(user_message),
+            "task_hints": task_hint,
             "seed_subtasks": [item.to_dict() for item in seed_subtasks],
             "requirements": [
                 "Decompose the exploration request into bounded Explore leaf subtasks only.",
                 "Keep each subtask narrow enough for one worker to finish independently.",
                 "Prefer parallel subtasks whenever dependencies are weak.",
+                "Start from the most concrete likely anchor or owning code path, then split by neighboring responsibilities only when needed.",
                 "Use the seed subtasks as a starting point, but adapt them to the user's actual scope.",
                 "If the user is asking about only one subsystem, folder, or path, keep the plan inside that scope.",
+                "Prefer execution-ready subtasks that end in validated findings from current source files.",
+                "Avoid generic research-only subtasks like 'gather context' or 'summarize risks' unless the request explicitly needs them or ambiguity remains unresolved.",
                 "You may remove irrelevant seed subtasks, rewrite them, or add at most two necessary subtasks.",
                 "Return between 2 and 6 subtasks unless the request is truly tiny.",
                 "Do not include final user-facing prose.",
@@ -88,7 +98,9 @@ class ExplorePlanningService:
             "You are ExploreTaskAgent planning bounded Explore subtasks. "
             "Return ONLY valid JSON with this schema: "
             '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore","prompt":"string","parallel_group":"string"}]}. '
-            "Do not answer the user directly. Produce execution-ready Explore leaf tasks only."
+            "Do not answer the user directly. Produce execution-ready Explore leaf tasks only. "
+            "Prefer subtasks organized around concrete entry points, owning modules, and validating evidence from current files. "
+            "When task_hints are present, use them to keep the first search pass efficient and bounded."
         )
         try:
             response = await self._prompt_service.call_llm(
@@ -335,50 +347,64 @@ class ExplorePlanningService:
     def generic_fallback_subtasks(self, user_message: str) -> list[PlannedSubtask]:
         return [
             PlannedSubtask(
-                description="Gather primary context",
+                description="Locate the primary anchor",
                 subagent_type="Explore",
                 prompt=self.build_leaf_prompt(
                     user_message,
-                    "Gather primary context",
-                    "Collect the most relevant files, modules, and source-of-truth evidence for the request.",
+                    "Locate the primary anchor",
+                    "Find the smallest set of files, symbols, or entry modules most likely to control the requested behavior or answer.",
                 ),
                 parallel_group="group_a",
             ),
             PlannedSubtask(
-                description="Analyze implementation details",
+                description="Trace the owning implementation path",
                 subagent_type="Explore",
                 prompt=self.build_leaf_prompt(
                     user_message,
-                    "Analyze implementation details",
-                    "Inspect the core implementation path, dependencies, and behavior that matter for the request.",
+                    "Trace the owning implementation path",
+                    "Follow the code path that directly computes, routes, or controls the requested behavior, pulling in only the nearby dependencies needed to explain it.",
                 ),
                 parallel_group="group_a",
             ),
             PlannedSubtask(
-                description="Summarize risks and gaps",
+                description="Validate gaps and edge cases",
                 subagent_type="Explore",
                 prompt=self.build_leaf_prompt(
                     user_message,
-                    "Summarize risks and gaps",
-                    "Identify open questions, gaps, and next actions needed to complete the request.",
+                    "Validate gaps and edge cases",
+                    "Validate important edge cases, unresolved assumptions, and remaining gaps from source evidence instead of repeating broad summary prose.",
                 ),
                 parallel_group="group_b",
             ),
         ]
 
     def build_leaf_prompt(self, root_user_message: str, subtask_description: str, subtask_prompt: str) -> str:
+        tool_guidance = self._tool_hint_resolver.render_guidance_block(
+            self._resolve_task_hint(root_user_message),
+        )
         return "\n".join(
             [
                 f"Parent user request: {root_user_message}",
                 f"Assigned exploration subtask: {subtask_description}",
                 "Task-specific instructions:",
                 subtask_prompt,
+                *( [tool_guidance] if tool_guidance else [] ),
                 "Success criteria:",
                 "- Stay strictly within this subtask scope.",
+                "- Start from the most concrete anchor available: an entry file, symbol, path, or directly controlling module.",
+                "- If you name a file, symbol, route, config key, or flag, verify it exists in the current code before relying on it.",
+                "- Prefer focused glob/grep/read steps over broad repository scans.",
                 "- Use absolute file paths in findings and evidence when you reference code.",
                 "- Keep the result bounded and evidence-driven.",
                 "- If the scope cannot be completed, set result_status to failed and explain the failure_reason.",
             ]
+        )
+
+    def _resolve_task_hint(self, user_message: str) -> dict[str, Any]:
+        return self._tool_hint_resolver.resolve(
+            user_message=user_message,
+            available_tools=list(self._EXPLORE_TOOL_HINT_CANDIDATES),
+            scope_hints=self.describe_request_scope(user_message),
         )
 
     def describe_request_scope(self, user_message: str) -> list[str]:

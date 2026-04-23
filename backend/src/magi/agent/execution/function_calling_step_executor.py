@@ -137,6 +137,7 @@ class FunctionCallingStepExecutor:
             for tool_call in tool_calls:
                 result = await self._driver._execute_tool_call(
                     tool_call=tool_call,
+                    user_message=user_message,
                     user_id=user_id,
                     session_id=session_id,
                     session_run_id=session_run_id,

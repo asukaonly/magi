@@ -9,6 +9,10 @@ from magi.agent.task_agents.chat.handlers import ExecutionHandlerRegistry
 from magi.agent.runtime.contracts import FactRecord
 from magi.config.models import ThinkingDepth
 from magi.events.events import EventTypes
+from magi.tools.builtin.file_read_tool import FileReadTool
+from magi.tools.builtin.glob_tool import GlobTool
+from magi.tools.builtin.grep_tool import GrepTool
+from magi.tools.registry import ToolRegistry
 
 
 class _FakeContextDecision:
@@ -45,11 +49,18 @@ class _FakeToolRegistry:
         return list(self._tools)
 
 
+def _build_real_tool_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+    for tool_class in (GlobTool, GrepTool, FileReadTool):
+        registry.register(tool_class)
+    return registry
+
+
 class _FakeContextDecider:
-    def __init__(self, decision: _FakeContextDecision) -> None:
+    def __init__(self, decision: _FakeContextDecision, tool_registry=None) -> None:
         self._decision = decision
         self.last_decision_context = None
-        self.tool_registry = _FakeToolRegistry()
+        self.tool_registry = tool_registry or _FakeToolRegistry()
 
     async def decide(self, user_message: str, decision_context: dict):  # type: ignore[no-untyped-def]
         _ = user_message
@@ -200,7 +211,192 @@ async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
     assert decision.llm_trace["duration_ms"] == 310
     assert decision.ux_plan.assistant_surface_mode.value == "final_only"
     assert decision.ux_plan.thinking_indicator.value == "hidden"
-    assert decision.ux_plan.trace_display_mode.value == "none"
+    assert decision.ux_plan.trace_display_mode.value == "collapsible"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_marks_tool_and_orchestration_turns_as_prominent_trace() -> None:
+    tool_decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="chat_with_tools",
+            tools=["memory_query"],
+            deep_thinking=False,
+            reasoning="tool use",
+            orchestration_strategy={
+                "mode": "tool_calling",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": False,
+            },
+        )
+    )
+    tool_coordinator = ChatExecutionCoordinator(
+        context_decider=tool_decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "帮我查一下"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="帮我查一下",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    tool_decision = await tool_coordinator.match_intent(context)
+
+    assert tool_decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert tool_decision.ux_plan.trace_display_mode.value == "prominent"
+
+    orchestration_decider = _FakeContextDecider(
+        _FakeContextDecision(
+            intent="code_architecture",
+            tools=["agent"],
+            deep_thinking=False,
+            reasoning="decompose",
+            orchestration_strategy={
+                "mode": "decompose",
+                "planner": "task_agent",
+                "default_leaf_type": "Explore",
+                "allow_parallel": True,
+            },
+        )
+    )
+    orchestration_coordinator = ChatExecutionCoordinator(
+        context_decider=orchestration_decider,
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    orchestration_decision = await orchestration_coordinator.match_intent(context)
+
+    assert orchestration_decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
+    assert orchestration_decision.ux_plan.trace_display_mode.value == "prominent"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_match_tools_reorders_runtime_tools_with_task_hint() -> None:
+    registry = _build_real_tool_registry()
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            _FakeContextDecision(
+                intent="code_execution",
+                tools=["file_read", "grep", "glob"],
+                deep_thinking=False,
+                reasoning="inspect code",
+                orchestration_strategy={
+                    "mode": "direct",
+                    "planner": "task_agent",
+                    "default_leaf_type": "general-purpose",
+                    "allow_parallel": False,
+                },
+            ),
+            tool_registry=registry,
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "分析 backend/src/magi/agent 的调用链路"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="分析 backend/src/magi/agent 的调用链路",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+    selection = await coordinator.match_tools(context, decision)
+
+    assert decision.task_hint["task_intent"] == "trace_implementation"
+    assert decision.task_hint["target_locality"] == "explicit_path"
+    assert selection.tools[:2] == ["glob", "grep"]
+    assert selection.task_hint["domain"] == "codebase"
+    assert selection.recommended_tools[0]["tool"] == "glob"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_marks_ambiguous_external_reference_scope() -> None:
+    registry = _build_real_tool_registry()
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            _FakeContextDecision(
+                intent="code_execution",
+                tools=["web-search", "file_read"],
+                deep_thinking=False,
+                reasoning="compare external implementation",
+                orchestration_strategy={
+                    "mode": "direct",
+                    "planner": "task_agent",
+                    "default_leaf_type": "general-purpose",
+                    "allow_parallel": False,
+                },
+            ),
+            tool_registry=registry,
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "详细对比下 Magi 和 AnotherProject 的记忆实现"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="详细对比下 Magi 和 AnotherProject 的记忆实现",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.task_hint["target_locality"] == "ambiguous_external_reference"
+    assert decision.task_hint["preferred_resolution_order"] == "ask_or_web_before_external_scan"
+    assert decision.task_hint["requires_clarification"] is True
 
 
 @pytest.mark.asyncio
@@ -363,7 +559,7 @@ async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_
 
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
     assert decision.ux_plan.assistant_surface_mode.value == "interim_then_final"
-    assert decision.ux_plan.trace_display_mode.value == "collapsible"
+    assert decision.ux_plan.trace_display_mode.value == "prominent"
     assert decision.ux_plan.interim_text
 
 
@@ -481,7 +677,7 @@ async def test_coordinator_passes_recent_tool_errors_to_context_decider() -> Non
 
 
 @pytest.mark.asyncio
-async def test_coordinator_marks_tool_query_as_collapsible_trace_ui() -> None:
+async def test_coordinator_marks_tool_query_as_prominent_trace_ui() -> None:
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
             _FakeContextDecision(
@@ -528,7 +724,7 @@ async def test_coordinator_marks_tool_query_as_collapsible_trace_ui() -> None:
 
     assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
     assert decision.ux_plan.assistant_surface_mode.value == "final_only"
-    assert decision.ux_plan.trace_display_mode.value == "collapsible"
+    assert decision.ux_plan.trace_display_mode.value == "prominent"
     assert decision.ux_plan.allow_trace_collapse is True
 
 

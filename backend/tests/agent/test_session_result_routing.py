@@ -79,7 +79,8 @@ class _RecordingExecuteToolRegistry:
         return {}
 
 
-def test_task_orchestrator_chat_context_targets_session_chat_agent() -> None:
+@pytest.mark.asyncio
+async def test_task_orchestrator_chat_context_targets_session_chat_agent() -> None:
     orchestrator = TaskOrchestrator(
         runtime_key="chat:user-1",
         tool_registry=ToolRegistry(),
@@ -89,7 +90,7 @@ def test_task_orchestrator_chat_context_targets_session_chat_agent() -> None:
         parent_task_agent_type="chat",
     )
 
-    context = orchestrator._build_agent_tool_context("user-1", "session-1")
+    context = await orchestrator._build_agent_tool_context("user-1", "session-1")
 
     assert context.env_vars["target_task_agent_type"] == "chat"
     assert context.env_vars["target_task_agent_id"] == "session-1"
@@ -228,6 +229,9 @@ async def test_chat_planning_service_plan_worker_targets_session_chat_agent_in_p
     assert payload["target_task_agent_type"] == "chat"
     assert payload["target_task_agent_id"] == "session-1"
     assert payload["parent_task_agent_id"] == "session-1"
+    assert "Start from the most concrete likely anchor or owning code path" in payload["prompt"]
+    assert "Avoid generic subtasks that only gather context or summarize risks" in payload["prompt"]
+    assert "# Tool Guidance" in payload["prompt"]
     assert context.env_vars["target_task_agent_id"] == "session-1"
 
 
@@ -271,6 +275,42 @@ async def test_chat_planning_service_plan_worker_uses_explicit_workspace_root() 
     assert plan is not None
     _, _, context = registry.calls[0]
     assert context.workspace == "/Users/asuka/code/magi"
+
+
+def test_chat_planning_service_generic_fallback_and_leaf_prompt_emphasize_anchor_first_execution() -> None:
+    service = ChatPlanningService(
+        agent_id="user-1",
+        runtime_key="chat:user-1",
+        context_service=SimpleNamespace(),
+        prompt_service=SimpleNamespace(),
+        history_service=SimpleNamespace(),
+        tool_registry=ToolRegistry(),
+        parent_task_agent_type="chat",
+    )
+
+    subtasks = service._fallback_subtask_plan(
+        "分析检索链路",
+        "Explore",
+        request_profile="generic",
+    )
+
+    assert [item.description for item in subtasks] == [
+        "Locate the primary anchor",
+        "Trace the owning implementation path",
+        "Validate gaps and edge cases",
+    ]
+
+    prompt = service._build_leaf_worker_prompt(
+        root_user_message="分析检索链路",
+        subtask_description=subtasks[0].description,
+        subtask_prompt=subtasks[0].prompt,
+        request_profile="generic",
+    )
+
+    assert "Start from the most concrete anchor available" in prompt
+    assert "verify it exists in the current code before relying on it" in prompt
+    assert "Prefer focused glob/grep/read steps over broad repository scans" in prompt
+    assert "# Tool Guidance" in prompt
 
 
 @pytest.mark.asyncio

@@ -50,6 +50,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/session/{session_id}/attachments/{attachment_id}/content": {"GET"},
         "/session/{session_id}/workspace": {"PATCH"},
         "/session/{session_id}/cancel-run": {"POST"},
+        "/session/{session_id}/detach-run": {"POST"},
         "/session/{session_id}/message/{message_id}": {"DELETE"},
         "/session/{session_id}/message/{message_id}/label": {"POST"},
         "/sessions": {"GET"},
@@ -147,6 +148,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/ask/{request_id}/respond": {"POST"},
         "/sessions/{session_id}/plan": {"GET"},
         "/sessions/{session_id}/todos": {"GET"},
+        "/sessions/{session_id}/permissions": {"GET"},
         "/sessions/{session_id}/ask": {"GET"},
     },
 

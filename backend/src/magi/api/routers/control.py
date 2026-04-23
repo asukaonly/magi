@@ -29,6 +29,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Path, status
@@ -49,7 +50,9 @@ from ...core.runtime_bindings import (
     require_control_settings_manager,
     require_pending_permission_registry,
     require_permission_rule_store,
+    require_runtime_trace_store,
 )
+from ...agent.control.session_store import TodoItem
 
 control_router = APIRouter()
 
@@ -97,6 +100,39 @@ def _session_store():
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Control session store unavailable",
         ) from exc
+
+
+async def _load_latest_control_notification(
+    *,
+    session_id: str,
+    channel: str,
+    limit: int = 200,
+) -> dict[str, Any] | None:
+    try:
+        trace_store = require_runtime_trace_store()
+    except RuntimeError:
+        return None
+
+    try:
+        latest_id = await trace_store.get_latest_notification_id()
+        if latest_id <= 0:
+            return None
+        after_id = max(0, latest_id - limit)
+        notifications = await trace_store.list_notifications(after_id=after_id, limit=limit)
+    except Exception:
+        return None
+
+    for notification in reversed(notifications):
+        if notification.channel != channel:
+            continue
+        if str(notification.session_id or "").strip() != session_id:
+            continue
+        try:
+            payload = json.loads(notification.payload_json)
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -290,13 +326,41 @@ async def respond_ask(
 
 @control_router.get("/sessions/{session_id}/plan")
 async def get_plan_state(session_id: str) -> dict[str, Any]:
-    return _session_store().plan_state(session_id).to_dict()
+    state = _session_store().plan_state(session_id).to_dict()
+    if bool(state.get("active")) or str(state.get("plan_text") or "").strip():
+        return state
+
+    payload = await _load_latest_control_notification(
+        session_id=session_id,
+        channel="control.plan.updated",
+    )
+    plan = payload.get("plan") if isinstance(payload, dict) else None
+    return plan if isinstance(plan, dict) else state
 
 
 @control_router.get("/sessions/{session_id}/todos")
 async def get_todos(session_id: str) -> dict[str, Any]:
     todos = _session_store().list_todos(session_id)
-    return {"items": [t.to_dict() for t in todos]}
+    if todos:
+        return {"items": [t.to_dict() for t in todos]}
+
+    payload = await _load_latest_control_notification(
+        session_id=session_id,
+        channel="control.todo.updated",
+    )
+    raw_items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(raw_items, list):
+        return {"items": []}
+
+    restored_items: list[dict[str, Any]] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            restored_items.append(TodoItem.from_dict(raw).to_dict())
+        except Exception:
+            continue
+    return {"items": restored_items}
 
 
 @control_router.get("/sessions/{session_id}/ask")

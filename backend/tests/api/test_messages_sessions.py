@@ -1338,6 +1338,119 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
     assert messages[1].trace_summary["headline"] == "Running tool chain"
 
 
+def test_get_display_history_includes_control_status_messages(tmp_path, monkeypatch):
+    service = _build_service(tmp_path)
+    trace_service = ChatTraceReadService()
+    trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    monkeypatch.setattr(
+        "magi.chat.read_service.get_chat_trace_read_service",
+        lambda: trace_service,
+    )
+    _init_chat_session_store(service._chat_db_path)
+
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-control",
+        user_id="u1",
+        title="Control Chat",
+        created_at=1000,
+        updated_at=1040,
+        message_count=5,
+        last_message_at=1040,
+        last_user_message_at=1000,
+        last_message_preview="done",
+        last_user_message_preview="please do the task",
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-control",
+        session_id="s-control",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1040,
+        completed_at_ms=1040,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user",
+        session_id="s-control",
+        turn_id="turn-control",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="please do the task",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-plan",
+        session_id="s-control",
+        turn_id="turn-control",
+        user_id="u1",
+        role="assistant",
+        message_kind="plan_state",
+        content_text="step 1\nstep 2",
+        payload_json=json.dumps({"active": True, "plan_text": "step 1\nstep 2"}),
+        created_at_ms=1010,
+        sequence_no=2,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-todo",
+        session_id="s-control",
+        turn_id="turn-control",
+        user_id="u1",
+        role="assistant",
+        message_kind="todo_state",
+        content_text="first\nsecond",
+        payload_json=json.dumps({"items": [{"id": "1", "content": "first", "status": "in_progress"}]}),
+        created_at_ms=1020,
+        sequence_no=3,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-permission",
+        session_id="s-control",
+        turn_id="turn-control",
+        user_id="u1",
+        role="assistant",
+        message_kind="permission_request",
+        content_text="bash",
+        payload_json=json.dumps({"permission_request_id": "perm-1", "tool": "bash"}),
+        created_at_ms=1030,
+        sequence_no=4,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-ask",
+        session_id="s-control",
+        turn_id="turn-control",
+        user_id="u1",
+        role="assistant",
+        message_kind="ask_request",
+        content_text="Need confirmation?",
+        payload_json=json.dumps({"ask_request_id": "ask-1", "question": "Need confirmation?"}),
+        created_at_ms=1040,
+        sequence_no=5,
+    )
+
+    messages = service.get_display_history("u1", "s-control", limit=20)
+
+    assert [item.kind for item in messages] == ["user", "status", "status", "status", "status"]
+    assert [item.message_kind for item in messages[1:]] == [
+        "plan_state",
+        "todo_state",
+        "permission_request",
+        "ask_request",
+    ]
+    assert messages[1].payload == {"active": True, "plan_text": "step 1\nstep 2"}
+    assert messages[2].payload == {"items": [{"id": "1", "content": "first", "status": "in_progress"}]}
+
+
 def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
@@ -1597,9 +1710,12 @@ def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
     assert snapshot["summary"]["duration_seconds"] == 1.2
 
     child_kinds = {child["kind"] for child in snapshot["root"]["children"]}
-    assert {"intent", "dispatch", "response"} <= child_kinds
+    assert {"intent", "planning", "response"} <= child_kinds
 
-    worker_node = next(child for child in snapshot["root"]["children"] if child["kind"] == "dispatch")["children"][0]
+    planning_node = next(child for child in snapshot["root"]["children"] if child["kind"] == "planning")
+    dispatch_node = planning_node["children"][0]
+    assert dispatch_node["kind"] == "dispatch"
+    worker_node = dispatch_node["children"][0]
     assert worker_node["kind"] == "worker"
     worker_child_kinds = {child["kind"] for child in worker_node["children"]}
     assert {"llm", "tool"} <= worker_child_kinds
@@ -1671,7 +1787,8 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
     snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_retry")
 
     assert snapshot is not None
-    dispatch_node = next(child for child in snapshot["root"]["children"] if child["kind"] == "dispatch")
+    planning_node = next(child for child in snapshot["root"]["children"] if child["kind"] == "planning")
+    dispatch_node = planning_node["children"][0]
     attempt_nodes = dispatch_node["children"]
     assert len(attempt_nodes) == 2
     assert [item["kind"] for item in attempt_nodes] == ["attempt", "attempt"]
@@ -1757,7 +1874,9 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     assert snapshot["summary"]["trace_available"] is True
     assert snapshot["summary"]["mode"] == "orchestration"
     assert snapshot["summary"]["status"] == "completed"
-    dispatch = snapshot["root"]["children"][0]
+    planning = snapshot["root"]["children"][0]
+    assert planning["kind"] == "planning"
+    dispatch = planning["children"][0]
     assert dispatch["kind"] == "dispatch"
     assert dispatch["status"] == "completed"
     worker = dispatch["children"][0]

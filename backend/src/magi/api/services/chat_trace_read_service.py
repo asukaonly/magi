@@ -303,10 +303,17 @@ class ChatTraceReadService:
             tool_calls=tool_calls,
             intent_resolutions=intent_resolutions,
         )
+        orchestration_id = str(turn.get("orchestration_id") or "").strip() or None
+        mode = str(turn.get("mode") or self._resolve_normalized_mode(
+            root=root,
+            orchestration_id=orchestration_id,
+            orchestration_state=orchestration_state,
+        ))
+        if mode == "orchestration":
+            root = self._reshape_orchestration_trace_root(root)
         started_at = self._ms_to_seconds(turn.get("started_at_ms"))
         ended_at = self._ms_to_seconds(turn.get("ended_at_ms"))
         status = self._normalize_status(str(turn.get("status") or "running"))
-        mode = str(turn.get("mode") or self._resolve_normalized_mode(root=root, orchestration_id=None, orchestration_state=None))
         root.status = status
         root.started_at = root.started_at if root.started_at is not None else started_at
         root.ended_at = ended_at if self._is_terminal_status(status) else None
@@ -349,7 +356,7 @@ class ChatTraceReadService:
             session_id=session_id,
             status=status,
             mode=mode,
-            orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
+            orchestration_id=orchestration_id,
             started_at=started_at,
             ended_at=root.ended_at,
             continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
@@ -433,6 +440,72 @@ class ChatTraceReadService:
         self._deduplicate_response_emit(root)
         return root
 
+    def _reshape_orchestration_trace_root(self, root: ExecutionTraceNode) -> ExecutionTraceNode:
+        if root.kind != "root" or not root.children:
+            return root
+
+        planning_children: list[ExecutionTraceNode] = []
+        preserved_children: list[ExecutionTraceNode] = []
+        planning_insert_index: int | None = None
+        hidden_iteration_count = 0
+
+        for child in root.children:
+            if child.kind == "dispatch":
+                if planning_insert_index is None:
+                    planning_insert_index = len(preserved_children)
+                planning_children.append(self._with_dispatch_label(child))
+                continue
+            if child.kind == "iteration":
+                if planning_insert_index is None:
+                    planning_insert_index = len(preserved_children)
+                hidden_iteration_count += 1
+                continue
+            preserved_children.append(child)
+
+        if not planning_children:
+            return root
+
+        started_at = min(
+            (node.started_at for node in planning_children if node.started_at is not None),
+            default=root.started_at,
+        )
+        ended_candidates = [node.ended_at for node in planning_children if node.ended_at is not None]
+        planning_status = self._derive_parent_status(planning_children)
+        planning_node = ExecutionTraceNode(
+            id=f"{root.id}:planning",
+            kind="planning",
+            label="Task orchestration",
+            status=planning_status,
+            started_at=started_at,
+            ended_at=max(ended_candidates) if ended_candidates and self._is_terminal_status(planning_status) else None,
+            metadata={
+                "synthetic": True,
+                "hidden_iteration_count": hidden_iteration_count,
+            },
+            children=planning_children,
+        )
+
+        insert_at = planning_insert_index if planning_insert_index is not None else len(preserved_children)
+        preserved_children.insert(insert_at, planning_node)
+        root.children = preserved_children
+        return root
+
+    def _with_dispatch_label(self, node: ExecutionTraceNode) -> ExecutionTraceNode:
+        description = (node.result_preview or "").strip()
+        label = description or node.label
+        return ExecutionTraceNode(
+            id=node.id,
+            kind=node.kind,
+            label=label,
+            status=node.status,
+            started_at=node.started_at,
+            ended_at=node.ended_at,
+            result_preview="" if description and label == description else node.result_preview,
+            error=node.error,
+            metadata={**node.metadata, "dispatch_label": label},
+            children=node.children,
+        )
+
     @staticmethod
     def _deduplicate_response_emit(root: ExecutionTraceNode) -> None:
         """Remove the response_emit node when its content duplicates the last iteration."""
@@ -495,12 +568,24 @@ class ChatTraceReadService:
             )
         if intent_resolution is not None:
             selected_tools = self._parse_json_value(intent_resolution.get("selected_tools_json"))
+            selected_tool_list = selected_tools if isinstance(selected_tools, list) else None
+            router_tools = None
+            task_hint = None
+            recommended_tools = None
+            if isinstance(selected_tools, dict):
+                selected_tool_list = selected_tools.get("selected_tools") if isinstance(selected_tools.get("selected_tools"), list) else None
+                router_tools = selected_tools.get("router_tools") if isinstance(selected_tools.get("router_tools"), list) else None
+                task_hint = selected_tools.get("task_hint") if isinstance(selected_tools.get("task_hint"), dict) else None
+                recommended_tools = selected_tools.get("recommended_tools") if isinstance(selected_tools.get("recommended_tools"), list) else None
             metadata.update(
                 {
                     "intent_label": intent_resolution.get("intent") or None,
                     "execution_mode": intent_resolution.get("execution_mode") or None,
                     "route_reason": intent_resolution.get("route_reason") or None,
-                    "selected_tools": selected_tools if isinstance(selected_tools, list) else None,
+                    "selected_tools": selected_tool_list,
+                    "router_tools": router_tools,
+                    "task_hint": task_hint,
+                    "recommended_tools": recommended_tools,
                     "selected_worker_type": intent_resolution.get("selected_worker_type") or None,
                 }
             )

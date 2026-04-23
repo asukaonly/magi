@@ -5,9 +5,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PermissionModal } from '@/components/control/PermissionModal';
-import { TodoPanel } from '@/components/control/TodoPanel';
-import { PlanCard } from '@/components/control/PlanCard';
-import type { PendingPermissionDTO } from '@/api/modules/control';
+import { AskDialog } from '@/components/control/AskDialog';
+import { PermissionModalHost } from '@/components/control/PermissionModalHost';
+import type { AskStateDTO, PendingPermissionDTO } from '@/api/modules/control';
+import { useConversationStore } from '@/stores';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -21,7 +22,10 @@ vi.mock('@/api/modules/control', async () => {
   >('@/api/modules/control');
   return {
     ...actual,
+    getAskState: vi.fn().mockResolvedValue(null),
+    respondAsk: vi.fn().mockResolvedValue(undefined),
     respondPermission: vi.fn().mockResolvedValue(undefined),
+    listPendingPermissions: vi.fn().mockResolvedValue([]),
     getTodos: vi.fn().mockResolvedValue([
       {
         id: 't1',
@@ -59,6 +63,16 @@ const baseRequest: PendingPermissionDTO = {
   risk_level: 'high',
   preview: null,
   created_at_ms: 0,
+};
+
+const baseAsk: AskStateDTO = {
+  request_id: 'ask-1',
+  question: 'Which branch should I use?',
+  options: ['main', 'develop'],
+  allow_free_text: true,
+  status: 'pending',
+  answer: null,
+  created_at_ms: 10,
 };
 
 describe('PermissionModal', () => {
@@ -111,32 +125,63 @@ describe('PermissionModal', () => {
   });
 });
 
-describe('TodoPanel', () => {
+describe('PermissionModalHost', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    useConversationStore.getState().reset();
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'sid-1',
+        title: 'Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'sid-1');
   });
 
-  it('renders todos fetched from the API', async () => {
-    render(<TodoPanel sessionId="sid-1" intervalMs={0} />);
+  it('projects pending permissions into chat status messages', async () => {
+    const controlApi = await import('@/api/modules/control');
+    vi.mocked(controlApi.listPendingPermissions).mockResolvedValue([baseRequest]);
+
+    render(<PermissionModalHost sessionId="sid-1" intervalMs={0} />);
+
     await waitFor(() => {
-      expect(screen.getByTestId('todo-t1')).toBeInTheDocument();
-      expect(screen.getByTestId('todo-t2')).toBeInTheDocument();
+      const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
+      expect(messages.some((message) => message.messageKind === 'permission_request')).toBe(true);
     });
-    expect(screen.getByText('First todo')).toBeInTheDocument();
-  });
-
-  it('renders the empty state when no session id is provided', () => {
-    render(<TodoPanel sessionId={null} intervalMs={0} />);
-    expect(screen.getByText('todo.empty')).toBeInTheDocument();
   });
 });
 
-describe('PlanCard', () => {
-  it('renders plan text when the session is in plan mode', async () => {
-    render(<PlanCard sessionId="sid-1" intervalMs={0} />);
+describe('AskDialog', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset();
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'sid-1',
+        title: 'Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'sid-1');
+  });
+
+  it('projects pending asks into chat status messages', async () => {
+    const controlApi = await import('@/api/modules/control');
+    vi.mocked(controlApi.getAskState).mockResolvedValue(baseAsk);
+
+    render(<AskDialog sessionId="sid-1" intervalMs={0} />);
+
     await waitFor(() => {
-      expect(screen.getByTestId('plan-card')).toBeInTheDocument();
-      expect(screen.getByText(/Do thing/)).toBeInTheDocument();
+      const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
+      expect(messages.some((message) => message.messageKind === 'ask_request')).toBe(true);
     });
+    expect(screen.getByTestId('ask-dialog')).toBeInTheDocument();
   });
 });

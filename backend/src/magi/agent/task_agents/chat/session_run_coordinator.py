@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from ....agent.run_control import DetachRequested, DetachSignal
 from ....agent.runtime.contracts import FactRecord
 from ..common import IncomingFactKind, TaskFactPayload, UserMessagePayload
 from .fact_classifier import ClassifiedFact
@@ -68,6 +69,7 @@ class SessionRunCoordinator:
     ) -> None:
         self._run_store = run_store or SessionRunStore()
         self._interruption_classifier = interruption_classifier or InterruptionClassifier()
+        self._detach_signals: dict[str, DetachSignal] = {}
 
     def coordinate(self, classified_fact: ClassifiedFact) -> SessionFactDecision:
         """Resolve the visible fact and session-run state for one batch."""
@@ -594,6 +596,55 @@ class SessionRunCoordinator:
             revision=target_revision,
             disposition=InterruptionDisposition.DEFER.value,
         )
+
+    def bind_detach_signal(self, session_id: str, signal: DetachSignal) -> None:
+        """Expose the active run's detach signal for out-of-band user requests."""
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return
+        self._detach_signals[normalized_session_id] = signal
+
+    def release_detach_signal(
+        self,
+        session_id: str,
+        signal: DetachSignal | None = None,
+    ) -> None:
+        """Drop the registered detach signal once the foreground run exits."""
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return
+        current = self._detach_signals.get(normalized_session_id)
+        if current is None:
+            return
+        if signal is not None and current is not signal:
+            return
+        self._detach_signals.pop(normalized_session_id, None)
+
+    def request_detach(
+        self,
+        session_id: str,
+        *,
+        requested_by: str,
+        reason: str = "user_detach",
+        note: str = "",
+    ) -> ActiveRun | None:
+        """Request that the active run detach to background at the next boundary."""
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return None
+        active_run = self._run_store.get_active_run(normalized_session_id)
+        signal = self._detach_signals.get(normalized_session_id)
+        if active_run is None or signal is None or active_run.status != "running":
+            return None
+        if not signal.is_requested():
+            signal.request(
+                DetachRequested(
+                    reason=reason,
+                    requested_by=requested_by,
+                    note=note,
+                )
+            )
+        return active_run
 
     def peek_steer_turns(
         self,

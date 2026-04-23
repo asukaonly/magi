@@ -106,6 +106,17 @@ class WebFetchTool(MultiProviderTool):
             retry_on_failure=False,
             dangerous=False,
             tags=["web", "fetch", "scrape", "content"],
+            metadata={
+                "task_intents": ["research_external", "verify_external_claim"],
+                "domains": ["web"],
+                "operations": ["fetch", "verify"],
+                "query_shapes": ["exact_url"],
+                "followed_by": [],
+                "avoid_task_intents": ["explore_codebase", "clarify_requirement"],
+                "requires_known_target": True,
+                "cost": "medium",
+                "tool_hint": "Use after web-search has identified candidate URLs and only when you need full-page details, verification, or source text.",
+            },
         )
 
     def _register_providers(self) -> None:

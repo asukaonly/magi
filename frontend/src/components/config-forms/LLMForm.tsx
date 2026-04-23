@@ -1016,23 +1016,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }
   };
 
-  const resolveProviderProbeModel = (providerId: string): string => {
-    if (!registry) {
-      return '';
-    }
-
-    const referencedSelection = BUILTIN_SCENARIOS
-      .map((scenario) => currentValue.selections[scenario])
-      .find((selection) => selection.provider_id === providerId && selection.model);
-
-    if (referencedSelection?.model) {
-      return referencedSelection.model;
-    }
-
-    return resolveProviderDefaultModel(registry, providerId, currentValue.providers[providerId], 'core');
-  };
-
-  const handleTestProviderConnection = async (providerId: string) => {
+  const handleTestProviderConnection = async (providerId: string, model: string) => {
     if (!registry) {
       return;
     }
@@ -1042,7 +1026,6 @@ const LLMForm: React.FC<LLMFormProps> = ({
       return;
     }
 
-    const model = resolveProviderProbeModel(providerId);
     if (!model) {
       setProviderTestState((prev) => ({
         ...prev,

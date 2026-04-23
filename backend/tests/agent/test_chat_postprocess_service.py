@@ -116,6 +116,8 @@ class _FakeIntentDecision:
         self.intent = "chat"
         self.execution_mode = ExecutionMode.DIRECT_LLM
         self.tools: list[str] = []
+        self.task_hint: dict[str, object] = {}
+        self.recommended_tools: list[dict[str, object]] = []
         self.reasoning = "direct response"
         self.orchestration_plan = None
         self.ux_plan = type(
@@ -618,10 +620,100 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     assert intent_resolution is not None
     assert intent_resolution.intent == "chat"
     assert intent_resolution.execution_mode == "direct_llm"
-    assert json.loads(intent_resolution.selected_tools_json) == []
+    assert json.loads(intent_resolution.selected_tools_json) == {
+        "router_tools": [],
+        "selected_tools": [],
+        "task_hint": {},
+        "recommended_tools": [],
+    }
     assert len(notifications) == 1
     assert notifications[0].channel == "turn_ux_plan"
     assert json.loads(notifications[0].payload_json)["ux_plan"]["assistant_surface_mode"] == "final_only"
+
+
+@pytest.mark.asyncio
+async def test_record_tool_selection_updates_structured_intent_trace_payload(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
+    event_emitter = _FakeEventEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: event_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "分析 backend/src/magi/agent 的调用链路",
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-tools",
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="分析 backend/src/magi/agent 的调用链路",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="分析 backend/src/magi/agent 的调用链路",
+            turn_id="turn-tools",
+        ),
+    )
+    decision = _FakeIntentDecision()
+    decision.execution_mode = ExecutionMode.FUNCTION_CALLING
+    decision.tools = ["file_read", "grep", "glob"]
+    decision.task_hint = {
+        "task_intent": "trace_implementation",
+        "domain": "codebase",
+        "operation": "discover",
+    }
+
+    await service.record_intent_resolution(context, decision)
+    await service.record_tool_selection(
+        context,
+        decision,
+        type(
+            "_ToolSelection",
+            (),
+            {
+                "tools": ["glob", "grep", "file_read"],
+                "task_hint": decision.task_hint,
+                "recommended_tools": [{"tool": "glob"}, {"tool": "grep"}],
+            },
+        )(),
+    )
+
+    intent_resolution = await runtime_trace_store.get_intent_resolution("turn-tools:intent_resolution")
+
+    assert intent_resolution is not None
+    payload = json.loads(intent_resolution.selected_tools_json)
+    assert payload["router_tools"] == ["file_read", "grep", "glob"]
+    assert payload["selected_tools"] == ["glob", "grep", "file_read"]
+    assert payload["task_hint"]["task_intent"] == "trace_implementation"
+    assert payload["recommended_tools"][0]["tool"] == "glob"
 
 
 @pytest.mark.asyncio

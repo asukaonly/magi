@@ -40,7 +40,31 @@ interface ContextUsageRingProps {
 
 const ContextUsageRingInner: React.FC<{ snapshot: ContextUsageSnapshot }> = ({ snapshot }) => {
   const { usedTokens, windowSize } = snapshot;
-  if (windowSize <= 0) return null;
+  if (windowSize <= 0) {
+    return (
+      <div
+        className="relative flex h-8 w-8 items-center justify-center"
+        title="0"
+        role="status"
+        aria-label="0"
+      >
+        <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+          <circle
+            cx={SIZE / 2}
+            cy={SIZE / 2}
+            r={RADIUS}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={STROKE}
+            className="text-muted-foreground/15"
+          />
+        </svg>
+        <span className="absolute text-[9px] font-semibold leading-none text-muted-foreground/80">
+          0
+        </span>
+      </div>
+    );
+  }
 
   const ratio = Math.min(usedTokens / windowSize, 1);
   const offset = CIRCUMFERENCE * (1 - ratio);
@@ -97,6 +121,10 @@ export const ContextUsageRing: React.FC<ContextUsageRingProps> = ({ sessionId })
   const snapshot = useContextUsageStore((state) =>
     sessionId ? state.usage[sessionId] : undefined,
   );
-  if (!snapshot || snapshot.windowSize <= 0) return null;
-  return <ContextUsageRingInner snapshot={snapshot} />;
+  return <ContextUsageRingInner snapshot={snapshot ?? {
+    usedTokens: 0,
+    windowSize: 0,
+    threshold: 0,
+    updatedAt: 0,
+  }} />;
 };

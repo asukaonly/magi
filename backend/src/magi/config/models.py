@@ -405,6 +405,18 @@ class PersonalitySettings(BaseModel):
     name: str = Field(default="default")
     path: str = Field(default="~/.magi/personalities")
     enable_evolution: bool = Field(default=True)
+    enable_state_memory: bool = Field(default=True)
+    enable_state_transition: bool = Field(default=True)
+    enable_deep_persona: bool = Field(default=True)
+
+    @model_validator(mode="after")
+    def normalize_runtime_feature_dependencies(self) -> "PersonalitySettings":
+        """Keep persona sub-features disabled when state memory is off."""
+        self.enable_evolution = bool(self.enable_state_memory)
+        if not self.enable_state_memory:
+            self.enable_state_transition = False
+            self.enable_deep_persona = False
+        return self
 
 
 class MessageBusSettings(BaseModel):

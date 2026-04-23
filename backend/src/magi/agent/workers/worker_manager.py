@@ -1499,13 +1499,17 @@ class WorkerAgentManager(Tool):
                 "Act as a software architect. Return ONLY valid JSON with this schema: "
                 '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation. "
+                "Start from the most concrete anchor or owning code path you can identify, then split by neighboring responsibilities only when needed. "
+                "Prefer execution-ready subtasks organized around concrete entry points, interfaces, modules, or discriminating checks. "
+                "Avoid generic subtasks like gathering context or summarizing risks unless the parent request explicitly needs them or ambiguity remains unresolved. "
+                "If you name a file, symbol, route, flag, or config key in findings or evidence, confirm it exists in the current code before treating it as fact. "
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
         else:
             role_rules = (
                 "Act as a general-purpose leaf execution agent for one bounded task. "
                 "Return ONLY valid JSON with this schema: "
-                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
+                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string","path":"string","why_it_matters":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
         return "\n".join([base_rules, environment_rules, role_rules, tool_rules])
@@ -1538,10 +1542,12 @@ class WorkerAgentManager(Tool):
 Prioritize bounded exploration over exhaustive scans.
 Common rules:
 1.Directionality: Start from the layer most likely to contain the answer. If unclear, follow: frontend -> backend -> ops -> docs.
+    2.Anchor First: Identify the most concrete likely anchor first (entry file, symbol, route, config, or owning module) and investigate that before widening scope.
 2.Precision Search: Use targeted glob patterns to map structure, then grep for logic entry points. Strictly avoid root-level ls -R or dumping non-essential trees.
 3.Execution Discipline: For glob calls, default to recursive=false and only recurse when pattern explicitly includes '**'. Never use '*' or '**/*' at repository root.
 4.Scope Control: Start from one focused layer (frontend/, backend/, docs/, scripts/) and expand only if needed. Keep every glob/grep call at max_results <= 200.
 5.Negative Constraints: Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files. Do not read binary files or minified assets.
+    6.Claim Validation: If you mention a file, symbol, route, flag, or config key in findings, confirm it exists in the current code before treating it as fact.
 6.Incremental Validation: Identify 2-5 validated findings with absolute paths and a brief 'why it matters'. Prefer source-of-truth entry files over broad scans.
 7.Response Validation: Your final answer must be one parseable JSON object and nothing else. Any prose, markdown, code fences, or trailing commentary will be treated as failure.
 """

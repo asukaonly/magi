@@ -119,7 +119,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
       <div
         className={cn(
           'border-b border-border/40 bg-muted/20',
-          embedded ? 'border-b-0 bg-transparent px-0 pb-3 pt-1' : 'px-6 py-5'
+          embedded ? 'border-b-0 bg-transparent px-0 py-1' : 'px-6 py-5'
         )}
       >
       {/* Title row */}
@@ -136,16 +136,17 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
         </div>
       ) : null}
       {/* Avatar selector row */}
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div className={cn('flex overflow-x-auto', embedded ? 'gap-2 pb-0' : 'gap-3 pb-2')}>
           <button
             type="button"
             data-testid="personality-create-card"
             onClick={startNewPersonality}
-            className="group relative flex shrink-0 flex-col items-center gap-2"
+            className={cn('group relative flex shrink-0 flex-col items-center', embedded ? 'gap-1.5' : 'gap-2')}
           >
             <div
               className={cn(
-                'relative flex h-16 w-16 items-center justify-center rounded-2xl border-2 transition',
+                'relative flex items-center justify-center border-2 transition',
+                embedded ? 'h-14 w-14 rounded-xl' : 'h-16 w-16 rounded-2xl',
                 isNewMode
                   ? 'border-primary bg-primary/10 shadow-sm'
                   : 'border-dashed border-border bg-muted/30 group-hover:border-primary group-hover:bg-primary/5'
@@ -153,7 +154,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
             >
               <Plus
                 className={cn(
-                  'h-6 w-6 transition',
+                  embedded ? 'h-5 w-5 transition' : 'h-6 w-6 transition',
                   isNewMode ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'
                 )}
               />
@@ -184,11 +185,12 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               <button
                 key={item.id}
                 onClick={() => selectPersonality(item.id)}
-                className="group relative flex shrink-0 flex-col items-center gap-2"
+                className={cn('group relative flex shrink-0 flex-col items-center', embedded ? 'gap-1.5' : 'gap-2')}
               >
                 <div
                   className={cn(
-                    'relative flex h-16 w-16 items-center justify-center rounded-2xl border-2 transition',
+                    'relative flex items-center justify-center border-2 transition',
+                    embedded ? 'h-14 w-14 rounded-xl' : 'h-16 w-16 rounded-2xl',
                     isSelected
                       ? 'border-primary bg-primary/10 shadow-sm'
                       : 'border-border/50 bg-muted/30 hover:border-primary/50 hover:bg-muted/50'
@@ -198,12 +200,15 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     <img
                       src={selectorAvatarUrl}
                       alt={item.displayName}
-                      className="h-full w-full rounded-[14px] bg-neutral-200 object-cover dark:bg-neutral-700"
+                      className={cn(
+                        'h-full w-full bg-neutral-200 object-cover dark:bg-neutral-700',
+                        embedded ? 'rounded-[10px]' : 'rounded-[14px]'
+                      )}
                     />
                   ) : (
                     <span
                       className={cn(
-                        'text-lg font-semibold',
+                        embedded ? 'text-base font-semibold' : 'text-lg font-semibold',
                         isSelected ? 'text-primary' : 'text-muted-foreground'
                       )}
                     >
@@ -217,7 +222,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     </div>
                   )}
                 </div>
-                <div className="max-w-[80px] truncate text-center">
+                <div className={cn('truncate text-center', embedded ? 'max-w-[72px]' : 'max-w-[80px]')}>
                   <span
                     className={cn(
                       'block text-xs font-medium',
@@ -234,12 +239,15 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
       </div>
 
       {/* Detail section: Scrollable config cards */}
-      <div className={cn('flex-1 overflow-y-auto', embedded ? 'pt-3' : 'p-6')}>
-        <div className="space-y-5">
+      <div className={cn('flex-1 overflow-y-auto', embedded ? 'pt-0' : 'p-6')}>
+        <div className={cn(embedded ? 'space-y-4' : 'space-y-5')}>
           {/* Detail Header with Actions */}
-          <div className="flex flex-col gap-4 rounded-3xl border border-primary/20 bg-muted/20 p-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex min-w-0 flex-1 items-start gap-4">
+          <div className={cn(
+            'flex flex-col rounded-3xl border border-primary/20 bg-muted/20',
+            embedded ? 'gap-3 p-4' : 'gap-4 p-5'
+          )}>
+            <div className={cn('flex flex-col lg:flex-row lg:justify-between', embedded ? 'gap-3 lg:items-start' : 'gap-4 lg:items-center')}>
+              <div className={cn('flex min-w-0 flex-1 items-start', embedded ? 'gap-3' : 'gap-4')}>
                 <input
                   ref={avatarInputRef}
                   data-testid="personality-avatar-input"
@@ -255,7 +263,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   onClick={() => avatarInputRef.current?.click()}
                   disabled={uploadingAvatar}
                   className={cn(
-                    'group relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-border/60 transition hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-70',
+                    'group relative flex shrink-0 items-center justify-center overflow-hidden border border-border/60 transition hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-70',
+                    embedded ? 'h-16 w-16 rounded-2xl' : 'h-20 w-20 rounded-3xl',
                     avatarUrl
                       ? 'bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-700 dark:hover:bg-neutral-600'
                       : 'bg-background hover:bg-primary/5'
@@ -271,45 +280,56 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     />
                   ) : (
                     <div className="flex flex-col items-center gap-1 text-muted-foreground transition group-hover:text-primary">
-                      <span className="text-xl font-semibold">
+                      <span className={cn(embedded ? 'text-lg font-semibold' : 'text-xl font-semibold')}>
                         {getInitials(detailTitle)}
                       </span>
-                      <span className="text-[11px] font-medium">
+                      <span className={cn(embedded ? 'text-[10px] font-medium' : 'text-[11px] font-medium')}>
                         {uploadingAvatar ? t('personality.actions.uploadingAvatar') : t('personality.actions.uploadAvatar')}
                       </span>
                     </div>
                   )}
                   {!avatarUrl ? (
-                    <div className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-inset ring-border/40" />
+                    <div className={cn('pointer-events-none absolute inset-0 ring-1 ring-inset ring-border/40', embedded ? 'rounded-2xl' : 'rounded-3xl')} />
                   ) : null}
                 </button>
 
                 <div className="min-w-0 flex-1">
                 {isNewMode ? (
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
+                  <p className={cn(
+                    'font-semibold uppercase text-primary/80',
+                    embedded ? 'text-[10px] tracking-[0.18em]' : 'text-xs tracking-[0.22em]'
+                  )}>
                     {t('personality.creating')}
                   </p>
                 ) : null}
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                <div className={cn('flex flex-wrap items-center', embedded ? 'mt-1 gap-2' : 'mt-2 gap-3')}>
+                  <h2 className={cn('font-semibold tracking-tight text-foreground', embedded ? 'text-[1.75rem]' : 'text-2xl')}>
                     {detailTitle}
                   </h2>
                   {!isNewMode && selectedId === currentId ? (
-                    <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                    <span className={cn(
+                      'inline-flex items-center rounded-full border border-primary/25 bg-primary/10 font-medium text-primary',
+                      embedded ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
+                    )}>
                       {t('personality.current')}
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                <p className={cn('text-sm text-muted-foreground', embedded ? 'mt-1 leading-5' : 'mt-2 leading-6')}>
                   {detailDescription}
                 </p>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap gap-2">
+              <div className={cn('flex flex-wrap gap-2', embedded ? 'lg:pt-1' : '')}>
                 {!isNewMode && selectedId !== currentId && (
-                  <Button onClick={switchPersonality} disabled={switching} className="rounded-2xl">
+                  <Button
+                    onClick={switchPersonality}
+                    disabled={switching}
+                    size={embedded ? 'sm' : 'default'}
+                    className={embedded ? 'rounded-xl' : 'rounded-2xl'}
+                  >
                     <Check className="mr-2 h-4 w-4" />
                     {switching ? t('personality.switching') : t('personality.switch')}
                   </Button>
@@ -318,7 +338,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   <Button
                     variant="outline"
                     onClick={cancelNewPersonality}
-                    className="rounded-2xl"
+                    size={embedded ? 'sm' : 'default'}
+                    className={embedded ? 'rounded-xl' : 'rounded-2xl'}
                   >
                     {t('personality.cancel')}
                   </Button>
@@ -326,7 +347,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   <Button
                     variant="outline"
                     onClick={reload}
-                    className="rounded-2xl"
+                    size={embedded ? 'sm' : 'default'}
+                    className={embedded ? 'rounded-xl' : 'rounded-2xl'}
                   >
                     <RefreshCw className="mr-2 h-4 w-4" />
                     {t('personality.reload')}
@@ -335,7 +357,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                 <Button
                   onClick={save}
                   disabled={saving || loading}
-                  className="rounded-2xl"
+                  size={embedded ? 'sm' : 'default'}
+                  className={embedded ? 'rounded-xl' : 'rounded-2xl'}
                 >
                   <Check className="mr-2 h-4 w-4" />
                   {isNewMode
@@ -347,7 +370,11 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     variant="outline"
                     onClick={requestDeletePersonality}
                     disabled={selectedId === currentId}
-                    className="rounded-2xl border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    size={embedded ? 'sm' : 'default'}
+                    className={cn(
+                      'border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive',
+                      embedded ? 'rounded-xl' : 'rounded-2xl'
+                    )}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
                     {t('personality.delete')}

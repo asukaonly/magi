@@ -32,6 +32,7 @@ def _make_orchestrator_with_tools(tools: Dict[str, Dict[str, Any]]) -> FunctionC
     registry = MagicMock()
     registry.get_tool_info.side_effect = lambda name: tools.get(name)
     registry.get_skill_info.return_value = None
+    registry.is_skill.return_value = False
     orchestrator = FunctionCallingOrchestrator.__new__(FunctionCallingOrchestrator)
     orchestrator.tool_registry = registry  # type: ignore[attr-defined]
     return orchestrator
@@ -80,3 +81,63 @@ def test_build_tools_parameter_emits_only_json_schema_types() -> None:
     # Explicitly confirm the known-failing GLM 1210 strings are absent.
     assert "float" not in declared
     assert "file" not in declared
+
+
+def test_build_tools_parameter_appends_tool_guidance_from_metadata() -> None:
+    tools_registry = {
+        "glob": {
+            "description": "Find files matching shell-style patterns.",
+            "metadata": {
+                "tool_hint": "Use first to locate candidate files from module clues.",
+                "task_intents": ["explore_codebase", "trace_implementation"],
+                "domains": ["codebase"],
+                "operations": ["discover"],
+                "query_shapes": ["path_or_module"],
+                "followed_by": ["grep", "file_read"],
+                "avoid_task_intents": ["research_external"],
+            },
+            "parameters": [
+                {"name": "pattern", "type": "string", "required": True},
+            ],
+        }
+    }
+    orchestrator = _make_orchestrator_with_tools(tools_registry)
+
+    payload = orchestrator._build_tools_parameter(["glob"])
+    description = payload[0]["function"]["description"]
+
+    assert "Tool guidance:" in description
+    assert "Best for tasks: explore_codebase, trace_implementation." in description
+    assert "Domain: codebase." in description
+    assert "Typical operations: discover." in description
+    assert "Usually followed by: grep, file_read." in description
+
+
+def test_build_tools_parameter_renders_non_search_tool_guidance_from_metadata() -> None:
+    tools_registry = {
+        "bash": {
+            "description": "Execute Bash/Shell commands.",
+            "metadata": {
+                "tool_hint": "Use for narrow executable checks once the target is known.",
+                "task_intents": ["debug_runtime", "inspect_runtime_state"],
+                "domains": ["runtime", "system"],
+                "operations": ["probe", "inspect"],
+                "query_shapes": ["shell_command", "one_off_check"],
+                "avoid_task_intents": ["explore_codebase", "research_external"],
+            },
+            "parameters": [
+                {"name": "command", "type": "string", "required": True},
+            ],
+        }
+    }
+    orchestrator = _make_orchestrator_with_tools(tools_registry)
+
+    payload = orchestrator._build_tools_parameter(["bash"])
+    description = payload[0]["function"]["description"]
+
+    assert "Tool guidance:" in description
+    assert "Best for tasks: debug_runtime, inspect_runtime_state." in description
+    assert "Domain: runtime, system." in description
+    assert "Typical operations: probe, inspect." in description
+    assert "Query shape: shell_command, one_off_check." in description
+    assert "Avoid for task types: explore_codebase, research_external." in description

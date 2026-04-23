@@ -22,6 +22,9 @@ import {
   respondAsk,
 } from '@/api/modules/control';
 import { useControlEvents } from '@/realtime/useControlEvents';
+import { useConversationStore } from '@/stores';
+
+const OPEN_ASK_REQUEST_EVENT = 'magi-open-ask-request';
 
 export interface AskDialogProps {
   sessionId: string | null | undefined;
@@ -40,6 +43,8 @@ export function AskDialog({
   background = false,
 }: AskDialogProps) {
   const { t } = useTranslation('control');
+  const upsertMessage = useConversationStore((state) => state.upsertMessage);
+  const removeMessage = useConversationStore((state) => state.removeMessage);
   const [ask, setAsk] = useState<AskStateDTO | null>(null);
   const [answer, setAnswer] = useState('');
   const [selection, setSelection] = useState<string | null>(null);
@@ -86,6 +91,64 @@ export function AskDialog({
       void pull();
     },
   });
+
+  useEffect(() => {
+    const handleOpenAsk = () => {
+      void pull();
+    };
+
+    window.addEventListener(OPEN_ASK_REQUEST_EVENT, handleOpenAsk);
+    return () => {
+      window.removeEventListener(OPEN_ASK_REQUEST_EVENT, handleOpenAsk);
+    };
+  }, [pull]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+    const state = useConversationStore.getState();
+    if (!state.sessionsById[sessionId]) {
+      return;
+    }
+    const currentMessages = state.messagesBySession[sessionId] || [];
+    const askMessages = currentMessages.filter((message) => message.messageKind === 'ask_request');
+
+    if (!ask) {
+      askMessages.forEach((message) => {
+        const messageId = String(message.messageId || '').trim();
+        if (messageId) {
+          removeMessage(sessionId, messageId);
+        }
+      });
+      return;
+    }
+
+    const activeMessageId = `ask:${ask.request_id}`;
+    askMessages.forEach((message) => {
+      const messageId = String(message.messageId || '').trim();
+      if (messageId && messageId !== activeMessageId) {
+        removeMessage(sessionId, messageId);
+      }
+    });
+
+    upsertMessage(sessionId, {
+      id: activeMessageId,
+      messageId: activeMessageId,
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'ask_request',
+      content: ask.question,
+      timestamp: Number(ask.created_at_ms || Date.now()),
+      payload: {
+        ask_request_id: ask.request_id,
+        question: ask.question,
+        options: ask.options,
+        allow_free_text: ask.allow_free_text,
+        background,
+      },
+    });
+  }, [ask, background, removeMessage, sessionId, upsertMessage]);
 
   const canSubmit = useMemo(() => {
     if (!ask) return false;

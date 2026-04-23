@@ -13,6 +13,7 @@ from ....context.scenarios import Scenario
 from ....llm.streaming_events import get_stream_sink, stream_source
 from ....tools.registry import ToolRegistry
 from ....tools.schema import ToolExecutionContext
+from ....tools.tool_hint_resolver import ToolHintResolver
 from ...orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrationState
 from ..common import OrchestrationPlan
 from .history_service import ChatHistoryService
@@ -26,6 +27,9 @@ STRUCTURED_PLANNING_TIMEOUT_SECONDS = 180.0
 class ChatPlanningService:
     """Owns parent-task planning and aggregation for generic chat orchestration."""
 
+    _FILE_TOOL_HINT_CANDIDATES = ["glob", "grep", "file_read"]
+    _WEB_TOOL_HINT_CANDIDATES = ["web-search", "web-fetch"]
+
     def __init__(
         self,
         *,
@@ -36,6 +40,7 @@ class ChatPlanningService:
         history_service: ChatHistoryService,
         tool_registry: ToolRegistry,
         parent_task_agent_type: str,
+        tool_hint_resolver: ToolHintResolver | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._runtime_key = runtime_key
@@ -44,6 +49,7 @@ class ChatPlanningService:
         self._history_service = history_service
         self._tool_registry = tool_registry
         self._parent_task_agent_type = parent_task_agent_type
+        self._tool_hint_resolver = tool_hint_resolver or ToolHintResolver(tool_registry)
 
     async def generate_subtask_plan(
         self,
@@ -175,6 +181,11 @@ class ChatPlanningService:
         ]
         if request_profile == "research":
             seed_subtasks = [item.to_dict() for item in self._build_research_seed_subtasks(user_message)]
+            task_hint = self._resolve_planning_task_hint(
+                user_message=user_message,
+                request_profile=request_profile,
+                default_leaf_type="general-purpose",
+            )
             planning_prompt = {
                 "planning_profile": "research",
                 "user_request": user_message,
@@ -182,6 +193,7 @@ class ChatPlanningService:
                 "default_leaf_type": "general-purpose",
                 "allow_parallel": orchestration_plan.allow_parallel,
                 "date_range_hint": self._extract_date_range_hint(user_message),
+                "task_hints": task_hint,
                 "seed_subtasks": seed_subtasks,
                 "requirements": [
                     "Decompose into bounded, independent research subtasks that a generic worker can complete without reading sibling outputs.",
@@ -196,15 +208,22 @@ class ChatPlanningService:
                 "Return ONLY valid JSON with this schema: "
                 '{"summary":"string","subtasks":[{"description":"string","subagent_type":"general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "Produce execution-ready leaf tasks only. Do not answer the user request directly. "
-                "Never emit a worker whose only job is final synthesis across sibling results."
+                "Never emit a worker whose only job is final synthesis across sibling results. "
+                "When task_hints are present, use them to separate broad discovery from detail fetch work."
             )
         else:
+            task_hint = self._resolve_planning_task_hint(
+                user_message=user_message,
+                request_profile=request_profile,
+                default_leaf_type=orchestration_plan.default_leaf_type,
+            )
             planning_prompt = {
                 "planning_profile": request_profile,
                 "user_request": user_message,
                 "recent_history": recent_history,
                 "default_leaf_type": orchestration_plan.default_leaf_type,
                 "allow_parallel": orchestration_plan.allow_parallel,
+                "task_hints": task_hint,
                 "requirements": [
                     "Decompose into bounded leaf subtasks owned by the parent task agent.",
                     "Favor parallel subtasks when there are no strong dependencies.",
@@ -215,7 +234,8 @@ class ChatPlanningService:
                 "You are a parent task agent planning bounded leaf subtasks. "
                 "Return ONLY valid JSON with this schema: "
                 '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
-                "Do not answer the user request directly. Produce execution-ready leaf tasks only."
+                "Do not answer the user request directly. Produce execution-ready leaf tasks only. "
+                "When task_hints are present, use them to bias the plan toward efficient bounded search sequences."
             )
         try:
             if get_stream_sink() is not None:
@@ -276,6 +296,13 @@ class ChatPlanningService:
             run_revision=run_revision,
         )
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
+        tool_guidance = self._tool_hint_resolver.render_guidance_block(
+            self._resolve_planning_task_hint(
+                user_message=user_message,
+                request_profile="generic",
+                default_leaf_type="Explore",
+            )
+        )
         result = await self._tool_registry.execute(
             "agent",
             {
@@ -284,8 +311,12 @@ class ChatPlanningService:
                 "description": "plan leaf subtasks",
                 "prompt": (
                     "Decompose the parent task into bounded leaf workers. "
+                    "Start from the most concrete likely anchor or owning code path, then split only by neighboring responsibilities that are actually needed. "
+                    "Prefer execution-ready subtasks around concrete modules, interfaces, or validation checks. "
+                    "Avoid generic subtasks that only gather context or summarize risks unless ambiguity remains unresolved. "
                     "Return JSON with summary, findings, evidence, gaps, next_steps, and subtasks only. "
                     f"Parent task: {user_message}"
+                    + (f"\n\n{tool_guidance}" if tool_guidance else "")
                 ),
                 "run_in_background": False,
                 "target_task_agent_type": self._parent_task_agent_type,
@@ -366,6 +397,7 @@ class ChatPlanningService:
                         subtask_description=description,
                         subtask_prompt=subtask_prompt,
                         request_profile=request_profile,
+                        subagent_type=subagent_type,
                     ),
                     parallel_group=item.parallel_group,
                 )
@@ -442,21 +474,21 @@ class ChatPlanningService:
             ]
         return [
             PlannedSubtask(
-                description="Gather primary context",
+                description="Locate the primary anchor",
                 subagent_type=leaf_type,
-                prompt="Collect the most relevant files, modules, and source-of-truth evidence for the request.",
+                prompt="Find the smallest set of files, symbols, or entry modules most likely to control the requested behavior or answer.",
                 parallel_group="group_a",
             ),
             PlannedSubtask(
-                description="Analyze implementation details",
+                description="Trace the owning implementation path",
                 subagent_type=leaf_type,
-                prompt="Inspect the core implementation path, dependencies, and behavior that matter for the request.",
+                prompt="Follow the code path that directly computes, routes, or controls the requested behavior, pulling in only the nearby dependencies needed to explain it.",
                 parallel_group="group_a",
             ),
             PlannedSubtask(
-                description="Summarize risks and gaps",
+                description="Validate gaps and edge cases",
                 subagent_type=leaf_type,
-                prompt="Identify open questions, gaps, and next actions needed to complete the request.",
+                prompt="Validate important edge cases, unresolved assumptions, and remaining gaps from source evidence instead of repeating broad summary prose.",
                 parallel_group="group_b",
             ),
         ]
@@ -468,7 +500,16 @@ class ChatPlanningService:
         subtask_description: str,
         subtask_prompt: str,
         request_profile: str,
+        subagent_type: str | None = None,
     ) -> str:
+        tool_guidance = self._tool_hint_resolver.render_guidance_block(
+            self._resolve_leaf_task_hint(
+                root_user_message=root_user_message,
+                subtask_prompt=subtask_prompt,
+                request_profile=request_profile,
+                subagent_type=subagent_type,
+            )
+        )
         if request_profile == "research":
             date_range_hint = self._extract_date_range_hint(root_user_message)
             lines = [
@@ -476,6 +517,7 @@ class ChatPlanningService:
                 f"Assigned subtask: {subtask_description}",
                 "Task-specific instructions:",
                 subtask_prompt,
+                *( [tool_guidance] if tool_guidance else [] ),
                 "Success criteria:",
                 "- Stay strictly within this subtask scope.",
                 "- Prefer web-search for discovery and only use web-fetch when the task explicitly requires article details or verification.",
@@ -497,12 +539,84 @@ class ChatPlanningService:
                 f"Assigned subtask: {subtask_description}",
                 "Task-specific instructions:",
                 subtask_prompt,
+                *( [tool_guidance] if tool_guidance else [] ),
                 "Success criteria:",
                 "- Stay strictly within this subtask scope.",
+                "- Start from the most concrete anchor available: an entry file, symbol, path, interface, or directly controlling module.",
+                "- If you name a file, symbol, route, config key, or flag, verify it exists in the current code before relying on it.",
+                "- Prefer focused glob/grep/read steps over broad repository scans.",
                 "- Use absolute file paths in findings and evidence when you reference code.",
                 "- Prefer validated findings over speculation.",
                 "- If information is missing, put it into gaps instead of guessing.",
                 "- Do not duplicate likely sibling subtasks unless it is necessary evidence.",
+            ]
+        )
+
+    def _resolve_planning_task_hint(
+        self,
+        *,
+        user_message: str,
+        request_profile: str,
+        default_leaf_type: str,
+    ) -> dict[str, Any]:
+        available_tools = (
+            list(self._WEB_TOOL_HINT_CANDIDATES)
+            if request_profile == "research"
+            else self._candidate_file_tools(default_leaf_type, user_message)
+        )
+        return self._tool_hint_resolver.resolve(
+            user_message=user_message,
+            available_tools=available_tools,
+            request_profile=request_profile,
+        )
+
+    def _resolve_leaf_task_hint(
+        self,
+        *,
+        root_user_message: str,
+        subtask_prompt: str,
+        request_profile: str,
+        subagent_type: str | None,
+    ) -> dict[str, Any]:
+        if request_profile == "research":
+            available_tools = list(self._WEB_TOOL_HINT_CANDIDATES)
+        elif str(subagent_type or "").strip() == "Explore" or self._looks_like_code_or_repo_request(root_user_message, subtask_prompt):
+            available_tools = list(self._FILE_TOOL_HINT_CANDIDATES)
+        else:
+            available_tools = []
+        return self._tool_hint_resolver.resolve(
+            user_message=root_user_message,
+            available_tools=available_tools,
+            request_profile=request_profile,
+        )
+
+    def _candidate_file_tools(self, default_leaf_type: str, user_message: str) -> list[str]:
+        if default_leaf_type == "Explore" or self._looks_like_code_or_repo_request(user_message, ""):
+            return list(self._FILE_TOOL_HINT_CANDIDATES)
+        return []
+
+    @staticmethod
+    def _looks_like_code_or_repo_request(user_message: str, subtask_prompt: str) -> bool:
+        combined = f"{user_message}\n{subtask_prompt}".lower()
+        return any(
+            keyword in combined
+            for keyword in [
+                "architecture",
+                "codebase",
+                "repo",
+                "backend",
+                "frontend",
+                "module",
+                "runtime",
+                "router",
+                "src/",
+                "backend/",
+                "frontend/",
+                "代码架构",
+                "项目架构",
+                "目录结构",
+                "后端",
+                "前端",
             ]
         )
 
@@ -656,7 +770,7 @@ class ChatPlanningService:
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         return ToolExecutionContext(
             agent_id=self._runtime_key,
-            workspace=workspace_root or get_default_chat_workspace_path(),
+            workspace=str(workspace_root or "").strip(),
             env_vars={
                 "user_id": user_id,
                 "session_id": session_id,

@@ -234,6 +234,24 @@ def test_build_tool_message_payload_keeps_structured_worker_result() -> None:
     assert payload["data"]["worker_id"] == "worker_1"
 
 
+def test_build_tool_message_payload_includes_recovery_guidance_for_ambiguous_scope() -> None:
+    postprocessor = FunctionCallingPostprocessor()
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="glob",
+        result=ToolCallResult(
+            tool_call_id="g1",
+            tool_name="glob",
+            success=False,
+            data=None,
+            error="File scan guardrail: glob and grep must stay within the active workspace.",
+            error_code="AMBIGUOUS_SCOPE",
+        ),
+    )
+
+    assert payload["error_code"] == "AMBIGUOUS_SCOPE"
+    assert "Ask the user for an explicit path or use web-search" in payload["recovery_guidance"]
+
+
 @pytest.mark.asyncio
 async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
     registry = _RecordingToolRegistry()
@@ -748,6 +766,28 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
     assert len(llm_calls) == 3
     assert "Tool recovery rules:" in llm_calls[0]["system_prompt"]
     assert result.tool_failures[0]["error_code"] == "INVALID_PARAMETERS"
+
+
+def test_classify_final_failure_returns_ambiguous_scope_for_scope_only_failures() -> None:
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    failure = executor._classify_final_failure(
+        [
+            {
+                "tool_call_id": "call_1",
+                "tool_name": "glob",
+                "error": "workspace boundary blocked",
+                "error_code": "AMBIGUOUS_SCOPE",
+                "execution_time": 0.01,
+            }
+        ],
+        all_tools_failed=True,
+    )
+
+    assert failure == "AMBIGUOUS_SCOPE"
 
 
 @pytest.mark.asyncio

@@ -43,6 +43,14 @@ class MessageDispatchOutcome:
     queue_size: int | None = None
 
 
+def get_chat_read_service():
+    """Resolve the chat read service lazily to avoid import cycles at startup."""
+
+    from ...chat.read_service import get_chat_read_service as _get_chat_read_service
+
+    return _get_chat_read_service()
+
+
 def _extract_chat_projection_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
@@ -113,6 +121,14 @@ async def dispatch_user_message(
             error_message="Message text or attachments are required.",
         )
     normalized_workspace_path = str(workspace_path or "").strip() or None
+    if normalized_workspace_path is None:
+        try:
+            read_service = get_chat_read_service()
+            session_summary = await read_service.aget_session_summary(user_id, resolved_session_id)
+        except Exception:
+            session_summary = None
+        if session_summary is not None:
+            normalized_workspace_path = str(session_summary.workspace_path or "").strip() or None
     normalized_reply_to_message_id = str(reply_to_message_id or "").strip() or None
     normalized_metadata = dict(metadata or {})
     if normalized_reply_to_message_id is not None:

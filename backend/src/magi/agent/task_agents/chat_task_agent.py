@@ -160,6 +160,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             aggregate_orchestration=self._planning_service.aggregate_orchestration,
             register_user_message=self._history_service.append_user_message,
             parent_task_agent_type=TaskAgentType.CHAT.value,
+            session_workspace_provider=self._resolve_session_workspace_path,
         )
         # Initialize trace read service for enriching AI_RESPONSE events
         from ...api.services.chat_trace_read_service import ChatTraceReadService
@@ -234,6 +235,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             handler_registry=self._handler_registry,
             intent_trace_callback=self._postprocess_service.record_intent_resolution,
             tool_advisory_provider=self._get_tool_advisory,
+            tool_selection_trace_callback=self._postprocess_service.record_tool_selection,
         )
         self._last_batch_facts: list[FactRecord] = []
 
@@ -520,8 +522,28 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             async with stream_scope(sink, source="chat"):
                 return await self._coordinator.execute(llm_params)
         except Exception as exc:
+            logger.error(
+                "ChatTaskAgent LLM execution failed",
+                session_id=context.session_id,
+                turn_id=turn_id,
+                error=str(exc),
+                exc_info=True,
+            )
             await self._emit_llm_error(context, exc)
-            raise
+            correlation_id = (
+                str(context.latest_fact.correlation_id or "").strip()
+                if isinstance(context.latest_fact, FactRecord)
+                else None
+            )
+            return ExecutionResult(
+                mode=llm_params.mode,
+                response_text=_format_llm_error(exc),
+                root_user_message=context.latest_user_message,
+                correlation_id=correlation_id,
+                message_started_at=getattr(llm_params, "message_started_at", None),
+                turn_id=turn_id,
+                streamed=sink is not None,
+            )
 
     def _streaming_enabled(self, user_id: str) -> bool:
         try:
@@ -647,4 +669,40 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             "cancel_requested_by": active_run.cancel_requested_by,
             "cancel_anchor_turn_id": active_run.cancel_anchor_turn_id,
             "cancelled_orchestration_ids": cancelled_orchestration_ids,
+        }
+
+    async def request_session_detach(
+        self,
+        *,
+        session_id: str,
+        requested_by: str,
+        reason: str = "user_detach",
+        anchor_turn_id: str | None = None,
+    ) -> dict[str, object] | None:
+        """Request background handoff for the active session run."""
+        active_run = self._session_run_coordinator.request_detach(
+            session_id=session_id,
+            requested_by=requested_by,
+            reason=reason,
+        )
+        if active_run is None:
+            return None
+        await self._postprocess_service.emit_execution_control_notification(
+            user_id=self.agent_id,
+            session_id=session_id,
+            turn_id=anchor_turn_id or active_run.root_turn_id,
+            run_id=active_run.run_id,
+            orchestration_id=None,
+            state="detaching",
+            can_cancel=False,
+            label="Moving run to background",
+        )
+        return {
+            "session_id": session_id,
+            "run_id": active_run.run_id,
+            "revision": active_run.revision,
+            "status": "detaching",
+            "detach_reason": reason,
+            "detach_requested_by": requested_by,
+            "detach_anchor_turn_id": anchor_turn_id,
         }

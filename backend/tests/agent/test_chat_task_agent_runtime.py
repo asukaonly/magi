@@ -266,7 +266,11 @@ def test_format_llm_error_generic() -> None:
 
 @pytest.mark.asyncio
 async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
-    """When _coordinator.execute raises, call_llm must emit a terminal stream chunk."""
+    """When _coordinator.execute raises, call_llm must still return a terminal result.
+
+    The result goes through the normal postprocess path so the session run can
+    be finalized instead of leaving the turn stuck in `running`.
+    """
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
 
     emitted: list[dict] = []
@@ -303,13 +307,14 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
         active_orchestrations=[],
     )
 
-    with pytest.raises(_FakeRateLimitError):
-        await agent.call_llm(ctx, SimpleNamespace())
+    result = await agent.call_llm(ctx, SimpleNamespace(mode=ExecutionMode.DIRECT_LLM))
 
     assert len(emitted) == 2
     assert emitted[0]["kind"] == "text_delta"
     assert "rate" in emitted[0]["text"].lower()
     assert emitted[1]["kind"] == "text_flush"
+    assert result.response_text == emitted[0]["text"]
+    assert result.streamed is True
 
 
 @pytest.mark.asyncio
@@ -351,10 +356,56 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
         active_orchestrations=[],
     )
 
-    with pytest.raises(RuntimeError):
-        await agent.call_llm(ctx, SimpleNamespace())
+    result = await agent.call_llm(ctx, SimpleNamespace(mode=ExecutionMode.DIRECT_LLM))
 
     assert emitted == []
+    assert "RuntimeError" in result.response_text
+    assert result.streamed is False
+
+
+@pytest.mark.asyncio
+async def test_failed_llm_turn_is_finalized_before_next_user_message(monkeypatch) -> None:
+    """A failed first turn must not leave the active run open for turn two.
+
+    Regression: when `call_llm` re-raised, `TaskAgent._run_loop` swallowed the
+    exception before `parse_result` ran, so `ChatPostProcessService` never
+    called `complete_session_run(...)`. The next user message then revised the
+    old run instead of starting a fresh one.
+    """
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    class _FakeEmitter:
+        async def emit_chat_response_event(self, **kwargs):  # type: ignore[no-untyped-def]
+            return None
+
+    class _FakeCoordinator:
+        async def execute(self, _params):
+            raise RuntimeError("boom")
+
+    agent._event_emitter = _FakeEmitter()  # type: ignore[assignment]
+    agent._coordinator = _FakeCoordinator()
+
+    first_fact = _user_fact("你是谁", turn_id="turn-1")
+    first_context = await agent.build_context(await agent.merge_facts([first_fact]))
+    assert first_context.session_run_id is not None
+
+    result = await agent.call_llm(
+        first_context,
+        SimpleNamespace(mode=ExecutionMode.DIRECT_LLM),
+    )
+    await agent.parse_result(first_context, result)
+
+    # The failed turn is fully finalized, so there is no active run left.
+    assert agent._session_run_coordinator.get_active_run("s-chat") is None
+
+    second_fact = _user_fact("你到底是谁", turn_id="turn-2")
+    second_context = await agent.build_context(await agent.merge_facts([second_fact]))
+
+    # The second message starts a fresh run rather than revising turn-1.
+    assert second_context.session_run_id is not None
+    assert second_context.session_run_id != first_context.session_run_id
+    assert second_context.active_run is not None
+    assert second_context.active_run.root_turn_id == "turn-2"
 
 
 @pytest.mark.asyncio

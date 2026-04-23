@@ -38,6 +38,39 @@ from ...utils.packaged_paths import get_backend_root
 logger = get_logger(__name__)
 
 
+_SENSITIVE_LOG_FIELD_PATTERNS = (
+    "api_key",
+    "apikey",
+    "secret",
+    "password",
+    "token",
+    "credential",
+    "private",
+)
+
+
+def _is_sensitive_log_field(field_name: str) -> bool:
+    field_lower = field_name.lower()
+    return any(pattern in field_lower for pattern in _SENSITIVE_LOG_FIELD_PATTERNS)
+
+
+def _sanitize_log_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_sanitize_log_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: ("***MASKED***" if _is_sensitive_log_field(str(key)) else _sanitize_log_value(item))
+            for key, item in value.items()
+        }
+    if hasattr(value, "model_dump"):
+        return _sanitize_log_value(value.model_dump())
+    if hasattr(value, "__dict__"):
+        return _sanitize_log_value(vars(value))
+    return str(value)
+
+
 # ── Shared request/response models ──────────────────────────────────────
 
 
@@ -220,6 +253,12 @@ async def test_llm_provider_connection(
     model: str,
 ) -> Dict[str, Any]:
     """Test an LLM provider connection with a simple chat call."""
+    logger.info(
+        "llm_provider_test_started",
+        provider_id=provider_id,
+        model=model,
+        provider=_sanitize_log_value(provider),
+    )
     runtime_provider = LLMProviderSettings.model_validate(provider.model_dump())
     registry_meta = find_provider_meta(get_llm_provider_registry(), provider_id)
     adapter = build_adapter_from_provider(
@@ -241,8 +280,16 @@ async def test_llm_provider_connection(
             "provider_id": provider_id,
         },
     )
-    return {
+    result = {
         "model": model,
         "latency_ms": int((time.perf_counter() - started_at) * 1000),
         "preview": preview[:120].strip(),
     }
+    logger.info(
+        "llm_provider_test_succeeded",
+        provider_id=provider_id,
+        model=model,
+        latency_ms=result["latency_ms"],
+        preview=result["preview"],
+    )
+    return result

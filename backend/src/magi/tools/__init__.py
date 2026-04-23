@@ -16,6 +16,7 @@ from .schema import (
     ToolErrorCode,
 )
 from .registry import ToolRegistry, tool_registry
+from .tool_hint_resolver import ToolHintResolver
 from .context_decider import ContextDecider, ContextDecision
 from .recommender import ToolRecommender, ScenarioType
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
@@ -57,6 +58,7 @@ __all__ = [
     # Registry
     "ToolRegistry",
     "tool_registry",
+    "ToolHintResolver",
 
     # Context Decider (replaces old ToolSelector)
     "ContextDecider",

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -17,6 +19,23 @@ from magi.agent.control.settings import ControlSettings, PermissionMode
 from magi.agent.control.settings_manager import ControlSettingsManager
 from magi.api.routers import control as control_module
 from magi.api.routers.control import control_router
+from magi.runtime_trace import RuntimeNotificationRecord
+
+
+class _FakeRuntimeTraceStore:
+    def __init__(self, notifications: list[RuntimeNotificationRecord]) -> None:
+        self._notifications = notifications
+
+    async def get_latest_notification_id(self) -> int:
+        if not self._notifications:
+            return 0
+        return max(item.notification_id for item in self._notifications)
+
+    async def list_notifications(self, *, after_id: int, limit: int = 50) -> list[RuntimeNotificationRecord]:
+        _ = limit
+        return [
+            item for item in self._notifications if item.notification_id > after_id
+        ]
 
 
 @pytest.fixture()
@@ -245,11 +264,102 @@ async def test_session_plan_and_todos_and_ask(wiring):
     assert plan["active"] is True
 
     todos = client.get("/api/control/sessions/sid-2/todos").json()
-    assert [t["title"] for t in todos["items"]] == ["a", "b"]
+    assert [t["content"] for t in todos["items"]] == ["a", "b"]
+    assert all("created_at_ms" in t for t in todos["items"])
+    assert all("updated_at_ms" in t for t in todos["items"])
 
     ask = client.get("/api/control/sessions/sid-2/ask").json()
     assert ask["ask"]["question"] == "Proceed?"
     assert ask["ask"]["options"] == ["yes", "no"]
+
+
+def test_session_plan_falls_back_to_runtime_notifications(wiring, monkeypatch):
+    monkeypatch.setattr(
+        control_module,
+        "require_runtime_trace_store",
+        lambda: _FakeRuntimeTraceStore(
+            [
+                RuntimeNotificationRecord(
+                    notification_id=3,
+                    channel="control.plan.updated",
+                    user_id="user-1",
+                    session_id="sid-fallback",
+                    turn_id="turn-1",
+                    payload_json=json.dumps(
+                        {
+                            "session_id": "sid-fallback",
+                            "plan": {
+                                "active": False,
+                                "allowed_tools": [],
+                                "plan_text": "Inspect runtime heartbeat path",
+                                "entered_at": None,
+                            },
+                        }
+                    ),
+                    created_at_ms=123,
+                )
+            ]
+        ),
+    )
+
+    app = FastAPI()
+    app.include_router(control_router, prefix="/api/control")
+    client = TestClient(app)
+
+    plan = client.get("/api/control/sessions/sid-fallback/plan")
+    assert plan.status_code == 200
+    assert plan.json()["plan_text"] == "Inspect runtime heartbeat path"
+
+
+def test_session_todos_fall_back_to_runtime_notifications(wiring, monkeypatch):
+    monkeypatch.setattr(
+        control_module,
+        "require_runtime_trace_store",
+        lambda: _FakeRuntimeTraceStore(
+            [
+                RuntimeNotificationRecord(
+                    notification_id=5,
+                    channel="control.todo.updated",
+                    user_id="user-1",
+                    session_id="sid-fallback",
+                    turn_id="turn-2",
+                    payload_json=json.dumps(
+                        {
+                            "session_id": "sid-fallback",
+                            "items": [
+                                {"id": "1", "content": "Trace heartbeat loop", "status": "in_progress"},
+                                {"id": "2", "content": "Block home-dir glob", "status": "not_started"},
+                            ],
+                        }
+                    ),
+                    created_at_ms=456,
+                )
+            ]
+        ),
+    )
+
+    app = FastAPI()
+    app.include_router(control_router, prefix="/api/control")
+    client = TestClient(app)
+
+    todos = client.get("/api/control/sessions/sid-fallback/todos")
+    assert todos.status_code == 200
+    assert todos.json()["items"] == [
+        {
+            "id": "1",
+            "content": "Trace heartbeat loop",
+            "status": "in_progress",
+            "created_at_ms": todos.json()["items"][0]["created_at_ms"],
+            "updated_at_ms": todos.json()["items"][0]["updated_at_ms"],
+        },
+        {
+            "id": "2",
+            "content": "Block home-dir glob",
+            "status": "not_started",
+            "created_at_ms": todos.json()["items"][1]["created_at_ms"],
+            "updated_at_ms": todos.json()["items"][1]["updated_at_ms"],
+        },
+    ]
 
 
 @pytest.mark.asyncio

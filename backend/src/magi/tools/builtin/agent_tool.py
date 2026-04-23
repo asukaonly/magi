@@ -219,6 +219,16 @@ class AgentTool(Tool):
             timeout=300,
             dangerous=False,
             tags=["agent", "worker", "planning", "exploration"],
+            metadata={
+                "task_intents": ["delegate_task", "explore_codebase", "research_external"],
+                "domains": ["orchestration", "codebase", "web"],
+                "operations": ["delegate"],
+                "query_shapes": ["multi_step_task", "parallelizable_research"],
+                "followed_by": [],
+                "avoid_task_intents": ["verify_source_claim"],
+                "cost": "high",
+                "tool_hint": "Use when the task is large enough to justify a worker, parallel exploration, or independent background execution; avoid for simple local checks.",
+            },
         )
 
     def configure(

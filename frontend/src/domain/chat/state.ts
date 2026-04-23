@@ -216,19 +216,143 @@ export const normalizeTraceNode = (raw: ExecutionTraceNode): NormalizedExecution
   children: Array.isArray(raw.children) ? raw.children.map(normalizeTraceNode) : [],
 });
 
+const isTerminalTraceStatus = (status: string | null | undefined): boolean => (
+  status === 'completed' || status === 'failed' || status === 'interrupted' || status === 'merged'
+);
+
+const deriveTraceRollupStatus = (children: NormalizedExecutionTraceNode[]): string => {
+  if (children.some((child) => child.status === 'failed')) {
+    return 'failed';
+  }
+  if (children.some((child) => child.status === 'running')) {
+    return 'running';
+  }
+  if (children.some((child) => child.status === 'pending')) {
+    return 'pending';
+  }
+  if (children.some((child) => child.status === 'interrupted')) {
+    return 'interrupted';
+  }
+  if (children.some((child) => child.status === 'merged')) {
+    return 'merged';
+  }
+  return children.every((child) => child.status === 'completed') ? 'completed' : 'running';
+};
+
+const getDispatchDisplayLabel = (node: NormalizedExecutionTraceNode): string => {
+  const metadata = node.metadata || {};
+  const explicitLabel = typeof metadata.dispatch_label === 'string' ? metadata.dispatch_label.trim() : '';
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+  const previewLabel = String(node.resultPreview || '').trim();
+  if (previewLabel) {
+    return previewLabel;
+  }
+  return node.label;
+};
+
+const relabelTraceNodeForDisplay = (
+  node: NormalizedExecutionTraceNode,
+): NormalizedExecutionTraceNode => {
+  const children = node.children.map(relabelTraceNodeForDisplay);
+  if (node.kind !== 'dispatch') {
+    return {
+      ...node,
+      children,
+    };
+  }
+
+  const displayLabel = getDispatchDisplayLabel(node).trim();
+  const preview = String(node.resultPreview || '').trim();
+  return {
+    ...node,
+    label: displayLabel || node.label,
+    resultPreview: displayLabel && preview === displayLabel ? '' : node.resultPreview,
+    metadata: {
+      ...node.metadata,
+      dispatch_label: displayLabel || node.label,
+    },
+    children,
+  };
+};
+
+const reshapeTraceRootForDisplay = (
+  root: NormalizedExecutionTraceNode,
+): NormalizedExecutionTraceNode => {
+  const relabeledRoot = relabelTraceNodeForDisplay(root);
+  if (relabeledRoot.kind !== 'root' || relabeledRoot.children.length === 0) {
+    return relabeledRoot;
+  }
+
+  const hasPlanningNode = relabeledRoot.children.some((child) => child.kind === 'planning');
+  if (hasPlanningNode) {
+    return relabeledRoot;
+  }
+
+  const planningChildren: NormalizedExecutionTraceNode[] = [];
+  const preservedChildren: NormalizedExecutionTraceNode[] = [];
+  let insertIndex: number | null = null;
+  let hiddenIterationCount = 0;
+
+  relabeledRoot.children.forEach((child) => {
+    if (child.kind === 'dispatch') {
+      if (insertIndex === null) {
+        insertIndex = preservedChildren.length;
+      }
+      planningChildren.push(child);
+      return;
+    }
+    if (child.kind === 'iteration') {
+      if (insertIndex === null) {
+        insertIndex = preservedChildren.length;
+      }
+      hiddenIterationCount += 1;
+      return;
+    }
+    preservedChildren.push(child);
+  });
+
+  if (planningChildren.length === 0) {
+    return relabeledRoot;
+  }
+
+  const startedAtCandidates = planningChildren
+    .map((child) => child.startedAt)
+    .filter((value): value is number => typeof value === 'number');
+  const planningStatus = deriveTraceRollupStatus(planningChildren);
+  const endedAtCandidates = planningChildren
+    .map((child) => child.endedAt)
+    .filter((value): value is number => typeof value === 'number');
+  const planningNode: NormalizedExecutionTraceNode = {
+    id: `${relabeledRoot.id}:planning`,
+    kind: 'planning',
+    label: 'Task orchestration',
+    status: planningStatus,
+    startedAt: startedAtCandidates.length > 0 ? Math.min(...startedAtCandidates) : relabeledRoot.startedAt,
+    endedAt: endedAtCandidates.length > 0 && isTerminalTraceStatus(planningStatus)
+      ? Math.max(...endedAtCandidates)
+      : null,
+    resultPreview: '',
+    error: null,
+    metadata: {
+      synthetic: true,
+      hidden_iteration_count: hiddenIterationCount,
+    },
+    children: planningChildren,
+  };
+
+  preservedChildren.splice(insertIndex ?? preservedChildren.length, 0, planningNode);
+  return {
+    ...relabeledRoot,
+    children: preservedChildren,
+  };
+};
+
 export const flattenPlanningNodeForDisplay = (
   root: NormalizedExecutionTraceNode,
 ): NormalizedExecutionTraceNode => {
-  if (root.kind !== 'root' || !Array.isArray(root.children)) {
-    return root;
-  }
-
-  return {
-    ...root,
-    children: root.children.flatMap((child) => (
-      child.kind === 'planning' ? child.children : [child]
-    )),
-  };
+  return reshapeTraceRootForDisplay(root);
 };
 
 export const normalizeTraceSnapshot = (raw: ExecutionTraceSnapshot | null | undefined): NormalizedExecutionTraceSnapshot | null => {

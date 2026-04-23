@@ -268,6 +268,15 @@ Important rule: chat UI behavior should not depend directly on raw intent-classi
 
 `TurnUXPlan` is now persisted on `chat_turns.ux_plan_json` and reused by both runtime notifications and history read models. This keeps reload behavior aligned with the same presentation contract that was active when the turn originally ran.
 
+The current call-trace visibility policy intentionally separates storage from presentation:
+
+- runtime trace persistence should remain available for every user-visible turn so support, debugging, and history reload can recover the execution path consistently
+- `DIRECT_LLM` replies should surface a lightweight trace entry with `trace_display_mode=collapsible`
+- tool-driven and orchestration-backed turns should surface a stronger trace affordance with `trace_display_mode=prominent`
+- internal `FACT_ONLY` turns and reaction-only acknowledgements should keep `trace_display_mode=none` because they do not represent a user-visible answer flow
+
+Important rule: trace-entry visibility is a UX decision, not the storage boundary. If a user-visible turn produced trace data, prefer preserving retrieval and reload fidelity even when the chat surface chooses a lighter affordance.
+
 ### Interruption Dispositions
 
 When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/agent/task_agents/chat/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.
@@ -475,7 +484,10 @@ Flow inside a chat turn
    via ``_build_detach_signal()`` — only when a ``BackgroundLaunchService``
    is wired. Without a launch service there is nowhere to hand off, so
    the signal is ``None`` and the tool correctly reports
-   ``detach_not_supported``.
+  ``detach_not_supported``. When a ``SessionRunCoordinator`` is
+  present, the handler also registers that signal under the active
+  session so the chat status card can request the same detach path via
+  ``POST /api/messages/session/{session_id}/detach-run``.
 2. The signal is threaded into both execution paths:
    - ``execute_with_tools`` (plain path) wraps its body in
      ``bind_detach_signal(signal)`` and, on trip, returns an
@@ -507,8 +519,15 @@ Flow inside a chat turn
 The control plane is the cross-cutting surface that lets the user see
 and influence a running turn without editing config. It covers
 permission prompts, ask-user questions, plan mode, and todo updates,
-and it ships as five runtime notification channels plus a set of UI
-hosts that subscribe to them.
+and it ships as runtime notification channels plus UI surfaces that
+render either direct prompts or durable chat-backed status messages.
+
+Permission and ask-user interactions remain prompt-style control
+surfaces, while plan mode and todo updates are also mirrored into
+``chat_messages`` as ``plan_state`` / ``todo_state`` status messages.
+Those status rows use replacement semantics within the same turn so the
+chat transcript keeps the latest control state without accumulating
+stale intermediate copies after reloads or reconnects.
 
 Event channels (all published via
 [``publish_control_event``](/Users/asuka/code/magi/backend/src/magi/bootstrap/control_plane.py)):

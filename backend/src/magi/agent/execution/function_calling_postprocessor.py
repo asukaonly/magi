@@ -32,12 +32,14 @@ class FunctionCallingPostprocessor:
 
     def build_tool_message_payload(self, tool_name: str, result: Any) -> Dict[str, Any]:
         """Build compact tool result payload for the next LLM turn."""
+        error_code = getattr(result, "error_code", None)
         payload = {
             "success": bool(getattr(result, "success", False)),
             "data": self._compact_tool_data_for_context(
                 tool_name=tool_name, data=getattr(result, "data", None)
             ),
             "error": getattr(result, "error", None),
+            "error_code": error_code,
         }
         if tool_name == "memory_query":
             payload.update(
@@ -49,6 +51,11 @@ class FunctionCallingPostprocessor:
                         "Do not replace missing recall results with implicit memory or guesses."
                     ),
                 }
+            )
+        if error_code == "AMBIGUOUS_SCOPE":
+            payload["recovery_guidance"] = (
+                "The previous scan was blocked because the target location is ambiguous outside the current workspace. "
+                "Ask the user for an explicit path or use web-search before attempting another external local scan."
             )
         return payload
 

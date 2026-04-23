@@ -7,6 +7,7 @@ import { useConversationStore } from '@/stores/conversation-store';
 import { useChatTraceStore } from '@/stores';
 import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/domain/chat/state';
 import { messagesApi } from '@/api';
+import { getPlanState, getTodos, updateSessionSettings } from '@/api/modules/control';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
 
@@ -25,6 +26,14 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => vi.fn(),
+  };
+});
+
 vi.mock('sonner', () => ({
   toast: {
     warning: toastWarningMock,
@@ -33,21 +42,53 @@ vi.mock('sonner', () => ({
   },
 }));
 
-vi.mock('@/realtime/provider', () => ({
-  useRealtime: () => ({
-    subscribe: (listener: (message: Record<string, unknown>) => void) => {
-      realtimeListener = listener;
-      return () => {
-        realtimeListener = null;
-      };
-    },
-  }),
-}));
+vi.mock('@/realtime/provider', async () => {
+  const actual = await vi.importActual<typeof import('@/realtime/provider')>('@/realtime/provider');
+  return {
+    ...actual,
+    useRealtime: () => ({
+      subscribe: (listener: (message: Record<string, unknown>) => void) => {
+        realtimeListener = listener;
+        return () => {
+          realtimeListener = null;
+        };
+      },
+    }),
+  };
+});
 
 vi.mock('@/runtime/config', () => ({
   getRuntimeConfig: () => ({
     apiBaseUrl: 'http://127.0.0.1:8000/api',
   }),
+}));
+
+vi.mock('@/api/modules/control', () => ({
+  getControlSettings: vi.fn().mockResolvedValue({
+    permission_mode: 'high_only',
+    plan_approval_required: false,
+  }),
+  getSessionSettings: vi.fn().mockResolvedValue({
+    base: { permission_mode: 'high_only', plan_approval_required: false },
+    override: null,
+    effective: { permission_mode: 'high_only', plan_approval_required: false },
+  }),
+  listPermissionRules: vi.fn().mockResolvedValue([]),
+  updateControlSettings: vi.fn(),
+  updateSessionSettings: vi.fn().mockResolvedValue({
+    base: { permission_mode: 'high_only', plan_approval_required: false },
+    override: { permission_mode: 'off', plan_approval_required: null },
+    effective: { permission_mode: 'off', plan_approval_required: false },
+  }),
+  getPlanState: vi.fn().mockResolvedValue({
+    active: false,
+    plan_text: null,
+    entered_at_ms: null,
+    exited_at_ms: null,
+  }),
+  getTodos: vi.fn().mockResolvedValue([]),
+  deletePermissionRule: vi.fn(),
+  clearSessionPermissionRules: vi.fn(),
 }));
 
 vi.mock('@/api/modules/personas', async () => {
@@ -87,6 +128,7 @@ vi.mock('@/api', () => ({
     uploadAttachment: vi.fn(),
     updateSessionWorkspace: vi.fn(),
     cancelRun: vi.fn(),
+    detachRun: vi.fn(),
     labelMessage: vi.fn(),
     deleteMessage: vi.fn(),
     sendMessage: vi.fn().mockResolvedValue({ success: true, message: 'ok', data: { user_id: 'local_user', session_id: 'session-1', message_length: 0, timestamp: Date.now() / 1000 } }),
@@ -148,6 +190,14 @@ describe('ChatPage', () => {
     vi.mocked(personasApi.bootstrapInit).mockReset().mockResolvedValue({ success: true, data: { bootstrap_active: false, opening: null } } as any);
     vi.mocked(messagesApi.labelMessage).mockReset();
     vi.mocked(messagesApi.deleteMessage).mockReset();
+    vi.mocked(updateSessionSettings).mockClear();
+    vi.mocked(getPlanState).mockReset().mockResolvedValue({
+      active: false,
+      plan_text: null,
+      entered_at_ms: null,
+      exited_at_ms: null,
+    } as any);
+    vi.mocked(getTodos).mockReset().mockResolvedValue([]);
     vi.mocked(messagesApi.sendMessage).mockReset().mockResolvedValue({ success: true, message: 'ok', data: { user_id: 'local_user', session_id: 'session-1', message_length: 0, timestamp: Date.now() / 1000 } });
     vi.mocked(messagesApi.getHistory).mockReset().mockReturnValue(new Promise(() => {}));
     vi.mocked(configApi.get).mockResolvedValue(buildConfigWithVision(true) as any);
@@ -189,6 +239,212 @@ describe('ChatPage', () => {
     expect(screen.getByText('world').parentElement?.parentElement).toHaveClass('rounded-xl', 'rounded-tl-sm');
   });
 
+  it('keeps context usage visible with a zero placeholder before runtime updates arrive', async () => {
+    render(<ChatPage />);
+
+    expect(await screen.findByRole('status', { name: '0' })).toBeInTheDocument();
+  });
+
+  it('re-fetches history when switching back to a session', async () => {
+    vi.mocked(messagesApi.getHistory)
+      .mockResolvedValue({ messages: [] } as any)
+      .mockResolvedValue({ messages: [] } as any)
+      .mockResolvedValue({ messages: [] } as any);
+
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'Session 1',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+      {
+        session_id: 'session-2',
+        title: 'Session 2',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1');
+    });
+
+    act(() => {
+      useConversationStore.getState().setCurrentSessionId('session-2');
+    });
+
+    await waitFor(() => {
+      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-2');
+    });
+
+    act(() => {
+      useConversationStore.getState().setCurrentSessionId('session-1');
+    });
+
+    await waitFor(() => {
+      expect(messagesApi.getHistory).toHaveBeenCalledTimes(3);
+      expect(messagesApi.getHistory).toHaveBeenLastCalledWith('local_user', 'session-1');
+    });
+  });
+
+  it('opens a session safety popover from the composer toolbar and applies mode changes immediately', async () => {
+    const user = userEvent.setup();
+
+    render(<ChatPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.session_trigger' }));
+
+    expect(await screen.findByTestId('chat-session-settings-popover')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.mode.off' }));
+
+    await waitFor(() => {
+      expect(updateSessionSettings).toHaveBeenCalledWith('session-1', {
+        permission_mode: 'off',
+        plan_approval_required: null,
+      });
+    });
+  });
+
+  it('renders a permission request as a chat status card', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+    useConversationStore.getState().upsertMessage('session-1', {
+      id: 'permission:req-1',
+      messageId: 'permission:req-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'permission_request',
+      content: 'git_push',
+      timestamp: Date.now(),
+      payload: {
+        permission_request_id: 'req-1',
+        tool: 'git_push',
+        risk_level: 'high',
+        origin: 'main_loop',
+        tool_args: { remote: 'origin' },
+      },
+    });
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('control:permission.card.waiting')).toBeInTheDocument();
+    expect(screen.getByText('git_push')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'control:permission.card.review' })).toBeInTheDocument();
+  });
+
+  it('renders an ask request as a chat status card', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+    useConversationStore.getState().upsertMessage('session-1', {
+      id: 'ask:ask-1',
+      messageId: 'ask:ask-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'ask_request',
+      content: 'Which branch should I use?',
+      timestamp: Date.now(),
+      payload: {
+        ask_request_id: 'ask-1',
+        question: 'Which branch should I use?',
+        options: ['main', 'develop'],
+        allow_free_text: true,
+        background: false,
+      },
+    });
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('control:ask.card.waiting')).toBeInTheDocument();
+    expect(screen.getByText('Which branch should I use?')).toBeInTheDocument();
+    expect(screen.getByText('main')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'control:ask.card.answer' })).toBeInTheDocument();
+  });
+
+  it('renders plan and todo state as chat status cards', async () => {
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+    useConversationStore.getState().upsertMessage('session-1', {
+      id: 'plan:turn-1',
+      messageId: 'plan:turn-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'plan_state',
+      content: '1. Inspect\n2. Fix',
+      timestamp: Date.now(),
+      payload: {
+        active: true,
+        plan_text: '1. Inspect\n2. Fix',
+        entered_at_ms: 1,
+        exited_at_ms: null,
+      },
+    });
+    useConversationStore.getState().upsertMessage('session-1', {
+      id: 'todo:turn-1',
+      messageId: 'todo:turn-1',
+      role: 'assistant',
+      kind: 'status',
+      messageKind: 'todo_state',
+      content: 'Inspect runtime drift\nPatch UI',
+      timestamp: Date.now(),
+      payload: {
+        items: [
+          { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress', created_at_ms: 1, updated_at_ms: 2 },
+          { id: 'todo-2', content: 'Patch UI', status: 'completed', created_at_ms: 1, updated_at_ms: 3 },
+        ],
+      },
+    });
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('control:plan.badge_active')).toBeInTheDocument();
+    expect(screen.getAllByText((content) => content.includes('1. Inspect')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Inspect runtime drift').length).toBeGreaterThan(0);
+    expect(screen.getByText('control:todo.status.in_progress')).toBeInTheDocument();
+    expect(screen.getByText('control:todo.status.completed')).toBeInTheDocument();
+  });
+
   it('shows a bootstrap loading status card while the first assistant opening is being initialized', async () => {
     let resolveBootstrapInit: (() => void) | null = null;
     vi.mocked(personasApi.getGreeting).mockResolvedValueOnce({
@@ -206,7 +462,10 @@ describe('ChatPage', () => {
 
     expect(await screen.findByText('chat.bootstrapInit.preparing')).toBeInTheDocument();
 
-    resolveBootstrapInit?.();
+    const bootstrapInitResolver = resolveBootstrapInit as null | (() => void);
+    if (bootstrapInitResolver) {
+      bootstrapInitResolver();
+    }
 
     await waitFor(() => {
       expect(screen.queryByText('chat.bootstrapInit.preparing')).not.toBeInTheDocument();
@@ -1139,6 +1398,45 @@ describe('ChatPage', () => {
     ).toBe(false);
   });
 
+  it('renders a subtle trace entry for direct replies when ux plan requests collapsible trace display', async () => {
+    const view = render(<ChatPage />);
+    const scoped = within(view.container);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          content: '你好，我在。',
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-direct-visible',
+          ux_plan: {
+            assistant_surface_mode: 'final_only',
+            trace_display_mode: 'collapsible',
+          },
+          trace_available: true,
+          trace_summary: {
+            turn_id: 'turn-direct-visible',
+            mode: 'direct_llm',
+            status: 'completed',
+            headline: '直答已完成',
+            active_steps: 0,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 0.8,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(scoped.getByText('你好，我在。')).toBeInTheDocument();
+    });
+
+    expect(view.container.querySelector('[data-trace-variant="default"]')).toBeInTheDocument();
+  });
+
   it('renders a more prominent trace entry when ux plan requests prominent trace display', async () => {
     const view = render(<ChatPage />);
     const scoped = within(view.container);
@@ -1505,6 +1803,56 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(messagesApi.cancelRun).toHaveBeenCalledWith('local_user', 'session-1', {
         reason: 'user_cancel',
+        turnId: 'turn-running',
+      });
+    });
+  });
+
+  it('requests background handoff from the running trace status card', async () => {
+    vi.mocked(messagesApi.detachRun).mockResolvedValue({
+      success: true,
+      message: 'detaching',
+      data: {
+        user_id: 'local_user',
+        session_id: 'session-1',
+        run_id: 'run-1',
+        status: 'detaching',
+      },
+    });
+
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-running',
+          trace_summary: {
+            turn_id: 'turn-running',
+            mode: 'orchestration',
+            status: 'running',
+            headline: '正在分析项目',
+            active_steps: 2,
+            completed_steps: 1,
+            failed_steps: 0,
+            duration_seconds: 1.4,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('正在分析项目')).toBeInTheDocument();
+    });
+
+    const runningCard = screen.getByTestId('chat-trace-status-card-turn-running');
+    await userEvent.click(within(runningCard).getByRole('button', { name: 'chat.trace.detachRun' }));
+
+    await waitFor(() => {
+      expect(messagesApi.detachRun).toHaveBeenCalledWith('local_user', 'session-1', {
+        reason: 'user_detach',
         turnId: 'turn-running',
       });
     });

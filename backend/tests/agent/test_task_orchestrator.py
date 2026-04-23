@@ -27,7 +27,8 @@ def _fake_register_user_message(*args, **kwargs) -> None:  # type: ignore[no-unt
     _ = (args, kwargs)
 
 
-def test_build_agent_tool_context_includes_workspace_and_agent_metadata() -> None:
+@pytest.mark.asyncio
+async def test_build_agent_tool_context_includes_workspace_and_agent_metadata() -> None:
     orchestrator = TaskOrchestrator(
         runtime_key="explore:user-1",
         tool_registry=ToolRegistry(),
@@ -37,7 +38,7 @@ def test_build_agent_tool_context_includes_workspace_and_agent_metadata() -> Non
         parent_task_agent_type="explore",
     )
 
-    context = orchestrator._build_agent_tool_context("user-1", "session-1")
+    context = await orchestrator._build_agent_tool_context("user-1", "session-1")
 
     assert context.agent_id == "explore:user-1"
     expected_workspace = Path(task_orchestrator_module.__file__).resolve().parents[4]
@@ -55,7 +56,25 @@ def test_build_agent_tool_context_includes_workspace_and_agent_metadata() -> Non
     }
 
 
-def test_chat_default_workspace_root_uses_managed_magi_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_chat_default_workspace_root_prefers_session_workspace() -> None:
+    orchestrator = TaskOrchestrator(
+        runtime_key="explore:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+        session_workspace_provider=lambda **_: "/Users/asuka/code/magi",
+    )
+
+    resolved = await orchestrator._default_workspace_root(user_id="user-1", session_id="session-1")
+
+    assert resolved == "/Users/asuka/code/magi"
+
+
+@pytest.mark.asyncio
+async def test_chat_default_workspace_root_returns_empty_when_session_workspace_missing() -> None:
     orchestrator = TaskOrchestrator(
         runtime_key="explore:user-1",
         tool_registry=ToolRegistry(),
@@ -65,19 +84,13 @@ def test_chat_default_workspace_root_uses_managed_magi_workspace(tmp_path: Path,
         parent_task_agent_type="chat",
     )
 
-    expected_workspace = tmp_path / "home" / ".magi" / "chat-workspace"
-    monkeypatch.setattr(
-        task_orchestrator_module,
-        "get_default_chat_workspace_path",
-        lambda: str(expected_workspace),
-    )
+    resolved = await orchestrator._default_workspace_root(user_id="user-1", session_id="session-1")
 
-    resolved = orchestrator._default_workspace_root()
-
-    assert resolved == str(expected_workspace)
+    assert resolved == ""
 
 
-def test_explore_default_workspace_root_uses_runtime_project_root_not_cwd(
+@pytest.mark.asyncio
+async def test_explore_default_workspace_root_uses_runtime_project_root_not_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -94,13 +107,14 @@ def test_explore_default_workspace_root_uses_runtime_project_root_not_cwd(
     unrelated_cwd.mkdir()
     monkeypatch.chdir(unrelated_cwd)
 
-    resolved = orchestrator._default_workspace_root()
+    resolved = await orchestrator._default_workspace_root(user_id="user-1", session_id="session-1")
 
     assert resolved == str(Path(task_orchestrator_module.__file__).resolve().parents[4])
     assert resolved != str(unrelated_cwd.resolve())
 
 
-def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:
+@pytest.mark.asyncio
+async def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:
     orchestrator = TaskOrchestrator(
         runtime_key="explore:user-1",
         tool_registry=ToolRegistry(),
@@ -110,12 +124,17 @@ def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:
         parent_task_agent_type="explore",
     )
 
-    resolved = orchestrator._resolve_workspace_root("看下 ~/code/magi 的代码，分析下代码架构")
+    resolved = await orchestrator._resolve_workspace_root(
+        user_id="user-1",
+        session_id="session-1",
+        user_message="看下 ~/code/magi 的代码，分析下代码架构",
+    )
 
     assert resolved == "/Users/asuka/code/magi"
 
 
-def test_resolve_workspace_root_supports_docs_relative_scope() -> None:
+@pytest.mark.asyncio
+async def test_resolve_workspace_root_supports_docs_relative_scope() -> None:
     orchestrator = TaskOrchestrator(
         runtime_key="explore:user-1",
         tool_registry=ToolRegistry(),
@@ -125,7 +144,11 @@ def test_resolve_workspace_root_supports_docs_relative_scope() -> None:
         parent_task_agent_type="explore",
     )
 
-    resolved = orchestrator._resolve_workspace_root("看下 docs/project-overview.md 的文档结构")
+    resolved = await orchestrator._resolve_workspace_root(
+        user_id="user-1",
+        session_id="session-1",
+        user_message="看下 docs/project-overview.md 的文档结构",
+    )
 
     assert resolved.endswith("/docs")
 
@@ -268,7 +291,11 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
 
     monkeypatch.setattr(orchestrator, "_orchestration_store", _FakeStore())
     monkeypatch.setattr(orchestrator, "_launch_workers", _fake_launch_workers)
-    monkeypatch.setattr(orchestrator, "_resolve_workspace_root", lambda user_message: "/Users/asuka/code/magi")
+    async def _fake_resolve_workspace_root(*, user_id: str, session_id: str, user_message: str) -> str:
+        _ = (user_id, session_id, user_message)
+        return "/Users/asuka/code/magi"
+
+    monkeypatch.setattr(orchestrator, "_resolve_workspace_root", _fake_resolve_workspace_root)
 
     result = await orchestrator.start_orchestration(
         user_id="user-1",

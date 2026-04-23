@@ -24,7 +24,11 @@
     "empty": "暂无待处理权限请求。",
     "preview": "预览",
     "tool_args": "参数",
-    "waiting_since": "自 {{time}} 起等待"
+    "waiting_since": "自 {{time}} 起等待",
+    "card": {
+      "waiting": "执行已暂停，等待你处理这条请求。",
+      "review": "查看请求"
+    }
   },
   "ask": {
     "title": "智能体提问",
@@ -33,7 +37,12 @@
     "answer_placeholder": "输入你的回答…",
     "submit": "回答",
     "background_badge": "后台任务已挂起",
-    "free_text_disabled": "请从下列选项中选择。"
+    "free_text_disabled": "请从下列选项中选择。",
+    "card": {
+      "waiting": "智能体已暂停，等待你回答这个问题。",
+      "answer": "立即回答",
+      "free_text": "你可以直接输入自定义回答。"
+    }
   },
   "plan": {
     "badge_active": "计划模式",
@@ -53,21 +62,23 @@
     }
   },
   "settings": {
-    "title": "控制面板",
+    "title": "安全与执行",
+    "session_trigger": "会话安全",
     "permission_mode": "权限模式",
-    "permission_mode_description": "智能体如何处理高风险的工具调用。",
+    "permission_mode_description": "控制什么时候需要你确认。",
     "mode": {
-      "default": "默认（高风险调用需确认）",
-      "accept_edits": "接受编辑（自动允许写入）",
-      "plan": "仅规划（禁止执行）",
-      "bypass_permissions": "绕过（全部允许）"
+      "all": "全部审批",
+      "high_only": "仅高危审批",
+      "off": "默认放行"
     },
-    "plan_approval_required": "需要计划审批",
-    "plan_approval_description": "开启后，智能体必须先呈现计划再执行。",
+    "plan_approval_required": "计划前先确认",
+    "plan_approval_description": "执行前先给出计划并等你确认。",
     "save": "保存",
     "session_override": "会话级覆盖",
-    "session_override_description": "仅对当前会话生效的临时覆盖。",
+    "session_override_description": "只影响当前会话，点选后立即生效。",
     "clear_override": "清除覆盖",
+    "follow_global": "跟随全局",
+    "applying": "正在应用…",
     "rules_title": "已保存的权限规则",
     "rules_empty": "暂无规则。",
     "delete_rule": "删除",

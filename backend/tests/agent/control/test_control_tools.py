@@ -97,7 +97,7 @@ async def test_todo_write_happy_path() -> None:
         )
         assert result.success
         assert len(result.data["items"]) == 2
-        titles = [t["title"] for t in result.data["items"]]
+        titles = [t["content"] for t in result.data["items"]]
         assert titles == ["a", "b"]
 
 

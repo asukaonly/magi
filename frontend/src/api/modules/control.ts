@@ -2,20 +2,33 @@
  * Control-plane API (permission gateway, plan mode, todo tracker,
  * ask_user_question) client bindings.
  *
- * Backend routes live under ``/api/control``; see
- * ``backend/src/magi/api/routers/control.py`` for the source of truth.
+ * Backend routes live under ``/api/control``; the shared axios client already
+ * includes the ``/api`` prefix, so requests here stay relative to ``/control``.
+ * See ``backend/src/magi/api/routers/control.py`` for the source of truth.
  */
 import { api } from '../client';
+
+function unwrapControlResponse<T>(response: T | { success?: boolean; data?: T }): T {
+  if (
+    response
+    && typeof response === 'object'
+    && 'success' in response
+    && 'data' in response
+    && (response as { data?: T }).data !== undefined
+  ) {
+    return (response as { data: T }).data;
+  }
+  return response as T;
+}
 
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
 
 export type PermissionMode =
-  | 'default'
-  | 'accept_edits'
-  | 'plan'
-  | 'bypass_permissions';
+  | 'all'
+  | 'high_only'
+  | 'off';
 
 export type PermissionScope =
   | 'one_shot'
@@ -46,27 +59,27 @@ export interface SessionSettingsBundleDTO {
 }
 
 export async function getControlSettings(): Promise<ControlSettingsDTO> {
-  const res = await api.get<ControlSettingsDTO>('/api/control/settings');
-  return res.data as ControlSettingsDTO;
+  const res = await api.get<ControlSettingsDTO>('/control/settings');
+  return unwrapControlResponse<ControlSettingsDTO>(res);
 }
 
 export async function updateControlSettings(
   payload: Partial<ControlSettingsDTO>,
 ): Promise<ControlSettingsDTO> {
   const res = await api.put<ControlSettingsDTO>(
-    '/api/control/settings',
+    '/control/settings',
     payload,
   );
-  return res.data as ControlSettingsDTO;
+  return unwrapControlResponse<ControlSettingsDTO>(res);
 }
 
 export async function getSessionSettings(
   sessionId: string,
 ): Promise<SessionSettingsBundleDTO> {
   const res = await api.get<SessionSettingsBundleDTO>(
-    `/api/control/sessions/${encodeURIComponent(sessionId)}/settings`,
+    `/control/sessions/${encodeURIComponent(sessionId)}/settings`,
   );
-  return res.data as SessionSettingsBundleDTO;
+  return unwrapControlResponse<SessionSettingsBundleDTO>(res);
 }
 
 export interface SessionSettingsUpdateInput {
@@ -80,10 +93,10 @@ export async function updateSessionSettings(
   payload: SessionSettingsUpdateInput,
 ): Promise<SessionSettingsBundleDTO> {
   const res = await api.put<SessionSettingsBundleDTO>(
-    `/api/control/sessions/${encodeURIComponent(sessionId)}/settings`,
+    `/control/sessions/${encodeURIComponent(sessionId)}/settings`,
     payload,
   );
-  return res.data as SessionSettingsBundleDTO;
+  return unwrapControlResponse<SessionSettingsBundleDTO>(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +119,7 @@ export async function listPermissionRules(params?: {
   includePersistent?: boolean;
 }): Promise<PermissionRuleDTO[]> {
   const res = await api.get<{ rules: PermissionRuleDTO[] }>(
-    '/api/control/rules',
+    '/control/rules',
     {
       params: {
         session_id: params?.sessionId ?? undefined,
@@ -114,14 +127,14 @@ export async function listPermissionRules(params?: {
       },
     },
   );
-  return (res.data as { rules: PermissionRuleDTO[] }).rules;
+  return unwrapControlResponse<{ rules: PermissionRuleDTO[] }>(res).rules;
 }
 
 export async function deletePermissionRule(
   ruleId: string,
   sessionId?: string | null,
 ): Promise<void> {
-  await api.delete(`/api/control/rules/${encodeURIComponent(ruleId)}`, {
+  await api.delete(`/control/rules/${encodeURIComponent(ruleId)}`, {
     params: { session_id: sessionId ?? undefined },
   });
 }
@@ -129,7 +142,7 @@ export async function deletePermissionRule(
 export async function clearSessionPermissionRules(
   sessionId: string,
 ): Promise<void> {
-  await api.delete('/api/control/rules', {
+  await api.delete('/control/rules', {
     params: { session_id: sessionId },
   });
 }
@@ -159,9 +172,9 @@ export async function listPendingPermissions(
   sessionId: string,
 ): Promise<PendingPermissionDTO[]> {
   const res = await api.get<{ items: PendingPermissionDTO[] }>(
-    `/api/control/sessions/${encodeURIComponent(sessionId)}/permissions`,
+    `/control/sessions/${encodeURIComponent(sessionId)}/permissions`,
   );
-  return (res.data as { items: PendingPermissionDTO[] }).items;
+  return unwrapControlResponse<{ items: PendingPermissionDTO[] }>(res).items;
 }
 
 export interface PermissionRespondInput {
@@ -176,7 +189,7 @@ export async function respondPermission(
   payload: PermissionRespondInput,
 ): Promise<void> {
   await api.post(
-    `/api/control/permission/${encodeURIComponent(requestId)}/respond`,
+    `/control/permission/${encodeURIComponent(requestId)}/respond`,
     payload,
   );
 }
@@ -199,9 +212,9 @@ export async function getAskState(
   sessionId: string,
 ): Promise<AskStateDTO | null> {
   const res = await api.get<{ ask: AskStateDTO | null }>(
-    `/api/control/sessions/${encodeURIComponent(sessionId)}/ask`,
+    `/control/sessions/${encodeURIComponent(sessionId)}/ask`,
   );
-  return (res.data as { ask: AskStateDTO | null }).ask;
+  return unwrapControlResponse<{ ask: AskStateDTO | null }>(res).ask;
 }
 
 export async function respondAsk(
@@ -209,7 +222,7 @@ export async function respondAsk(
   answer: string,
 ): Promise<void> {
   await api.post(
-    `/api/control/ask/${encodeURIComponent(requestId)}/respond`,
+    `/control/ask/${encodeURIComponent(requestId)}/respond`,
     { answer },
   );
 }
@@ -223,9 +236,9 @@ export interface PlanStateDTO {
 
 export async function getPlanState(sessionId: string): Promise<PlanStateDTO> {
   const res = await api.get<PlanStateDTO>(
-    `/api/control/sessions/${encodeURIComponent(sessionId)}/plan`,
+    `/control/sessions/${encodeURIComponent(sessionId)}/plan`,
   );
-  return res.data as PlanStateDTO;
+  return unwrapControlResponse<PlanStateDTO>(res);
 }
 
 export type TodoStatus = 'not_started' | 'in_progress' | 'completed';
@@ -240,7 +253,7 @@ export interface TodoItemDTO {
 
 export async function getTodos(sessionId: string): Promise<TodoItemDTO[]> {
   const res = await api.get<{ items: TodoItemDTO[] }>(
-    `/api/control/sessions/${encodeURIComponent(sessionId)}/todos`,
+    `/control/sessions/${encodeURIComponent(sessionId)}/todos`,
   );
-  return (res.data as { items: TodoItemDTO[] }).items;
+  return unwrapControlResponse<{ items: TodoItemDTO[] }>(res).items;
 }

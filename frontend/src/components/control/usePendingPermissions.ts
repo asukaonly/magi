@@ -56,9 +56,11 @@ export function usePendingPermissions({
       return;
     }
     void refresh();
-    timer.current = setInterval(() => {
-      void refresh();
-    }, intervalMs);
+    if (intervalMs > 0) {
+      timer.current = setInterval(() => {
+        void refresh();
+      }, intervalMs);
+    }
     return () => {
       if (timer.current) {
         clearInterval(timer.current);

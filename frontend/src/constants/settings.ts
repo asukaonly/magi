@@ -14,7 +14,6 @@ import {
   PlugZap,
   Send,
   Radio,
-  ShieldCheck,
 } from 'lucide-react';
 
 import type { NavItem } from '@/types/settings';
@@ -34,7 +33,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
   { id: 'conversation', icon: MessageSquare },
-  { id: 'personality', icon: User },
+  { id: 'personality', icon: User, children: [{ id: 'personalitySelection' }, { id: 'personalitySettings' }] },
   {
     id: 'memory',
     icon: Database,
@@ -52,7 +51,6 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'actions', icon: Send },
   { id: 'channels', icon: Radio },
   { id: 'tools', icon: Wrench },
-  { id: 'control', icon: ShieldCheck },
   {
     id: 'statistics',
     icon: BarChart3,

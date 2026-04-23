@@ -51,6 +51,7 @@ class ToolErrorCode(str, Enum):
     INVALID_MODE = "INVALID_MODE"
     INVALID_DAYS = "INVALID_DAYS"
     INVALID_NAME = "INVALID_NAME"
+    AMBIGUOUS_SCOPE = "AMBIGUOUS_SCOPE"
     MISSING_PATH = "MISSING_PATH"
     MISSING_VALUE = "MISSING_VALUE"
     MISSING_LOCATION = "MISSING_LOCATION"
@@ -312,6 +313,8 @@ class Tool(ABC):
             "examples": self.schema.examples if self.schema else [],
             "version": self.schema.version if self.schema else "1.0.0",
             "dangerous": self.schema.dangerous if self.schema else False,
+            "tags": list(self.schema.tags) if self.schema else [],
+            "metadata": dict(self.schema.metadata) if self.schema else {},
         }
 
     def to_claude_format(self) -> Dict[str, Any]:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import time
 import uuid
@@ -28,6 +29,7 @@ logger = get_logger(__name__)
 WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str, str | None, int], Awaitable[SubtaskPlan]]
 AggregateCallback = Callable[[TaskOrchestrationState], Awaitable[str]]
 HistoryCallback = Callable[[str, str], None]
+SessionWorkspaceProvider = Callable[..., Awaitable[str | None] | str | None]
 
 DEFAULT_WORKER_RETRY_BUDGET = 1
 LLM_RATE_LIMIT_RETRY_BUDGET = 10
@@ -52,6 +54,7 @@ class TaskOrchestrator:
         aggregate_orchestration: AggregateCallback,
         register_user_message: HistoryCallback,
         parent_task_agent_type: str = "chat",
+        session_workspace_provider: SessionWorkspaceProvider | None = None,
     ) -> None:
         self._runtime_key = runtime_key
         self._tool_registry = tool_registry
@@ -59,6 +62,7 @@ class TaskOrchestrator:
         self._aggregate_orchestration = aggregate_orchestration
         self._register_user_message = register_user_message
         self._parent_task_agent_type = parent_task_agent_type
+        self._session_workspace_provider = session_workspace_provider
         self._orchestration_store = get_orchestration_store()
 
     async def start_orchestration(
@@ -75,7 +79,11 @@ class TaskOrchestrator:
         correlation_id: Optional[str],
         orchestration_strategy: dict[str, Any],
     ) -> OrchestrationExecutionResult:
-        workspace_root = self._resolve_workspace_root(user_message)
+        workspace_root = await self._resolve_workspace_root(
+            user_id=user_id,
+            session_id=session_id,
+            user_message=user_message,
+        )
         plan_payload = await self._plan_subtasks(
             user_message,
             history,
@@ -349,7 +357,7 @@ class TaskOrchestrator:
             await self._orchestration_store.save_orchestration(state)
             return None
 
-        context = self._build_agent_tool_context(
+        context = await self._build_agent_tool_context(
             state.user_id,
             state.session_id,
             state.workspace_root,
@@ -421,7 +429,7 @@ class TaskOrchestrator:
 
         run_id = self._extract_run_id(state)
         run_revision = self._extract_run_revision(state)
-        context = self._build_agent_tool_context(
+        context = await self._build_agent_tool_context(
             state.user_id,
             state.session_id,
             state.workspace_root,
@@ -498,7 +506,7 @@ class TaskOrchestrator:
         delay_seconds = LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (retry_index - 1))
         return min(delay_seconds, LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS)
 
-    def _build_agent_tool_context(
+    async def _build_agent_tool_context(
         self,
         user_id: str,
         session_id: str,
@@ -508,9 +516,15 @@ class TaskOrchestrator:
         run_revision: int = 0,
     ) -> ToolExecutionContext:
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
+        resolved_workspace = str(workspace_root or "").strip()
+        if not resolved_workspace:
+            resolved_workspace = await self._default_workspace_root(
+                user_id=user_id,
+                session_id=session_id,
+            )
         return ToolExecutionContext(
             agent_id=self._runtime_key,
-            workspace=workspace_root or self._default_workspace_root(),
+            workspace=resolved_workspace,
             env_vars={
                 "user_id": user_id,
                 "session_id": session_id,
@@ -547,26 +561,116 @@ class TaskOrchestrator:
         except (TypeError, ValueError):
             return 0
 
-    def _resolve_workspace_root(self, user_message: str) -> str:
-        default_root = self._default_workspace_root()
+    async def _resolve_workspace_root(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        user_message: str,
+    ) -> str:
+        default_root = await self._default_workspace_root(
+            user_id=user_id,
+            session_id=session_id,
+        )
         message = str(user_message or "").strip()
         if not message:
+            logger.info(
+                "task_orchestrator.workspace_resolved",
+                parent_task_agent_type=self._parent_task_agent_type,
+                session_id=session_id,
+                workspace_root=default_root,
+                source="default_empty_message",
+            )
             return default_root
 
         explicit_candidates = self._extract_explicit_path_candidates(message, default_root)
         for candidate in explicit_candidates:
             normalized = self._normalize_existing_path(candidate)
             if normalized:
+                logger.info(
+                    "task_orchestrator.workspace_resolved",
+                    parent_task_agent_type=self._parent_task_agent_type,
+                    session_id=session_id,
+                    workspace_root=normalized,
+                    source="explicit_path_candidate",
+                    candidate=candidate,
+                )
                 return normalized
+        logger.info(
+            "task_orchestrator.workspace_resolved",
+            parent_task_agent_type=self._parent_task_agent_type,
+            session_id=session_id,
+            workspace_root=default_root,
+            source="default_no_explicit_path",
+        )
         return default_root
 
-    def _default_workspace_root(self) -> str:
+    async def _default_workspace_root(self, *, user_id: str, session_id: str) -> str:
         if self._parent_task_agent_type == "chat":
-            return get_default_chat_workspace_path()
+            session_workspace = await self._resolve_session_workspace_path(
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if session_workspace:
+                logger.info(
+                    "task_orchestrator.default_workspace",
+                    parent_task_agent_type=self._parent_task_agent_type,
+                    session_id=session_id,
+                    workspace_root=session_workspace,
+                    source="session_workspace",
+                )
+                return session_workspace
+            logger.warning(
+                "task_orchestrator.default_workspace_missing_session_workspace",
+                parent_task_agent_type=self._parent_task_agent_type,
+                session_id=session_id,
+            )
+            return ""
         runtime_project_root = self._resolve_runtime_project_root()
         if runtime_project_root is not None:
+            logger.info(
+                "task_orchestrator.default_workspace",
+                parent_task_agent_type=self._parent_task_agent_type,
+                session_id=session_id,
+                workspace_root=runtime_project_root,
+                source="runtime_project_root",
+            )
             return runtime_project_root
-        return get_default_chat_workspace_path()
+        fallback_root = get_default_chat_workspace_path()
+        logger.info(
+            "task_orchestrator.default_workspace",
+            parent_task_agent_type=self._parent_task_agent_type,
+            session_id=session_id,
+            workspace_root=fallback_root,
+            source="managed_chat_workspace_fallback",
+        )
+        return fallback_root
+
+    async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
+        provider = self._session_workspace_provider
+        if provider is None or not str(session_id or "").strip():
+            return None
+        try:
+            resolved = provider(user_id=user_id, session_id=session_id)
+            if inspect.isawaitable(resolved):
+                resolved = await resolved
+        except Exception:
+            logger.warning(
+                "task_orchestrator.session_workspace_provider_failed",
+                parent_task_agent_type=self._parent_task_agent_type,
+                session_id=session_id,
+                exc_info=True,
+            )
+            return None
+        normalized = str(resolved or "").strip() or None
+        if normalized:
+            logger.info(
+                "task_orchestrator.session_workspace_provider_resolved",
+                parent_task_agent_type=self._parent_task_agent_type,
+                session_id=session_id,
+                workspace_root=normalized,
+            )
+        return normalized
 
     def _resolve_runtime_project_root(self) -> str | None:
         candidate = get_repo_root()
@@ -658,7 +762,7 @@ class TaskOrchestrator:
             items.append(
                 {
                     "id": subtask.subtask_id,
-                    "title": title,
+                    "content": title,
                     "status": mapped,
                 }
             )
@@ -673,6 +777,19 @@ class TaskOrchestrator:
                 error=str(exc),
             )
             return
+
+        try:
+            from .control.chat_state_persister import persist_todo_state_message
+
+            await persist_todo_state_message(
+                session_id=session_id,
+                user_id=state.user_id,
+                turn_id=state.turn_id,
+                items=items,
+                orchestration_id=state.orchestration_id,
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("planner_todos.persist_failed", exc_info=True)
 
         try:
             from .control.common.events import publish_control_event

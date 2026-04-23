@@ -29,6 +29,7 @@ export interface ControlEventPayload {
 export interface UseControlEventsOptions {
   /** Limit callbacks to a specific session id; null matches all. */
   sessionId?: string | null;
+  enabled?: boolean;
   onPermissionRequested?: (payload: ControlEventPayload) => void;
   onAskRequested?: (payload: ControlEventPayload) => void;
   onTodoUpdated?: (payload: ControlEventPayload) => void;
@@ -42,7 +43,7 @@ export function useControlEvents(options: UseControlEventsOptions): void {
   const ctx = useContext(RealtimeContext);
 
   useEffect(() => {
-    if (!ctx) return;
+    if (!ctx || options.enabled === false) return;
     const unsubscribe = ctx.subscribe((message) => {
       const eventName = String(message.event || message.type || '');
       if (!eventName.startsWith('control.')) return;

@@ -24,7 +24,11 @@
     "empty": "No permission requests waiting.",
     "preview": "Preview",
     "tool_args": "Arguments",
-    "waiting_since": "Waiting since {{time}}"
+    "waiting_since": "Waiting since {{time}}",
+    "card": {
+      "waiting": "Execution is paused until you review this request.",
+      "review": "Review request"
+    }
   },
   "ask": {
     "title": "Question from the agent",
@@ -33,7 +37,12 @@
     "answer_placeholder": "Type your answer...",
     "submit": "Answer",
     "background_badge": "Background task suspended",
-    "free_text_disabled": "Please select one of the options."
+    "free_text_disabled": "Please select one of the options.",
+    "card": {
+      "waiting": "The agent is paused until you answer this question.",
+      "answer": "Answer now",
+      "free_text": "You can type a custom answer."
+    }
   },
   "plan": {
     "badge_active": "Plan mode",
@@ -53,21 +62,23 @@
     }
   },
   "settings": {
-    "title": "Control plane",
+    "title": "Safety and execution",
+    "session_trigger": "Session safety",
     "permission_mode": "Permission mode",
-    "permission_mode_description": "How the agent handles risky tool calls.",
+    "permission_mode_description": "Choose when the agent should ask before acting.",
     "mode": {
-      "default": "Default (ask for high-risk calls)",
-      "accept_edits": "Accept edits (auto-allow writes)",
-      "plan": "Plan only (no execution)",
-      "bypass_permissions": "Bypass (allow all)"
+      "all": "Ask every time",
+      "high_only": "Ask on high-risk",
+      "off": "Allow by default"
     },
-    "plan_approval_required": "Require plan approval",
-    "plan_approval_description": "When on, the agent must present a plan before executing.",
+    "plan_approval_required": "Confirm before execution",
+    "plan_approval_description": "Show a plan and wait for approval before running.",
     "save": "Save",
     "session_override": "Session override",
-    "session_override_description": "Temporary per-session overrides.",
+    "session_override_description": "Only affects this conversation and applies immediately.",
     "clear_override": "Clear override",
+    "follow_global": "Follow global default",
+    "applying": "Applying...",
     "rules_title": "Saved permission rules",
     "rules_empty": "No saved rules.",
     "delete_rule": "Delete",

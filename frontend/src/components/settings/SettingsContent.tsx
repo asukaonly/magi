@@ -62,7 +62,7 @@ function SettingsGroup({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-4 pt-4">
+    <section className="space-y-4">
       <div className="space-y-1.5">
         <h3 className="text-sm font-semibold tracking-[0.01em] text-foreground">{title}</h3>
         {description ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{description}</p> : null}
@@ -90,6 +90,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     draftConfig,
     patchDraftConfig,
     syncNormalizedLlmConfig,
+    draftControlSettings,
+    patchDraftControlSettings,
     draftThemeMode,
     handleThemePreviewChange,
     handleLanguagePreviewChange,
@@ -160,6 +162,34 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       return activeSection === item.id;
     }
     return item.children!.some((child) => child.id === activeSection);
+  };
+
+  const handleStateMemoryToggle = (checked: boolean) => {
+    patchDraftConfig((draft) => {
+      draft.personalitySettings.state_memory_enabled = checked;
+      if (!checked) {
+        draft.personalitySettings.state_transition_enabled = false;
+        draft.personalitySettings.deep_persona_enabled = false;
+      }
+    });
+  };
+
+  const handleStateTransitionToggle = (checked: boolean) => {
+    patchDraftConfig((draft) => {
+      if (checked) {
+        draft.personalitySettings.state_memory_enabled = true;
+      }
+      draft.personalitySettings.state_transition_enabled = checked;
+    });
+  };
+
+  const handleDeepPersonaToggle = (checked: boolean) => {
+    patchDraftConfig((draft) => {
+      if (checked) {
+        draft.personalitySettings.state_memory_enabled = true;
+      }
+      draft.personalitySettings.deep_persona_enabled = checked;
+    });
   };
 
   useImperativeHandle(ref, getHandle, [getHandle]);
@@ -453,6 +483,21 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 />
               </div>
             </SettingsGroup>
+
+            <SettingsGroup
+              title={t('settings.control.title')}
+              description={t('settings.control.description')}
+            >
+              {draftControlSettings ? (
+                <ControlSettingsPanel
+                  value={draftControlSettings}
+                  onChange={(next) => patchDraftControlSettings((draft) => {
+                    draft.permission_mode = next.permission_mode;
+                    draft.plan_approval_required = next.plan_approval_required;
+                  })}
+                />
+              ) : null}
+            </SettingsGroup>
           </SettingsSectionShell>
         );
 
@@ -499,8 +544,60 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         );
 
-      case 'personality':
+      case 'personalitySelection':
         return <PersonalityModern embedded />;
+
+      case 'personalitySettings':
+        return (
+          <SettingsSectionShell>
+            <SettingsGroup
+              title={t('settings.personalitySettings.runtimeTitle')}
+              description={t('settings.personalitySettings.runtimeDesc')}
+            >
+              <div className="rounded-[1.25rem] border border-[hsl(var(--settings-subnav-border)/0.62)] bg-[hsl(var(--settings-shell-elevated)/0.42)] px-4 py-3 text-[13px] leading-6 text-[hsl(var(--foreground)/0.72)]">
+                {t('settings.personalitySettings.requestNotice')}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-4 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-foreground">{t('settings.personalitySettings.stateMemoryLabel')}</div>
+                    <div className="text-xs leading-6 text-muted-foreground">{t('settings.personalitySettings.stateMemoryDesc')}</div>
+                  </div>
+                  <Switch
+                    aria-label={t('settings.personalitySettings.stateMemoryLabel')}
+                    checked={draftConfig.personalitySettings.state_memory_enabled}
+                    onCheckedChange={handleStateMemoryToggle}
+                  />
+                </div>
+
+                <div className="flex items-start justify-between gap-4 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-foreground">{t('settings.personalitySettings.stateTransitionLabel')}</div>
+                    <div className="text-xs leading-6 text-muted-foreground">{t('settings.personalitySettings.stateTransitionDesc')}</div>
+                  </div>
+                  <Switch
+                    aria-label={t('settings.personalitySettings.stateTransitionLabel')}
+                    checked={draftConfig.personalitySettings.state_transition_enabled}
+                    onCheckedChange={handleStateTransitionToggle}
+                  />
+                </div>
+
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-foreground">{t('settings.personalitySettings.deepPersonaLabel')}</div>
+                    <div className="text-xs leading-6 text-muted-foreground">{t('settings.personalitySettings.deepPersonaDesc')}</div>
+                  </div>
+                  <Switch
+                    aria-label={t('settings.personalitySettings.deepPersonaLabel')}
+                    checked={draftConfig.personalitySettings.deep_persona_enabled}
+                    onCheckedChange={handleDeepPersonaToggle}
+                  />
+                </div>
+              </div>
+            </SettingsGroup>
+          </SettingsSectionShell>
+        );
 
       case 'statisticsLlm':
         return <LLMStatisticsSection />;
@@ -721,7 +818,24 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         );
 
       case 'control':
-        return <ControlSettingsPanel />;
+        return (
+          <SettingsSectionShell>
+            <SettingsGroup
+              title={t('settings.control.title')}
+              description={t('settings.control.description')}
+            >
+              {draftControlSettings ? (
+                <ControlSettingsPanel
+                  value={draftControlSettings}
+                  onChange={(next) => patchDraftControlSettings((draft) => {
+                    draft.permission_mode = next.permission_mode;
+                    draft.plan_approval_required = next.plan_approval_required;
+                  })}
+                />
+              ) : null}
+            </SettingsGroup>
+          </SettingsSectionShell>
+        );
 
       default:
         return null;
@@ -1011,7 +1125,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         </main>
       </div>
 
-      {activeSection !== 'personality' ? (
+      {activeSection !== 'personalitySelection' ? (
         <footer className="shrink-0 border-t border-[hsl(var(--settings-subnav-border)/0.68)] bg-[hsl(var(--settings-shell-elevated)/0.94)] backdrop-blur-sm">
           <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-4">
             <p className={cn(

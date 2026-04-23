@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
 import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig, type LanguageCode } from '@/api/modules/config';
+import { type ControlSettingsDTO, getControlSettings, updateControlSettings } from '@/api/modules/control';
 import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
@@ -55,6 +56,8 @@ export interface UseSettingsReturn {
   draftConfig: SystemConfig;
   patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
   syncNormalizedLlmConfig: (nextLlmConfig: SystemConfig['llm']) => void;
+  draftControlSettings: ControlSettingsDTO | null;
+  patchDraftControlSettings: (updater: (draft: ControlSettingsDTO) => void) => void;
 
   // Theme state (saved/draft)
   draftThemeMode: ThemeMode;
@@ -126,6 +129,8 @@ export function useSettings(): UseSettingsReturn {
   // Config state (saved/draft)
   const [savedConfig, setSavedConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [draftConfig, setDraftConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
+  const [savedControlSettings, setSavedControlSettings] = useState<ControlSettingsDTO | null>(null);
+  const [draftControlSettings, setDraftControlSettings] = useState<ControlSettingsDTO | null>(null);
 
   // Theme state (saved/draft)
   const [savedThemeMode, setSavedThemeMode] = useState<ThemeMode>(themeMode);
@@ -139,6 +144,7 @@ export function useSettings(): UseSettingsReturn {
   const [activeSection, setActiveSection] = useState('preferences');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     llm: false,
+    personality: false,
     memory: false,
     extensions: false,
     timeline: false,
@@ -249,6 +255,17 @@ export function useSettings(): UseSettingsReturn {
     });
   }, [draftConfig.llm, savedConfig.llm]);
 
+  const patchDraftControlSettings = useCallback((updater: (draft: ControlSettingsDTO) => void) => {
+    setDraftControlSettings((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      const next = structuredClone(prev);
+      updater(next);
+      return next;
+    });
+  }, []);
+
   // ========================================
   // Data Loading Functions
   // ========================================
@@ -352,6 +369,17 @@ export function useSettings(): UseSettingsReturn {
     }
   }, [t, themeMode]);
 
+  const loadControlSettings = useCallback(async () => {
+    try {
+      const nextSettings = await getControlSettings();
+      setSavedControlSettings(nextSettings);
+      setDraftControlSettings(structuredClone(nextSettings));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'unknown';
+      toast.error(t('settings.loadFailed', { message }));
+    }
+  }, [t]);
+
   // ========================================
   // Effects
   // ========================================
@@ -360,11 +388,12 @@ export function useSettings(): UseSettingsReturn {
   useEffect(() => {
     void Promise.all([
       fetchConfig(),
+      loadControlSettings(),
       fetchTimelineStatuses(),
       loadPlugins(),
       loadTools(),
     ]);
-  }, [fetchConfig, fetchTimelineStatuses, loadPlugins, loadTools]);
+  }, [fetchConfig, loadControlSettings, fetchTimelineStatuses, loadPlugins, loadTools]);
 
   // Reset timeline selection when statuses change
   useEffect(() => {
@@ -390,11 +419,12 @@ export function useSettings(): UseSettingsReturn {
 
   const dirty = useMemo(() => {
     const configDirty = serialize(savedConfig) !== serialize(draftConfig);
+    const controlDirty = serialize(savedControlSettings) !== serialize(draftControlSettings);
     const pluginsDirty = serialize(savedPluginDrafts) !== serialize(draftPluginDrafts);
     const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
     const themeDirty = savedThemeMode !== draftThemeMode;
-    return configDirty || pluginsDirty || toolsDirty || themeDirty;
-  }, [savedConfig, draftConfig, savedPluginDrafts, draftPluginDrafts, savedToolDrafts, draftToolDrafts, savedThemeMode, draftThemeMode]);
+    return configDirty || controlDirty || pluginsDirty || toolsDirty || themeDirty;
+  }, [savedConfig, draftConfig, savedControlSettings, draftControlSettings, savedPluginDrafts, draftPluginDrafts, savedToolDrafts, draftToolDrafts, savedThemeMode, draftThemeMode]);
 
   // ========================================
   // Event Handlers
@@ -507,6 +537,7 @@ export function useSettings(): UseSettingsReturn {
     setSaving(true);
     try {
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
+      const controlDirty = serialize(savedControlSettings) !== serialize(draftControlSettings);
       const pluginsDirty = serialize(savedPluginDrafts) !== serialize(draftPluginDrafts);
       const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
       const themeDirty = savedThemeMode !== draftThemeMode;
@@ -520,6 +551,12 @@ export function useSettings(): UseSettingsReturn {
         await syncStartMinimizedPreference(persistedConfig.preferences.start_minimized);
         setSavedConfig(structuredClone(persistedConfig));
         setDraftConfig(structuredClone(persistedConfig));
+      }
+
+      if (controlDirty && draftControlSettings) {
+        const persistedControlSettings = await updateControlSettings(draftControlSettings);
+        setSavedControlSettings(structuredClone(persistedControlSettings));
+        setDraftControlSettings(structuredClone(persistedControlSettings));
       }
 
       if (toolsDirty) {
@@ -573,19 +610,20 @@ export function useSettings(): UseSettingsReturn {
       setSaving(false);
     }
   }, [
-    t, savedConfig, draftConfig, savedPluginDrafts, draftPluginDrafts,
+    t, savedConfig, draftConfig, savedControlSettings, draftControlSettings, savedPluginDrafts, draftPluginDrafts,
     savedToolDrafts, draftToolDrafts, savedThemeMode, draftThemeMode,
     tools, plugins, setThemeMode, fetchTimelineStatuses, loadPlugins, loadTools,
   ]);
 
   const handleDiscardChanges = useCallback(async () => {
     setDraftConfig(structuredClone(savedConfig));
+    setDraftControlSettings(savedControlSettings ? structuredClone(savedControlSettings) : null);
     setDraftPluginDrafts(structuredClone(savedPluginDrafts));
     setDraftToolDrafts(structuredClone(savedToolDrafts));
     setDraftThemeMode(savedThemeMode);
     setThemeMode(savedThemeMode, { persist: true });
     await previewLanguageSelection(savedConfig.preferences.language);
-  }, [savedConfig, savedPluginDrafts, savedToolDrafts, savedThemeMode, setThemeMode]);
+  }, [savedConfig, savedControlSettings, savedPluginDrafts, savedToolDrafts, savedThemeMode, setThemeMode]);
 
   // ========================================
   // Memory Toggle Handler
@@ -671,6 +709,8 @@ export function useSettings(): UseSettingsReturn {
     draftConfig,
     patchDraftConfig,
     syncNormalizedLlmConfig,
+    draftControlSettings,
+    patchDraftControlSettings,
 
     // Theme state
     draftThemeMode,

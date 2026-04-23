@@ -22,6 +22,7 @@ from .schema import (
 )
 from .scenario_prompts import ScenarioPromptsStore
 from .user_profile_service import UserProfileService
+from ..personality.feature_flags import get_personality_feature_flags
 from ..personality.persona_journal_service import PersonaJournalService
 
 
@@ -126,6 +127,7 @@ class PromptContextAssembler:
         dynamic_state: Dict[str, Any] = {}
         active_stp_trigger = ""
         active_stp_state_name = ""
+        features = get_personality_feature_flags()
 
         if self_memory is not None:
             config = await self_memory.get_core_personality()
@@ -137,15 +139,17 @@ class PromptContextAssembler:
             else:
                 persona_entity = {"name": getattr(config, "name", "AI Assistant")}
 
-            emotion = await self_memory.get_emotional_state()
-            dynamic_state = {
-                "mood": getattr(emotion, "current_mood", "neutral"),
-                "mood_intensity": float(getattr(emotion, "mood_intensity", 0.5)),
-                "energy_level": float(getattr(emotion, "energy_level", 0.7)),
-                "stress_level": float(getattr(emotion, "stress_level", 0.2)),
-            }
-            active_stp_trigger = getattr(emotion, "active_stp_trigger", "") or ""
-            active_stp_state_name = getattr(emotion, "active_stp_state_name", "") or ""
+            if features.state_memory_enabled:
+                emotion = await self_memory.get_emotional_state()
+                dynamic_state = {
+                    "mood": getattr(emotion, "current_mood", "neutral"),
+                    "mood_intensity": float(getattr(emotion, "mood_intensity", 0.5)),
+                    "energy_level": float(getattr(emotion, "energy_level", 0.7)),
+                    "stress_level": float(getattr(emotion, "stress_level", 0.2)),
+                }
+                if features.state_transition_enabled:
+                    active_stp_trigger = getattr(emotion, "active_stp_trigger", "") or ""
+                    active_stp_state_name = getattr(emotion, "active_stp_state_name", "") or ""
 
         user_pref_memory: Dict[str, Any] = {}
         if self.user_profile_service is not None and user_id:
@@ -172,16 +176,18 @@ class PromptContextAssembler:
                 scenario_prompt_text = await self.scenario_prompts_store.get_prompt("default", scenario)
 
         # Evaluate persona layers
-        active_layers = await self._evaluate_persona_layers(
-            self_memory=self_memory,
-            user_id=user_id,
-        )
+        active_layers = []
+        if features.state_memory_enabled and features.deep_persona_enabled:
+            active_layers = await self._evaluate_persona_layers(
+                self_memory=self_memory,
+                user_id=user_id,
+            )
 
         # Load state transition protocol rules — only inject the active trigger's
         # rule (if any) to save tokens and reduce prompt noise.
         stp_rules: List[Dict[str, str]] = []
         resolved_override = state_transition_override
-        if self_memory is not None:
+        if self_memory is not None and features.state_transition_enabled:
             config = await self_memory.get_core_personality()
             if hasattr(config, "state_transition_protocol") and config.state_transition_protocol:
                 for item in config.state_transition_protocol:
@@ -310,6 +316,7 @@ class PromptContextAssembler:
     async def _build_profile_memory_context(self, *, self_memory, user_id: str) -> ProfileMemoryContext:
         user_name = ""
         preferences: Dict[str, Any] = {}
+        features = get_personality_feature_flags()
 
         if self.user_profile_service is not None and user_id:
             fetched_name = await self.user_profile_service.get_display_name(user_id)
@@ -318,7 +325,7 @@ class PromptContextAssembler:
             preferences = await self.user_profile_service.get_preference_summary(user_id)
 
         relation: Dict[str, Any] = {}
-        if self_memory is not None and user_id:
+        if self_memory is not None and user_id and features.state_memory_enabled:
             relation = await self_memory.get_relationship(user_id) or {}
 
         recent_emotion: Dict[str, Any] = {}
