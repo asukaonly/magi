@@ -48,7 +48,6 @@ def test_project_historical_recall_prefers_l2_relationships_for_preference_recal
             "status": "active",
             "occurred_at": None,
             "updated_at": 1774499528.09,
-            "evidence_ref_ids": ["triple-1"],
         }
     ]
     assert projected.provenance["primary_count"] == 1

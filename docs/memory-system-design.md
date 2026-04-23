@@ -670,6 +670,11 @@ Chat truth is first written to `chat.db`. A subset is then projected as `L1` can
 
 Sensors run in the awareness layer and produce `SensorOutput`. The `SensorIngestionGateway` projects these outputs into memory.
 
+Gateway-side normalization rules:
+
+- External sensor events are written as durable memory with a stable owner `user_id` taken from `SensorOutput.provenance`, then `domain_payload`, and finally `DEFAULT_USER_ID` as fallback.
+- External sensor events remain session-independent by default: `session_id` and `turn_id` are not inherited from the current chat runtime.
+
 This is the primary path for:
 
 - Browser history
@@ -702,6 +707,9 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - Mode-adaptive RRF adjusts per-layer weights based on the query mode
 - Evidence assemblers shape raw retrieval results into per-mode evidence formats (fact cards, state cards, episode bundles, comparison frames, grouped lists)
 - Reducers produce final answering material (span selection, latest version, narrative, anchor comparison, enumeration)
+- `memory_query` does not inherit the current chat session unless the caller explicitly provides `session_id`
+- Unconstrained `L2` lookups must not degrade into a global "recent relationships" / "recent assertions" scan
+- LLM-facing memory tool payloads should keep human-readable findings only; opaque ids stay in debug/observability channels rather than prompt context
 
 Layer contributions:
 

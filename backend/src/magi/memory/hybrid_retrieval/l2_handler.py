@@ -105,6 +105,15 @@ class L2Handler:
             query_frame=query_frame,
             predicate_family=predicate_family,
         )
+        allow_global_scan = self._has_global_query_constraints(
+            conditions=conditions,
+            resolved_entities=resolved_entities,
+            semantic_frame=semantic_frame,
+            predicate_family=predicate_family,
+            query_frame=query_frame,
+            time_range=time_range,
+            user_id=user_id,
+        )
 
         snapshot_entities = query_frame["snapshot_entities"] or resolved_entities
         if conditions.include_tom_snapshot and snapshot_entities:
@@ -126,7 +135,7 @@ class L2Handler:
                 )
                 for assertions in batch_assertions.values():
                     results["assertions"].extend(assertions)
-            else:
+            elif allow_global_scan:
                 results["assertions"] = await self._store.list_tom_assertions(
                     trait_families=trait_families,
                     validation_states=self._infer_assertion_states(status_filters),
@@ -171,7 +180,7 @@ class L2Handler:
                             if triple_id:
                                 seen.add(triple_id)
                             results["relationships"].append(rel)
-                else:
+                elif allow_global_scan:
                     rels = await self._store.get_relationships(
                         predicates=predicates,
                         status_filters=status_filters,
@@ -226,6 +235,7 @@ class L2Handler:
             "target_entity_id": target_entity_id,
             "relationship_object_id": query_frame["relationship_object_id"],
             "relationship_object_types": query_frame["relationship_object_types"],
+            "allow_global_scan": allow_global_scan,
             "entity_card_count": len(results["entity_cards"]),
             "relationship_count": len(results["relationships"]),
             "assertion_count": len(results["assertions"]),
@@ -233,6 +243,38 @@ class L2Handler:
         }
         logger.info("L2 retrieval executed | %s", results["trace"])
         return results
+
+    @staticmethod
+    def _has_global_query_constraints(
+        *,
+        conditions: L2Conditions,
+        resolved_entities: list[dict[str, str]],
+        semantic_frame: L2SemanticFrame | None,
+        predicate_family: str,
+        query_frame: dict[str, Any],
+        time_range: TimeRange | None,
+        user_id: Optional[str],
+    ) -> bool:
+        if resolved_entities or conditions.entities:
+            return True
+        if conditions.predicates or conditions.trait_families or conditions.entity_types:
+            return True
+        if predicate_family and predicate_family != "unknown":
+            return True
+        if conditions.subject_hint == "self" and user_id and predicate_family != "unknown":
+            return True
+        if semantic_frame is not None:
+            if semantic_frame.subject_scope != "none":
+                return True
+            if semantic_frame.query_family != "lookup":
+                return True
+            if semantic_frame.entity_mentions or semantic_frame.constraints:
+                return True
+        if query_frame.get("relationship_object_id") or query_frame.get("relationship_object_types"):
+            return True
+        if time_range is not None and (time_range.start is not None or time_range.end is not None):
+            return True
+        return False
 
     async def _execute_semantic_relationship_plan(
         self,

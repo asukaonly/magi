@@ -129,7 +129,7 @@ class TestMemoryQueryTool:
 
     @pytest.mark.asyncio
     async def test_tool_execution_uses_context_user_and_session(self, monkeypatch):
-        """Should inherit runtime user/session from the tool execution context."""
+        """Should inherit runtime user but not implicitly bind the chat session."""
         import magi.tools.builtin.memory_query_tool as memory_query_module
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
         from magi.tools.schema import ToolExecutionContext
@@ -162,7 +162,40 @@ class TestMemoryQueryTool:
         assert result.success is True
         request = fake_service.query.await_args.args[0]
         assert request.user_id == "local_user"
-        assert request.session_id == "session-123"
+        assert request.session_id is None
+
+    @pytest.mark.asyncio
+    async def test_tool_execution_passes_explicit_session_when_provided(self, monkeypatch):
+        """Should preserve an explicitly requested session-local lookup."""
+        import magi.tools.builtin.memory_query_tool as memory_query_module
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+        from magi.tools.schema import ToolExecutionContext
+
+        fake_service = MagicMock(name="retrieval_service")
+        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", lambda: fake_service)
+        tool = MemoryQueryTool()
+        fake_service.query = AsyncMock(
+            return_value=MagicMock(
+                l0_workbench=[],
+                l1_events=[],
+                l2_entity_cards=[],
+                l2_relationships=[],
+                l2_assertions=[],
+                l3_reflections=[],
+                l4_procedures=[],
+                trace={"query_mode": "detail"},
+            )
+        )
+        context = ToolExecutionContext(agent_id="test", env_vars={"user_id": "local_user", "session_id": "session-ignored"})
+
+        result = await tool.execute(
+            {"query": "这一轮我刚刚说了什么", "query_mode": "episode_recall", "session_id": "session-explicit"},
+            context,
+        )
+
+        assert result.success is True
+        request = fake_service.query.await_args.args[0]
+        assert request.session_id == "session-explicit"
 
     @pytest.mark.asyncio
     async def test_tool_to_claude_format(self):

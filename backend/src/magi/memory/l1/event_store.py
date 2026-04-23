@@ -15,6 +15,7 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...config.models import EmbeddingBackend
 from ...events.events import Event, EventLevel, EventTypes
+from ...runtime_defaults import DEFAULT_USER_ID
 from ..embedding.chunking import ChunkedText, chunk_sentences, chunk_text
 from ..embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
 from ..embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
@@ -193,6 +194,7 @@ class L1EventStore:
             await self._ensure_event_identity_schema(db)
             await self._ensure_embedding_status_columns(db)
             await self._ensure_metadata_json_column(db)
+            await self._backfill_external_owner_user_ids(db)
             await db.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_fact_events_embedding_status ON {FACT_EVENTS_TABLE}(embedding_status)"
             )
@@ -1558,6 +1560,19 @@ class L1EventStore:
             await db.execute(
                 f"ALTER TABLE {FACT_EVENTS_TABLE} ADD COLUMN metadata_json TEXT"
             )
+
+    async def _backfill_external_owner_user_ids(self, db: aiosqlite.Connection) -> None:
+        await db.execute(
+            f"""
+            UPDATE {FACT_EVENTS_TABLE}
+            SET user_id = ?
+            WHERE user_id IS NULL
+              AND deleted_at IS NULL
+              AND session_id IS NULL
+              AND author_type = 'external'
+            """,
+            (DEFAULT_USER_ID,),
+        )
 
     async def _ensure_event_identity_schema(self, db: aiosqlite.Connection) -> None:
         async with db.execute(f"PRAGMA table_info({FACT_EVENTS_TABLE})") as cursor:

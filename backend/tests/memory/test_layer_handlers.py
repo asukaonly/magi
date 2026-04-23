@@ -359,7 +359,30 @@ class TestL2Handler:
         )
         results = await handler.execute(conds)
         assert len(results["entity_cards"]) == 0  # no entities to snapshot
-        store.get_relationships.assert_called_once()
+        store.get_relationships.assert_not_called()
+        assert results["trace"]["allow_global_scan"] is False
+
+    @pytest.mark.asyncio
+    async def test_self_preference_without_entities_allows_constrained_global_scan(self):
+        store = AsyncMock()
+        store.batch_get_tom_snapshots.return_value = [{"entity_id": "user:u1", "entity_type": "user"}]
+        store.batch_get_relationships.return_value = {"user:u1": []}
+        store.batch_list_tom_assertions.return_value = {"user:u1": []}
+
+        handler = L2Handler(store)
+        conds = L2Conditions(
+            content_query="我喜欢什么天气",
+            subject_hint="self",
+            predicate_family="preference",
+            include_tom_snapshot=False,
+            include_relationships=True,
+            include_assertions=True,
+        )
+
+        results = await handler.execute(conds, user_id="u1")
+
+        store.batch_get_relationships.assert_called_once()
+        assert results["trace"]["allow_global_scan"] is True
 
     @pytest.mark.asyncio
     async def test_self_preference_binds_user_as_subject_and_weather_type(self):

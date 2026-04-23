@@ -29,7 +29,11 @@ def compact_memory_tool_data(
     historical_recall = data.get("historical_recall")
     if isinstance(historical_recall, dict):
         return {
-            "historical_recall": historical_recall,
+            "historical_recall": _compact_historical_recall(
+                historical_recall,
+                max_items=max_items,
+                max_text_chars=max_text_chars,
+            ),
         }
 
     results = data.get("results")
@@ -89,6 +93,62 @@ def compact_memory_tool_data(
     if "agent_id" in data:
         compact_payload["agent_id"] = data.get("agent_id")
     return compact_payload
+
+
+def _compact_historical_recall(
+    historical_recall: Dict[str, Any],
+    *,
+    max_items: int,
+    max_text_chars: int,
+) -> Dict[str, Any]:
+    compact: Dict[str, Any] = {
+        "status": historical_recall.get("status"),
+        "query_mode": historical_recall.get("query_mode"),
+        "summary": historical_recall.get("summary"),
+        "insufficient_evidence": bool(historical_recall.get("insufficient_evidence", False)),
+    }
+
+    findings = historical_recall.get("findings")
+    if isinstance(findings, list):
+        compact_findings: list[dict[str, Any]] = []
+        for item in findings[:max_items]:
+            if not isinstance(item, dict):
+                continue
+            statement, statement_truncated = _truncate_text(
+                item.get("statement"),
+                max_text_chars=max_text_chars,
+            )
+            evidence_text, evidence_truncated = _truncate_text(
+                item.get("evidence_text"),
+                max_text_chars=max_text_chars,
+            )
+            finding: dict[str, Any] = {
+                "kind": item.get("kind"),
+                "statement": statement,
+                "statement_truncated": statement_truncated,
+                "source_layer": item.get("source_layer"),
+                "confidence": item.get("confidence"),
+                "status": item.get("status"),
+                "occurred_at": item.get("occurred_at"),
+            }
+            if evidence_text:
+                finding["evidence_text"] = evidence_text
+                finding["evidence_text_truncated"] = evidence_truncated
+            compact_findings.append(finding)
+        compact["findings"] = compact_findings
+
+    answering_hints = historical_recall.get("answering_hints")
+    if isinstance(answering_hints, dict):
+        compact["answering_hints"] = dict(answering_hints)
+
+    provenance = historical_recall.get("provenance")
+    if isinstance(provenance, dict):
+        compact["provenance"] = {
+            "primary_count": provenance.get("primary_count"),
+            "source_layers": provenance.get("source_layers"),
+        }
+
+    return compact
 
 
 def _truncate_text(text: Any, *, max_text_chars: int) -> tuple[str, bool]:

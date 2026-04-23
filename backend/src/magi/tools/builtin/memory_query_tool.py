@@ -88,7 +88,9 @@ class MemoryQueryTool(Tool):
         """Execute a hybrid retrieval query."""
         try:
             user_id = parameters.get("user_id") or context.env_vars.get("user_id")
-            session_id = parameters.get("session_id") or context.env_vars.get("session_id")
+            # Persistent memory recall should not inherit the current chat session
+            # unless a caller explicitly opts into session-local lookup.
+            session_id = parameters.get("session_id")
             request = build_query(
                 query=parameters["query"],
                 user_id=user_id,

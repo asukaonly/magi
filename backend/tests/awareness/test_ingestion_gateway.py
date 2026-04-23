@@ -110,6 +110,23 @@ class TestSensorIngestionGateway:
         assert call_args.ingest_target == IngestTarget.L1_ONLY
         assert call_args.retention_class == RetentionClass.PERMANENT
         assert call_args.importance_score == 0.7
+        assert call_args.user_id == "local_user"
+
+    @pytest.mark.asyncio
+    async def test_ingest_uses_owner_from_output_provenance(self):
+        memory = MagicMock()
+        memory.ingest_event = AsyncMock()
+        gateway = SensorIngestionGateway(unified_memory=memory)
+        sensor = _FakeSensor()
+        output = _make_output(provenance={"user_id": "owner-42"})
+
+        await gateway.ingest(sensor, output)
+
+        call_args = memory.ingest_event.call_args[0][0]
+        assert isinstance(call_args, MemoryEvent)
+        assert call_args.user_id == "owner-42"
+        assert call_args.metadata_json is not None
+        assert call_args.metadata_json["memory_owner_user_id"] == "owner-42"
 
     @pytest.mark.asyncio
     async def test_ingest_with_timeline_adapter(self):

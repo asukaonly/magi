@@ -152,7 +152,6 @@ def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         object_value = str(item.get("object") or item.get("object_id") or "").strip()
         if not subject or not predicate or not object_value:
             continue
-        evidence_ref_ids = _collect_ids(item.get("triple_id"), item.get("evidence_event_ids"))
         finding: dict[str, Any] = {
             "kind": "relationship",
             "statement": f"{subject} {predicate} {object_value}",
@@ -161,7 +160,6 @@ def _project_relationships(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "status": item.get("status"),
             "occurred_at": item.get("first_observed_at"),
             "updated_at": item.get("updated_at"),
-            "evidence_ref_ids": evidence_ref_ids,
         }
         evidence_text = str(item.get("evidence_text") or "").strip()
         if evidence_text:
@@ -284,7 +282,6 @@ def _project_assertions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": item.get("validation_state") or item.get("status"),
                 "occurred_at": item.get("created_at"),
                 "updated_at": item.get("updated_at") or item.get("last_validated_at"),
-                "evidence_ref_ids": _collect_ids(item.get("assertion_id"), item.get("evidence_events")),
             }
         )
     return findings
@@ -307,7 +304,6 @@ def _project_events(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": "active",
                 "occurred_at": item.get("timestamp"),
                 "updated_at": item.get("timestamp") or item.get("created_at"),
-                "evidence_ref_ids": _collect_ids(item.get("event_id"), item.get("turn_id")),
             }
         )
     return findings
@@ -330,7 +326,6 @@ def _project_reflections(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": item.get("status"),
                 "occurred_at": item.get("period_start_at"),
                 "updated_at": item.get("updated_at") or item.get("created_at"),
-                "evidence_ref_ids": _collect_ids(item.get("summary_id"), item.get("source_event_ids")),
             }
         )
     return findings
@@ -353,7 +348,6 @@ def _project_procedures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": item.get("status"),
                 "occurred_at": item.get("created_at"),
                 "updated_at": item.get("updated_at"),
-                "evidence_ref_ids": _collect_ids(item.get("skill_id")),
             }
         )
     return findings

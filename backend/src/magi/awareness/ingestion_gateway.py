@@ -16,6 +16,7 @@ from ..memory.event_contracts import (
     RetentionClass,
     TomDepth,
 )
+from ..runtime_defaults import DEFAULT_USER_ID
 from ..timeline.contracts import TimelineContentBlock, TimelineEvent
 from .sensor_base import SensorBase
 from .sensor_output import SensorOutput, SensorOutputMetadata
@@ -162,6 +163,8 @@ class SensorIngestionGateway:
         graph_hints = metadata.fact_hints if metadata and metadata.fact_hints else []
         if graph_hints:
             metadata_json["structured_graph_hints"] = graph_hints
+        owner_user_id = self._resolve_memory_owner_user_id(output)
+        metadata_json["memory_owner_user_id"] = owner_user_id
 
         return MemoryEvent(
             event_id=event_id,
@@ -178,7 +181,7 @@ class SensorIngestionGateway:
             retention_class=RetentionClass.from_value(policy.retention_class),
             session_id=None,
             turn_id=None,
-            user_id=None,
+            user_id=owner_user_id,
             task_id=None,
             content=content,
             author_type=policy.author_type,
@@ -189,6 +192,17 @@ class SensorIngestionGateway:
             media_path=output.raw_payload_ref,
             metadata_json=metadata_json or None,
         )
+
+    @staticmethod
+    def _resolve_memory_owner_user_id(output: SensorOutput) -> str:
+        for container in (output.provenance, output.domain_payload):
+            if not isinstance(container, dict):
+                continue
+            for key in ("memory_owner_user_id", "owner_user_id", "user_id"):
+                raw_value = str(container.get(key) or "").strip()
+                if raw_value:
+                    return raw_value
+        return DEFAULT_USER_ID
 
     @staticmethod
     def _build_timeline_event(
