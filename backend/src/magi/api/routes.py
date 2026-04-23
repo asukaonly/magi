@@ -86,6 +86,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/rescan": {"POST"},
         "/registry": {"GET"},
         "/updates": {"GET"},
+        "/{plugin_id}/update": {"POST"},
         "/install/upload": {"POST"},
         "/install/registry": {"POST"},
         "/{plugin_id}": {"DELETE"},
