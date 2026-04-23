@@ -434,6 +434,7 @@ Controlled facets: `platform`, `located_in`, `category`. Parsed constraints are 
 - `L2` handles stable structural constraints and long-term affinity
 - `L1` handles strong time windows, single experiences, sequence, and count-based evidence
 - Hybrid queries combine L2 candidates with L1 time-sliced evidence
+- For `exact_fact` recall, answer-facing results should retain direct `L1` evidence for non-enumeration fact questions when available; time-anchored queries should preserve the strongest `L1` evidence first. `L2` may summarize or disambiguate, but should not replace the underlying fact text outright
 
 **Observability**: Execution traces include the generated `SemanticFrame`, `ResolvedFrame`, selected strategy key, active providers/collectors, matched constraints, and top-contributing evidence items.
 

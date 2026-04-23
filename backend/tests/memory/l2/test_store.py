@@ -305,6 +305,41 @@ async def test_upsert_knowledge_edge_accumulates_confidence_on_repeat(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upsert_knowledge_edge_keeps_first_and_last_observed_bounds_for_out_of_order_events(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="VISITED",
+        object_id="place:hangzhou",
+        object_type="place",
+        evidence_event_ids=["evt-late"],
+        confidence=0.4,
+        observed_at=1710010000.0,
+        source_type="photo_library",
+    )
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="VISITED",
+        object_id="place:hangzhou",
+        object_type="place",
+        evidence_event_ids=["evt-early"],
+        confidence=0.4,
+        observed_at=1710000000.0,
+        source_type="photo_library",
+    )
+
+    edge = (await store.get_relationships(subject_id="user:u1", limit=10))[0]
+    assert edge["first_observed_at"] == 1710000000.0
+    assert edge["last_observed_at"] == 1710010000.0
+
+
+@pytest.mark.asyncio
 async def test_initialize_adds_fact_kind_column_for_existing_db(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -1690,6 +1725,38 @@ async def test_corroborate_edge_accumulates_confidence(tmp_path):
     assert edge["observation_count"] == 2
     assert edge["confidence"] > 0.6  # Noisy-OR accumulation
     assert "evt-2" in edge["evidence_event_ids"]
+
+
+@pytest.mark.asyncio
+async def test_corroborate_edge_preserves_observed_time_bounds_for_older_evidence(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    tid = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="VISITED",
+        object_id="place:hangzhou",
+        object_type="place",
+        evidence_event_ids=["evt-late"],
+        confidence=0.6,
+        observed_at=1710010000.0,
+        source_type="photo_library",
+    )
+
+    await store.corroborate_edge(
+        triple_id=tid,
+        evidence_event_ids=["evt-early"],
+        new_confidence=0.5,
+        observed_at=1710000000.0,
+    )
+
+    edge = await store.get_relationship(triple_id=tid)
+    assert edge is not None
+    assert edge["first_observed_at"] == 1710000000.0
+    assert edge["last_observed_at"] == 1710010000.0
 
 
 @pytest.mark.asyncio

@@ -1548,6 +1548,106 @@ async def test_l1_event_store_marks_skipped_and_disabled_embedding_states(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_l1_event_store_masks_legacy_failed_status_when_vectors_disabled(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "legacy_failed.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        now = time.time()
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.executemany(
+                """
+                INSERT INTO fact_events(
+                    event_id, correlation_id, timestamp, created_at, event_type, source,
+                    source_item_id, idempotency_key, memory_domain, ingest_target,
+                    cognition_eligible, tom_depth, retention_class, session_id, turn_id,
+                    user_id, task_id, content, author_type, content_type,
+                    importance_score, level, media_path, metadata_json,
+                    embedding_status, embedding_profile_id, embedding_chunk_count,
+                    last_embedded_at, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        "evt-legacy-failed-user",
+                        "corr-legacy-failed-user",
+                        now,
+                        now,
+                        "USER_MESSAGE",
+                        "chat",
+                        None,
+                        None,
+                        int(MemoryDomain.USER_AUTHORED),
+                        int(IngestTarget.L1_ONLY),
+                        1,
+                        int(TomDepth.NONE),
+                        int(RetentionClass.PERMANENT),
+                        "s1",
+                        None,
+                        "u1",
+                        None,
+                        "legacy failed user event",
+                        "user",
+                        "text",
+                        0.5,
+                        1,
+                        None,
+                        None,
+                        "failed",
+                        None,
+                        0,
+                        None,
+                        None,
+                    ),
+                    (
+                        "evt-legacy-failed-runtime",
+                        "corr-legacy-failed-runtime",
+                        now + 1,
+                        now + 1,
+                        "TRACE_NODE_COMPLETED",
+                        "runtime",
+                        None,
+                        None,
+                        int(MemoryDomain.RUNTIME_TELEMETRY),
+                        int(IngestTarget.L1_ONLY),
+                        0,
+                        int(TomDepth.NONE),
+                        int(RetentionClass.COMPRESSIBLE),
+                        None,
+                        None,
+                        None,
+                        None,
+                        "legacy failed runtime event",
+                        "system",
+                        "observation",
+                        0.1,
+                        1,
+                        None,
+                        None,
+                        "failed",
+                        None,
+                        0,
+                        None,
+                        None,
+                    ),
+                ],
+            )
+            conn.commit()
+
+        disabled = await store.get_event("evt-legacy-failed-user")
+        skipped = await store.get_event("evt-legacy-failed-runtime")
+
+        assert disabled is not None
+        assert disabled["embedding_status"] == "disabled"
+        assert skipped is not None
+        assert skipped["embedding_status"] == "skipped"
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_l1_event_store_marks_unreturned_batch_embeddings_failed(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 

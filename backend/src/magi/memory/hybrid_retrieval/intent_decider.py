@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 _RECENTLY_KEYWORDS: list[str] = ["最近", "recently", "近期"]
 
 # Chinese temporal extraction — search_dates has poor support for these.
+_ZH_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月(?!\s*\d\s*[号日])")
 _ZH_RELATIVE_RE = re.compile(r"\d+\s*(?:天|小时|周|个?月)前")
 _ZH_DATE_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]")
 _ZH_LAST_WEEKDAY_RE = re.compile(r"上(?:周|星期)([一二三四五六日天])")
@@ -231,6 +232,13 @@ class RuleBasedIntentDecider:
         lightweight regex, then resolves via ``dateparser.parse()`` where
         possible and manual calculation otherwise.
         """
+        # 0. Explicit year-month: "2022年9月".
+        m = _ZH_YEAR_MONTH_RE.search(query)
+        if m:
+            year, month = int(m.group(1)), int(m.group(2))
+            if 1 <= month <= 12:
+                return self._month_range(year=year, month=month, now=now)
+
         # 1. Relative N-ago: "3天前", "2小时前", "N周前", "N个月前"
         m = _ZH_RELATIVE_RE.search(query)
         if m:
@@ -428,6 +436,16 @@ class RuleBasedIntentDecider:
         return TimeRange(
             start=RuleBasedIntentDecider._start_of_day(dt),
             end=RuleBasedIntentDecider._end_of_day(dt),
+        )
+
+    @staticmethod
+    def _month_range(*, year: int, month: int, now: datetime) -> TimeRange:
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+        last_day_num = calendar.monthrange(year, month)[1]
+        month_end = datetime(year, month, last_day_num, tzinfo=timezone.utc)
+        return TimeRange(
+            start=RuleBasedIntentDecider._start_of_day(month_start),
+            end=min(RuleBasedIntentDecider._end_of_day(month_end), now.timestamp()),
         )
 
     @staticmethod

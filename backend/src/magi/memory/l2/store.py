@@ -753,7 +753,7 @@ class L2CognitionStore:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, fact_kind, evidence_text FROM knowledge_graph WHERE triple_id = ?",
+                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, last_observed_at, fact_kind, evidence_text FROM knowledge_graph WHERE triple_id = ?",
                 (triple_id,),
             ) as cursor:
                 existing = await cursor.fetchone()
@@ -765,7 +765,8 @@ class L2CognitionStore:
                 if len(merged_evidence) > MAX_EVIDENCE_EVENT_IDS:
                     merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
                 observation_count = int(existing["observation_count"]) + 1
-                first_observed_at = float(existing["first_observed_at"])
+                first_observed_at = min(float(existing["first_observed_at"]), float(observed_at))
+                last_observed_at = max(float(existing["last_observed_at"]), float(observed_at))
                 old_confidence = float(existing["confidence"])
                 accumulated_confidence = _accumulate_confidence(old_confidence, float(confidence))
                 effective_fact_kind = normalized_fact_kind or str(existing["fact_kind"] or "").strip() or "explicit_fact"
@@ -778,7 +779,7 @@ class L2CognitionStore:
                     """
                     UPDATE knowledge_graph
                     SET fact_kind = ?, confidence = ?, evidence_event_ids = ?, observation_count = ?,
-                        last_observed_at = ?, last_confirmed_at = ?, source_type = ?,
+                        first_observed_at = ?, last_observed_at = ?, last_confirmed_at = ?, source_type = ?,
                         extraction_method = ?, evidence_text = ?, natural_summary = ?,
                         embedding_status = 'pending', expires_at = COALESCE(?, expires_at),
                         updated_at = ?, status = 'active'
@@ -789,7 +790,8 @@ class L2CognitionStore:
                         accumulated_confidence,
                         json.dumps(merged_evidence, ensure_ascii=False),
                         observation_count,
-                        float(observed_at),
+                        first_observed_at,
+                        last_observed_at,
                         float(observed_at),
                         source_type,
                         extraction_method,
@@ -874,7 +876,7 @@ class L2CognitionStore:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT confidence, evidence_event_ids, observation_count, evidence_text FROM knowledge_graph "
+                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, last_observed_at, evidence_text FROM knowledge_graph "
                 "WHERE triple_id = ? AND status = 'active'",
                 (triple_id,),
             ) as cursor:
@@ -890,6 +892,8 @@ class L2CognitionStore:
                 merged_evidence = merged_evidence[-MAX_EVIDENCE_EVENT_IDS:]
             observation_count = int(existing["observation_count"]) + 1
             accumulated_confidence = _accumulate_confidence(float(existing["confidence"]), float(new_confidence))
+            first_observed_at = min(float(existing["first_observed_at"]), float(observed_at))
+            last_observed_at = max(float(existing["last_observed_at"]), float(observed_at))
             # Keep the longer evidence_text
             new_evidence_text = str(evidence_text).strip() if evidence_text else ""
             existing_evidence_text = str(existing["evidence_text"] or "")
@@ -899,7 +903,7 @@ class L2CognitionStore:
                 """
                 UPDATE knowledge_graph
                 SET confidence = ?, evidence_event_ids = ?, observation_count = ?,
-                    last_observed_at = ?, last_confirmed_at = ?,
+                    first_observed_at = ?, last_observed_at = ?, last_confirmed_at = ?,
                     evidence_text = ?, embedding_status = 'pending', updated_at = ?
                 WHERE triple_id = ?
                 """,
@@ -907,7 +911,8 @@ class L2CognitionStore:
                     accumulated_confidence,
                     json.dumps(merged_evidence, ensure_ascii=False),
                     observation_count,
-                    float(observed_at),
+                    first_observed_at,
+                    last_observed_at,
                     float(observed_at),
                     effective_evidence_text,
                     now,

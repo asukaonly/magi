@@ -50,7 +50,7 @@ class L2Handler:
         items: List[Dict[str, Any]],
         time_range: "TimeRange",
         *,
-        timestamp_keys: tuple[str, ...] = ("observed_at", "first_observed"),
+        timestamp_keys: tuple[str, ...] = ("observed_at", "first_observed_at"),
     ) -> List[Dict[str, Any]]:
         """Keep items whose timestamp falls within *time_range*.
 
@@ -192,11 +192,11 @@ class L2Handler:
         if time_range and (time_range.start or time_range.end):
             results["assertions"] = self._filter_by_time_range(
                 results["assertions"], time_range,
-                timestamp_keys=("observed_at", "first_observed"),
+                timestamp_keys=("observed_at", "first_observed_at"),
             )
             results["relationships"] = self._filter_by_time_range(
                 results["relationships"], time_range,
-                timestamp_keys=("last_observed", "first_observed"),
+                timestamp_keys=("last_observed_at", "first_observed_at"),
             )
 
         edge_vector_supplement_count = 0

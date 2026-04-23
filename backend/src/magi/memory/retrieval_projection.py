@@ -105,15 +105,35 @@ def _build_findings(payload: RetrievalPayload, request: RetrievalQuery) -> list[
 
     # Fact-oriented modes: prefer L2 semantic data
     if query_mode in {"exact_fact", "current_state"}:
-        findings = _project_relationships(payload.l2_relationships)
-        if findings:
+        event_findings = _project_events(payload.l1_events)
+        relationship_findings = _project_relationships(payload.l2_relationships)
+        if relationship_findings:
             if query_mode == "exact_fact":
-                return _sort_preference_relationship_findings(findings, payload=payload, request=request)
-            return findings
-        findings = _project_assertions(payload.l2_assertions)
-        if findings:
-            return findings
-        return _project_events(payload.l1_events)
+                sorted_relationships = _sort_preference_relationship_findings(
+                    relationship_findings, payload=payload, request=request,
+                )
+                preserve_count = _preserved_l1_event_count(request=request, event_findings=event_findings)
+                if preserve_count > 0:
+                    return _merge_exact_fact_findings(
+                        event_findings,
+                        sorted_relationships,
+                        limit=request.limit,
+                        preserved_event_count=preserve_count,
+                    )
+                return sorted_relationships
+            return relationship_findings
+        assertion_findings = _project_assertions(payload.l2_assertions)
+        if assertion_findings:
+            preserve_count = _preserved_l1_event_count(request=request, event_findings=event_findings)
+            if query_mode == "exact_fact" and preserve_count > 0:
+                return _merge_exact_fact_findings(
+                    event_findings,
+                    assertion_findings,
+                    limit=request.limit,
+                    preserved_event_count=preserve_count,
+                )
+            return assertion_findings
+        return event_findings
 
     # Strategy mode: prefer L4
     if query_mode == "strategy":
@@ -307,6 +327,37 @@ def _project_events(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return findings
+
+
+def _preserved_l1_event_count(
+    *,
+    request: RetrievalQuery,
+    event_findings: list[dict[str, Any]],
+) -> int:
+    if not event_findings:
+        return 0
+    time_range = request.time_range or {}
+    has_explicit_time_range = bool(time_range.get("start") is not None or time_range.get("end") is not None)
+    if has_explicit_time_range:
+        return min(2, max(int(request.limit or 0), 1))
+    if _is_list_like_query(request.query):
+        return 0
+    return 1
+
+
+def _merge_exact_fact_findings(
+    event_findings: list[dict[str, Any]],
+    derived_findings: list[dict[str, Any]],
+    *,
+    limit: int,
+    preserved_event_count: int,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    merged.extend(event_findings[: min(preserved_event_count, max(limit, 1))])
+    remaining = max(limit - len(merged), 0)
+    if remaining > 0:
+        merged.extend(derived_findings[:remaining])
+    return merged
 
 
 def _project_reflections(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
