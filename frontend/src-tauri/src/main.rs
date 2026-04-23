@@ -10,6 +10,7 @@ use magi_gateway::{api, ipc, notification_bridge};
 use libc::{kill, SIGTERM};
 use serde::Serialize;
 use std::env;
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -394,20 +395,59 @@ fn spawn_sidecar_role(
     Ok((BackendProcess::Dev(Some(child)), pid))
 }
 
-fn find_backend_dir() -> Result<PathBuf, String> {
+fn find_project_root() -> Result<PathBuf, String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let frontend_dir = manifest_dir
         .parent()
         .ok_or_else(|| "Cannot resolve frontend directory".to_string())?;
-    let project_root = frontend_dir
+    Ok(frontend_dir
         .parent()
-        .ok_or_else(|| "Cannot resolve project root directory".to_string())?;
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "Cannot resolve project root directory".to_string())?)
+}
+
+fn find_backend_dir() -> Result<PathBuf, String> {
+    let project_root = find_project_root()?;
     let backend_dir = project_root.join("backend");
     if backend_dir.exists() {
         Ok(backend_dir)
     } else {
         Err("Backend directory not found for desktop dev fallback".to_string())
     }
+}
+
+fn resolve_dev_python_command(project_root: &Path) -> PathBuf {
+    if let Ok(configured) = env::var("MAGI_BACKEND_PYTHON") {
+        let trimmed = configured.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    let venv_python = if cfg!(windows) {
+        project_root.join(".venv").join("Scripts").join("python.exe")
+    } else {
+        project_root.join(".venv").join("bin").join("python")
+    };
+    if venv_python.exists() {
+        return venv_python;
+    }
+
+    PathBuf::from("python")
+}
+
+fn build_dev_pythonpath(project_root: &Path) -> Result<OsString, String> {
+    let mut python_paths = vec![
+        project_root.join("backend").join("src"),
+        project_root.join("sdk").join("src"),
+    ];
+
+    if let Some(existing) = env::var_os("PYTHONPATH") {
+        python_paths.extend(env::split_paths(&existing));
+    }
+
+    env::join_paths(python_paths)
+        .map_err(|err| format!("Failed to build desktop dev PYTHONPATH: {err}"))
 }
 
 fn dev_backend_log_path() -> Result<PathBuf, String> {
@@ -455,10 +495,13 @@ fn spawn_dev_backend_role(
     session_token: &str,
     ipc_socket_path: &str,
 ) -> Result<(BackendProcess, Option<u32>), String> {
+    let project_root = find_project_root()?;
     let backend_dir = find_backend_dir()?;
     let (stdout, stderr) = open_dev_backend_log_stdio()?;
+    let python_command = resolve_dev_python_command(&project_root);
+    let python_path = build_dev_pythonpath(&project_root)?;
 
-    let mut command = Command::new("python");
+    let mut command = Command::new(&python_command);
     command
         .arg("run_server.py")
         .arg("--role")
@@ -467,6 +510,7 @@ fn spawn_dev_backend_role(
         .env("MAGI_DESKTOP_MODE", "1")
         .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .env("MAGI_IPC_SOCKET", ipc_socket_path)
+        .env("PYTHONPATH", python_path)
         .current_dir(backend_dir)
         .stdout(stdout)
         .stderr(stderr);
@@ -484,7 +528,12 @@ fn spawn_dev_backend_role(
 
     let child = command
         .spawn()
-        .map_err(|err| format!("Failed to spawn backend with python fallback: {err}"))?;
+        .map_err(|err| {
+            format!(
+                "Failed to spawn backend with desktop dev Python {}: {err}",
+                python_command.display()
+            )
+        })?;
     let pid = Some(child.id());
     Ok((BackendProcess::Dev(Some(child)), pid))
 }

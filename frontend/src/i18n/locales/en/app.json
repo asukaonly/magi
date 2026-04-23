@@ -1356,6 +1356,10 @@
             "label": "Max Items Per Sync",
             "description": "Maximum number of photos to process per sync run."
           },
+          "settle_window_hours": {
+            "label": "Session Settle Window (hours)",
+            "description": "How long a burst of continuous shooting must stay quiet before it is treated as a finished session and written to the timeline. Lower values surface results sooner; higher values keep outings grouped more reliably."
+          },
           "analysis_features": {
             "label": "Analysis Features",
             "description": "Metadata extraction capabilities to apply."

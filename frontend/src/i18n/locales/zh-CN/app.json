@@ -1364,6 +1364,10 @@
             "label": "单次最大数量",
             "description": "每次同步最多处理的照片数量。"
           },
+          "settle_window_hours": {
+            "label": "Session 收敛等待时间（小时）",
+            "description": "一组连续拍摄在停止新增这么多小时后，才会被视为已结束并写入时间线。值越小出现越快，值越大分组越稳。"
+          },
           "analysis_features": {
             "label": "分析能力",
             "description": "照片元数据提取能力。"
