@@ -253,21 +253,36 @@ class ChatPromptService:
                     json.dumps(reply_context.structured_payload, ensure_ascii=False),
                 ]
             )
-            if reply_context.structured_payload.get("candidate_photo_refs"):
+            if reply_context.structured_payload.get("asset_refs"):
                 lines.extend(
                     [
-                        "- photo workflow note: if the user wants those photos sent in chat, first call `photo_library_resolve_photo_refs` with the stored `photo_ref_id` values, then call `prepare_chat_attachments` with the resolved `file_paths`.",
-                    ]
-                )
-            elif reply_context.structured_payload.get("photo_refs"):
-                lines.extend(
-                    [
-                        "- photo workflow note: if the user wants those resolved photos sent in chat, call `prepare_chat_attachments` with the matching `file_paths` returned by `photo_library_resolve_photo_refs`.",
+                        f"- asset workflow note: {self._build_asset_workflow_note(reply_context.structured_payload.get('asset_refs'))}",
                     ]
                 )
         if reply_context.references_prior_turn:
             lines.append("- note: this reply points to an earlier turn, so keep that thread continuity explicit.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _build_asset_workflow_note(asset_refs: Any) -> str:
+        items = asset_refs if isinstance(asset_refs, list) else []
+        resolver_tools = sorted(
+            {
+                str(item.get("resolver_tool") or "").strip()
+                for item in items
+                if isinstance(item, dict) and str(item.get("resolver_tool") or "").strip()
+            }
+        )
+        if resolver_tools:
+            tools_text = ", ".join(f"`{tool_name}`" for tool_name in resolver_tools)
+            return (
+                "if the user wants those assets sent in chat, first call the stored asset resolver "
+                f"tool(s) {tools_text} to obtain `file_paths`, then call `prepare_chat_attachments`."
+            )
+        return (
+            "if the user wants those assets sent in chat, first call the appropriate source resolver tool "
+            "to obtain `file_paths`, then call `prepare_chat_attachments`."
+        )
 
     def format_explore_render_response(self, response_text: str) -> str:
         text = str(response_text or "").replace("\r\n", "\n").strip()

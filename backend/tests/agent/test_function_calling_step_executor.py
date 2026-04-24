@@ -357,8 +357,13 @@ async def test_step_executor_collects_assistant_message_payload_from_tool_result
 
     assert outcome.status == "continue"
     assert step_state.message_payload == {
-        "candidate_photo_refs": [
-            {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+        "asset_refs": [
+            {
+                "asset_ref_id": "photo-1",
+                "event_id": "evt-1",
+                "original_name": "hangzhou.jpg",
+                "resolution_state": "candidate",
+            }
         ]
     }
 

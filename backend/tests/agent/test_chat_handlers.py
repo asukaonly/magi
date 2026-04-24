@@ -21,7 +21,14 @@ class _FakeContextService:
 
 
 class _FakePromptService:
-    def augment_system_prompt_with_reply_context(self, *, system_prompt, reply_context=None):
+    def augment_system_prompt_with_reply_context(
+        self,
+        *,
+        system_prompt,
+        reply_context=None,
+        recent_tool_state=None,
+    ):
+        _ = (reply_context, recent_tool_state)
         return system_prompt
 
     async def call_llm(  # type: ignore[no-untyped-def]
@@ -367,8 +374,8 @@ async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_
         )
     )
 
-    assert "# Photo Workflow Guidance" in request.system_prompt
-    assert "photo_library_resolve_photo_refs" in request.system_prompt
+    assert "# Attachment Preparation Guidance" in request.system_prompt
+    assert "source resolver tool" in request.system_prompt
     assert "prepare_chat_attachments" in request.system_prompt
 
 

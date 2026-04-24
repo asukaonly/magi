@@ -386,6 +386,61 @@ class PluginManager:
                     features_by_source[source_type] = features
         return features_by_source
 
+    def build_recall_artifacts(
+        self,
+        *,
+        events: list[dict[str, Any]],
+        query: str,
+        query_mode: str | None,
+    ) -> dict[str, Any]:
+        """Collect plugin-provided recall artifacts for the current query window.
+
+        Plugins may optionally expose ``build_recall_artifacts`` and return
+        answer-facing enrichment such as ``entity_refs`` or ``asset_refs`` for
+        a given ``source_type``. The host runtime treats this as a query-side
+        projection hook, not a persistence hook.
+        """
+
+        artifacts: dict[str, Any] = {"entity_refs": [], "asset_refs": []}
+        events_by_source: dict[str, list[dict[str, Any]]] = {}
+        for event in events:
+            source_type = str(event.get("source") or "").strip()
+            metadata = event.get("metadata_json") if isinstance(event.get("metadata_json"), dict) else {}
+            timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+            source_type = str(timeline.get("source_type") or source_type).strip()
+            if not source_type:
+                continue
+            events_by_source.setdefault(source_type, []).append(event)
+
+        if not events_by_source:
+            return artifacts
+
+        for plugin in self.iter_loaded_plugins():
+            builder = getattr(plugin, "build_recall_artifacts", None)
+            if not callable(builder):
+                continue
+            for source_type, source_events in events_by_source.items():
+                try:
+                    features = builder(
+                        source_type=source_type,
+                        events=source_events,
+                        query=query,
+                        query_mode=query_mode,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Plugin recall artifact builder failed",
+                        extra={"plugin_id": plugin.plugin_id, "source_type": source_type, "error": str(exc)},
+                    )
+                    continue
+                if not isinstance(features, dict):
+                    continue
+                for key in ("entity_refs", "asset_refs"):
+                    value = features.get(key)
+                    if isinstance(value, list):
+                        artifacts[key].extend(item for item in value if isinstance(item, dict))
+        return artifacts
+
     def _persist_new_packages(self, manifests: dict[str, PluginManifest]) -> None:
         config = get_config()
         updates: dict[str, Any] = {}

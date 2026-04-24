@@ -310,21 +310,21 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
     await chat_store.create_user_turn(
         session_id="session-1",
         user_id="local_user",
-        turn_id="turn-photo-refs",
-        message_text="show me the candidate photos",
+        turn_id="turn-asset-refs",
+        message_text="show me the candidate assets",
         created_at_ms=1710000000000,
     )
 
     await writer.persist_final_chat_outcome(
-        turn_id="turn-photo-refs",
+        turn_id="turn-asset-refs",
         orchestration_id=None,
         execution_mode="function_calling",
         ux_plan={"assistant_surface_mode": "final_only"},
-        response_text="Here are the candidate photos.",
+        response_text="Here are the candidate assets.",
         attachments=[{"attachment_id": "att-1", "kind": "image", "original_name": "photo.jpg"}],
         message_payload={
-            "candidate_photo_refs": [
-                {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+            "asset_refs": [
+                {"asset_ref_id": "asset-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
             ]
         },
         started_at_ms=1710000000000,
@@ -337,8 +337,8 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
     assert payload["attachments"] == [
         {"attachment_id": "att-1", "kind": "image", "original_name": "photo.jpg"}
     ]
-    assert payload["candidate_photo_refs"] == [
-        {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+    assert payload["asset_refs"] == [
+        {"asset_ref_id": "asset-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
     ]
 
 

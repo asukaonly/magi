@@ -80,20 +80,16 @@ def _build_memory_query_guidance_block(routing_memory_hint: dict | None) -> str:
     )
 
 
-def _build_photo_tool_guidance_block(selected_tools: list[str]) -> str:
+def _build_attachment_preparation_guidance_block(selected_tools: list[str]) -> str:
     tool_names = set(selected_tools)
-    if not {
-        "photo_library_find_candidate_photos",
-        "photo_library_resolve_photo_refs",
-        "prepare_chat_attachments",
-    }.intersection(tool_names):
+    if "prepare_chat_attachments" not in tool_names:
         return ""
     lines = [
-        "# Photo Workflow Guidance",
-        "For photo recall, first use `photo_library_find_candidate_photos` to return compact `candidate_photo_refs`.",
-        "When the user wants specific photos sent in chat, call `photo_library_resolve_photo_refs` with the chosen `photo_ref_id` values before calling `prepare_chat_attachments`.",
+        "# Attachment Preparation Guidance",
+        "Use `memory_query` as the source of truth for historical recall when it is available for this turn.",
+        "Only prepare chat attachments after the relevant entities or assets have already been identified by recall results or reusable reply context.",
+        "If the user wants matched local assets sent in chat, first use the appropriate source resolver tool to obtain concrete `file_paths`, then call `prepare_chat_attachments`.",
         "Do not pass raw local file paths to the user. Use `prepare_chat_attachments` to import resolved `file_paths` into managed chat attachments.",
-        "Prefer calendar-style filters like `year`, `month`, `day`, or `date` for month/day requests, and use time bounds only when you already have precise timestamps.",
     ]
     return "\n".join(lines)
 
@@ -273,9 +269,9 @@ class FunctionCallingHandler(BaseExecutionHandler):
             memory_guidance_block = _build_memory_query_guidance_block(request.intent.routing_memory_hint)
             if memory_guidance_block:
                 prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{memory_guidance_block}"
-        photo_guidance_block = _build_photo_tool_guidance_block(selected_tools)
-        if photo_guidance_block:
-            prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{photo_guidance_block}"
+        attachment_guidance_block = _build_attachment_preparation_guidance_block(selected_tools)
+        if attachment_guidance_block:
+            prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{attachment_guidance_block}"
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,

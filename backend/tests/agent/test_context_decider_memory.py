@@ -313,3 +313,49 @@ class TestContextDeciderMemoryGuidance:
             "query_mode": "exact_fact",
             "sources": ["chat", "relationship"],
         }
+
+    @pytest.mark.asyncio
+    async def test_decide_routes_photo_asset_recall_to_memory_query(self):
+        """Photo or asset recall should promote explicit memory-query routing."""
+        from magi.tools.context_decider import ContextDecider
+
+        tool_registry = MagicMock()
+        tool_registry.get_all_tools_info.return_value = [
+            {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
+            {"name": "photo_library_find_candidate_photos", "description": "Find matching local photos", "type": "tool"},
+        ]
+        tool_registry.list_tools.return_value = ["memory_query", "photo_library_find_candidate_photos"]
+        tool_registry.is_skill.return_value = False
+
+        llm_adapter = MagicMock()
+        llm_adapter.model_name = "dummy-model"
+        decider = ContextDecider(tool_registry, llm_adapter)
+
+        async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return SimpleNamespace(
+                content=(
+                    '{"intent":"chat","tools":["photo_library_find_candidate_photos"],"deep_thinking":false,"reasoning":"photo recall",'
+                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                ),
+                metadata={},
+            )
+
+        decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
+
+        decision = await decider.decide(
+            "2022年9月我在哪里拍了照片",
+            ContextDeciderContext(
+                current_datetime="2024-01-15T10:00:00+08:00",
+                timezone="Asia/Shanghai",
+            ),
+        )
+
+        assert decision.tools[0] == "memory_query"
+        assert "photo_library_find_candidate_photos" in decision.tools
+        assert decision.memory_route == "explicit_query"
+        assert decision.routing_memory_hint == {
+            "query": "2022年9月我在哪里拍了照片",
+            "query_mode": "episode_recall",
+            "sources": ["timeline"],
+        }

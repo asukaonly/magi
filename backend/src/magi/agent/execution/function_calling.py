@@ -22,6 +22,7 @@ from ...llm.provider_bridge import LLMProviderBridge, ToolStreamResult, _coerce_
 from ...chat.workspace import get_default_chat_workspace_path
 from ...config.models import LLMScenario, ThinkingDepth
 from ...config.constants import DEFAULT_MAX_TOKENS
+from ..asset_refs import normalize_asset_ref_payload
 from ..cancel import CancelToken, null_cancel_token
 from ..message_utils import append_latest_user_message
 from ..run_control import (
@@ -1944,16 +1945,21 @@ class FunctionCallingOrchestrator:
         for result in tool_results:
             if not result.success or not isinstance(result.data, dict):
                 continue
+            normalized_result = normalize_asset_ref_payload(result.data)
             direct_payload: Dict[str, Any] = {}
-            for key in ("candidate_photo_refs", "photo_refs"):
-                value = result.data.get(key)
-                if isinstance(value, list):
-                    direct_payload[key] = [dict(item) for item in value if isinstance(item, dict)]
+            asset_refs = normalized_result.get("asset_refs")
+            if isinstance(asset_refs, list):
+                direct_payload["asset_refs"] = [
+                    dict(item) for item in asset_refs if isinstance(item, dict)
+                ]
             payload = self._merge_assistant_message_payload(payload, direct_payload)
 
             nested_payload = result.data.get("assistant_payload")
             if isinstance(nested_payload, dict):
-                payload = self._merge_assistant_message_payload(payload, nested_payload)
+                payload = self._merge_assistant_message_payload(
+                    payload,
+                    normalize_asset_ref_payload(nested_payload),
+                )
         return payload
 
     def _merge_assistant_message_payload(
@@ -1961,10 +1967,10 @@ class FunctionCallingOrchestrator:
         base_payload: Dict[str, Any] | None,
         incoming_payload: Dict[str, Any] | None,
     ) -> Dict[str, Any]:
-        merged: Dict[str, Any] = dict(base_payload or {})
+        merged: Dict[str, Any] = normalize_asset_ref_payload(base_payload)
         if not incoming_payload:
             return merged
-        for key, value in incoming_payload.items():
+        for key, value in normalize_asset_ref_payload(incoming_payload).items():
             if key == "attachments":
                 continue
             if isinstance(value, list):

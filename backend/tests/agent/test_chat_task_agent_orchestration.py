@@ -193,11 +193,12 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
                         "original_name": "desktop-dev.png",
                     }
                 ],
-                "candidate_photo_refs": [
+                "asset_refs": [
                     {
-                        "photo_ref_id": "photo-root-1",
+                        "asset_ref_id": "asset-root-1",
                         "event_id": "evt-photo-root-1",
                         "original_name": "desktop-dev.png",
+                        "resolver_tool": "photo_library_resolve_photo_refs",
                     }
                 ],
             },
@@ -262,11 +263,12 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
                 "original_name": "desktop-dev.png",
             }
         ],
-        "candidate_photo_refs": [
+        "asset_refs": [
             {
-                "photo_ref_id": "photo-root-1",
+                "asset_ref_id": "asset-root-1",
                 "event_id": "evt-photo-root-1",
                 "original_name": "desktop-dev.png",
+                "resolver_tool": "photo_library_resolve_photo_refs",
             }
         ],
     }
@@ -289,7 +291,7 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path)
     assert "- speaker: assistant" in request.system_prompt
     assert 'Run the desktop dev script from the repo root.' in request.system_prompt
     assert '"attachment_id": "att-root-1"' in request.system_prompt
-    assert '"photo_ref_id": "photo-root-1"' in request.system_prompt
+    assert '"asset_ref_id": "asset-root-1"' in request.system_prompt
     assert request.messages[-1] == {"role": "user", "content": "What if I only want the backend?"}
     assert original_user_message.reply_to_message_id is None
 
@@ -315,11 +317,12 @@ async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explic
         content_text="我找到了几张 2022 年 9 月的照片。",
         payload_json=json.dumps(
             {
-                "candidate_photo_refs": [
+                "asset_refs": [
                     {
-                        "photo_ref_id": "photo-root-1",
+                        "asset_ref_id": "asset-root-1",
                         "event_id": "evt-photo-root-1",
                         "original_name": "hangzhou.jpg",
+                        "resolver_tool": "photo_library_resolve_photo_refs",
                     }
                 ]
             },
@@ -370,11 +373,12 @@ async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explic
     assert context.reply_context.message_id == assistant_message.message_id
     assert context.reply_context.is_explicit_reply is False
     assert context.reply_context.structured_payload == {
-        "candidate_photo_refs": [
+        "asset_refs": [
             {
-                "photo_ref_id": "photo-root-1",
+                "asset_ref_id": "asset-root-1",
                 "event_id": "evt-photo-root-1",
                 "original_name": "hangzhou.jpg",
+                "resolver_tool": "photo_library_resolve_photo_refs",
             }
         ]
     }
@@ -393,7 +397,7 @@ async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explic
     )
 
     assert "Most recent assistant turn includes reusable context:" in request.system_prompt
-    assert '"photo_ref_id": "photo-root-1"' in request.system_prompt
+    assert '"asset_ref_id": "asset-root-1"' in request.system_prompt
     assert "photo_library_resolve_photo_refs" in request.system_prompt
 
 

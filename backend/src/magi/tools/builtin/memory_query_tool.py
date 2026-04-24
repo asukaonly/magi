@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
-from ...core.runtime_bindings import require_hybrid_retrieval_service
+from ...core.runtime_bindings import require_hybrid_retrieval_service, require_plugin_manager
 from ...memory.hybrid_retrieval import build_query
 from ...memory.retrieval_projection import project_historical_recall
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
@@ -114,7 +114,17 @@ class MemoryQueryTool(Tool):
                 "l4_procedures": getattr(payload, "l4_procedures", []),
                 "trace": getattr(payload, "trace", {}),
             }
-            historical_recall = asdict(project_historical_recall(payload=payload_dict, request=request))
+            try:
+                plugin_manager = require_plugin_manager()
+            except RuntimeError:
+                plugin_manager = None
+            historical_recall = asdict(
+                project_historical_recall(
+                    payload=payload_dict,
+                    request=request,
+                    plugin_manager=plugin_manager,
+                )
+            )
             return ToolResult(
                 success=True,
                 data={

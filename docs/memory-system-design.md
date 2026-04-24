@@ -720,6 +720,8 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - `memory_query` does not inherit the current chat session unless the caller explicitly provides `session_id`
 - Unconstrained `L2` lookups must not degrade into a global "recent relationships" / "recent assertions" scan
 - LLM-facing memory tool payloads should keep human-readable findings only; opaque ids stay in debug/observability channels rather than prompt context
+- the answer-facing `historical_recall` contract may additionally expose compact `entity_refs` and `asset_refs` for reply-turn continuity and source-owned follow-up resolution, but raw local paths remain outside prompt context
+- plugins may optionally enrich these refs through a recall-artifact projection hook keyed by `source_type`; memory still owns the final query contract and chat still owns attachment import/display
 
 Layer contributions:
 

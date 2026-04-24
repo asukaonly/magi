@@ -112,6 +112,7 @@ The base contract exposes the current authoring hooks consumed by the runtime:
 - `get_channel()`
 - `get_channel_fields()`
 - `get_plugin_ingress_registrations()`
+- optional `build_recall_artifacts()` for source-owned answer-facing recall refs
 
 A single plugin package may implement any combination of these.
 
@@ -160,12 +161,13 @@ Current intended flow:
 2. the host-owned `prepare_chat_attachments` tool imports those files into managed chat attachment storage for the active turn
 3. the assistant response persists `attachments` payloads and the frontend renders them like other chat history attachments
 
-For follow-up turns, tool results may also return an `assistant_payload` object. The host runtime persists that object into the assistant message payload after sanitization. Current supported reusable keys are:
+For follow-up turns, tool results may also return an `assistant_payload` object. The host runtime persists that object into the assistant message payload after sanitization. The current reusable host contract is:
 
-- `candidate_photo_refs`
-- `photo_refs`
+- `asset_refs`
 
 These references are intended for reply-turn reuse, not direct frontend file access. Source plugins may include candidate identifiers, event ids, source item ids, capture timestamps, and original names, but the host runtime should strip raw local file paths before reinjecting the payload into LLM context or reply-context summaries.
+
+For historical recall, plugins may also optionally implement `build_recall_artifacts(source_type, events, query, query_mode)` so source-owned metadata can be projected into generic answer-facing `entity_refs` / `asset_refs` during `memory_query`. This hook enriches answer contracts only; persistence ownership remains with memory and chat.
 
 This boundary keeps source-specific metadata layouts out of the chat domain and avoids treating raw local file paths as the long-lived chat protocol surface.
 

@@ -372,7 +372,7 @@ class ChatRuntimeNotifier:
         session_id: str,
         turn_id: str | None,
         response_text: str,
-        attachments: list[dict[str, Any]] | None,
+        attachments: list[dict[str, Any]] | None = None,
         orchestration_id: str | None,
         trace_summary: dict[str, Any] | None,
         trace_available: bool,

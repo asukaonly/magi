@@ -5,6 +5,7 @@ import json
 from typing import Any, Optional
 from uuid import uuid4
 
+from ..asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.trace import now_wall_ms
@@ -605,7 +606,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         summary = ChatTaskAgent._summarize_reply_payload(reply_target.payload_json)
         if not isinstance(summary, dict):
             return False
-        return bool(summary.get("candidate_photo_refs") or summary.get("photo_refs"))
+        return bool(summary.get("asset_refs"))
 
     @staticmethod
     def _summarize_reply_payload(raw_payload_json: str | None) -> dict[str, Any] | None:
@@ -617,6 +618,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             return None
         if not isinstance(payload, dict):
             return None
+        payload = normalize_asset_ref_payload(payload)
 
         summary: dict[str, Any] = {}
         attachments = payload.get("attachments")
@@ -635,32 +637,36 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             if compact_attachments:
                 summary["attachments"] = compact_attachments
 
-        for key in ("photo_refs", "candidate_photo_refs"):
-            items = payload.get(key)
-            if not isinstance(items, list):
-                continue
+        asset_refs = payload.get("asset_refs")
+        if isinstance(asset_refs, list):
             compact_refs: list[dict[str, Any]] = []
-            for item in items[:6]:
-                if not isinstance(item, dict):
-                    continue
+            for item in normalize_asset_ref_list(asset_refs)[:6]:
                 compact_item: dict[str, Any] = {}
                 for field_name in (
-                    "photo_ref_id",
+                    "asset_ref_id",
                     "attachment_id",
                     "event_id",
+                    "source_type",
                     "source_item_id",
                     "original_name",
+                    "display_name",
                     "capture_time",
                     "captured_at",
+                    "occurred_at",
                     "kind",
+                    "resolver_tool",
+                    "resolution_state",
                 ):
                     value = item.get(field_name)
                     if value is not None:
                         compact_item[field_name] = value
+                attributes = item.get("attributes")
+                if isinstance(attributes, dict) and attributes:
+                    compact_item["attributes"] = dict(attributes)
                 if compact_item:
                     compact_refs.append(compact_item)
             if compact_refs:
-                summary[key] = compact_refs
+                summary["asset_refs"] = compact_refs
 
         return summary or None
 

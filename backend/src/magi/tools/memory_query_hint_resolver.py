@@ -86,6 +86,25 @@ RELATIONSHIP_RECALL_PATTERNS = (
     "what did we discuss about",
 )
 
+ASSET_RECALL_PATTERNS = (
+    "照片",
+    "相片",
+    "图片",
+    "图像",
+    "拍了",
+    "拍的",
+    "哪里拍",
+    "在哪拍",
+    "where did i take",
+    "where was this taken",
+    "which photos",
+    "which picture",
+    "which image",
+    "photo i took",
+    "photos i took",
+    "pictures i took",
+)
+
 
 class MemoryQueryHintResolver:
     """Resolve explicit memory-query hints without extra LLM work."""
@@ -121,6 +140,8 @@ class MemoryQueryHintResolver:
             return "exact_fact"
         if any(pattern in lowered for pattern in RELATIONSHIP_RECALL_PATTERNS):
             return "exact_fact"
+        if any(pattern in lowered for pattern in ASSET_RECALL_PATTERNS):
+            return "episode_recall"
         if any(pattern in lowered for pattern in EVENT_RECALL_PATTERNS):
             return "episode_recall"
         if any(term in lowered for term in ("pattern", "summary", "summarize", "总结", "概括", "聊到哪", "说到哪")):
@@ -136,6 +157,8 @@ class MemoryQueryHintResolver:
             if any(pattern in lowered for pattern in RELATIONSHIP_RECALL_PATTERNS):
                 return ["chat", "relationship"]
         if query_mode == "episode_recall":
+            if any(pattern in lowered for pattern in ASSET_RECALL_PATTERNS):
+                return ["timeline"]
             if any(term in lowered for term in ["chat", "conversation", "discuss", "聊", "聊天", "对话"]):
                 return ["chat"]
             if any(term in lowered for term in ["browse", "browsing", "visited", "watched", "read", "浏览", "看了", "看过", "读过"]):

@@ -53,6 +53,8 @@ class HistoricalRecallPayload:
     query_mode: Optional[str]
     summary: str
     findings: List[Dict[str, Any]] = field(default_factory=list)
+    entity_refs: List[Dict[str, Any]] = field(default_factory=list)
+    asset_refs: List[Dict[str, Any]] = field(default_factory=list)
     insufficient_evidence: bool = False
     answering_hints: Dict[str, Any] = field(default_factory=dict)
     provenance: Dict[str, Any] = field(default_factory=dict)

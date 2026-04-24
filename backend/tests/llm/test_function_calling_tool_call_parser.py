@@ -576,12 +576,11 @@ def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_m
                 {
                     "kind": "relationship",
                     "statement": "user:u1 LIKES weather_state:rainy",
+                    "statement_truncated": False,
                     "source_layer": "L2",
                     "confidence": 0.94,
                     "status": "active",
                     "occurred_at": None,
-                    "updated_at": 1773999236.11,
-                    "evidence_ref_ids": ["triple-1"],
                 }
             ],
             "insufficient_evidence": False,
@@ -653,8 +652,13 @@ def test_build_tool_message_payload_sanitizes_assistant_payload_and_chat_attachm
 
     assert payload["data"] == {
         "assistant_payload": {
-            "candidate_photo_refs": [
-                {"photo_ref_id": "photo-1", "event_id": "evt-1", "original_name": "hangzhou.jpg"}
+            "asset_refs": [
+                {
+                    "asset_ref_id": "photo-1",
+                    "event_id": "evt-1",
+                    "original_name": "hangzhou.jpg",
+                    "resolution_state": "candidate",
+                }
             ]
         },
         "chat_attachments": [
