@@ -628,9 +628,9 @@ def test_build_tool_message_payload_sanitizes_assistant_payload_and_chat_attachm
             success=True,
             data={
                 "assistant_payload": {
-                    "candidate_photo_refs": [
+                    "asset_refs": [
                         {
-                            "photo_ref_id": "photo-1",
+                            "asset_ref_id": "photo-1",
                             "event_id": "evt-1",
                             "original_name": "hangzhou.jpg",
                             "storage_path": "secret",
@@ -657,7 +657,6 @@ def test_build_tool_message_payload_sanitizes_assistant_payload_and_chat_attachm
                     "asset_ref_id": "photo-1",
                     "event_id": "evt-1",
                     "original_name": "hangzhou.jpg",
-                    "resolution_state": "candidate",
                 }
             ]
         },

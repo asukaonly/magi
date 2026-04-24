@@ -14,16 +14,16 @@ class TestChatPromptService(unittest.TestCase):
             reply_context=None,
             recent_tool_state=[
                 {
-                    "tool_name": "photo_library_find_candidate_photos",
+                    "tool_name": "photo_library_resolve_photo_refs",
                     "status": "success",
                     "execution_time_ms": 842,
-                    "outcome": "Found 2 candidate photos",
-                    "handles": ["photo_ref_id:abc"],
+                    "outcome": "Resolved 2 photo assets",
+                    "handles": ["asset_ref_id:abc"],
                 }
             ],
         )
 
         self.assertIn("# Recent Tool State", prompt)
-        self.assertIn("photo_library_find_candidate_photos", prompt)
+        self.assertIn("photo_library_resolve_photo_refs", prompt)
         self.assertIn("duration_ms=842", prompt)
         self.assertIn("trace_query", prompt)

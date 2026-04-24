@@ -8,13 +8,7 @@ from typing import Any
 def normalize_asset_ref_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     """Normalize assistant payloads to the generic ``asset_refs`` contract."""
     normalized = dict(payload or {})
-    asset_refs = merge_asset_refs(
-        normalize_asset_ref_list(normalized.get("asset_refs")),
-        normalize_asset_ref_list(normalized.get("candidate_photo_refs"), resolution_state="candidate"),
-        normalize_asset_ref_list(normalized.get("photo_refs"), resolution_state="resolved"),
-    )
-    normalized.pop("candidate_photo_refs", None)
-    normalized.pop("photo_refs", None)
+    asset_refs = merge_asset_refs(normalize_asset_ref_list(normalized.get("asset_refs")))
     if asset_refs:
         normalized["asset_refs"] = asset_refs
     else:
@@ -45,16 +39,11 @@ def normalize_asset_ref_item(
     if not isinstance(item, dict):
         return None
 
-    asset_ref_id = _coalesce_text(
-        item.get("asset_ref_id"),
-        item.get("photo_ref_id"),
-        item.get("attachment_id"),
-        item.get("source_item_id"),
-        item.get("event_id"),
-    )
-    normalized: dict[str, Any] = {}
-    if asset_ref_id:
-        normalized["asset_ref_id"] = asset_ref_id
+    asset_ref_id = _coalesce_text(item.get("asset_ref_id"))
+    if not asset_ref_id:
+        return None
+
+    normalized: dict[str, Any] = {"asset_ref_id": asset_ref_id}
 
     for key in (
         "attachment_id",
@@ -109,13 +98,7 @@ def merge_asset_refs(*asset_ref_groups: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _asset_ref_key(item: dict[str, Any]) -> str:
-    return _coalesce_text(
-        item.get("asset_ref_id"),
-        item.get("attachment_id"),
-        item.get("source_item_id"),
-        item.get("event_id"),
-        item.get("original_name"),
-    )
+    return _coalesce_text(item.get("asset_ref_id"))
 
 
 def _coalesce_text(*values: Any) -> str:

@@ -165,6 +165,22 @@ async def test_chat_history_service_retries_reload_after_transient_read_failure(
     assert second_history == [{"role": "user", "content": "hello"}]
 
 
+def test_chat_history_service_extracts_asset_ref_handles_from_tool_state() -> None:
+    handles = ChatHistoryService._extract_reusable_handles(
+        {
+            "asset_refs": [
+                {
+                    "asset_ref_id": "asset-1",
+                    "event_id": "evt-1",
+                }
+            ]
+        }
+    )
+
+    assert "asset_ref_id:asset-1" in handles
+    assert "event_id:evt-1" in handles
+
+
 @pytest.mark.asyncio
 async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path) -> None:
     chat_store = ChatStore(db_path=str(tmp_path / "chat.db"))

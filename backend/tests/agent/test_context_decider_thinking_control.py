@@ -327,5 +327,5 @@ def test_context_decider_system_prompt_mentions_preference_and_profile_recall() 
     assert "按之前那套流程修一下这个 bug" in system_prompt
     assert "2022年9月我在哪里拍了照片" in system_prompt
     assert "把刚才那些照片发出来" in system_prompt
-    assert "photo_library_find_candidate_photos" in system_prompt
+    assert "photo_library_resolve_photo_refs" in system_prompt
     assert "prepare_chat_attachments" in system_prompt

@@ -53,14 +53,14 @@ class TestTraceQueryTool:
                             {
                                 "id": "tool-1",
                                 "kind": "tool",
-                                "label": "photo_library_find_candidate_photos",
+                                "label": "photo_library_resolve_photo_refs",
                                 "status": "completed",
-                                "result_preview": "Found 2 candidate photos",
+                                "result_preview": "Resolved 2 photo assets",
                                 "error": None,
                                 "metadata": {
-                                    "tool_name": "photo_library_find_candidate_photos",
+                                    "tool_name": "photo_library_resolve_photo_refs",
                                     "execution_time": 842,
-                                    "arguments": {"year": 2022, "month": 9},
+                                    "arguments": {"asset_ref_ids": ["asset-1", "asset-2"]},
                                     "result_json": {"count": 2},
                                 },
                                 "children": [],
@@ -81,8 +81,8 @@ class TestTraceQueryTool:
 
         assert result.success is True
         assert result.data["trace"]["turn_id"] == "turn-prev"
-        assert result.data["tool_calls"][0]["tool_name"] == "photo_library_find_candidate_photos"
-        assert result.data["tool_calls"][0]["arguments"] == {"year": 2022, "month": 9}
+        assert result.data["tool_calls"][0]["tool_name"] == "photo_library_resolve_photo_refs"
+        assert result.data["tool_calls"][0]["arguments"] == {"asset_ref_ids": ["asset-1", "asset-2"]}
         assert "duration_ms=842" in result.data["summary_markdown"]
 
     @pytest.mark.asyncio

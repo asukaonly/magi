@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 FACT_EVENTS_TABLE = "fact_events"
 _TOOL_STATE_HANDLE_FIELDS = (
     "attachment_id",
-    "photo_ref_id",
+    "asset_ref_id",
     "event_id",
     "entity_id",
     "task_id",

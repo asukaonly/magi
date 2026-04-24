@@ -322,9 +322,9 @@ class TestContextDeciderMemoryGuidance:
         tool_registry = MagicMock()
         tool_registry.get_all_tools_info.return_value = [
             {"name": "memory_query", "description": "Retrieve historical event memory", "type": "tool"},
-            {"name": "photo_library_find_candidate_photos", "description": "Find matching local photos", "type": "tool"},
+            {"name": "photo_library_resolve_photo_refs", "description": "Resolve recalled photo assets to local file paths", "type": "tool"},
         ]
-        tool_registry.list_tools.return_value = ["memory_query", "photo_library_find_candidate_photos"]
+        tool_registry.list_tools.return_value = ["memory_query", "photo_library_resolve_photo_refs"]
         tool_registry.is_skill.return_value = False
 
         llm_adapter = MagicMock()
@@ -335,7 +335,7 @@ class TestContextDeciderMemoryGuidance:
             _ = kwargs
             return SimpleNamespace(
                 content=(
-                    '{"intent":"chat","tools":["photo_library_find_candidate_photos"],"deep_thinking":false,"reasoning":"photo recall",'
+                    '{"intent":"chat","tools":["memory_query"],"deep_thinking":false,"reasoning":"photo recall",'
                     '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
                 ),
                 metadata={},
@@ -351,8 +351,7 @@ class TestContextDeciderMemoryGuidance:
             ),
         )
 
-        assert decision.tools[0] == "memory_query"
-        assert "photo_library_find_candidate_photos" in decision.tools
+        assert decision.tools == ["memory_query"]
         assert decision.memory_route == "explicit_query"
         assert decision.routing_memory_hint == {
             "query": "2022年9月我在哪里拍了照片",
