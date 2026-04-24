@@ -9,17 +9,11 @@ use serde_json::Value;
 
 use super::state::ApiState;
 
-pub async fn proxy_handler(
-    State(state): State<ApiState>,
-    req: Request,
-) -> impl IntoResponse {
+pub async fn proxy_handler(State(state): State<ApiState>, req: Request) -> impl IntoResponse {
     ipc_proxy(&state.ipc_client, req).await
 }
 
-async fn ipc_proxy(
-    ipc: &crate::ipc::IpcClient,
-    req: Request,
-) -> Response {
+async fn ipc_proxy(ipc: &crate::ipc::IpcClient, req: Request) -> Response {
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
     let query = req.uri().query().unwrap_or("").to_string();
@@ -58,17 +52,12 @@ async fn ipc_proxy(
 
     match ipc.request("api.forward", Some(params)).await {
         Ok(result) => build_response_from_ipc(result),
-        Err(e) => {
-            (StatusCode::BAD_GATEWAY, format!("IPC error: {e}")).into_response()
-        }
+        Err(e) => (StatusCode::BAD_GATEWAY, format!("IPC error: {e}")).into_response(),
     }
 }
 
 fn build_response_from_ipc(result: Value) -> Response {
-    let status = result
-        .get("status")
-        .and_then(|s| s.as_u64())
-        .unwrap_or(200) as u16;
+    let status = result.get("status").and_then(|s| s.as_u64()).unwrap_or(200) as u16;
 
     let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
@@ -76,7 +65,11 @@ fn build_response_from_ipc(result: Value) -> Response {
         Some("base64") => result
             .get("body_base64")
             .and_then(|value| value.as_str())
-            .and_then(|payload| base64::engine::general_purpose::STANDARD.decode(payload).ok())
+            .and_then(|payload| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(payload)
+                    .ok()
+            })
             .unwrap_or_default(),
         _ => match result.get("body") {
             Some(Value::String(text)) => text.as_bytes().to_vec(),
@@ -107,9 +100,9 @@ fn build_response_from_ipc(result: Value) -> Response {
         }
     }
 
-    builder
-        .body(Body::from(body_bytes))
-        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Response build error").into_response())
+    builder.body(Body::from(body_bytes)).unwrap_or_else(|_| {
+        (StatusCode::INTERNAL_SERVER_ERROR, "Response build error").into_response()
+    })
 }
 
 #[cfg(test)]
