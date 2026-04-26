@@ -1439,6 +1439,10 @@
             "label": "Sync Interval",
             "description": "How often Chrome history should be synced on an interval schedule."
           },
+          "sensors.chrome_history.merge_window_minutes": {
+            "label": "Merge Window (minutes)",
+            "description": "Visits to the same page within this window are merged into one timeline item."
+          },
           "sensors.chrome_history.lookback_hours": {
             "label": "Lookback Hours",
             "description": "How many hours to backfill before a cursor exists."
@@ -1446,10 +1450,6 @@
           "sensors.chrome_history.max_items_per_sync": {
             "label": "Max Items Per Sync",
             "description": "Maximum number of history records to ingest in one run."
-          },
-          "sensors.chrome_history.fetch_page_content": {
-            "label": "Fetch Page Content",
-            "description": "Reserved for future page-content capture and currently stays disabled."
           }
         },
         "options": {

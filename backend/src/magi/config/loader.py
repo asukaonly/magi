@@ -290,14 +290,13 @@ class ConfigLoader:
                 "sensors": {
                     "chrome_history": {
                         "enabled": False,
-                        "sync_mode": "manual",
+                        "sync_mode": "interval",
                         "sync_interval_minutes": 30,
                         "default_retention_mode": "analyze_only",
                         "storage_mode": "managed",
                         "profile": "Default",
                         "lookback_hours": 24,
-                        "max_items_per_sync": 200,
-                        "fetch_page_content": False,
+                        "max_items_per_sync": 1000,
                         "edge_whitelist": ["VISITED", "VIEWED"],
                     }
                 }
