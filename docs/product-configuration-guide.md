@@ -20,7 +20,7 @@ Magi currently exposes these major configuration areas:
 - AI personality and tone
 - memory system
 - tool management
-- plugin and extension management
+- plugin management
 - sensor source management
 - settings page structure
 
@@ -97,7 +97,7 @@ It should provide a stable place where users can revisit and update:
 - personality settings
 - memory settings
 - timeline settings
-- extension settings
+- plugin settings
 - tool settings
 - relevant system/runtime settings
 
@@ -272,7 +272,7 @@ Current storage implementation notes:
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.
 
-## Tool And Extension Management
+## Tool And Plugin Management
 
 Tool management covers:
 
@@ -430,13 +430,13 @@ This document is product-facing.
 
 For internal runtime implementation details, read:
 
-- [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
+- [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
 
 For unified plugin loading and plugin-backed sensors, read:
 
-- [Unified Plugin Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
-- [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
+- [Unified Plugin Architecture](./plugin-extension-architecture.md)
+- [Plugin Development Guide](./plugin-development-guide.md)
 
 For a high-level repository and architecture introduction, read:
 
-- [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)
+- [Project Overview](./project-overview.md)

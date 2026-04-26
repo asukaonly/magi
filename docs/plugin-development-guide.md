@@ -121,7 +121,7 @@ You only need to declare the contribution types you actually expose.
 
 Every plugin must inherit:
 
-- [Plugin](/Users/asuka/code/magi/backend/src/magi/plugins/base.py)
+- [Plugin](../backend/src/magi/plugins/base.py)
 
 Example:
 
@@ -634,16 +634,16 @@ When adding a new plugin or contribution, validate at three levels when relevant
 
 Useful existing references:
 
-- Backend plugin tests under [backend/tests/plugins](/Users/asuka/code/magi/backend/tests/plugins)
-- Backend plugin API tests under [backend/tests/api](/Users/asuka/code/magi/backend/tests/api)
-- [settingsPage.test.tsx](/Users/asuka/code/magi/frontend/src/__tests__/settingsPage.test.tsx)
+- Backend plugin tests under [backend/tests/plugins](../backend/tests/plugins)
+- Backend plugin API tests under [backend/tests/api](../backend/tests/api)
+- [settingsPage.test.tsx](../frontend/src/__tests__/settingsPage.test.tsx)
 
 ## Built-In Examples
 
 Use these as the primary templates:
 
-- [core-tools plugin](/Users/asuka/code/magi/plugins/core-tools/plugin.py)
-- [chrome-history plugin](/Users/asuka/code/magi/plugins/chrome-history/) — full sensor with entity hints, L2 batch policy, and extraction metadata
+- [core-tools plugin](../plugins/core-tools/plugin.py)
+- `chrome-history` plugin in the companion `magi-plugins` repository under `plugins/chrome-history/` - full sensor with entity hints, L2 batch policy, and extraction metadata
 
 ## Common Mistakes
 
@@ -658,5 +658,5 @@ Use these as the primary templates:
 
 ## Related Documents
 
-- [Unified Plugin Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
-- [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)
+- [Unified Plugin Architecture](./plugin-extension-architecture.md)
+- [Project Overview](./project-overview.md)

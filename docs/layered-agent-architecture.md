@@ -284,7 +284,7 @@ Primary packages:
 
 Notes:
 
-- the Python process runs no HTTP server; all external traffic arrives over a Unix Domain Socket IPC channel from the Rust gateway
+- the Python process runs no public HTTP server; external traffic arrives through the Rust gateway and crosses into Python over IPC (Unix Domain Socket on Unix-like systems, loopback TCP on Windows)
 - `ipc/` owns the server, NDJSON protocol parsing, and method-to-handler routing
 - `transport/` owns the in-memory FastAPI/ASGI app used for IPC request dispatch
 

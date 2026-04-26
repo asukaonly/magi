@@ -4,7 +4,7 @@ This directory contains the Magi-specific adapter and runner code for LongMemEva
 
 Quick ops guide:
 
-- See [RUNBOOK.md](/Users/asuka/code/magi/benchmark/longmemeval/RUNBOOK.md) for the backend-service workflow from startup to replay/query commands.
+- See [RUNBOOK.md](./RUNBOOK.md) for the backend-service workflow from startup to replay/query commands.
 
 One-shot runner:
 
@@ -16,9 +16,9 @@ python benchmark/longmemeval/run_all.py \
 
 This fixed-flow runner uses:
 
-- backend URL: `http://127.0.0.1:8000`
+- backend URL: auto-discovered from `~/.magi/runtime/gateway.port` when the desktop app or gateway CLI is running, or set explicitly with `--backend-url`
 - run id: local time formatted as `YYYY-MM-DD HH:MM:SS`
-- LongMemEval root: `LONGMEMEVAL_ROOT` env var first, then `/Users/asuka/code/LongMemEval`
+- LongMemEval root: set `LONGMEMEVAL_ROOT` to your local LongMemEval checkout for portable runs
 
 Responsibilities:
 

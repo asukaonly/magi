@@ -23,9 +23,9 @@ Current release expectations are:
 - maintainers publish desktop builds by pushing a version tag in the form `vX.Y.Z`
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
 - release automation builds the Python sidecar first, then runs frontend type-check, a focused frontend smoke suite, frontend lint, a focused backend smoke suite, and finally the Tauri bundle build
-- release jobs create or update a draft GitHub Release and attach the generated desktop installers
+- release jobs publish a GitHub Release and attach the generated desktop installers (`releaseDraft: false` in the workflow)
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
-- the desktop app checks the stable GitHub Release feed through `latest.json`, so draft releases do not become visible to in-app auto update until they are published
+- the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration
 - macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
 
 ## Core Goals
@@ -50,7 +50,7 @@ Magi is a desktop-only application:
 - Desktop mode
   Tauri shell plus React WebView plus Rust Axum gateway plus Python sidecar (IPC worker)
 
-The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, chat attachment content reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over a Unix Domain Socket IPC channel to the Python sidecar. The Python process runs no HTTP server — FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
+The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, chat attachment content reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over IPC to the Python sidecar, using Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
 ## Backend Shape
 
@@ -205,11 +205,12 @@ magi/
 │   └── tests/
 ├── crates/
 │   └── magi-gateway/       # Rust gateway: Axum routes, IPC client, DB reader
-├── frontend/
-├── docs/
-├── openspec/
-├── plugins/
-└── scripts/
+├── frontend/              # React UI and Tauri desktop host
+├── docs/                  # Durable architecture and product documentation
+├── benchmark/             # LongMemEval and benchmark utilities
+├── plugins/               # Built-in plugin packages
+├── sdk/                   # Plugin SDK package
+└── scripts/               # Dev/build helper scripts
 ```
 
 ## Explore Flow

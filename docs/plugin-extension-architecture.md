@@ -660,21 +660,21 @@ External plugins are hosted in the `magi-plugins` repository (`github.com/asukao
 
 The marketplace index is a `registry.json` file at the repository root containing an array of `PluginRegistryEntry` objects:
 
-- `plugin_id` �?unique identifier matching the plugin's `plugin.toml`
-- `name` �?display name
-- `version` �?semver string
-- `path` �?subdirectory path within the repository
-- `description` �?short description
-- `author` �?plugin author
-- `official` �?whether the plugin is maintained by the Magi team
-- `contribution_types` �?array of capability types supported by the current runtime (`sensor`, `channel`, `tool`)
-- `platforms` �?array of supported platforms (`macos`, `windows`, `linux`)
+- `plugin_id` - unique identifier matching the plugin's `plugin.toml`
+- `name` - display name
+- `version` - semver string
+- `path` - subdirectory path within the repository
+- `description` - short description
+- `author` - plugin author
+- `official` - whether the plugin is maintained by the Magi team
+- `contribution_types` - array of capability types supported by the current runtime (`sensor`, `channel`, `tool`)
+- `platforms` - array of supported platforms (`macos`, `windows`, `linux`)
 
 ### Installation Flow
 
 1. `RegistryClient.fetch_index()` fetches `registry.json` from the remote repository
-2. The registry is cached as a shallow bare clone under `~/.magi/cache/plugin-repo/repo.git`
-3. `RegistryClient.clone_plugin()` extracts a single plugin directory from the cache via sparse checkout
+2. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
+3. The requested plugin subdirectory is extracted from the tarball into a temporary directory
 4. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
 5. The plugin is discovered on next scan and can be enabled from the settings UI
 
